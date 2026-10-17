@@ -4,29 +4,29 @@
 {% block content %}
 <div class="page-header d-print-none">
   <div class="row g-2 align-items-center">
-    <div class="col">
+    <div class="col-auto">
       <h2 class="page-title">{{ admin.plural_name }} ({{ displayed_total }}{{ '+' if total_capped }})</h2>
     </div>
-    <div class="col-auto ms-auto d-print-none">
-      <div class="d-flex">
-        {% if searchable %}
-        <form method="get" action="{{ admin.list_path() }}" class="d-flex me-2">
-          <input type="text" name="q" value="{{ q }}" class="form-control me-2"
-                 placeholder="Search {{ admin.plural_name | lower }}" autocomplete="off"/>
-          {% for value in request.query_params.getlist('f') %}
-            <input type="hidden" name="f" value="{{ value }}"/>
-          {% endfor %}
-          {% for value in request.query_params.getlist('sort') %}
-            <input type="hidden" name="sort" value="{{ value }}"/>
-          {% endfor %}
-          <button type="submit" class="btn">Search</button>
-        </form>
-        {% endif %}
-        {% if can_add %}
-        <a href="{{ admin.add_path() }}" class="btn btn-primary">New {{ admin.name | lower }}</a>
-        {% endif %}
-      </div>
+    {% if can_add %}
+    <div class="col-auto d-print-none">
+      <a href="{{ admin.add_path() }}" class="btn btn-primary">New {{ admin.name | lower }}</a>
     </div>
+    {% endif %}
+    {% if searchable %}
+    <div class="col-auto ms-auto d-print-none">
+      <form method="get" action="{{ admin.list_path() }}" class="d-flex">
+        <input type="text" name="q" value="{{ q }}" class="form-control me-2"
+               placeholder="Search {{ admin.plural_name | lower }}" autocomplete="off"/>
+        {% for value in request.query_params.getlist('f') %}
+          <input type="hidden" name="f" value="{{ value }}"/>
+        {% endfor %}
+        {% for value in request.query_params.getlist('sort') %}
+          <input type="hidden" name="sort" value="{{ value }}"/>
+        {% endfor %}
+        <button type="submit" class="btn">Search</button>
+      </form>
+    </div>
+    {% endif %}
   </div>
 </div>
 <div class="card">
@@ -54,6 +54,7 @@
     <table class="table table-vcenter card-table">
       <thead>
         <tr>
+          <th class="w-1"></th>
           {% for column in columns %}
           <th>
             {% if column.type.sortable %}
@@ -64,19 +65,13 @@
             {% else %}{{ column.label }}{% endif %}
           </th>
           {% endfor %}
-          <th class="w-1"></th>
         </tr>
       </thead>
       <tbody>
         {% for row in rows %}
         <tr>
-          {% for cell in row.cells %}
-          <td>{% if loop.first and admin.permission_name('change') in perms %}
-                <a href="{{ admin.change_path(row.pk) }}">{{ cell_text(cell) }}</a>
-              {% else %}{{ cell_text(cell) }}{% endif %}</td>
-          {% endfor %}
-          <td class="text-end">
-            <div class="btn-list justify-content-end flex-nowrap">
+          <td>
+            <div class="btn-list flex-nowrap">
             {% if admin.permission_name('change') in perms %}
             <a href="{{ admin.change_path(row.pk) }}" class="btn btn-sm">Edit</a>
             {% endif %}
@@ -89,6 +84,11 @@
             {% endif %}
             </div>
           </td>
+          {% for cell in row.cells %}
+          <td>{% if loop.first and admin.permission_name('change') in perms %}
+                <a href="{{ admin.change_path(row.pk) }}">{{ cell_text(cell) }}</a>
+              {% else %}{{ cell_text(cell) }}{% endif %}</td>
+          {% endfor %}
         </tr>
         {% else %}
         <tr>
