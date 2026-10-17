@@ -238,10 +238,10 @@ async def _render_form(
 ) -> HTMLResponse:
     admin = _require_admin(ctx)
     request = ctx.request
-    specs = admin.get_form_specs()
+    is_add = target is None
+    specs = [spec for spec in admin.get_form_specs() if not spec.readonly]
     if values is None:
         values = _initial_values(ctx, specs)
-    is_add = target is None
     context = await page_context(
         request,
         admin=admin,
@@ -281,7 +281,8 @@ async def _create(ctx: AdminContext) -> HTMLResponse | RedirectResponse:
             errors={"__all__": [_integrity_message(exc)]},
         )
     await flash(request, f"{admin.name} {_object_label(admin, obj)!r} was created.")
-    return RedirectResponse(admin.list_path(), status_code=303)
+    target = _redirect_after_save(admin, str(data.get("_action", "save")), obj)
+    return RedirectResponse(target, status_code=303)
 
 
 async def _update(ctx: AdminContext, target: Any) -> HTMLResponse | RedirectResponse:
@@ -313,7 +314,8 @@ async def _update(ctx: AdminContext, target: Any) -> HTMLResponse | RedirectResp
             errors={"__all__": [_integrity_message(exc)]},
         )
     await flash(request, f"{admin.name} {_object_label(admin, target)!r} was updated.")
-    return RedirectResponse(admin.list_path(), status_code=303)
+    destination = _redirect_after_save(admin, str(data.get("_action", "save")), target)
+    return RedirectResponse(destination, status_code=303)
 
 
 # -- delete -----------------------------------------------------------------
@@ -347,6 +349,14 @@ def _require_admin(ctx: AdminContext) -> ModelAdmin:
     if ctx.admin is None:  # pragma: no cover - model routes always set it
         raise RuntimeError("AdminContext without a ModelAdmin on a model route.")
     return ctx.admin
+
+
+def _redirect_after_save(admin: ModelAdmin, action: str, target: Any) -> str:
+    if action == "add_another":
+        return admin.add_path()
+    if action == "continue":
+        return admin.change_path(admin.get_pk(target))
+    return admin.list_path()
 
 
 async def _submitted_data(request: Request) -> dict[str, Any]:

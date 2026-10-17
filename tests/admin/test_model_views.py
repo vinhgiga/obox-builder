@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from typing import Any
 
 import httpx
@@ -209,7 +208,9 @@ async def test_change_form_prefills_values_and_link_choices(client: httpx.AsyncC
     assert 'value="Novel"' in response.text
     assert 'value="250"' in response.text
     assert f'<option value="{category_id}" selected>Books</option>' in response.text
-    assert re.search(r'<textarea[^>]*name="meta"[^>]*disabled', response.text)
+    assert 'name="meta"' not in response.text
+    assert 'name="id"' not in response.text
+    assert 'name="created_at"' not in response.text
 
 
 async def test_delete_requires_confirmation_then_removes(client: httpx.AsyncClient) -> None:
