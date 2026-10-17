@@ -3,37 +3,16 @@
 {% block title %}{{ admin.plural_name }}{% endblock %}
 {% block content %}
 <div class="page-header d-print-none">
-  <div class="row g-2 align-items-center">
-    <div class="col-auto">
-      <h2 class="page-title">{{ admin.plural_name }} ({{ displayed_total }}{{ '+' if total_capped }})</h2>
-    </div>
-    {% if can_add %}
-    <div class="col-auto d-print-none">
-      <a href="{{ admin.add_path() }}" class="btn btn-primary">New {{ admin.name | lower }}</a>
-    </div>
-    {% endif %}
-    {% if searchable %}
-    <div class="col-auto ms-auto d-print-none">
-      <form method="get" action="{{ admin.list_path() }}" class="d-flex">
-        <input type="text" name="q" value="{{ q }}" class="form-control me-2"
-               placeholder="Search {{ admin.plural_name | lower }}" autocomplete="off"/>
-        {% for value in request.query_params.getlist('f') %}
-          <input type="hidden" name="f" value="{{ value }}"/>
-        {% endfor %}
-        {% for value in request.query_params.getlist('sort') %}
-          <input type="hidden" name="sort" value="{{ value }}"/>
-        {% endfor %}
-        <button type="submit" class="btn">Search</button>
-      </form>
-    </div>
-    {% endif %}
-  </div>
+  <h2 class="page-title">{{ admin.plural_name }} ({{ displayed_total }}{{ '+' if total_capped }})</h2>
 </div>
 <div class="card">
-  {% if filters %}
-  <div class="card-header">
-    <form method="get" action="{{ admin.list_path() }}" class="d-flex flex-wrap gap-2">
-      <input type="hidden" name="q" value="{{ q }}"/>
+  {% if can_add or filters or searchable %}
+  <div class="card-header flex-wrap gap-2 py-2">
+    {% if can_add %}
+    <a href="{{ admin.add_path() }}" class="btn btn-primary">New {{ admin.name | lower }}</a>
+    {% endif %}
+    {% if filters or searchable %}
+    <form method="get" action="{{ admin.list_path() }}" class="d-flex gap-2 ms-auto">
       {% for value in request.query_params.getlist('sort') %}
         <input type="hidden" name="sort" value="{{ value }}"/>
       {% endfor %}
@@ -46,8 +25,25 @@
         {% endfor %}
       </select>
       {% endfor %}
+      {% if searchable %}
+      <div class="input-group">
+        <input type="text" name="q" value="{{ q }}" class="form-control"
+               placeholder="Search {{ admin.plural_name | lower }}" autocomplete="off"/>
+        <button type="submit" class="btn btn-icon" aria-label="Search">
+          <svg xmlns="http://www.w3.org/2000/svg" class="icon" width="24" height="24" viewBox="0 0 24 24"
+               stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round">
+            <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+            <path d="M10 10m-7 0a7 7 0 1 0 14 0a7 7 0 1 0 -14 0"/>
+            <path d="M21 21l-6 -6"/>
+          </svg>
+        </button>
+      </div>
+      {% endif %}
+      {% if filters %}
       <noscript><button type="submit" class="btn">Apply</button></noscript>
+      {% endif %}
     </form>
+    {% endif %}
   </div>
   {% endif %}
   <div class="table-responsive">

@@ -3,24 +3,18 @@
 {% block title %}Users{% endblock %}
 {% block content %}
 <div class="page-header d-print-none">
-  <div class="row g-2 align-items-center">
-    <div class="col-auto">
-      <h2 class="page-title">Users ({{ total }})</h2>
-    </div>
-    {% if perms.auth.add_user %}
-    <div class="col-auto d-print-none">
-      <a href="/admin/users/new" class="btn btn-primary">New user</a>
-    </div>
-    {% endif %}
-    <div class="col-auto ms-auto d-print-none">
-      <form method="get" action="/admin/users" class="d-flex">
-        <input type="text" name="q" value="{{ q }}" class="form-control me-2" placeholder="Search users&hellip;"/>
-        <button type="submit" class="btn btn-primary">Search</button>
-      </form>
-    </div>
-  </div>
+  <h2 class="page-title">Users ({{ total }})</h2>
 </div>
 <div class="card">
+  <div class="card-header flex-wrap gap-2 py-2">
+    {% if perms.auth.add_user %}
+    <a href="/admin/users/new" class="btn btn-primary">New user</a>
+    {% endif %}
+    <form method="get" action="/admin/users" class="d-flex ms-auto">
+      <input type="text" name="q" value="{{ q }}" class="form-control me-2" placeholder="Search users&hellip;"/>
+      <button type="submit" class="btn btn-primary">Search</button>
+    </form>
+  </div>
   <div class="table-responsive">
     <table class="table table-vcenter card-table">
       <thead>

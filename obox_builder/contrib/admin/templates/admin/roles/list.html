@@ -2,18 +2,14 @@
 {% block title %}Roles{% endblock %}
 {% block content %}
 <div class="page-header d-print-none">
-  <div class="row g-2 align-items-center">
-    <div class="col-auto">
-      <h2 class="page-title">Roles ({{ roles | length }})</h2>
-    </div>
-    {% if perms.auth.add_role %}
-    <div class="col-auto d-print-none">
-      <a href="/admin/roles/new" class="btn btn-primary">New role</a>
-    </div>
-    {% endif %}
-  </div>
+  <h2 class="page-title">Roles ({{ roles | length }})</h2>
 </div>
 <div class="card">
+  {% if perms.auth.add_role %}
+  <div class="card-header flex-wrap gap-2 py-2">
+    <a href="/admin/roles/new" class="btn btn-primary">New role</a>
+  </div>
+  {% endif %}
   <div class="table-responsive">
     <table class="table table-vcenter card-table">
       <thead>
