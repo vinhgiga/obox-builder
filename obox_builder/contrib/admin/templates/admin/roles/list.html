@@ -25,6 +25,7 @@
         {% for role in roles %}
         <tr>
           <td>
+            <div class="btn-list flex-nowrap">
             {% if perms.auth.change_role %}
             <a href="/admin/roles/{{ role.id }}" class="btn btn-sm">Edit</a>
             {% endif %}
@@ -35,6 +36,7 @@
               <button type="submit" class="btn btn-sm btn-danger">Delete</button>
             </form>
             {% endif %}
+            </div>
           </td>
           <td>
             <a href="/admin/roles/{{ role.id }}">{{ role.name }}</a>
