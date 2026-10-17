@@ -19,3 +19,60 @@ mark {
   padding: 0;
   border-radius: 0.125rem;
 }
+
+.confirm-dialog {
+  width: calc(100% - 2rem);
+  max-width: 22rem;
+  inset-block-start: 10vh;
+  inset-block-end: auto;
+  padding: 0;
+  border: 0;
+  border-radius: var(--tblr-border-radius-lg, 0.5rem);
+  background-color: var(--tblr-bg-surface, #fff);
+  color: var(--tblr-body-color, inherit);
+  box-shadow: var(--tblr-box-shadow, 0 0.25rem 1rem rgba(4, 32, 69, 0.1));
+  overflow: hidden;
+}
+
+.confirm-dialog::backdrop {
+  background-color: rgba(24, 36, 51, 0.32);
+}
+
+.confirm-dialog[open] {
+  animation: confirm-dialog-in 120ms ease-out;
+}
+
+@keyframes confirm-dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(-0.5rem) scale(0.98);
+  }
+}
+
+.confirm-dialog-status {
+  height: 4px;
+  background-color: var(--tblr-danger, #d63939);
+}
+
+.confirm-dialog-body {
+  padding: 1.5rem;
+  text-align: center;
+}
+
+.confirm-dialog-footer {
+  display: flex;
+  gap: 0.75rem;
+  padding: 0.75rem 1.5rem;
+  background-color: var(--tblr-bg-surface-tertiary, #f6f8fb);
+  border-top: 1px solid var(--tblr-border-color, rgba(4, 32, 69, 0.14));
+}
+
+.confirm-dialog-footer .btn {
+  flex: 1 1 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .confirm-dialog[open] {
+    animation: none;
+  }
+}
