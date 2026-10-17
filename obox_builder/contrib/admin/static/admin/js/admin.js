@@ -71,6 +71,100 @@
     openConfirmDialog(form, message);
   });
 
+  var contextMenu = null;
+  var contextCell = null;
+
+  function copyText(text) {
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(text).catch(function () {});
+      return;
+    }
+    var input = document.createElement("textarea");
+    input.value = text;
+    document.body.appendChild(input);
+    input.select();
+    document.execCommand("copy");
+    input.remove();
+  }
+
+  function closeContextMenu() {
+    if (contextMenu) {
+      contextMenu.classList.remove("show");
+    }
+    contextCell = null;
+  }
+
+  function buildContextMenu() {
+    var menu = document.createElement("div");
+    menu.className = "dropdown-menu context-menu";
+    menu.innerHTML = [
+      '<button type="button" class="dropdown-item" data-context-copy>',
+      '  <i class="ti ti-copy me-2"></i>Copy',
+      '</button>',
+      '<button type="button" class="dropdown-item text-danger" data-context-delete>',
+      '  <i class="ti ti-trash me-2"></i>Delete row',
+      '</button>',
+    ].join("\n");
+    menu.querySelector("[data-context-copy]").addEventListener("click", function () {
+      var cell = contextCell;
+      closeContextMenu();
+      if (cell) {
+        copyText(cell.innerText.trim());
+      }
+    });
+    menu.querySelector("[data-context-delete]").addEventListener("click", function () {
+      var cell = contextCell;
+      closeContextMenu();
+      var form = cell && cell.closest("tr").querySelector("form[data-confirm]");
+      if (form) {
+        form.requestSubmit();
+      }
+    });
+    document.body.appendChild(menu);
+    return menu;
+  }
+
+  function openContextMenu(cell, x, y) {
+    if (!contextMenu) {
+      contextMenu = buildContextMenu();
+    }
+    contextCell = cell;
+    var row = cell.closest("tr");
+    var deletable = Boolean(row.querySelector("form[data-confirm]"));
+    contextMenu
+      .querySelector("[data-context-delete]")
+      .classList.toggle("d-none", !deletable);
+    contextMenu.classList.add("show");
+    var left = Math.max(8, Math.min(x, window.innerWidth - contextMenu.offsetWidth - 8));
+    var top = Math.max(8, Math.min(y, window.innerHeight - contextMenu.offsetHeight - 8));
+    contextMenu.style.left = left + "px";
+    contextMenu.style.top = top + "px";
+  }
+
+  document.addEventListener("contextmenu", function (event) {
+    var cell = event.target.closest("table tbody td");
+    if (!cell || cell.cellIndex === 0) {
+      return;
+    }
+    event.preventDefault();
+    openContextMenu(cell, event.clientX, event.clientY);
+  });
+
+  document.addEventListener("click", function (event) {
+    if (contextMenu && !contextMenu.contains(event.target)) {
+      closeContextMenu();
+    }
+  });
+
+  document.addEventListener("keydown", function (event) {
+    if (event.key === "Escape") {
+      closeContextMenu();
+    }
+  });
+
+  window.addEventListener("scroll", closeContextMenu, true);
+  window.addEventListener("resize", closeContextMenu);
+
   function setAllPermissions(checked) {
     document
       .querySelectorAll('input[name="permission_ids"]')

@@ -76,3 +76,7 @@ mark {
     animation: none;
   }
 }
+
+.context-menu {
+  position: fixed;
+}
