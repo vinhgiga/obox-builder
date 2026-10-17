@@ -141,9 +141,13 @@
     contextMenu.style.top = top + "px";
   }
 
+  function isDataCell(cell) {
+    return cell.cellIndex !== 0 && !cell.querySelector("form, button, a.btn");
+  }
+
   document.addEventListener("contextmenu", function (event) {
     var cell = event.target.closest("table tbody td");
-    if (!cell || cell.cellIndex === 0) {
+    if (!cell || !isDataCell(cell)) {
       return;
     }
     event.preventDefault();
@@ -284,7 +288,7 @@
     }
     var needle = query.toLowerCase();
     document.querySelectorAll("table tbody td").forEach(function (cell) {
-      if (cell.cellIndex === 0) {
+      if (!isDataCell(cell)) {
         return;
       }
       highlightCell(cell, needle);

@@ -180,6 +180,7 @@ async def _list(ctx: AdminContext) -> HTMLResponse:
         page=query.page,
         pages=pages,
         size=query.size,
+        start_index=offset + 1,
         total=total,
         total_capped=total > COUNT_CAP,
         displayed_total=min(total, COUNT_CAP),

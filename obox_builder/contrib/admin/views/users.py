@@ -81,6 +81,7 @@ async def user_list(
         q=query_text,
         page=page,
         pages=pages,
+        start_index=(page - 1) * PAGE_SIZE + 1,
         total=total,
     )
     return render(request, "admin/users/list.html", context)

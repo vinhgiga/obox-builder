@@ -76,6 +76,7 @@ async def role_list(
         request,
         roles=roles,
         user_counts=user_counts,
+        start_index=1,
     )
     return render(request, "admin/roles/list.html", context)
 

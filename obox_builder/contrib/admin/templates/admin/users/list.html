@@ -19,6 +19,7 @@
     <table class="table table-vcenter card-table">
       <thead>
         <tr>
+          <th class="w-1 text-end">#</th>
           <th class="w-1"></th>
           <th>Username</th>
           <th>Name</th>
@@ -31,6 +32,7 @@
       <tbody>
         {% for item in users %}
         <tr>
+          <td class="text-end text-secondary">{{ start_index + loop.index0 }}</td>
           <td>
             {% if perms.auth.change_user %}
             <a href="/admin/users/{{ item.id }}" class="btn btn-sm">Edit</a>
@@ -53,7 +55,7 @@
           <td class="text-secondary">{{ item.last_login_at | format_datetime }}</td>
         </tr>
         {% else %}
-        <tr><td colspan="7" class="text-center text-secondary py-4">No users found.</td></tr>
+        <tr><td colspan="8" class="text-center text-secondary py-4">No users found.</td></tr>
         {% endfor %}
       </tbody>
     </table>

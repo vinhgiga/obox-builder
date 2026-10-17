@@ -50,6 +50,7 @@
     <table class="table table-vcenter card-table">
       <thead>
         <tr>
+          <th class="w-1 text-end">#</th>
           <th class="w-1"></th>
           {% for column in columns %}
           <th>
@@ -66,6 +67,7 @@
       <tbody>
         {% for row in rows %}
         <tr>
+          <td class="text-end text-secondary">{{ start_index + loop.index0 }}</td>
           <td>
             <div class="btn-list flex-nowrap">
             {% if admin.permission_name('change') in perms %}
@@ -88,7 +90,7 @@
         </tr>
         {% else %}
         <tr>
-          <td colspan="{{ columns | length + 1 }}" class="text-center text-secondary py-4">
+          <td colspan="{{ columns | length + 2 }}" class="text-center text-secondary py-4">
             No {{ admin.plural_name | lower }} found.
           </td>
         </tr>
