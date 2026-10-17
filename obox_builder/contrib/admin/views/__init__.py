@@ -1,0 +1,43 @@
+from obox_builder.contrib.admin.views.auth import (
+    login_submit,
+    login_view,
+    logout_view,
+    password_change_submit,
+    password_change_view,
+)
+from obox_builder.contrib.admin.views.dashboard import dashboard
+from obox_builder.contrib.admin.views.roles import (
+    role_create,
+    role_create_submit,
+    role_delete,
+    role_edit,
+    role_edit_submit,
+    role_list,
+)
+from obox_builder.contrib.admin.views.users import (
+    user_create,
+    user_create_submit,
+    user_edit,
+    user_edit_submit,
+    user_list,
+)
+
+__all__ = [
+    "dashboard",
+    "login_submit",
+    "login_view",
+    "logout_view",
+    "password_change_submit",
+    "password_change_view",
+    "role_create",
+    "role_create_submit",
+    "role_delete",
+    "role_edit",
+    "role_edit_submit",
+    "role_list",
+    "user_create",
+    "user_create_submit",
+    "user_edit",
+    "user_edit_submit",
+    "user_list",
+]

@@ -1,0 +1,16 @@
+/* Admin-specific tweaks layered on top of Tabler. */
+.admin-brand {
+  letter-spacing: 0.02em;
+}
+
+.navbar-vertical .nav-link-title {
+  font-weight: 500;
+}
+
+.table-primary td {
+  background-color: var(--tblr-primary-lt, #eef3fe);
+}
+
+.form-check-inline .form-check-label {
+  font-size: 0.8125rem;
+}

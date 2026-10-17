@@ -1,0 +1,10 @@
+[project]
+name = "$project_name"
+version = "0.1.0"
+requires-python = ">=3.11"
+# SQLite works out of the box; use "obox-builder[postgres]" with a PostgreSQL DATABASE_URL.
+dependencies = ["obox-builder[sqlite]>=$obox_version"]
+
+# While obox-builder is not published on PyPI, point uv at a local checkout:
+# [tool.uv.sources]
+# obox-builder = { path = "../obox-builder", editable = true }

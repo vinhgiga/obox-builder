@@ -1,0 +1,19 @@
+# $project_name
+
+An obox-builder project.
+
+## Dev
+
+```shell
+python manage.py runserver --reload
+```
+
+With uv, add a local checkout of obox-builder to `pyproject.toml` while the package is not
+published on PyPI:
+
+```toml
+[tool.uv.sources]
+obox-builder = { path = "../obox-builder", editable = true }
+```
+
+Then `uv run manage.py runserver` works from a fresh environment.

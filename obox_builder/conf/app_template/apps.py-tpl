@@ -1,0 +1,5 @@
+from obox_builder.apps import AppConfig
+
+
+class $app_class(AppConfig):
+    name = "$app_module"

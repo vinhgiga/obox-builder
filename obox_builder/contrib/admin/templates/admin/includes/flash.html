@@ -1,0 +1,9 @@
+{% for message in messages %}
+  {% set level = message.level if message.level != "error" else "danger" %}
+  <div class="alert alert-{{ level }} alert-dismissible" role="alert">
+    <div class="d-flex">
+      <div>{{ message.message }}</div>
+    </div>
+    <a class="btn-close" data-bs-dismiss="alert" aria-label="close"></a>
+  </div>
+{% endfor %}

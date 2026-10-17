@@ -1,0 +1,9 @@
+{% if pages > 1 %}
+<ul class="pagination">
+  {% for number in range(1, pages + 1) %}
+    <li class="page-item {{ 'active' if number == page }}">
+      <a class="page-link" href="?{{ querystring(request.query_params, page=number) }}">{{ number }}</a>
+    </li>
+  {% endfor %}
+</ul>
+{% endif %}

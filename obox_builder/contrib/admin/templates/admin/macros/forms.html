@@ -1,0 +1,23 @@
+{% macro field(name, label, value="", type="text", required=False, errors=None, help_text="") %}
+<div class="mb-3">
+  <label class="form-label {{ 'required' if required }}" for="id_{{ name }}">{{ label }}</label>
+  <input type="{{ type }}" name="{{ name }}" id="id_{{ name }}" value="{{ value or '' }}"
+         class="form-control {{ 'is-invalid' if errors }}" autocomplete="off"
+         {% if required %}required{% endif %}/>
+  {% if help_text %}<small class="form-hint">{{ help_text }}</small>{% endif %}
+  {% for error in errors or [] %}<div class="invalid-feedback">{{ error }}</div>{% endfor %}
+</div>
+{% endmacro %}
+
+{% macro checkbox(name, label, checked=False) %}
+<div class="mb-3">
+  <label class="form-check form-switch">
+    <input class="form-check-input" type="checkbox" name="{{ name }}" value="true" {{ 'checked' if checked }}/>
+    <span class="form-check-label">{{ label }}</span>
+  </label>
+</div>
+{% endmacro %}
+
+{% macro csrf(token) %}
+<input type="hidden" name="csrf_token" value="{{ token }}"/>
+{% endmacro %}

@@ -1,0 +1,67 @@
+{% extends "admin/base.html" %}
+{% from "admin/macros/forms.html" import csrf %}
+{% block title %}Users{% endblock %}
+{% block content %}
+<div class="page-header d-print-none">
+  <div class="row g-2 align-items-center">
+    <div class="col">
+      <h2 class="page-title">Users ({{ total }})</h2>
+    </div>
+    <div class="col-auto ms-auto d-print-none">
+      {% if perms.auth.add_user %}
+        <a href="/admin/users/new" class="btn btn-primary me-2">New user</a>
+      {% endif %}
+      <form method="get" action="/admin/users" class="d-flex">
+        <input type="text" name="q" value="{{ q }}" class="form-control me-2" placeholder="Search users&hellip;"/>
+        <button type="submit" class="btn btn-primary">Search</button>
+      </form>
+    </div>
+  </div>
+</div>
+<div class="card">
+  <div class="table-responsive">
+    <table class="table table-vcenter card-table">
+      <thead>
+        <tr>
+          <th>Username</th>
+          <th>Name</th>
+          <th>Email</th>
+          <th>Roles</th>
+          <th>Status</th>
+          <th>Last login</th>
+          <th class="w-1"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in users %}
+        <tr>
+          <td>
+            <a href="/admin/users/{{ item.id }}">{{ item.username }}</a>
+            {% if item.is_superuser %}<span class="badge bg-purple-lt ms-2">superuser</span>{% endif %}
+          </td>
+          <td>{{ item.full_name }}</td>
+          <td class="text-secondary">{{ item.email }}</td>
+          <td>{{ roles_by_user.get(item.id, 0) }}</td>
+          <td>
+            {% if item.is_active %}
+              <span class="badge bg-green-lt">active</span>
+            {% else %}
+              <span class="badge bg-red-lt">inactive</span>
+            {% endif %}
+          </td>
+          <td class="text-secondary">{{ item.last_login_at | format_datetime }}</td>
+          <td>
+            {% if perms.auth.change_user %}
+            <a href="/admin/users/{{ item.id }}" class="btn btn-sm">Edit</a>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="text-center text-secondary py-4">No users found.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="card-footer">{% include "admin/includes/pagination.html" %}</div>
+</div>
+{% endblock %}

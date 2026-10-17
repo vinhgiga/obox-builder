@@ -1,0 +1,2 @@
+# Models for the $app_name app go here.
+# SQLAlchemy model helpers arrive with the db layer (obox_builder.db).

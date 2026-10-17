@@ -1,0 +1,27 @@
+from pathlib import Path
+
+from pydantic import SecretStr
+
+from obox_builder.conf import BaseSettings
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+
+class Settings(BaseSettings):
+    # Provide a production secret through the OBOX_SECRET_KEY environment variable.
+    SECRET_KEY: SecretStr = SecretStr("$secret_key")
+
+    DATABASE_URL: str = f"sqlite+aiosqlite:///{BASE_DIR / 'db.sqlite3'}"
+
+    INSTALLED_APPS: list[str] = [
+        "obox_builder.contrib.auth",
+        "obox_builder.contrib.admin",
+        # Add your apps here, for example "apps.blog".
+    ]
+    MIDDLEWARE: list[str] = [
+        "obox_builder.core.middleware.request_id.RequestIDMiddleware",
+    ]
+    ROOT_URLCONF: str = "config.urls"
+    ASGI_APPLICATION: str = "config.asgi.application"
+    TEMPLATE_DIRS: list[Path] = [BASE_DIR / "templates"]
+    STATIC_ROOT: Path = BASE_DIR / "static"

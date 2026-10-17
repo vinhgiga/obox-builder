@@ -1,0 +1,154 @@
+[project]
+name = "obox-builder"
+version = "0.1.0.dev0"
+description = "Django-flavoured internal admin framework built on FastAPI"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "alembic>=1.20,<2",
+    "fastapi>=0.143.3,<0.144",
+    "jinja2>=3.1.6,<4",
+    "pwdlib[argon2]>=0.3.1,<1",
+    "pydantic>=2.14,<3",
+    "pydantic-settings>=2.16,<3",
+    "python-multipart>=0.0.32,<1",
+    "sqlalchemy[asyncio]>=2.0.54,<2.1",
+    "typer>=0.27.3,<1",
+    "uvicorn>=0.54,<1",
+]
+
+[project.optional-dependencies]
+postgres = ["psycopg[binary,pool]>=3.3,<4", "asyncpg>=0.32,<1"]
+sqlite = ["aiosqlite>=0.22,<1"]
+tailwind = ["pytailwindcss>=0.4.2,<1"]
+
+[project.scripts]
+obox = "obox_builder.core.management:execute_from_command_line"
+
+[project.entry-points.pytest11]
+obox_builder = "obox_builder.testing.pytest_plugin"
+
+[dependency-groups]
+dev = [
+    "aiosqlite>=0.22,<1",
+    "asyncpg>=0.32,<1",
+    "httpx>=0.28.1,<1",
+    "import-linter>=2.15,<3",
+    "pre-commit>=4.7,<5",
+    "psycopg[binary,pool]>=3.3,<4",
+    "pyright>=1.1.414,<2",
+    "pytest>=9.1.1,<10",
+    "pytest-asyncio>=1.4,<2",
+    "pytest-cov>=7.1,<8",
+    "ruff>=0.17.1,<1",
+]
+docs = [
+    "mkdocs-material>=9.7.7,<10",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["obox_builder"]
+
+[tool.hatch.build.targets.sdist]
+include = ["obox_builder", "tests", "README.md", "CHANGELOG.md"]
+
+[tool.ruff]
+line-length = 100
+src = ["obox_builder", "tests"]
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+  "B",
+  "C4",
+  "E",
+  "F",
+  "G",
+  "I",
+  "N",
+  "PT",
+  "S",
+  "SIM",
+  "TID",
+  "UP",
+  "W",
+]
+ignore = ["PT001", "PT006", "N818", "N999"]
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = [
+  "fastapi.Body",
+  "fastapi.Cookie",
+  "fastapi.Depends",
+  "fastapi.File",
+  "fastapi.Form",
+  "fastapi.Header",
+  "fastapi.Path",
+  "fastapi.Query",
+  "fastapi.Security",
+  "typer.Argument",
+  "typer.Option",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106", "PT012"]
+"**/conf/*_template/**" = ["E501"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.pyright]
+include = ["obox_builder", "tests"]
+ignore = [
+    "tests/support/apps/broken.py",
+    "tests/support/apps/bad_apps/apps.py",
+    "tests/support/apps/bad_models/models.py",
+]
+pythonVersion = "3.11"
+typeCheckingMode = "standard"
+reportMissingTypeStubs = false
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.importlinter]
+root_package = "obox_builder"
+
+[[tool.importlinter.contracts]]
+name = "Layered architecture"
+type = "layers"
+layers = [
+    "obox_builder.contrib.admin",
+    "obox_builder.contrib.auth",
+    "obox_builder.core",
+    "obox_builder.http",
+    "obox_builder.templating",
+    "obox_builder.forms",
+    "obox_builder.staticfiles",
+    "obox_builder.db",
+    "obox_builder.apps",
+    "obox_builder.conf",
+    "obox_builder.utils",
+]
+ignore_imports = [
+    "obox_builder.apps.* -> obox_builder.core.exceptions",
+    "obox_builder.conf -> obox_builder.core.exceptions",
+    "obox_builder.db.* -> obox_builder.core.exceptions",
+    "obox_builder.db.migrations.* -> obox_builder.core.exceptions",
+    # Bottom layer: shared utilities may raise framework exceptions.
+    "obox_builder.utils.* -> obox_builder.core.exceptions",
+    "obox_builder.staticfiles.* -> obox_builder.core.exceptions",
+    # The registry scans models.py for Model subclasses / bare tables; the import is
+    # function-level so no import cycle is created.
+    "obox_builder.apps.config -> obox_builder.db.base",
+    # Migrations bootstrap through the public obox_builder.setup() entry point, which
+    # only touches conf/apps/core.exceptions; the root package re-exports
+    # ImproperlyConfigured as part of its public API.
+    "obox_builder -> obox_builder.core.exceptions",
+]

@@ -1,0 +1,11 @@
+from fastapi import APIRouter
+
+router = APIRouter()
+
+
+@router.get("/")
+def index() -> dict[str, str]:
+    return {"message": "Hello from $project_name"}
+
+
+routers = [router]

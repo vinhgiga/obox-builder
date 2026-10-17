@@ -1,0 +1,58 @@
+{% extends "admin/base.html" %}
+{% block title %}Roles{% endblock %}
+{% block content %}
+<div class="page-header d-print-none">
+  <div class="row g-2 align-items-center">
+    <div class="col">
+      <h2 class="page-title">Roles ({{ roles | length }})</h2>
+    </div>
+    {% if perms.auth.add_role %}
+    <div class="col-auto ms-auto d-print-none">
+      <a href="/admin/roles/new" class="btn btn-primary">New role</a>
+    </div>
+    {% endif %}
+  </div>
+</div>
+<div class="card">
+  <div class="table-responsive">
+    <table class="table table-vcenter card-table">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Description</th>
+          <th>Users</th>
+          <th>Permissions</th>
+          <th class="w-1"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for role in roles %}
+        <tr>
+          <td>
+            <a href="/admin/roles/{{ role.id }}">{{ role.name }}</a>
+            {% if role.is_system %}<span class="badge bg-azure-lt ms-2">system</span>{% endif %}
+          </td>
+          <td class="text-secondary">{{ role.description }}</td>
+          <td>{{ user_counts.get(role.id, 0) }}</td>
+          <td>{{ role.permissions | length }}</td>
+          <td class="text-end">
+            {% if perms.auth.change_role %}
+            <a href="/admin/roles/{{ role.id }}" class="btn btn-sm">Edit</a>
+            {% endif %}
+            {% if not role.is_system and perms.auth.delete_role %}
+            <form method="post" action="/admin/roles/{{ role.id }}/delete" class="d-inline"
+                  data-confirm="Delete role '{{ role.name }}'? This cannot be undone.">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}"/>
+              <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="text-center text-secondary py-4">No roles defined yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

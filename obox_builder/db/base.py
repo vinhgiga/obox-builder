@@ -1,0 +1,74 @@
+from __future__ import annotations
+
+import re
+from typing import Any, ClassVar
+
+from sqlalchemy import MetaData
+from sqlalchemy.orm import DeclarativeBase, Relationship
+from sqlalchemy.orm import relationship as _relationship
+
+from obox_builder.apps import apps
+from obox_builder.core.exceptions import ImproperlyConfigured
+
+NAMING_CONVENTION = {
+    "ix": "ix_%(table_name)s_%(column_0_N_name)s",
+    "uq": "uq_%(table_name)s_%(column_0_N_name)s",
+    "ck": "ck_%(table_name)s_%(constraint_name)s",
+    "fk": "fk_%(table_name)s_%(column_0_N_name)s_%(referred_table_name)s",
+    "pk": "pk_%(table_name)s",
+}
+
+_CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
+
+
+def camel_to_snake(name: str) -> str:
+    return _CAMEL_BOUNDARY.sub("_", name).lower()
+
+
+class ModelBase(DeclarativeBase):
+    """Declarative base carrying the project metadata and naming convention."""
+
+    metadata = MetaData(naming_convention=NAMING_CONVENTION)
+
+
+class Model(ModelBase):
+    """Base model: table name defaults to ``<app_label>_<snake_name>``.
+
+    The owning app is found by matching the model's module against the app
+    registry (longest ``AppConfig.name`` prefix). Override ``app_label`` on a
+    model class when the module cannot be matched. Models that map their own
+    ``app_label`` column keep the registry-derived value in ``_model_label``.
+    """
+
+    __abstract__ = True
+
+    app_label: ClassVar[str] = ""
+    _model_label: ClassVar[str] = ""
+    __permissions__: ClassVar[list[tuple[str, str]]] = []
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        if not cls.__dict__.get("__abstract__", False):
+            raw_label = cls.__dict__.get("app_label")
+            if isinstance(raw_label, str) and raw_label:
+                label = raw_label
+            else:
+                app_config = apps.get_containing_app_config(cls.__module__)
+                if app_config is None:
+                    raise ImproperlyConfigured(
+                        f"Model {cls.__qualname__} (defined in {cls.__module__!r}) is not "
+                        "part of any installed app; add its app to INSTALLED_APPS or set "
+                        "app_label on the model."
+                    )
+                label = app_config.label
+                if raw_label is None:
+                    cls.app_label = label
+            cls._model_label = label
+            if "__tablename__" not in cls.__dict__:
+                cls.__tablename__ = f"{label}_{camel_to_snake(cls.__name__)}"
+        super().__init_subclass__(**kwargs)
+
+
+def relationship(*args: Any, **kwargs: Any) -> Relationship[Any]:
+    """``sqlalchemy.relationship`` defaulting to ``lazy="raise"`` (async safety)."""
+    kwargs.setdefault("lazy", "raise")
+    return _relationship(*args, **kwargs)
