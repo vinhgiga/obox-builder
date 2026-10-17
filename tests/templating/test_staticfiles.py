@@ -38,8 +38,10 @@ def test_finders_put_extra_dirs_first(env: None) -> None:
 
 
 def test_static_url_helper(env: None) -> None:
-    assert static("shop/logo.txt") == "/static/shop/logo.txt"
-    assert static("/shop/logo.txt") == "/static/shop/logo.txt"
+    url = static("shop/logo.txt")
+    assert url.startswith("/static/shop/logo.txt?v=")
+    assert static("/shop/logo.txt") == url
+    assert static("missing.txt") == "/static/missing.txt"
 
 
 def test_collect_static_copies_files(

@@ -4,7 +4,6 @@ import inspect
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from importlib import import_module
-from pathlib import Path
 from typing import Any, cast
 from urllib.parse import quote
 
@@ -117,15 +116,12 @@ def _iter_routers(root_urlconf: str) -> Iterator[tuple[APIRouter, str]]:
 def _mount_static(application: FastAPI) -> None:
     """Mount static files: sources in DEBUG, the collected STATIC_ROOT otherwise."""
     from obox_builder.apps import apps
-    from obox_builder.staticfiles import AppStaticFiles, find_static_directories
+    from obox_builder.staticfiles import AppStaticFiles, served_static_directories
 
     if not apps.apps_ready:
         return
 
-    directories = list(find_static_directories())
-    static_root = settings.STATIC_ROOT
-    if not settings.DEBUG and static_root is not None and Path(static_root).is_dir():
-        directories = [Path(static_root)]
+    directories = served_static_directories()
     if not directories:
         return
     static_url = settings.STATIC_URL.rstrip("/") or "/static"

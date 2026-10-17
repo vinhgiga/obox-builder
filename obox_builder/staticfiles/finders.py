@@ -29,3 +29,11 @@ def app_static_dirs() -> list[Path]:
 def find_static_directories() -> list[Path]:
     """All static source directories; earlier entries win on filename conflicts."""
     return extra_static_dirs() + app_static_dirs()
+
+
+def served_static_directories() -> list[Path]:
+    """Directories actually served: collected STATIC_ROOT in production, sources otherwise."""
+    static_root = settings.STATIC_ROOT
+    if not settings.DEBUG and static_root is not None and Path(static_root).is_dir():
+        return [Path(static_root)]
+    return find_static_directories()
