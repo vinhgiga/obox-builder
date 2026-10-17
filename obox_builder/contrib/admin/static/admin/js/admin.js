@@ -59,6 +59,22 @@
       });
   }
 
+  function restoreSearchFocus() {
+    var query = new URLSearchParams(window.location.search).get("q");
+    if (!query) {
+      return;
+    }
+    document
+      .querySelectorAll('form input[name="q"]')
+      .forEach(function (input) {
+        if (input.value !== query) {
+          return;
+        }
+        input.focus();
+        input.setSelectionRange(input.value.length, input.value.length);
+      });
+  }
+
   function wrapMatches(node, needle) {
     var text = node.nodeValue;
     var lower = text.toLowerCase();
@@ -124,4 +140,5 @@
 
   initDebouncedSearch();
   highlightSearchMatches();
+  restoreSearchFocus();
 })();
