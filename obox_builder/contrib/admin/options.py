@@ -24,6 +24,11 @@ logger = logging.getLogger(__name__)
 DEFAULT_PER_PAGE = 50
 BASE_PATH_RE = re.compile(r"^[a-z0-9][a-z0-9/_-]*$")
 
+#: Field types an inline cell can render as a simple input/select.
+INLINE_TYPES = frozenset(
+    {"text", "email", "url", "phone", "integer", "decimal", "checkbox", "single_select"}
+)
+
 
 class ModelAdmin:
     """Configuration object for one model's CRUD screens.
@@ -36,6 +41,7 @@ class ModelAdmin:
     _model: type[Any]
 
     list_display: ClassVar[Sequence[str]] = ()
+    list_editable: ClassVar[Sequence[str]] = ()
     list_filter: ClassVar[Sequence[str]] = ()
     search_fields: ClassVar[Sequence[str]] = ()
     ordering: ClassVar[Sequence[str]] = ()
@@ -55,6 +61,8 @@ class ModelAdmin:
         self._specs: list[FieldSpec] | None = None
         self._schema: type[BaseModel] | None = None
         self._schema_mode: str = ""
+        self._inline_schema: type[BaseModel] | None = None
+        self._inline_specs: list[FieldSpec] | None = None
 
     @property
     def model(self) -> type[Any]:
@@ -190,6 +198,29 @@ class ModelAdmin:
         rest = [spec for spec in visible if not spec.primary_key][:5]
         return primary + rest
 
+    def get_inline_specs(self) -> list[FieldSpec]:
+        if self._inline_specs is None:
+            specs = self.spec_map()
+            inline: list[FieldSpec] = []
+            for name in self.list_editable:
+                spec = specs.get(name)
+                if spec is None or spec.primary_key or not spec.is_editable():
+                    continue
+                if spec.column is None or spec.type.name not in INLINE_TYPES:
+                    continue
+                inline.append(spec)
+            self._inline_specs = inline
+        return self._inline_specs
+
+    def get_inline_schema(self) -> type[BaseModel]:
+        if self._inline_schema is None:
+            self._inline_schema = build_schema(
+                self.get_inline_specs(),
+                name=f"{self.app_label}_{self.model_name}",
+                mode="inline",
+            )
+        return self._inline_schema
+
     def get_search_specs(self) -> list[FieldSpec]:
         specs = self.spec_map()
         result = []
@@ -310,6 +341,48 @@ class ModelAdmin:
                     Error(
                         f"{self.model_label}: list_filter references unknown field {name!r}.",
                         id="obox.admin.E104",
+                    )
+                )
+        first_list_field = self.get_list_specs()[0].name if self.get_list_specs() else None
+        for name in self.list_editable:
+            spec = specs.get(name)
+            if spec is None:
+                messages.append(
+                    Error(
+                        f"{self.model_label}: list_editable references unknown field {name!r}.",
+                        id="obox.admin.E107",
+                    )
+                )
+            elif name not in self.list_display:
+                messages.append(
+                    Error(
+                        f"{self.model_label}: list_editable field {name!r} is not in list_display.",
+                        id="obox.admin.E107",
+                    )
+                )
+            elif name == first_list_field:
+                messages.append(
+                    Error(
+                        f"{self.model_label}: list_editable field {name!r} is the first "
+                        "list_display column; inline editing it would clash with the "
+                        "row link.",
+                        id="obox.admin.E107",
+                    )
+                )
+            elif spec.primary_key or not spec.is_editable() or spec.column is None:
+                messages.append(
+                    Error(
+                        f"{self.model_label}: list_editable field {name!r} cannot be "
+                        "edited through the admin.",
+                        id="obox.admin.E107",
+                    )
+                )
+            elif spec.type.name not in INLINE_TYPES:
+                messages.append(
+                    Error(
+                        f"{self.model_label}: list_editable field {name!r} of type "
+                        f"{spec.type.name!r} does not support inline editing.",
+                        id="obox.admin.E107",
                     )
                 )
         for name in self.get_ordering(None):  # type: ignore[arg-type]

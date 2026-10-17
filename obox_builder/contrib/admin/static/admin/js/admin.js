@@ -109,7 +109,8 @@
       var cell = contextCell;
       closeContextMenu();
       if (cell) {
-        copyText(cell.innerText.trim());
+        var editor = cell.querySelector("input, select, textarea");
+        copyText(editor ? editor.value : cell.innerText.trim());
       }
     });
     menu.querySelector("[data-context-delete]").addEventListener("click", function () {
@@ -288,13 +289,121 @@
     }
     var needle = query.toLowerCase();
     document.querySelectorAll("table tbody td").forEach(function (cell) {
-      if (!isDataCell(cell)) {
+      if (!isDataCell(cell) || cell.querySelector("input, select, textarea")) {
         return;
       }
       highlightCell(cell, needle);
     });
   }
 
+  function initInlineEditors() {
+    var form = document.getElementById("inline-edit");
+    if (!form) {
+      return;
+    }
+    var editors = Array.prototype.slice.call(
+      document.querySelectorAll("[data-inline-editor]")
+    );
+    if (!editors.length) {
+      return;
+    }
+    var saveButton = document.querySelector("[data-inline-save]");
+    var countBadge = document.querySelector("[data-inline-count]");
+    var revertButton = document.querySelector("[data-inline-revert]");
+
+    function refresh() {
+      var count = 0;
+      editors.forEach(function (editor) {
+        var modified = editor.value !== editor.dataset.original;
+        if (modified) {
+          count += 1;
+        }
+        var cell = editor.closest("td");
+        if (cell) {
+          cell.classList.toggle("cell-modified", modified);
+        }
+      });
+      if (countBadge) {
+        countBadge.textContent = String(count);
+        countBadge.classList.toggle("d-none", count === 0);
+      }
+      if (saveButton) {
+        saveButton.disabled = count === 0;
+      }
+      if (revertButton) {
+        revertButton.classList.toggle("d-none", count === 0);
+      }
+    }
+
+    function focusNextRow(editor) {
+      var cell = editor.closest("td");
+      var row = editor.closest("tr");
+      if (!cell || !row) {
+        return false;
+      }
+      var next = row.nextElementSibling;
+      while (next) {
+        if (next.cells && next.cells.length > cell.cellIndex) {
+          var target = next.cells[cell.cellIndex].querySelector("[data-inline-editor]");
+          if (target) {
+            target.focus();
+            if (typeof target.select === "function") {
+              target.select();
+            }
+            return true;
+          }
+        }
+        next = next.nextElementSibling;
+      }
+      return false;
+    }
+
+    editors.forEach(function (editor) {
+      editor.dataset.committed = editor.value;
+      editor.addEventListener("input", refresh);
+      editor.addEventListener("change", function () {
+        editor.dataset.committed = editor.value;
+        refresh();
+      });
+      editor.addEventListener("blur", function () {
+        editor.dataset.committed = editor.value;
+      });
+      editor.addEventListener("keydown", function (event) {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          editor.dataset.committed = editor.value;
+          refresh();
+          if (!focusNextRow(editor)) {
+            editor.blur();
+          }
+        } else if (event.key === "Escape") {
+          event.preventDefault();
+          editor.value = editor.dataset.committed;
+          refresh();
+        }
+      });
+      var cell = editor.closest("td");
+      if (cell) {
+        cell.addEventListener("click", function (event) {
+          if (event.target !== editor) {
+            editor.focus();
+          }
+        });
+      }
+    });
+    if (revertButton) {
+      revertButton.addEventListener("click", function () {
+        editors.forEach(function (editor) {
+          editor.value = editor.dataset.original;
+          editor.dataset.committed = editor.dataset.original;
+        });
+        refresh();
+      });
+    }
+    refresh();
+  }
+
+  initInlineEditors();
   initDebouncedSearch();
   highlightSearchMatches();
   restoreSearchFocus();

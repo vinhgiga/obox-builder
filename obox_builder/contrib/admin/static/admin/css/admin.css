@@ -80,3 +80,45 @@ mark {
 .context-menu {
   position: fixed;
 }
+
+/* -- inline editing -------------------------------------------------------- */
+
+.inline-editor {
+  width: 100%;
+  padding: 0.25rem 0.5rem;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+  background-color: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--tblr-border-radius, 4px);
+  transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+}
+
+.inline-editor:hover {
+  border-color: var(--tblr-border-color, #e6e7e9);
+}
+
+.inline-editor:focus {
+  background-color: var(--tblr-bg-surface, #ffffff);
+  border-color: var(--tblr-primary, #066fd1);
+  box-shadow: 0 0 0 0.25rem rgba(6, 111, 209, 0.1);
+  outline: 0;
+}
+
+.inline-editor.is-invalid {
+  background-color: var(--tblr-bg-surface, #ffffff);
+  border-color: var(--tblr-danger, #d63939);
+}
+
+select.inline-editor {
+  padding-right: 1.75rem;
+}
+
+td.cell-modified {
+  background-color: var(--tblr-yellow-lt, #fef5e6);
+}
+
+td.cell-modified .inline-editor:focus {
+  background-color: var(--tblr-bg-surface, #ffffff);
+}

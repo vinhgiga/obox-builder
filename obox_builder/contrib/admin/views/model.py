@@ -74,6 +74,12 @@ def _register_one(router: APIRouter, site: AdminSite, admin: ModelAdmin) -> None
         ctx = AdminContext(request=request, user=user, db=db, site=site, admin=admin)
         return await _create(ctx)
 
+    async def inline_submit(
+        request: Request, user: Any = change_dep, db: AsyncSession = Depends(get_db)
+    ) -> Any:
+        ctx = AdminContext(request=request, user=user, db=db, site=site, admin=admin)
+        return await _inline(ctx)
+
     async def change_view(
         request: Request, pk: str, user: Any = change_dep, db: AsyncSession = Depends(get_db)
     ) -> Any:
@@ -122,6 +128,7 @@ def _register_one(router: APIRouter, site: AdminSite, admin: ModelAdmin) -> None
     router.add_api_route(base, list_view, methods=["GET"], name=f"{name}_list")
     router.add_api_route(f"{base}/add", add_view, methods=["GET"], name=f"{name}_add")
     router.add_api_route(f"{base}/add", add_submit, methods=["POST"], name=f"{name}_add_submit")
+    router.add_api_route(f"{base}/inline", inline_submit, methods=["POST"], name=f"{name}_inline")
     router.add_api_route(f"{base}/{{pk}}", change_view, methods=["GET"], name=f"{name}_change")
     router.add_api_route(
         f"{base}/{{pk}}", change_submit, methods=["POST"], name=f"{name}_change_submit"
@@ -137,7 +144,13 @@ def _register_one(router: APIRouter, site: AdminSite, admin: ModelAdmin) -> None
 # -- list -------------------------------------------------------------------
 
 
-async def _list(ctx: AdminContext) -> HTMLResponse:
+async def _list(
+    ctx: AdminContext,
+    *,
+    inline_values: Mapping[tuple[str, str], str] | None = None,
+    inline_errors: Mapping[tuple[str, str], str] | None = None,
+    banner: str = "",
+) -> HTMLResponse:
     admin = _require_admin(ctx)
     request = ctx.request
     specs = {spec.name: spec for spec in admin.get_field_specs()}
@@ -161,16 +174,25 @@ async def _list(ctx: AdminContext) -> HTMLResponse:
     objects = result.scalars().unique().all()
 
     columns = admin.get_list_specs()
+    can_inline = bool(admin.get_inline_specs()) and admin.has_change_permission(ctx)
+    if can_inline:
+        edits = _inline_edits(admin, columns, objects, inline_values, inline_errors)
+    else:
+        edits = [[None] * len(columns) for _ in objects]
     rows = [
         {
             "pk": admin.get_pk(obj),
             "label": _object_label(admin, obj),
             "cells": [admin.build_cell(spec, obj) for spec in columns],
+            "edits": row_edits,
         }
-        for obj in objects
+        for obj, row_edits in zip(objects, edits, strict=True)
     ]
     pages = max(1, -(-total // query.size))
     filters = _build_filters(request, admin)
+    inline_action = f"{admin.list_path()}/inline"
+    if request.url.query:
+        inline_action = f"{inline_action}?{request.url.query}"
     context = await page_context(
         request,
         admin=admin,
@@ -190,8 +212,66 @@ async def _list(ctx: AdminContext) -> HTMLResponse:
         sort_state=lambda field: _sort_state(request, field),
         sort_href=lambda field: _sort_href(request, field),
         delete_href=lambda pk: admin.delete_path(pk),
+        inline_columns=can_inline,
+        inline_action=inline_action,
+        inline_banner=banner,
     )
     return render(request, "admin/model/list.html", context)
+
+
+def _inline_edits(
+    admin: ModelAdmin,
+    columns: Sequence[FieldSpec],
+    objects: Sequence[Any],
+    values: Mapping[tuple[str, str], str] | None,
+    errors: Mapping[tuple[str, str], str] | None,
+) -> list[list[dict[str, Any] | None]]:
+    inline_names = {spec.name for spec in admin.get_inline_specs()}
+    edits: list[list[dict[str, Any] | None]] = []
+    for obj in objects:
+        pk_key = str(admin.get_pk(obj))
+        row_edits: list[dict[str, Any] | None] = []
+        for spec in columns:
+            if spec.name not in inline_names:
+                row_edits.append(None)
+                continue
+            attr = spec.options.get("value_attr", spec.name)
+            current = getattr(obj, attr, None)
+            choices: list[tuple[str, str]] = []
+            if spec.type.name == "checkbox":
+                kind, step = "select", ""
+                original = "true" if current else "false"
+                choices = [("true", "Yes"), ("false", "No")]
+            elif spec.type.name == "single_select":
+                kind, step = "select", ""
+                original = spec.type.to_input(current, spec)
+                choices = _spec_choices(spec)
+            elif spec.type.name == "integer":
+                kind, step = "number", "1"
+                original = spec.type.to_input(current, spec)
+            elif spec.type.name == "decimal":
+                kind, step = "number", "any"
+                original = spec.type.to_input(current, spec)
+            else:
+                kind, step = "text", ""
+                original = spec.type.to_input(current, spec)
+            value = original
+            if values is not None and (pk_key, spec.name) in values:
+                value = values[(pk_key, spec.name)]
+            row_edits.append(
+                {
+                    "name": spec.name,
+                    "kind": kind,
+                    "step": step,
+                    "value": value,
+                    "original": original,
+                    "choices": choices,
+                    "modified": value != original,
+                    "error": (errors or {}).get((pk_key, spec.name), ""),
+                }
+            )
+        edits.append(row_edits)
+    return edits
 
 
 def _sort_terms(request: Request) -> list[str]:
@@ -316,6 +396,85 @@ async def _update(ctx: AdminContext, target: Any) -> HTMLResponse | RedirectResp
         )
     await flash(request, f"{admin.name} {_object_label(admin, target)!r} was updated.")
     destination = _redirect_after_save(admin, str(data.get("_action", "save")), target)
+    return RedirectResponse(destination, status_code=303)
+
+
+async def _inline(ctx: AdminContext) -> HTMLResponse | RedirectResponse:
+    admin = _require_admin(ctx)
+    request = ctx.request
+    specs = admin.get_inline_specs()
+    if not specs:
+        return _bad_request(ctx, f"Inline editing is not enabled for {admin.name}.")
+    data = await _submitted_data(request)
+    await ensure_csrf(request, data.get("csrf_token"))
+    names = {spec.name for spec in specs}
+    posted: dict[str, dict[str, str]] = {}
+    for key, value in data.items():
+        if not key.startswith("edit:"):
+            continue
+        _, _, remainder = key.partition(":")
+        pk_key, _, field = remainder.rpartition(":")
+        if field in names and pk_key:
+            posted.setdefault(pk_key, {})[field] = value
+    destination = admin.list_path()
+    if request.url.query:
+        destination = f"{destination}?{request.url.query}"
+    if not posted:
+        await flash(request, "No changes to save.")
+        return RedirectResponse(destination, status_code=303)
+    try:
+        pks = [admin.parse_pk(pk_key) for pk_key in posted]
+    except LookupError:
+        return _bad_request(ctx, "Invalid row id in the inline edit submission.")
+    stmt = admin.get_queryset(ctx).where(admin.pk_column().in_(pks))
+    objects = (await ctx.db.execute(stmt)).scalars().unique().all()
+    schema = admin.get_inline_schema()
+    values: dict[tuple[str, str], str] = {
+        (pk_key, name): raw for pk_key, row in posted.items() for name, raw in row.items()
+    }
+    errors: dict[tuple[str, str], str] = {}
+    banner = ""
+    pending: list[tuple[Any, BoundForm]] = []
+    for obj in objects:
+        pk_key = str(admin.get_pk(obj))
+        row_data = posted.get(pk_key)
+        if row_data is None:
+            continue
+        ctx.obj = obj
+        bound = BoundForm.bind(specs, schema, row_data, base=ctx.record_context())
+        if bound.is_valid:
+            pending.append((obj, bound))
+            continue
+        for name, messages in bound.errors.items():
+            if name == "__all__":
+                banner = messages[-1]
+            else:
+                errors[(pk_key, name)] = messages[-1]
+    if errors or banner:
+        if not banner:
+            banner = "Nothing was saved — fix the highlighted values and try again."
+        return await _list(ctx, inline_values=values, inline_errors=errors, banner=banner)
+    changed = 0
+    for obj, bound in pending:
+        if any(
+            spec.type.to_input(getattr(obj, spec.name, None), spec)
+            != spec.type.to_input(bound.cleaned.get(spec.name), spec)
+            for spec in specs
+        ):
+            bound.apply_to(obj)
+            changed += 1
+    try:
+        async with ctx.db.begin_nested():
+            await ctx.db.flush()
+    except IntegrityError as exc:
+        for obj, _bound in pending:
+            await ctx.db.refresh(obj)
+        return await _list(ctx, inline_values=values, banner=_integrity_message(exc))
+    if changed:
+        noun = admin.name.lower() if changed == 1 else admin.plural_name.lower()
+        await flash(request, f"{changed} {noun} updated.")
+    else:
+        await flash(request, "No changes to save.")
     return RedirectResponse(destination, status_code=303)
 
 

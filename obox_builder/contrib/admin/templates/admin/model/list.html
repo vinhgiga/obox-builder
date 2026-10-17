@@ -5,11 +5,23 @@
 <div class="page-header d-print-none">
   <h2 class="page-title">{{ admin.plural_name }} ({{ displayed_total }}{{ '+' if total_capped }})</h2>
 </div>
+{% if inline_columns %}
+<form id="inline-edit" method="post" action="{{ inline_action }}" class="d-none">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}"/>
+</form>
+{% endif %}
 <div class="card">
-  {% if can_add or filters or searchable %}
+  {% if can_add or filters or searchable or inline_columns %}
   <div class="card-header flex-wrap gap-2 py-2">
     {% if can_add %}
     <a href="{{ admin.add_path() }}" class="btn btn-primary">New {{ admin.name | lower }}</a>
+    {% endif %}
+    {% if inline_columns %}
+    <button type="submit" form="inline-edit" class="btn" data-inline-save disabled>
+      Save changes
+      <span class="badge bg-blue-lt ms-1 d-none" data-inline-count>0</span>
+    </button>
+    <button type="button" class="btn d-none" data-inline-revert>Revert</button>
     {% endif %}
     {% if filters or searchable %}
     <form method="get" action="{{ admin.list_path() }}" class="d-flex gap-2 ms-auto">
@@ -45,6 +57,9 @@
     </form>
     {% endif %}
   </div>
+  {% endif %}
+  {% if inline_banner %}
+  <div class="alert alert-danger rounded-0 mb-0" role="alert">{{ inline_banner }}</div>
   {% endif %}
   <div class="table-responsive">
     <table class="table table-vcenter card-table">
@@ -83,9 +98,33 @@
             </div>
           </td>
           {% for cell in row.cells %}
+          {% set edit = row.edits[loop.index0] %}
+          {% if edit %}
+          <td{% if edit.modified %} class="cell-modified"{% endif %}>
+            {% if edit.kind == 'select' %}
+            <select form="inline-edit" name="edit:{{ row.pk }}:{{ edit.name }}"
+                    class="inline-editor form-select form-select-sm{{ ' is-invalid' if edit.error }}"
+                    data-inline-editor data-original="{{ edit.original }}" autocomplete="off">
+              {% for option_value, option_label in edit.choices %}
+              <option value="{{ option_value }}"
+                      {{ 'selected' if option_value == edit.value }}>{{ option_label }}</option>
+              {% endfor %}
+            </select>
+            {% else %}
+            <input form="inline-edit" name="edit:{{ row.pk }}:{{ edit.name }}"
+                   type="{{ 'number' if edit.kind == 'number' else 'text' }}"
+                   {% if edit.step %}step="{{ edit.step }}"{% endif %}
+                   value="{{ edit.value }}"
+                   class="inline-editor form-control form-control-sm{{ ' is-invalid' if edit.error }}"
+                   data-inline-editor data-original="{{ edit.original }}" autocomplete="off"/>
+            {% endif %}
+            {% if edit.error %}<div class="text-danger small mt-1">{{ edit.error }}</div>{% endif %}
+          </td>
+          {% else %}
           <td>{% if loop.first and admin.permission_name('change') in perms %}
                 <a href="{{ admin.change_path(row.pk) }}">{{ cell_text(cell) }}</a>
               {% else %}{{ cell_text(cell) }}{% endif %}</td>
+          {% endif %}
           {% endfor %}
         </tr>
         {% else %}
