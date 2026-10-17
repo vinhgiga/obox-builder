@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en" data-bs-theme="light">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Bad request &middot; {{ site_name or "obox admin" }}</title>
+  <link rel="stylesheet" href="{{ static('admin/vendor/tabler/tabler.min.css') }}"/>
+</head>
+<body class="border-top-wide border-warning d-flex flex-column">
+<div class="page page-center">
+  <div class="container-tight py-4">
+    <div class="empty">
+      <div class="empty-header">400</div>
+      <p class="empty-title">Bad request</p>
+      <p class="empty-subtitle text-secondary">{{ message or "The request could not be understood." }}</p>
+      <div class="empty-action">
+        <a href="/admin/" class="btn btn-primary">Back to dashboard</a>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

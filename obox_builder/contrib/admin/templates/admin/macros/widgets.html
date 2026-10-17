@@ -1,0 +1,35 @@
+{% macro widget(spec, value, errors, choices, readonly) %}
+<div class="mb-3">
+  <label class="form-label {{ 'required' if spec.required and not readonly }}" for="id_{{ spec.name }}">{{ spec.label }}</label>
+  {% if spec.type.widget == 'checkbox' %}
+    <label class="form-check form-switch">
+      <input class="form-check-input" type="checkbox" name="{{ spec.name }}" id="id_{{ spec.name }}"
+             value="true" {{ 'checked' if value in ('true', 'True', 'on', '1', true) }}
+             {% if readonly %}disabled{% endif %}/>
+    </label>
+  {% elif spec.type.widget == 'select' %}
+    <select class="form-select {{ 'is-invalid' if errors }}" name="{{ spec.name }}" id="id_{{ spec.name }}"
+            {% if readonly %}disabled{% endif %}>
+      {% if not spec.required %}<option value=""></option>{% endif %}
+      {% for option_value, option_label in choices or [] %}
+        <option value="{{ option_value }}" {{ 'selected' if value|string == option_value|string }}>{{ option_label }}</option>
+      {% endfor %}
+    </select>
+  {% elif spec.type.widget == 'textarea' or spec.type.widget == 'json' %}
+    <textarea class="form-control {{ 'is-invalid' if errors }}" name="{{ spec.name }}" id="id_{{ spec.name }}"
+              rows="4" {% if readonly %}disabled{% endif %}>{{ value or '' }}</textarea>
+  {% elif spec.type.widget == 'number' %}
+    <input type="number" step="{{ 'any' if spec.type.name == 'decimal' else '1' }}"
+           name="{{ spec.name }}" id="id_{{ spec.name }}" value="{{ value or '' }}"
+           class="form-control {{ 'is-invalid' if errors }}"
+           {% if spec.required %}required{% endif %} {% if readonly %}disabled{% endif %}/>
+  {% else %}
+    <input type="{{ spec.type.widget if spec.type.widget in ('text', 'email', 'url', 'date', 'datetime', 'time') else 'text' }}"
+           name="{{ spec.name }}" id="id_{{ spec.name }}" value="{{ value or '' }}"
+           class="form-control {{ 'is-invalid' if errors }}"
+           {% if spec.required %}required{% endif %} {% if readonly %}disabled{% endif %}/>
+  {% endif %}
+  {% if spec.help_text %}<small class="form-hint">{{ spec.help_text }}</small>{% endif %}
+  {% for error in errors or [] %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+</div>
+{% endmacro %}

@@ -1,0 +1,394 @@
+from __future__ import annotations
+
+import re
+from typing import Any
+
+import httpx
+import pytest
+import sqlalchemy as sa
+from obox_builder.db.session import session_scope
+
+from tests.admin.conftest import (
+    build_app,
+    csrf_for,
+    grant_permissions,
+    login_session,
+    make_user,
+)
+from tests.support.apps.shop.models import Category, Order, Product
+
+pytestmark = pytest.mark.usefixtures("admin_env")
+
+LIST_URL = "/admin/shop/product"
+ADD_URL = "/admin/shop/product/add"
+
+
+async def make_category(name: str) -> int:
+    async with session_scope() as db:
+        category = Category(name=name)
+        db.add(category)
+        await db.flush()
+        return category.id
+
+
+async def make_product(name: str, **values: Any) -> int:
+    async with session_scope() as db:
+        product = Product(name=name, **values)
+        db.add(product)
+        await db.flush()
+        return product.id
+
+
+async def get_product(product_id: int) -> Product | None:
+    async with session_scope() as db:
+        return await db.get(Product, product_id)
+
+
+def product_form(**overrides: str) -> dict[str, str]:
+    data = {
+        "name": "Widget",
+        "status": "draft",
+        "price_cents": "100",
+        "is_active": "true",
+        "category_id": "",
+    }
+    data.update(overrides)
+    return data
+
+
+# -- access control ---------------------------------------------------------
+
+
+async def test_list_redirects_anonymous_users_to_login(client: httpx.AsyncClient) -> None:
+    response = await client.get(LIST_URL, headers={"accept": "text/html"})
+    assert response.status_code == 303
+    assert "/admin/login" in response.headers["location"]
+
+
+async def test_view_only_user_gets_denied_on_mutations(client: httpx.AsyncClient) -> None:
+    product_id = await make_product("Widget")
+    await make_user("viewer")
+    await grant_permissions("viewer", "shop.view_product")
+    await login_session(client, "viewer")
+    listing = await client.get(LIST_URL, headers={"accept": "text/html"})
+    assert listing.status_code == 200
+    assert "Widget" in listing.text
+    assert "New product" not in listing.text
+    assert (await client.get(ADD_URL, headers={"accept": "text/html"})).status_code == 403
+    assert (
+        await client.get(f"{LIST_URL}/{product_id}", headers={"accept": "text/html"})
+    ).status_code == 403
+    assert (
+        await client.get(f"{LIST_URL}/{product_id}/delete", headers={"accept": "text/html"})
+    ).status_code == 403
+
+
+async def test_user_with_crud_permissions_can_manage_products(client: httpx.AsyncClient) -> None:
+    await make_user("editor")
+    await grant_permissions(
+        "editor",
+        "shop.view_product",
+        "shop.add_product",
+        "shop.change_product",
+        "shop.delete_product",
+    )
+    await login_session(client, "editor")
+    token = await csrf_for("editor")
+    created = await client.post(
+        ADD_URL, data={"csrf_token": token, **product_form()}, follow_redirects=False
+    )
+    assert created.status_code == 303
+    async with session_scope() as db:
+        product = await db.scalar(sa.select(Product).where(Product.name == "Widget"))
+    assert product is not None
+    assert product.status == "draft"
+
+
+# -- create / update / delete ----------------------------------------------
+
+
+async def test_create_product_from_the_form(client: httpx.AsyncClient) -> None:
+    category_id = await make_category("Books")
+    await make_user("alice", is_superuser=True)
+    await login_session(client, "alice")
+    token = await csrf_for("alice")
+    response = await client.post(
+        ADD_URL,
+        data={
+            "csrf_token": token,
+            **product_form(
+                name="Novel", status="live", price_cents="250", category_id=str(category_id)
+            ),
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert response.headers["location"] == LIST_URL
+    async with session_scope() as db:
+        product = await db.scalar(sa.select(Product).where(Product.name == "Novel"))
+    assert product is not None
+    assert (product.status, product.price_cents) == ("live", 250)
+    assert product.category_id == category_id
+    assert product.is_active is True
+    assert product.meta == {}
+
+    listing = await client.get(LIST_URL, headers={"accept": "text/html"})
+    assert "Novel" in listing.text
+    assert "was created" in listing.text
+    # Flash messages are consumed by the first page that renders them.
+    again = await client.get(LIST_URL, headers={"accept": "text/html"})
+    assert "was created" not in again.text
+
+
+async def test_create_accepts_csrf_from_the_header(client: httpx.AsyncClient) -> None:
+    await make_user("alice", is_superuser=True)
+    await login_session(client, "alice")
+    token = await csrf_for("alice")
+    response = await client.post(
+        ADD_URL,
+        data=product_form(),
+        headers={"x-csrf-token": token},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+
+
+async def test_csrf_is_enforced(client: httpx.AsyncClient) -> None:
+    await make_user("alice", is_superuser=True)
+    await login_session(client, "alice")
+    assert (await client.post(ADD_URL, data=product_form())).status_code == 403
+    bad = await client.post(ADD_URL, data={"csrf_token": "wrong", **product_form()})
+    assert bad.status_code == 403
+
+
+async def test_validation_errors_are_shown_per_field(client: httpx.AsyncClient) -> None:
+    await make_user("alice", is_superuser=True)
+    await login_session(client, "alice")
+    token = await csrf_for("alice")
+    response = await client.post(
+        ADD_URL,
+        data={"csrf_token": token, **product_form(name="", status="imaginary", price_cents="abc")},
+    )
+    assert response.status_code == 200
+    assert "This field is required." in response.text
+    assert "Select a valid choice." in response.text
+    assert "Input should be a valid integer" in response.text
+    assert 'value="abc"' in response.text
+
+
+async def test_readonly_and_secret_fields_cannot_be_injected(client: httpx.AsyncClient) -> None:
+    product_id = await make_product("Widget")
+    await make_user("alice", is_superuser=True)
+    await login_session(client, "alice")
+    token = await csrf_for("alice")
+    response = await client.post(
+        f"{LIST_URL}/{product_id}",
+        data={
+            "csrf_token": token,
+            **product_form(name="Renamed"),
+            "meta": '{"injected": true}',
+            "id": "999",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    product = await get_product(product_id)
+    assert product is not None
+    assert product.name == "Renamed"
+    assert product.meta == {}
+    assert product.id == product_id
+
+
+async def test_change_form_prefills_values_and_link_choices(client: httpx.AsyncClient) -> None:
+    category_id = await make_category("Books")
+    product_id = await make_product("Novel", category_id=category_id, price_cents=250)
+    await make_user("alice", is_superuser=True)
+    await login_session(client, "alice")
+    response = await client.get(f"{LIST_URL}/{product_id}", headers={"accept": "text/html"})
+    assert response.status_code == 200
+    assert 'value="Novel"' in response.text
+    assert 'value="250"' in response.text
+    assert f'<option value="{category_id}" selected>Books</option>' in response.text
+    assert re.search(r'<textarea[^>]*name="meta"[^>]*disabled', response.text)
+
+
+async def test_delete_requires_confirmation_then_removes(client: httpx.AsyncClient) -> None:
+    product_id = await make_product("Widget")
+    await make_user("alice", is_superuser=True)
+    await login_session(client, "alice")
+    token = await csrf_for("alice")
+    confirm = await client.get(f"{LIST_URL}/{product_id}/delete", headers={"accept": "text/html"})
+    assert confirm.status_code == 200
+    assert "Are you sure" in confirm.text
+    deleted = await client.post(
+        f"{LIST_URL}/{product_id}/delete", data={"csrf_token": token}, follow_redirects=False
+    )
+    assert deleted.status_code == 303
+    assert await get_product(product_id) is None
+    listing = await client.get(LIST_URL, headers={"accept": "text/html"})
+    assert "was deleted" in listing.text
+
+
+async def test_delete_is_blocked_by_foreign_key(client: httpx.AsyncClient) -> None:
+    category_id = await make_category("Books")
+    await make_product("Novel", category_id=category_id)
+    await make_user("alice", is_superuser=True)
+    await login_session(client, "alice")
+    token = await csrf_for("alice")
+    response = await client.post(
+        f"/admin/shop/category/{category_id}/delete",
+        data={"csrf_token": token},
+        follow_redirects=False,
+    )
+    assert response.status_code == 409
+    assert "Could not save" in response.text
+
+    async with session_scope() as db:
+        category = await db.get(Category, category_id)
+    assert category is not None
+
+
+async def test_duplicate_unique_value_is_reported(client: httpx.AsyncClient) -> None:
+    await make_user("alice", is_superuser=True)
+    await login_session(client, "alice")
+    token = await csrf_for("alice")
+    first = await client.post(
+        "/admin/shop/order/add",
+        data={"csrf_token": token, "reference": "ORD-1"},
+        follow_redirects=False,
+    )
+    assert first.status_code == 303
+    duplicate = await client.post(
+        "/admin/shop/order/add", data={"csrf_token": token, "reference": "ORD-1"}
+    )
+    assert duplicate.status_code == 200
+    assert "Could not save" in duplicate.text
+    async with session_scope() as db:
+        orders = (await db.scalars(sa.select(Order))).all()
+    assert len(orders) == 1
+
+
+# -- list behaviour ---------------------------------------------------------
+
+
+async def test_search_filters_rows(client: httpx.AsyncClient) -> None:
+    await make_product("Widget")
+    await make_product("Gadget")
+    await make_user("alice", is_superuser=True)
+    await login_session(client, "alice")
+    response = await client.get(f"{LIST_URL}?q=wid", headers={"accept": "text/html"})
+    assert response.status_code == 200
+    assert "Widget" in response.text
+    assert "Gadget" not in response.text
+
+
+async def test_sorting_toggles_direction(client: httpx.AsyncClient) -> None:
+    await make_product("Alpha")
+    await make_product("Zeta")
+    await make_user("alice", is_superuser=True)
+    await login_session(client, "alice")
+    ascending = await client.get(f"{LIST_URL}?sort=name", headers={"accept": "text/html"})
+    assert ascending.text.index("Alpha") < ascending.text.index("Zeta")
+    descending = await client.get(f"{LIST_URL}?sort=-name", headers={"accept": "text/html"})
+    assert descending.text.index("Zeta") < descending.text.index("Alpha")
+
+
+async def test_boolean_and_choice_filters(client: httpx.AsyncClient) -> None:
+    await make_product("Running", status="live")
+    await make_product("Planned", status="draft")
+    await make_product("Archived", status="draft", is_active=False)
+    await make_user("alice", is_superuser=True)
+    await login_session(client, "alice")
+    live = await client.get(f"{LIST_URL}?f=status:eq:live", headers={"accept": "text/html"})
+    assert "Running" in live.text
+    assert "Planned" not in live.text
+    inactive = await client.get(f"{LIST_URL}?f=is_active:eq:false", headers={"accept": "text/html"})
+    assert "Archived" in inactive.text
+    assert "Planned" not in inactive.text
+
+
+async def test_pagination(client: httpx.AsyncClient) -> None:
+    for index in range(3):
+        await make_product(f"Item {index}")
+    await make_user("alice", is_superuser=True)
+    await login_session(client, "alice")
+    first = await client.get(f"{LIST_URL}?size=2&sort=name", headers={"accept": "text/html"})
+    assert "Item 0" in first.text
+    assert "Item 1" in first.text
+    assert "Item 2" not in first.text
+    second = await client.get(
+        f"{LIST_URL}?size=2&sort=name&page=2", headers={"accept": "text/html"}
+    )
+    assert "Item 2" in second.text
+    assert "Item 0" not in second.text
+
+
+async def test_link_cells_link_to_the_target_admin(client: httpx.AsyncClient) -> None:
+    category_id = await make_category("Books")
+    await make_product("Novel", category_id=category_id)
+    await make_user("alice", is_superuser=True)
+    await login_session(client, "alice")
+    response = await client.get(LIST_URL, headers={"accept": "text/html"})
+    assert response.status_code == 200
+    assert f'href="/admin/shop/category/{category_id}"' in response.text
+
+
+async def test_sidebar_lists_registered_models(client: httpx.AsyncClient) -> None:
+    await make_user("alice", is_superuser=True)
+    await login_session(client, "alice")
+    response = await client.get(LIST_URL, headers={"accept": "text/html"})
+    assert 'href="/admin/shop/product"' in response.text
+    assert 'href="/admin/shop/category"' in response.text
+    assert 'href="/admin/shop/order"' in response.text
+
+
+# -- error handling ---------------------------------------------------------
+
+
+async def test_invalid_query_parameters_get_a_400(client: httpx.AsyncClient) -> None:
+    await make_user("alice", is_superuser=True)
+    await login_session(client, "alice")
+    bad_filter = await client.get(f"{LIST_URL}?f=nope:eq:1", headers={"accept": "text/html"})
+    assert bad_filter.status_code == 400
+    assert "Bad request" in bad_filter.text
+    bad_sort = await client.get(f"{LIST_URL}?sort=nope", headers={"accept": "text/html"})
+    assert bad_sort.status_code == 400
+
+
+async def test_unknown_objects_produce_404(client: httpx.AsyncClient) -> None:
+    await make_user("alice", is_superuser=True)
+    await login_session(client, "alice")
+    for url in (
+        f"{LIST_URL}/99999",
+        f"{LIST_URL}/99999/delete",
+        f"{LIST_URL}/not-a-number",
+    ):
+        response = await client.get(url, headers={"accept": "text/html"})
+        assert response.status_code == 404, url
+        assert "Page not found" in response.text
+
+
+async def test_base_path_admin_serves_crud_at_the_new_url(client: httpx.AsyncClient) -> None:
+    from obox_builder.contrib.admin.site import site
+
+    from tests.support.apps.shop.admin import ProductAdmin
+
+    class TopicsAdmin(ProductAdmin):
+        base_path = "topics"
+
+    await make_product("Widget")
+    await make_user("alice", is_superuser=True)
+    site.register(Product, TopicsAdmin)
+    try:
+        transport = httpx.ASGITransport(app=build_app())
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as http:
+            await login_session(http, "alice")
+            listing = await http.get("/admin/topics", headers={"accept": "text/html"})
+            assert listing.status_code == 200
+            assert "Widget" in listing.text
+            add_form = await http.get("/admin/topics/add", headers={"accept": "text/html"})
+            assert add_form.status_code == 200
+            old = await http.get(LIST_URL, headers={"accept": "text/html"})
+            assert old.status_code == 404
+    finally:
+        site.register(Product, ProductAdmin)

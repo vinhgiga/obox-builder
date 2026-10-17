@@ -1,0 +1,105 @@
+{% extends "admin/base.html" %}
+{% from "admin/macros/cells.html" import cell_text %}
+{% block title %}{{ admin.plural_name }}{% endblock %}
+{% block content %}
+<div class="page-header d-print-none">
+  <div class="row g-2 align-items-center">
+    <div class="col">
+      <h2 class="page-title">{{ admin.plural_name }} ({{ displayed_total }}{{ '+' if total_capped }})</h2>
+    </div>
+    <div class="col-auto ms-auto d-print-none">
+      <div class="d-flex">
+        {% if searchable %}
+        <form method="get" action="{{ admin.list_path() }}" class="d-flex me-2">
+          <input type="text" name="q" value="{{ q }}" class="form-control me-2"
+                 placeholder="Search {{ admin.plural_name | lower }}" autocomplete="off"/>
+          {% for value in request.query_params.getlist('f') %}
+            <input type="hidden" name="f" value="{{ value }}"/>
+          {% endfor %}
+          {% for value in request.query_params.getlist('sort') %}
+            <input type="hidden" name="sort" value="{{ value }}"/>
+          {% endfor %}
+          <button type="submit" class="btn">Search</button>
+        </form>
+        {% endif %}
+        {% if can_add %}
+        <a href="{{ admin.add_path() }}" class="btn btn-primary">New {{ admin.name | lower }}</a>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+<div class="card">
+  {% if filters %}
+  <div class="card-header">
+    <form method="get" action="{{ admin.list_path() }}" class="d-flex flex-wrap gap-2">
+      <input type="hidden" name="q" value="{{ q }}"/>
+      {% for value in request.query_params.getlist('sort') %}
+        <input type="hidden" name="sort" value="{{ value }}"/>
+      {% endfor %}
+      {% for filter in filters %}
+      <select name="f" class="form-select w-auto" onchange="this.form.submit()">
+        <option value="">{{ filter.spec.label }}: all</option>
+        {% for option_value, option_label in filter.options %}
+        <option value="{{ filter.spec.name }}:eq:{{ option_value }}"
+                {{ 'selected' if filter.current == option_value }}>{{ option_label }}</option>
+        {% endfor %}
+      </select>
+      {% endfor %}
+      <noscript><button type="submit" class="btn">Apply</button></noscript>
+    </form>
+  </div>
+  {% endif %}
+  <div class="table-responsive">
+    <table class="table table-vcenter card-table">
+      <thead>
+        <tr>
+          {% for column in columns %}
+          <th>
+            {% if column.type.sortable %}
+            <a href="{{ sort_href(column.name) }}" class="text-body">
+              {{ column.label }}
+              {% if sort_state(column.name) == 'asc' %}&uarr;{% elif sort_state(column.name) == 'desc' %}&darr;{% endif %}
+            </a>
+            {% else %}{{ column.label }}{% endif %}
+          </th>
+          {% endfor %}
+          <th class="w-1"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          {% for cell in row.cells %}
+          <td>{% if loop.first and admin.permission_name('change') in perms %}
+                <a href="{{ admin.change_path(row.pk) }}">{{ cell_text(cell) }}</a>
+              {% else %}{{ cell_text(cell) }}{% endif %}</td>
+          {% endfor %}
+          <td class="text-end">
+            <div class="btn-list justify-content-end flex-nowrap">
+            {% if admin.permission_name('change') in perms %}
+            <a href="{{ admin.change_path(row.pk) }}" class="btn btn-sm">Edit</a>
+            {% endif %}
+            {% if admin.permission_name('delete') in perms %}
+            <form method="post" action="{{ delete_href(row.pk) }}" class="d-inline"
+                  data-confirm="Delete {{ row.label }}? This cannot be undone.">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}"/>
+              <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+            </form>
+            {% endif %}
+            </div>
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="{{ columns | length + 1 }}" class="text-center text-secondary py-4">
+            No {{ admin.plural_name | lower }} found.
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% include "admin/includes/pagination.html" %}
+{% endblock %}

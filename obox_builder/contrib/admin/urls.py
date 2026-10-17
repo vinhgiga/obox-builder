@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, Request
 
 from obox_builder.contrib.admin.views import (
     dashboard,
@@ -25,13 +25,17 @@ from obox_builder.contrib.admin.views import (
     user_edit_submit,
     user_list,
 )
+from obox_builder.contrib.admin.views.model import register_model_routes
 
 if TYPE_CHECKING:
     from obox_builder.contrib.admin.site import AdminSite
 
 
 def build_router(site: AdminSite) -> APIRouter:
-    router = APIRouter(tags=["admin"])
+    async def bind_site(request: Request) -> None:
+        request.state.admin_site = site
+
+    router = APIRouter(tags=["admin"], dependencies=[Depends(bind_site)])
 
     router.add_api_route("/", dashboard, methods=["GET"], name="admin:dashboard")
     router.add_api_route("/login", login_view, methods=["GET"], name="admin:login")
@@ -69,4 +73,5 @@ def build_router(site: AdminSite) -> APIRouter:
     router.add_api_route(
         "/roles/{role_id}/delete", role_delete, methods=["POST"], name="admin:role_delete"
     )
+    register_model_routes(router, site)
     return router

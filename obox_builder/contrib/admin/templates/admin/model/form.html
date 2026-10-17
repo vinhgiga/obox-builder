@@ -1,0 +1,47 @@
+{% extends "admin/base.html" %}
+{% from "admin/macros/forms.html" import csrf %}
+{% from "admin/macros/widgets.html" import widget %}
+{% block title %}{{ title }}{% endblock %}
+{% block content %}
+<div class="page-header d-print-none">
+  <div class="row g-2 align-items-center">
+    <div class="col">
+      <h2 class="page-title">{{ title }}{% if subtitle %} <span class="text-secondary">/ {{ subtitle }}</span>{% endif %}</h2>
+    </div>
+    <div class="col-auto ms-auto d-print-none">
+      <a href="{{ admin.list_path() }}" class="btn">Back to {{ admin.plural_name | lower }}</a>
+    </div>
+  </div>
+</div>
+{% if errors.get('__all__') %}
+<div class="alert alert-danger">
+  <ul class="mb-0">
+    {% for error in errors.get('__all__') %}<li>{{ error }}</li>{% endfor %}
+  </ul>
+</div>
+{% endif %}
+<form method="post" action="{{ action }}">
+  {{ csrf(csrf_token) }}
+  <div class="row">
+    <div class="col-lg-8">
+      <div class="card mb-3">
+        <div class="card-body">
+          {% for spec in specs %}
+            {{ widget(spec, values.get(spec.name, ''), errors.get(spec.name), choices.get(spec.name, []), readonly or spec.readonly) }}
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    <div class="col-lg-4">
+      <div class="card">
+        <div class="card-body d-flex">
+          {% if not readonly %}
+          <button type="submit" class="btn btn-primary me-2">{{ "Create" if is_add else "Save changes" }}</button>
+          {% endif %}
+          <a href="{{ admin.list_path() }}" class="btn">Cancel</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</form>
+{% endblock %}

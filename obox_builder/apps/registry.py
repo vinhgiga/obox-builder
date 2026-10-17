@@ -6,6 +6,7 @@ from typing import Any
 
 from obox_builder.apps.config import AppConfig
 from obox_builder.core.exceptions import ImproperlyConfigured
+from obox_builder.utils.strings import camel_to_snake
 
 
 class Apps:
@@ -76,7 +77,7 @@ class Apps:
     def get_model(self, app_label: str, model_name: str) -> type[Any]:
         self.check_models_ready()
         try:
-            return self.all_models[app_label][model_name.lower()]
+            return self.all_models[app_label][camel_to_snake(model_name)]
         except KeyError:
             raise LookupError(
                 f"App {app_label!r} doesn't have a model named {model_name!r}."
@@ -90,7 +91,7 @@ class Apps:
                 "register_model() called after the models phase; import models from apps.py "
                 "or models.py only."
             )
-        model_name = model.__name__.lower()
+        model_name = camel_to_snake(model.__name__)
         self.all_models.setdefault(app_label, {})[model_name] = model
 
     def register_table(self, app_label: str, table: Any) -> None:

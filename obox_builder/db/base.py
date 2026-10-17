@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from typing import Any, ClassVar
 
 from sqlalchemy import MetaData
@@ -9,6 +8,7 @@ from sqlalchemy.orm import relationship as _relationship
 
 from obox_builder.apps import apps
 from obox_builder.core.exceptions import ImproperlyConfigured
+from obox_builder.utils.strings import camel_to_snake
 
 NAMING_CONVENTION = {
     "ix": "ix_%(table_name)s_%(column_0_N_name)s",
@@ -17,12 +17,6 @@ NAMING_CONVENTION = {
     "fk": "fk_%(table_name)s_%(column_0_N_name)s_%(referred_table_name)s",
     "pk": "pk_%(table_name)s",
 }
-
-_CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
-
-
-def camel_to_snake(name: str) -> str:
-    return _CAMEL_BOUNDARY.sub("_", name).lower()
 
 
 class ModelBase(DeclarativeBase):

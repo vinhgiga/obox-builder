@@ -7,7 +7,7 @@ from obox_builder.conf import BaseSettings, LazySettings, settings
 from obox_builder.conf.logging import configure_logging
 from obox_builder.core.exceptions import ImproperlyConfigured
 
-__version__ = "0.1.0.dev0"
+__version__ = "0.2.1"
 
 _setup_done = False
 

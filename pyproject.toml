@@ -1,6 +1,6 @@
 [project]
 name = "obox-builder"
-version = "0.1.0.dev0"
+version = "0.2.1"
 description = "Django-flavoured internal admin framework built on FastAPI"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -130,6 +130,7 @@ layers = [
     "obox_builder.http",
     "obox_builder.templating",
     "obox_builder.forms",
+    "obox_builder.fields",
     "obox_builder.staticfiles",
     "obox_builder.db",
     "obox_builder.apps",
@@ -144,6 +145,9 @@ ignore_imports = [
     # Bottom layer: shared utilities may raise framework exceptions.
     "obox_builder.utils.* -> obox_builder.core.exceptions",
     "obox_builder.staticfiles.* -> obox_builder.core.exceptions",
+    # Field types raise ImproperlyConfigured for bad declarations; the dependency
+    # is exception-only, like the other low layers above.
+    "obox_builder.fields.* -> obox_builder.core.exceptions",
     # The registry scans models.py for Model subclasses / bare tables; the import is
     # function-level so no import cycle is created.
     "obox_builder.apps.config -> obox_builder.db.base",

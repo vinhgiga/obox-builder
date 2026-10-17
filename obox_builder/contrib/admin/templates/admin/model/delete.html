@@ -1,0 +1,28 @@
+{% extends "admin/base.html" %}
+{% from "admin/macros/forms.html" import csrf %}
+{% block title %}Delete {{ admin.name | lower }}{% endblock %}
+{% block content %}
+<div class="page-header d-print-none">
+  <div class="row g-2 align-items-center">
+    <div class="col">
+      <h2 class="page-title">Delete {{ admin.name | lower }}</h2>
+    </div>
+    <div class="col-auto ms-auto d-print-none">
+      <a href="{{ admin.list_path() }}" class="btn">Back to {{ admin.plural_name | lower }}</a>
+    </div>
+  </div>
+</div>
+{% if error %}
+<div class="alert alert-danger">{{ error }}</div>
+{% endif %}
+<div class="card">
+  <div class="card-body">
+    <p>Are you sure you want to delete <strong>{{ target }}</strong>? This cannot be undone.</p>
+    <form method="post" action="{{ admin.delete_path(admin.get_pk(target)) }}" class="d-flex">
+      {{ csrf(csrf_token) }}
+      <button type="submit" class="btn btn-danger me-2">Delete</button>
+      <a href="{{ admin.list_path() }}" class="btn">Cancel</a>
+    </form>
+  </div>
+</div>
+{% endblock %}
