@@ -7,15 +7,19 @@ Follows [Keep a Changelog](https://keepachangelog.com/), versions follow
 
 ### Added
 
-- **Row history**: `obox_builder.contrib.history` — append-only
-  `history_row_change` captured from SQLAlchemy session events in the same
-  transaction as the data change; `Model.__history__` declarations (incl.
-  secret redaction and per-field opt-out), `history.track`, `history.use`
-  context, `HISTORY_*` settings, failure/bulk policies, `pre_record`/
-  `post_record` signals, model checks (`E201`–`E203`, `W202`), a read API
-  (`history.service` with keyset pagination), the admin history card + per-row
-  timeline page (`history.view_row_change`), per-row ORM bulk deletes, and
-  tracking for `auth.User`/`auth.Role`.
+- **Row history** (`obox_builder.contrib.history`): append-only
+  `history_row_change` written in the same transaction as the data change;
+  `Model.__history__` declarations, `history.track()`, secret redaction,
+  `history.use()` actor context and `history.bulk_update()`.
+- Admin UI: per-row history card and timeline page, global audit feed
+  (`/admin/history`) with model/actor/source/op/date filters, change-set
+  detail, permission-aware masking, and an "Audit → History" nav entry.
+- M2M diffs for declared `relations` (sorted add/remove id sets).
+- Append-only DB triggers installed by `migrate`; `history_purge` and
+  `history_export` commands (NDJSON/CSV) with per-model retention.
+- `HISTORY_*` settings, `pre_record`/`post_record` signals, model checks
+  (`E201`–`E203`, `W202`), `history.service` read API, and tracking for
+  `auth.User`/`auth.Role`.
 
 ## [0.2.0] - 2026-10-17
 

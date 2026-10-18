@@ -13,7 +13,7 @@
       >{{ entry.occurred_at | format_datetime("%Y-%m-%d %H:%M:%S") }}</span>
   </div>
   {% if detailed %}<div class="text-secondary small mt-1">{{ entry.object_repr }}</div>{% endif %}
-  {% if entry.diffs or entry.redacted or entry.unknown_old %}
+  {% if entry.diffs or entry.m2m or entry.redacted or entry.unknown_old %}
   <table class="table table-sm table-vcenter mt-2 mb-1">
     <thead>
       <tr>
@@ -28,6 +28,17 @@
         <td>{{ diff.label }}</td>
         <td class="text-secondary" style="overflow-wrap: anywhere">{{ diff.old }}</td>
         <td style="overflow-wrap: anywhere">{{ diff.new }}</td>
+      </tr>
+      {% endfor %}
+      {% for rel in entry.m2m %}
+      <tr>
+        <td>{{ rel.label }}</td>
+        <td class="text-secondary" style="overflow-wrap: anywhere">
+          {% if rel.removed %}<span class="badge bg-red-lt">{{ rel.removed | join(", ") }}</span>{% endif %}
+        </td>
+        <td style="overflow-wrap: anywhere">
+          {% if rel.added %}<span class="badge bg-green-lt">{{ rel.added | join(", ") }}</span>{% endif %}
+        </td>
       </tr>
       {% endfor %}
       {% for label in entry.redacted %}

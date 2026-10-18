@@ -35,10 +35,18 @@ def build_changes(change: PendingChange) -> dict[str, Any]:
         fields[name] = prepared
     return {
         "fields": fields,
-        "m2m": {},
+        "m2m": _m2m(change),
         "redacted": sorted(change.redacted),
         "truncated": truncated,
         "unknown_old": sorted(change.unknown_old),
+    }
+
+
+def _m2m(change: PendingChange) -> dict[str, dict[str, list[str]]]:
+    """Sorted relation add/remove id lists; every side key is always present."""
+    return {
+        name: {"add": list(sides["add"]), "remove": list(sides["remove"])}
+        for name, sides in sorted(change.m2m.items())
     }
 
 

@@ -24,6 +24,7 @@ from obox_builder.utils.strings import camel_to_snake
 __all__ = [
     "PendingChange",
     "TrackedField",
+    "TrackedRelation",
     "Tracker",
     "declared_models",
     "get_tracker",
@@ -48,6 +49,14 @@ class TrackedField:
     secret: bool = False
 
 
+@dataclass(frozen=True)
+class TrackedRelation:
+    """One M2M relationship recorded as ``add``/``remove`` id lists."""
+
+    name: str
+    label: str
+
+
 @dataclass
 class PendingChange:
     """A diff computed in ``before_flush``, awaiting the INSERT in ``after_flush``."""
@@ -58,10 +67,17 @@ class PendingChange:
     fields: dict[str, list[Any]] = field(default_factory=dict)
     redacted: list[str] = field(default_factory=list)
     unknown_old: list[str] = field(default_factory=list)
+    #: Raw ``(added, removed)`` object pairs per relation, resolved to ids in
+    #: ``fill_m2m`` (new related rows have no PK before the INSERT).
+    m2m_pending: dict[str, tuple[list[Any], list[Any]]] = field(default_factory=dict)
+    #: ``{relation: {"add": [ids], "remove": [ids]}}`` resolved after flush.
+    m2m: dict[str, dict[str, list[str]]] = field(default_factory=dict)
 
     @property
     def has_effect(self) -> bool:
-        return bool(self.fields or self.redacted or self.unknown_old)
+        return bool(
+            self.fields or self.redacted or self.unknown_old or self.m2m or self.m2m_pending
+        )
 
 
 class Tracker:
@@ -76,7 +92,7 @@ class Tracker:
         self.model_label = f"{model._model_label}.{camel_to_snake(model.__name__)}"
         self.pk_key = mapper.primary_key[0].key
         self.fields = _select_fields(model, options)
-        self.relations = options.relations
+        self.relations = _select_relations(model, options)
 
     def pk(self, obj: Any) -> Any:
         return getattr(obj, self.pk_key, None)
@@ -131,11 +147,39 @@ class Tracker:
                 if value_repr is None:
                     continue
                 change.fields[tf.name] = [value_repr, None]
+        self._diff_m2m(state, op, change)
         # CREATE snapshots are completed in ``after_flush`` (column defaults),
         # so an empty create still has to reach the write stage.
         if op == "create" or change.has_effect:
             return change
         return None
+
+    def _diff_m2m(self, state: Any, op: str, change: PendingChange) -> None:
+        """Collect relation adds/removes without ever triggering a lazy load.
+
+        Collections must be loaded before assignment (``lazy="raise"``); a
+        ``delete`` of a row whose collection was never loaded records nothing.
+        """
+        for rel in self.relations:
+            try:
+                attr = state.attrs[rel.name]
+            except KeyError:  # pragma: no cover - defensive
+                continue
+            if op == "delete":
+                loaded = attr.loaded_value
+                if loaded is NO_VALUE:
+                    continue
+                added: list[Any] = []
+                removed: list[Any] = list(loaded)
+            else:
+                history = attr.history
+                added = list(history.added)
+                removed = list(history.deleted)
+            both = {id(obj) for obj in added} & {id(obj) for obj in removed}
+            added = [obj for obj in added if id(obj) not in both]
+            removed = [obj for obj in removed if id(obj) not in both]
+            if added or removed:
+                change.m2m_pending[rel.name] = (added, removed)
 
     def fill_create(self, change: PendingChange) -> None:
         """Fill a CREATE snapshot from current attribute values (``after_flush``)."""
@@ -154,6 +198,46 @@ class Tracker:
             if value_repr is None:
                 continue
             change.fields[tf.name] = [None, value_repr]
+
+    def fill_m2m(self, change: PendingChange) -> None:
+        """Resolve pending relation objects to ``str(pk)`` id lists (``after_flush``)."""
+        for name, (added, removed) in change.m2m_pending.items():
+            add_ids = _ids(added)
+            remove_ids = _ids(removed)
+            both = add_ids & remove_ids
+            add_ids -= both
+            remove_ids -= both
+            if add_ids or remove_ids:
+                change.m2m[name] = {"add": sorted(add_ids), "remove": sorted(remove_ids)}
+
+
+def _ids(objects: list[Any]) -> set[str]:
+    result: set[str] = set()
+    for obj in objects:
+        # ``state.identity`` is only registered after ``after_flush`` returns,
+        # so read the PK attribute the INSERT already populated.
+        state = sa.inspect(obj)
+        value = getattr(obj, state.mapper.primary_key[0].key, None)
+        if value is None or value is NO_VALUE:
+            continue
+        result.add(str(value))
+    return result
+
+
+def _select_relations(model: type[Any], options: HistoryOptions) -> tuple[TrackedRelation, ...]:
+    if not options.relations:
+        return ()
+    mapper = sa.inspect(model)
+    specs = {spec.name: spec for spec in introspect_model(model)}
+    relations: list[TrackedRelation] = []
+    for name in options.relations:
+        rel = mapper.relationships.get(name)
+        if rel is None or rel.secondary is None:
+            continue  # flagged by obox.history.E202 at check time
+        spec = specs.get(name)
+        label = spec.label if spec is not None else name.replace("_", " ").capitalize()
+        relations.append(TrackedRelation(name=name, label=label))
+    return tuple(relations)
 
 
 def _select_fields(model: type[Any], options: HistoryOptions) -> list[TrackedField]:

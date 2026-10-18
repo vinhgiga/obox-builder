@@ -99,6 +99,8 @@ def _after_flush(session: OrmSession, flush_context: Any) -> None:
         if change.op == "create":
             # Row snapshots need the column defaults applied by the INSERT.
             change.tracker.fill_create(change)
+        # M2M ids need the PKs assigned by the INSERT (self or related rows).
+        change.tracker.fill_m2m(change)
     pending = [change for change in pending if change.has_effect]
     if not pending:
         return

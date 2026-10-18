@@ -29,6 +29,7 @@ from obox_builder.contrib.admin.views.common import (
 from obox_builder.contrib.admin.views.history import (
     before_cursor,
     build_card,
+    diff_mask,
     timeline_available,
     timeline_context,
 )
@@ -385,7 +386,13 @@ async def _render_form(
         and admin.has_history_permission(ctx, target)
     ):
         pk = admin.get_pk(target)
-        history = await build_card(ctx.db, admin.model, pk, url=admin.history_path(pk))
+        history = await build_card(
+            ctx.db,
+            admin.model,
+            pk,
+            url=admin.history_path(pk),
+            mask=diff_mask(admin.model, admin=admin, user=ctx.user),
+        )
     context = await page_context(
         request,
         admin=admin,
@@ -608,6 +615,7 @@ async def _history(ctx: AdminContext, target: Any) -> HTMLResponse:
             subtitle=_object_label(admin, target),
             back_url=admin.change_path(pk),
             timeline_url=request.url.path,
+            mask=diff_mask(admin.model, admin=admin, user=ctx.user),
         ),
     )
     return render(request, "admin/history.html", context)

@@ -18,7 +18,7 @@
 <div class="card">
   <div class="card-body">
     {% if not entries %}
-    <div class="text-secondary">No changes recorded for this row yet.</div>
+    <div class="text-secondary">No changes recorded.</div>
     {% endif %}
     {% for entry in entries %}
       {{ entry_item(entry, true) }}

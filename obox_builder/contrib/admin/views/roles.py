@@ -14,6 +14,7 @@ from obox_builder.contrib.admin.views.common import ensure_csrf, flash, page_con
 from obox_builder.contrib.admin.views.history import (
     before_cursor,
     build_card,
+    diff_mask,
     model_timeline_available,
     timeline_context,
 )
@@ -46,7 +47,13 @@ def _history_visible(user: User) -> bool:
 async def _history_for(db: AsyncSession, user: User, target: Role) -> dict[str, object] | None:
     if not _history_visible(user):
         return None
-    return await build_card(db, Role, target.id, url=f"/admin/roles/{target.id}/history")
+    return await build_card(
+        db,
+        Role,
+        target.id,
+        url=f"/admin/roles/{target.id}/history",
+        mask=diff_mask(Role, user=user),
+    )
 
 
 async def _permission_matrix(db: AsyncSession) -> list[dict[str, object]]:
@@ -181,6 +188,7 @@ async def role_history(
             subtitle=role.name,
             back_url=f"/admin/roles/{role.id}",
             timeline_url=request.url.path,
+            mask=diff_mask(Role, user=user),
         ),
     )
     return render(request, "admin/history.html", context)

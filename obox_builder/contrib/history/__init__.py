@@ -7,6 +7,7 @@ declaring ``__history__ = True`` on the models to audit (or calling
 registry to be populated first.
 """
 
+from obox_builder.contrib.history.bulk import bulk_update
 from obox_builder.contrib.history.context import HistoryContext, bind, use
 from obox_builder.contrib.history.options import HistoryOptions
 from obox_builder.contrib.history.tracker import get_tracker, is_tracked, track
@@ -19,6 +20,7 @@ __all__ = [
     "HistoryContext",
     "HistoryOptions",
     "bind",
+    "bulk_update",
     "get_tracker",
     "is_tracked",
     "track",

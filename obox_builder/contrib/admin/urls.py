@@ -6,9 +6,12 @@ from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Depends, Request
 
-from obox_builder.contrib.admin.deps import bind_history
+from obox_builder.apps import apps
+from obox_builder.contrib.admin.deps import HISTORY_APP, bind_history
 from obox_builder.contrib.admin.views import (
     dashboard,
+    history_change_set,
+    history_feed,
     login_submit,
     login_view,
     logout_view,
@@ -91,6 +94,14 @@ def build_router(site: AdminSite) -> APIRouter:
             role_history,
             methods=["GET"],
             name="admin:role_history",
+        )
+    if apps.is_installed(HISTORY_APP):
+        router.add_api_route("/history", history_feed, methods=["GET"], name="admin:history_feed")
+        router.add_api_route(
+            "/history/{change_set_id}",
+            history_change_set,
+            methods=["GET"],
+            name="admin:history_change_set",
         )
     register_model_routes(router, site)
     return router

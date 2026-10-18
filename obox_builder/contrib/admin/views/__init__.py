@@ -1,3 +1,4 @@
+from obox_builder.contrib.admin.views.audit import history_change_set, history_feed
 from obox_builder.contrib.admin.views.auth import (
     login_submit,
     login_view,
@@ -26,6 +27,8 @@ from obox_builder.contrib.admin.views.users import (
 
 __all__ = [
     "dashboard",
+    "history_change_set",
+    "history_feed",
     "login_submit",
     "login_view",
     "logout_view",

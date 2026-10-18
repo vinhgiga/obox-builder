@@ -3,9 +3,10 @@
 `obox_builder.contrib.history` records **who changed what, when and from
 where** for every tracked row. Entries are append-only facts written inside
 the same transaction as the data change, and surface in the admin as a
-timeline card on the edit page plus a full per-row history page.
+timeline card on the edit page, a full per-row history page and a global
+audit feed.
 
-Design background lives in [ADR-0001](adr/0001-row-history.md) (Vietnamese).
+Design background lives in [ADR-0001](adr/0001-row-history.md).
 
 ## Install
 
@@ -24,6 +25,9 @@ Then generate and apply the migration for `history_row_change`:
 python manage.py makemigrations
 python manage.py migrate
 ```
+
+`migrate` also installs the append-only triggers (see
+[Guarantees](#guarantees-and-failure-policy)); no extra step is needed.
 
 !!! note
     The app is standalone: without `contrib.admin` you still get capture and
@@ -46,7 +50,8 @@ class Post(Model, TimestampMixin):
 class Post(Model):
     __history__ = {
         "exclude": ["internal_note"],  # never recorded
-        "relations": ["tags"],  # M2M recorded as id sets (Phase 2)
+        "relations": ["tags"],  # M2M recorded as id sets (add/remove)
+        "retention_days": 90,  # overrides HISTORY_RETENTION_DAYS for this model
     }
 ```
 
@@ -106,16 +111,44 @@ The stored payload (`changes`) has schema version 1:
 ```json
 {
   "fields": {"body": ["v1", "v2"]},
-  "m2m": {},
+  "m2m": {"tags": {"add": ["7"], "remove": ["3"]}},
   "redacted": ["secret_token"],
   "truncated": {},
   "unknown_old": []
 }
 ```
 
+M2M changes come from the rows that own the association: an entry records the
+net `add`/`remove` id lists (sorted, strings) of each declared relation. A
+`delete` entry snapshots the collections that were already loaded — history
+never triggers a lazy load to read them.
+
 Large values are replaced with `{len, sha256}` under `truncated`
 (`HISTORY_MAX_VALUE_BYTES`, default 8 KiB). `unknown_old` marks fields whose
 previous value was never loaded (`lazy="raise"`, expired attributes).
+
+## Masking by permission
+
+`entry_view` filters each entry through a `DiffMask` computed from the model's
+admin and the viewer:
+
+* Relation changes are always visible (they are opt-in via `relations`).
+* Fields hidden from the admin interface (`fields`/`exclude`/`info={"admin":
+  {"history": False}}`) are also hidden from every viewer, including
+  superusers — history never reveals more than the UI does.
+* `redacted` markers are visible; the values behind them never enter the
+  database. Secret and `mask` fields stay hidden for everyone.
+* Legacy entries whose field names predate the current tracker (renamed or
+  removed `__history__` keys) are shown to superusers only.
+* The `mask` option adds per-model extra classification on top of `secret`:
+
+```python
+class Post(Model):
+    __history__ = {"mask": ["author_email"]}
+```
+
+Field labels in the UI are resolved at render time from the *current* model
+schema, so renames apply to old entries as long as the field still exists.
 
 ## Admin UI
 
@@ -134,6 +167,14 @@ previous value was never loaded (`lazy="raise"`, expired attributes).
   users without the permission).
 * Admin bulk deletes are executed per row through the ORM, so each deleted
   row gets its own `delete` entry.
+* `GET /admin/history` is the **global audit feed** (newest first, 50 per
+  page) with filters for model, actor, source, operation and date window;
+  pagination is keyset via `?before=<id>`. Results are scoped to the models
+  the user can view; superusers see everything.
+* Each feed entry links to its row timeline and to `GET
+  /admin/history/<change_set_id>`, which groups everything written in the same
+  transaction (200 entries max; 404 when nothing is visible to the user).
+* The sidebar gets an **Audit → History** entry once the app is installed.
 
 ## Signals
 
@@ -161,10 +202,45 @@ not as a commit hook. Use it for metrics/shipping (Prometheus, OTel, SIEM).
   about this mode.
 * `HISTORY_BULK_POLICY` — bulk `UPDATE`/`DELETE` statements bypass the unit of
   work and cannot be attributed. `"warn"` (default) logs, `"raise"` refuses
-  them (`BulkWriteNotTrackedError`), `"ignore"` stays silent.
+  them (`BulkWriteNotTrackedError`), `"ignore"` stays silent. Use
+  `history.bulk_update(db, Model, {"field": value}, where=Model.x == 1)` when
+  you want one entry per matched row:
+
+```python
+from obox_builder.contrib.history import bulk_update
+
+visited = await bulk_update(db, Post, {"status": "archived"}, where=Post.age > 365)
+await db.commit()  # each changed row got its own `update` entry
+```
+
+* The table itself is **append-only at the database level**: after `migrate`,
+  a `post_migrate` receiver installs triggers that reject `UPDATE`/`DELETE`
+  (`TRUNCATE` too on PostgreSQL). Maintenance runs (purge) bypass them via
+  `SET LOCAL obox.history_maintenance = 'on'`; on SQLite `DELETE` stays
+  allowed so local purges keep working. The real boundary is DB roles
+  (`REVOKE UPDATE/DELETE`); the trigger is the accident guardrail.
 * Secrets never enter the payload: `secret` fields are stored as redacted
   markers. `HISTORY_ENABLED = False` turns off capture globally (listeners
   stay attached but do nothing).
+
+## Retention and exports
+
+```bash
+python manage.py history_purge --days 365          # or HISTORY_RETENTION_DAYS
+python manage.py history_purge --model blog.post --dry-run
+python manage.py history_export --format ndjson --since 2026-01-01 --output audit.ndjson
+python manage.py history_export --format csv --actor alice
+```
+
+* `history_purge` resolves retention per model (`--days` beats
+  `__history__["retention_days"]`, which beats `HISTORY_RETENTION_DAYS`),
+  deletes in batches of at most 10 000 rows with a pause between them, and
+  logs every batch to `obox.history` (never to the history table). Models
+  without retention are reported as skipped.
+* `history_export` streams matching entries (keyset paginated) as NDJSON or
+  CSV to stdout or `--output`; CSV cells starting with `=`, `+`, `-` or `@`
+  are prefixed with `'` to defuse spreadsheet formula injection. Every run
+  logs one line to `obox.history.audit`.
 
 Model checks (`python manage.py check`):
 
@@ -177,12 +253,13 @@ Model checks (`python manage.py check`):
 
 ## Limitations (roadmap)
 
-* **M2M** relationship sets are declared (`relations`) but not yet diffed —
-  Phase 2, together with a global feed and masking by permission.
-* **Blind spots**: raw SQL, other services, and bulk DML outside the ORM are
-  not captured (the bulk guard only sees ORM statements). DB triggers arrive
-  in Phase 4 as a safety net.
-* **Retention**: `HISTORY_RETENTION_DAYS` is reserved; purge tooling
-  (`history_purge`) ships with Phase 2. Partitioning is Phase 4 (Postgres).
+* **Blind spots**: raw SQL, other services and bulk DML outside the ORM are
+  not captured (the bulk guard only sees ORM statements; the trigger blocks
+  tampering but does not reconstruct the change). Phase 4 adds
+  `history_reconcile`.
+* **Hardening (Phase 4, PostgreSQL)**: monthly partitions + `DROP PARTITION`
+  retention, hash-chained seal blocks (`history_verify`), `history_relabel`
+  and documented `REVOKE`/role recipes.
 * **Concurrent writers** can produce an `old` value that no longer matches at
-  commit time unless the model uses optimistic versioning.
+  commit time unless the model uses optimistic versioning (`VersionedMixin`
+  arrives in Phase 3, together with W201).

@@ -18,5 +18,11 @@ class HistoryConfig(AppConfig):
     def ready(self) -> None:
         from obox_builder.contrib.history import checks  # noqa: F401 (registers checks)
         from obox_builder.contrib.history.capture import ensure_listeners
+        from obox_builder.contrib.history.immutability import install_trigger_receiver
+        from obox_builder.core.signals import post_migrate
 
         ensure_listeners()
+        post_migrate.connect(
+            install_trigger_receiver,
+            dispatch_uid="obox_builder.contrib.history.install_trigger",
+        )

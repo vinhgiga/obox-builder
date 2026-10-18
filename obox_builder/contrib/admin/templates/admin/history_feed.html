@@ -1,0 +1,98 @@
+{% extends "admin/base.html" %}
+{% from "admin/macros/history.html" import entry_item %}
+{% block title %}Audit log{% endblock %}
+{% block content %}
+<div class="page-header d-print-none">
+  <div class="row g-2 align-items-center">
+    <div class="col">
+      <h2 class="page-title">
+        {{ heading }} <span class="text-secondary">/ {{ subtitle }}</span>
+      </h2>
+      <div class="text-secondary mt-1">
+        {{ count }} change{{ '' if count == 1 else 's' }} recorded
+      </div>
+    </div>
+  </div>
+</div>
+<div class="card mb-3">
+  <div class="card-body">
+    <form method="get" action="{{ timeline_url }}" class="row g-2 align-items-end">
+      <div class="col-md-3">
+        <label class="form-label" for="filter-model">Model</label>
+        <select id="filter-model" name="model" class="form-select">
+          <option value="">All models</option>
+          {% for item in filter_models %}
+          <option value="{{ item.label }}" {% if filters.model == item.label %}selected{% endif %}>{{ item.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label" for="filter-actor">Actor</label>
+        <input id="filter-actor" type="text" name="actor" value="{{ filters.actor }}" class="form-control" placeholder="username">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label" for="filter-source">Source</label>
+        <select id="filter-source" name="source" class="form-select">
+          <option value="">Any source</option>
+          {% for source in sources %}
+          <option value="{{ source }}" {% if filters.source == source %}selected{% endif %}>{{ source }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label" for="filter-op">Operation</label>
+        <select id="filter-op" name="op" class="form-select">
+          <option value="">Any operation</option>
+          {% for op in ops %}
+          <option value="{{ op }}" {% if filters.op == op %}selected{% endif %}>{{ op }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label" for="filter-since">Since</label>
+        <input id="filter-since" type="date" name="since" value="{{ filters.since }}" class="form-control">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label" for="filter-until">Until</label>
+        <input id="filter-until" type="date" name="until" value="{{ filters.until }}" class="form-control">
+      </div>
+      <div class="col-md-6">
+        <div class="btn-list">
+          <button type="submit" class="btn btn-primary">Filter</button>
+          <a href="{{ timeline_url }}" class="btn">Reset</a>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+<div class="card">
+  <div class="card-body">
+    {% if not entries %}
+    <div class="text-secondary">No changes match these filters.</div>
+    {% endif %}
+    {% for entry in entries %}
+    <div class="border-bottom mb-3 pb-1">
+      <div class="d-flex align-items-center gap-2 small text-secondary mb-1">
+        <span class="badge bg-purple-lt">{{ entry.model_name }}</span>
+        {% if entry.timeline_url %}
+        <a href="{{ entry.timeline_url }}">{{ entry.object_repr }}</a>
+        {% else %}
+        <span>{{ entry.object_repr }}</span>
+        {% endif %}
+        <a class="ms-auto" href="/admin/history/{{ entry.change_set_id }}">change set</a>
+      </div>
+      {{ entry_item(entry) }}
+    </div>
+    {% endfor %}
+  </div>
+  {% if older or before %}
+  <div class="card-footer d-flex align-items-center">
+    <span class="text-secondary small">Showing the most recent matching changes.</span>
+    <div class="ms-auto btn-list">
+      {% if before %}<a href="?{{ querystring(request.query_params, before=None) }}" class="btn btn-sm">Newest</a>{% endif %}
+      {% if older %}<a href="?{{ querystring(request.query_params, before=older) }}" class="btn btn-sm">Older</a>{% endif %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

@@ -14,6 +14,7 @@ from obox_builder.contrib.admin.views.common import PAGE_SIZE, ensure_csrf, flas
 from obox_builder.contrib.admin.views.history import (
     before_cursor,
     build_card,
+    diff_mask,
     model_timeline_available,
     timeline_context,
 )
@@ -44,7 +45,13 @@ def _history_visible(user: User) -> bool:
 async def _history_for(db: AsyncSession, user: User, target: User) -> dict[str, object] | None:
     if not _history_visible(user):
         return None
-    return await build_card(db, User, target.id, url=f"/admin/users/{target.id}/history")
+    return await build_card(
+        db,
+        User,
+        target.id,
+        url=f"/admin/users/{target.id}/history",
+        mask=diff_mask(User, user=user),
+    )
 
 
 async def _all_roles(db: AsyncSession) -> list[Role]:
@@ -228,6 +235,7 @@ async def user_history(
             subtitle=target.username,
             back_url=f"/admin/users/{target.id}",
             timeline_url=request.url.path,
+            mask=diff_mask(User, user=user),
         ),
     )
     return render(request, "admin/history.html", context)

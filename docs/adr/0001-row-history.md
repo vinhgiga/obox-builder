@@ -1,149 +1,154 @@
-# Row History — Kiến trúc, System Design & Database Model
+# Row History — Architecture, System Design & Database Model
 
-**Dự án:** obox-builder · **Branch:** `dev` @ `dabd36d` (v0.2.1) · **Ngày:** 18/10/2026 · **Trạng thái:** Accepted — Phase 1 (MVP) đã triển khai
+**Project:** obox-builder · **Branch:** `dev` @ `dabd36d` (v0.2.1) · **Date:** 2026-10-18 · **Status:** Accepted — Phase 1 (MVP) + Phase 2 shipped
 
-> **Phạm vi:** tính năng *row history* cho admin FastAPI tự triển khai: ghi lại *ai* đổi *gì*, *khi nào*, *từ đâu* trên từng row; hiển thị timeline; về sau hỗ trợ hoàn tác. Tài liệu dựa trên (1) đọc code branch `dev`, (2) nghiên cứu Airtable, AppSheet, Jotform và các hệ thống tham chiếu (Directus, Salesforce, django-auditlog, supa\_audit, SQLAlchemy).
+> **Scope:** a *row history* feature for the hand-rolled FastAPI admin: record *who* changed *what*, *when* and *from where* on every row; show a timeline; support revert later. This document is based on (1) reading the `dev` branch code and (2) research into Airtable, AppSheet, Jotform and reference systems (Directus, Salesforce, django-auditlog, supa\_audit, SQLAlchemy).
 
-> **Trạng thái triển khai (18/10/2026):** Phase 1 hoàn thành — xem
-> [docs/history.md](../history.md) cho hướng dẫn sử dụng. Khác biệt nhỏ so với
-> RFC: bổ sung setting `HISTORY_TRACK_ALL_ADMIN_MODELS`; timeline dùng keyset
-> `?before=<id>` như thiết kế; card nằm trong `templates/admin/model/form.html`
-> (model thường), `templates/admin/users/form.html` và
-> `templates/admin/roles/form.html` (trang bespoke), trang timeline chung ở
-> `templates/admin/history.html` (chưa có mục "Audit log" toàn cục — thuộc
-> Phase 2); check `W201` (VersionedMixin) chưa kích hoạt vì `VersionedMixin` là
-> Phase 3.
+> **Implementation status (2026-10-18):** Phase 1 done — see
+> [docs/history.md](../history.md) for the user guide. Phase 2 done:
+> M2M (`relations`), global feed `/admin/history` + filters + change-set,
+> permission-aware masking, append-only triggers installed via `post_migrate`
+> (Postgres blocks UPDATE/DELETE/TRUNCATE; SQLite blocks UPDATE only so dev
+> purges keep working), `history.bulk_update`, `history_purge` + per-model
+> retention, `history_export` (NDJSON/CSV, formula-injection guard). Minor
+> deviations from the RFC: added the `HISTORY_TRACK_ALL_ADMIN_MODELS` setting;
+> the timeline uses the keyset `?before=<id>` as designed; the card lives in
+> `templates/admin/model/form.html` (regular models),
+> `templates/admin/users/form.html` and `templates/admin/roles/form.html`
+> (bespoke pages), the shared timeline page in `templates/admin/history.html`
+> and the global feed in `templates/admin/history_feed.html`; the `W201` check
+> (VersionedMixin) is not active because `VersionedMixin` is Phase 3.
 
-## 0. Tóm tắt quyết định
+## 0. Decision summary
 
-| # | Quyết định | Lý do ngắn |
+| # | Decision | Short rationale |
 | --- | --- | --- |
-| 1 | Capture ở tầng **SQLAlchemy Session** (`before_flush` → `after_flush`), cùng transaction với dữ liệu | Biết actor/request, có `FieldType`, portable SQLite + Postgres, atomic |
-| 2 | **Một bảng fact append-only** `history_row_change`: 1 dòng = 1 row bị đổi trong 1 flush; diff dạng JSONB `{field: [old, new]}` | Compact, đọc timeline = 1 index scan, không cần join |
-| 3 | Nhóm theo `change_set_id` (UUID, 1 DB transaction), **không** có bảng header | Tránh FK/savepoint rollback; sau này partition được |
-| 4 | **Tái dùng** `FieldSpec.history` + `FieldType.diff_repr()` đã có sẵn trong code | Không phát minh lại; cần hoàn thiện `diff_repr` cho number/temporal/relation |
-| 5 | Actor đi qua `session.info` (late-bound từ request) + ContextVar cho CLI/job; **không FK** vào `auth_user` | Giữ đúng layering, history sống sót khi user bị xoá |
-| 6 | Module mới `obox_builder.contrib.history`, đặt **ngay dưới `contrib.admin`** trong import-linter; model tự khai báo `__history__` (giống `__permissions__`) | `auth` không phải import `history` |
-| 7 | Immutability bằng DB (trigger + REVOKE); tamper-evidence bằng *seal block* ở phase sau | Guardrail rẻ trước, bảo đảm mạnh sau |
-| 8 | Rollout 4 phase; **Phase 1 (MVP)** = create/update/delete + timeline per-row cho `auth.User/Role` | Giá trị sớm, rủi ro thấp |
+| 1 | Capture at the **SQLAlchemy Session** layer (`before_flush` → `after_flush`), in the same transaction as the data | Knows actor/request, has `FieldType`, portable SQLite + Postgres, atomic |
+| 2 | **One append-only fact table** `history_row_change`: 1 row = 1 changed row per flush; diff as JSONB `{field: [old, new]}` | Compact, timeline read = 1 index scan, no joins |
+| 3 | Group by `change_set_id` (UUID, 1 DB transaction), **no** header table | Avoids FK/savepoint rollback issues; partitionable later |
+| 4 | **Reuse** the existing `FieldSpec.history` + `FieldType.diff_repr()` code | No reinvention; finish `diff_repr` for number/temporal/relation |
+| 5 | Actor travels via `session.info` (late-bound from the request) + ContextVar for CLI/jobs; **no FK** to `auth_user` | Preserves layering; history survives user deletion |
+| 6 | New module `obox_builder.contrib.history`, placed **right below `contrib.admin`** in import-linter; models declare `__history__` (like `__permissions__`) | `auth` never has to import `history` |
+| 7 | Immutability in the DB (trigger + REVOKE); tamper-evidence via *seal blocks* in a later phase | Cheap guardrail first, strong guarantees later |
+| 8 | 4-phase rollout; **Phase 1 (MVP)** = create/update/delete + per-row timeline for `auth.User/Role` | Early value, low risk |
 
 ---
 
-## 1. Bối cảnh: những gì code `dev` đã có / còn thiếu
+## 1. Context: what `dev` already has / lacks
 
-**Đã có sẵn (tái dùng):**
+**Already present (reused):**
 
-- `FieldSpec.history: bool = True` (`fields/base.py`). `introspect.py` tự đặt `history=False` cho cột `secret` hoặc đuôi `_hash`; `history` là key được reserve trong `info={"admin": {...}}` (test: `token_hash.history is False`).
-- `FieldType.diff_repr(value)` — docstring: *"Stable JSON representation used by the change log"*. Đã implement ở `Text`, `Choice`, `Boolean`, `Json`.
-- `get_db()` = **1 transaction / request**, commit cuối; view `_create/_update/_delete` dùng `begin_nested()` + `flush()` (rollback savepoint khi `IntegrityError`).
-- `RequestIDMiddleware` → `request.state.request_id`; `auth_session` lưu `ip`, `user_agent`.
-- `post_migrate.send_async()` sau `upgrade` (auth dùng để `sync_permissions`) → tiền lệ để cài DDL/trigger sau migrate.
-- `AppConfig.ready()`, `AppConfig.permissions` (permission cấp app), `Model.__permissions__` (permission cấp model), `core.signals.Signal`, hệ thống `checks` (`obox.admin.E101…`).
-- `relationship()` mặc định `lazy="raise"` → listener **không được** trigger IO khi đọc attribute.
-- Test: fixture `db` dùng `metadata.drop_all/create_all`; CI chạy **hai lượt** (SQLite và Postgres 17).
+- `FieldSpec.history: bool = True` (`fields/base.py`). `introspect.py` sets `history=False` for `secret` columns or names ending in `_hash`; `history` is a reserved key in `info={"admin": {...}}` (test: `token_hash.history is False`).
+- `FieldType.diff_repr(value)` — docstring: *"Stable JSON representation used by the change log"*. Implemented for `Text`, `Choice`, `Boolean`, `Json`.
+- `get_db()` = **1 transaction / request**, committed at the end; the `_create/_update/_delete` views use `begin_nested()` + `flush()` (savepoint rollback on `IntegrityError`).
+- `RequestIDMiddleware` → `request.state.request_id`; `auth_session` stores `ip`, `user_agent`.
+- `post_migrate.send_async()` after `upgrade` (auth uses it for `sync_permissions`) → precedent for installing DDL/triggers after migrate.
+- `AppConfig.ready()`, `AppConfig.permissions` (app-level permissions), `Model.__permissions__` (model-level permissions), `core.signals.Signal`, the `checks` system (`obox.admin.E101…`).
+- `relationship()` defaults to `lazy="raise"` → listeners **must not** trigger IO while reading attributes.
+- Tests: the `db` fixture uses `metadata.drop_all/create_all`; CI runs **twice** (SQLite and Postgres 17).
 
-**Thiếu / rủi ro cần xử lý:**
+**Missing / risks to handle:**
 
-- `diff_repr` **chưa** có cho `Integer`, `Decimal`, `Date`, `DateTime`, `Time`, `Link` → `datetime`/`Decimal` không JSON-serializable.
-- **Nguồn noise:** `touch_session()` ghi `last_seen_at` mỗi request; `TimestampMixin.updated_at`; `User.last_login_at / failed_login_count / locked_until`.
-- **M2M** (`auth_user_roles`) là bare `sa.Table`, ghi qua `target.roles = selected` (`views/users.py`) — không đổi cột nào của `User`.
-- **Bulk Core** (`delete(AuthSession)…`) bỏ qua unit-of-work → không có flush event.
-- README nhắc `docs/adr/` nhưng thư mục chưa tồn tại trên `dev` → đề xuất lưu tài liệu này thành `docs/adr/0001-row-history.md`.
-- `BaseSettings` dùng `extra="forbid"` → mọi setting mới phải khai báo tường minh.
+- `diff_repr` is **missing** for `Integer`, `Decimal`, `Date`, `DateTime`, `Time`, `Link` → `datetime`/`Decimal` are not JSON-serializable.
+- **Noise sources:** `touch_session()` writes `last_seen_at` every request; `TimestampMixin.updated_at`; `User.last_login_at / failed_login_count / locked_until`.
+- **M2M** (`auth_user_roles`) is a bare `sa.Table`, written via `target.roles = selected` (`views/users.py`) — no `User` column changes.
+- **Core bulk** (`delete(AuthSession)…`) bypasses the unit of work → no flush event.
+- The README mentions `docs/adr/` but the directory does not exist on `dev` → this document is proposed as `docs/adr/0001-row-history.md`.
+- `BaseSettings` uses `extra="forbid"` → every new setting must be declared explicitly.
 
 ---
 
-## 2. Nghiên cứu hệ thống production
+## 2. Research into production systems
 
-### 2.1 Airtable — ba lớp tách biệt
+### 2.1 Airtable — three separate layers
 
-1. **Record revision history (UI):** feed hoạt động trong record mở rộng. Retention theo plan: Business 2 năm, Enterprise Scale 3 năm; admin Enterprise chỉnh được tới 10 năm (bước 1 năm). *Clear revision history* là không khôi phục được. Field đồng bộ từ nguồn ngoài **bị ẩn** khỏi history; field ẩn trong interface thì thay đổi cũng không hiện (history **permission-aware**). Cộng đồng báo duplicate base / restore snapshot làm mất history và đổi record ID.
-2. **Webhooks change feed (pull):** mỗi payload có `baseTransactionNumber`, `actionMetadata` (source + user), `changedRecordsById` với `current` / `previous` / `unchanged` (previous & unchanged phải opt-in), key theo *field ID*. Lấy bằng cursor; webhook hết hạn sau 7 ngày nếu không refresh; rate limit 5 req/s/base.
-3. **Enterprise audit log:** events API (id, timestamp, action, actor, modelId, modelType, payload, **payloadVersion**, context, origin) và export NDJSON-gzip trong cửa sổ ≤180 ngày, link hết hạn 7 ngày.
+1. **Record revision history (UI):** the feed lives inside the expanded record. Plan-based retention: Business 2 years, Enterprise Scale 3 years; Enterprise admins can extend up to 10 years (1-year steps). *Clear revision history* is irreversible. Fields synced from external sources are **hidden** from history; fields hidden in the interface also hide their changes (history is **permission-aware**). The community reports that duplicating bases / restoring snapshots loses history and changes record IDs.
+2. **Webhooks change feed (pull):** every payload carries `baseTransactionNumber`, `actionMetadata` (source + user), `changedRecordsById` with `current` / `previous` / `unchanged` (previous & unchanged are opt-in), keyed by *field ID*. Consumed with a cursor; webhooks expire after 7 days without a refresh; rate limit 5 req/s/base.
+3. **Enterprise audit log:** events API (id, timestamp, action, actor, modelId, modelType, payload, **payloadVersion**, context, origin) and NDJSON-gzip export for windows ≤180 days, with 7-day links.
 
-Thêm: trash giữ mặc định 30 ngày; record tạo lại sau retention nhận **ID mới**.
+Also: trash retention defaults to 30 days; records re-created after retention get a **new ID**.
 
-### 2.2 AppSheet — "Audit History" *không phải* row history
+### 2.2 AppSheet — "Audit History" is *not* row history
 
-- Audit History là **log vận hành** (sync, add/edit/delete, API call, bot invocation, report). Retention **7 ngày** (53 ngày với Enterprise Plus); ghi theo batch nên trễ tới \~5 phút; filter/analytics chỉ ở Enterprise; export BigQuery cho root admin. Cột *By User*: `-1` = guest, `-2` = chưa consent.
-- Row history thật phải **tự dựng**: bot "data change event" + bảng Log, dùng `[_THISROW_BEFORE]` / `[_THISROW_AFTER]`, `USEREMAIL()`; hoặc dựa Change History của backend (Google Sheets, yêu cầu chạy "As App User").
-- **Giới hạn quan trọng:** bot chỉ thấy before/after của đúng record kích hoạt; thay đổi **trực tiếp vào data source (ngoài app) không kích hoạt bot**; data-change do bot gây ra **không** kích hoạt bot khác (chống vòng lặp); điều kiện so sánh ô trống từng bắn nhầm (lỗi NULL/blank).
+- Audit History is an **operations log** (sync, add/edit/delete, API call, bot invocation, report). Retention is **7 days** (53 with Enterprise Plus); entries are batched so they can lag ~5 minutes; filtering/analytics are Enterprise-only; BigQuery export for root admins. The *By User* column: `-1` = guest, `-2` = no consent.
+- Real row history must be **built yourself**: a "data change event" bot + a Log table using `[_THISROW_BEFORE]` / `[_THISROW_AFTER]`, `USEREMAIL()`; or the backend's Change History (Google Sheets, requires running "As App User").
+- **Key limits:** bots only see the before/after of the exact triggering record; changes written **directly to the data source (outside the app) do not trigger bots**; data changes caused by a bot do **not** trigger other bots (loop prevention); blank-cell comparisons historically misfire (NULL/blank bug).
 
-### 2.3 Jotform — ba lớp, nhưng thiếu field-level diff
+### 2.3 Jotform — three layers, but no field-level diff
 
-- **Account Action Logs** (tab History): Submission Edits / Deletions / Purges, logins, API key… Enterprise admin console lọc theo user/time/action và export Excel/CSV.
-- **Tables Revision History:** xem và *restore* bản trước của table (data, settings, visual); mọi lần restore **được log**.
-- **Trash → Purge** hai pha (xoá mềm, rồi xoá vĩnh viễn là event riêng).
-- **Hạn chế** (theo trả lời của support): Tables chỉ cho biết submission *đã được cập nhật* và thời điểm, **không** cho biết field nào/giá trị cũ; workaround là thêm field ẩn hoặc dựa email thông báo gắn tag "EDIT".
+- **Account Action Logs** (History tab): submission edits / deletions / purges, logins, API keys… The Enterprise admin console filters by user/time/action and exports Excel/CSV.
+- **Tables Revision History:** view and *restore* a previous table version (data, settings, visual); every restore **is logged**.
+- **Trash → Purge** in two phases (soft delete, then permanent purge as a separate event).
+- **Limitations** (per support): Tables only shows that a submission *was updated* and when — **not** which field or old value changed; workarounds are hidden fields or tag-based email notifications ("EDIT").
 
-### 2.4 Tham chiếu bổ sung
+### 2.4 Additional references
 
-| Hệ thống | Điểm đáng học |
+| System | Lesson |
 | --- | --- |
-| **Directus** | `directus_activity` (header) + `directus_revisions` (`data` snapshot + `delta` + `parent`). Issue #17894: \~700k revisions làm timeline rất chậm do thiếu index theo (collection, item) → bổ sung retention riêng cho activity/revisions. |
-| **Salesforce** | Field history: giới hạn 20 field/object, giữ 18 tháng (UI) / 24 tháng (API); Field Audit Trail mở rộng retention tới 10 năm → *cap chi phí theo field* và *retention là tính năng hạng nhất*. |
-| **django-auditlog** | `LogEntry`: `object_pk`, `object_repr`, `changes` (JSON), `actor`, `cid`, `remote_addr`, `timestamp`, `additional_data`; `mask_fields`; M2M không bật mặc định; `pre_log/post_log` signal; v3 đổi `changes` từ text sang JSON (→ cần versioning payload). |
-| **supa\_audit** (Supabase) | Một bảng JSONB `record` + `old_record`, `record_id` ổn định từ PK, BRIN trên `ts`. **Repo đã archived (02/2025)** → chỉ tham khảo schema, không dùng làm dependency. |
-| **SQLAlchemy** | Ví dụ `versioned_history` dùng `before_flush` + `attributes.get_history`; tài liệu asyncio cho phép bắt event trên `sync_session_class`. |
+| **Directus** | `directus_activity` (header) + `directus_revisions` (`data` snapshot + `delta` + `parent`). Issue #17894: ~700k revisions made the timeline very slow due to a missing (collection, item) index → dedicated retention for activity/revisions was added. |
+| **Salesforce** | Field history: 20 fields/object cap, 18 months (UI) / 24 months (API) retention; Field Audit Trail extends retention to 10 years → *cap cost per field* and *retention as a first-class feature*. |
+| **django-auditlog** | `LogEntry`: `object_pk`, `object_repr`, `changes` (JSON), `actor`, `cid`, `remote_addr`, `timestamp`, `additional_data`; `mask_fields`; M2M off by default; `pre_log/post_log` signals; v3 changed `changes` from text to JSON (→ payload versioning needed). |
+| **supa\_audit** (Supabase) | A single JSONB table `record` + `old_record`, a stable `record_id` from the PK, BRIN on `ts`. **Repo archived (02/2025)** → reference the schema only, never a dependency. |
+| **SQLAlchemy** | The `versioned_history` example uses `before_flush` + `attributes.get_history`; the asyncio docs allow attaching events on `sync_session_class`. |
 
-### 2.5 So sánh
+### 2.5 Comparison
 
-|  | Field-level old→new | Actor + source | Nhóm theo transaction | Retention | Restore | Thay đổi ngoài app |
+|  | Field-level old→new | Actor + source | Transaction grouping | Retention | Restore | Changes outside the app |
 | --- | --- | --- | --- | --- | --- | --- |
-| **Airtable** | Có (history + webhook `previous/current`) | Có (`actionMetadata.source`) | `baseTransactionNumber` | 2–3 năm, tới 10 năm | Rollback / snapshot | Field sync bị ẩn |
-| **AppSheet** | Không có sẵn (DIY) | `By User`, -1/-2 | Không | 7 / 53 ngày | Không | **Không thấy** |
-| **Jotform** | **Không** (chỉ "edited") | Có (action log) | Không | Theo plan | Table-level restore | — |
-| **Directus** | Có (`delta`) | Có | `parent` | Cấu hình được | Revert | Không thấy |
-| **Salesforce** | Có (Old/New) | Có | Không | 18–24 tháng; mở rộng được | Không | Không thấy |
+| **Airtable** | Yes (history + webhook `previous/current`) | Yes (`actionMetadata.source`) | `baseTransactionNumber` | 2–3 years, up to 10 | Rollback / snapshot | Synced fields hidden |
+| **AppSheet** | No built-in (DIY) | `By User`, -1/-2 | No | 7 / 53 days | No | **Not visible** |
+| **Jotform** | **No** (only "edited") | Yes (action log) | No | Per plan | Table-level restore | — |
+| **Directus** | Yes (`delta`) | Yes | `parent` | Configurable | Revert | Not visible |
+| **Salesforce** | Yes (Old/New) | Yes | No | 18–24 months; extendable | No | Not visible |
 
-### 2.6 Bài học → quyết định thiết kế
+### 2.6 Lessons → design decisions
 
-| # | Bài học (nguồn) | Quyết định |
+| # | Lesson (source) | Decision |
 | --- | --- | --- |
-| L1 | Tách *audit hoạt động* khỏi *row history* (AppSheet, Airtable) | Bảng riêng chỉ cho data change; login/export event để phase sau |
-| L2 | Phải lưu **old/new theo field** (Jotform thiếu) | `changes.fields = {f: [old, new]}` |
-| L3 | Nhóm thao tác theo transaction (Airtable, Directus `parent`) | `change_set_id` |
-| L4 | Nguồn + actor tường minh, có sentinel guest/system (Airtable `source`, AppSheet -1/-2) | `source`, `actor_id NULL`, `actor_label` |
-| L5 | Blind spot khi ghi ngoài app (AppSheet) | Bulk guard + (Phase 4) DB trigger + `history_reconcile` |
-| L6 | Chống đệ quy (bot không kích bot) | `RowChange` không được track; ghi bằng Core insert |
-| L7 | So sánh null/blank sai → bắn nhầm (AppSheet) | So sánh có sentinel `NO_VALUE`, chuẩn hoá qua `diff_repr`; `""` ≠ `None` nếu type phân biệt |
-| L8 | Index đúng từ đầu + keyset pagination (Directus #17894) | Index `(model_label, object_pk, id DESC)`; không dùng OFFSET |
-| L9 | Retention hạng nhất, theo model (Airtable, Salesforce, Directus) | `HISTORY_RETENTION_DAYS` + override theo model; drop partition (Phase 4) |
-| L10 | Read phải permission-aware (Airtable) | Lọc field theo `FieldSpec` + quyền của viewer |
-| L11 | Restore là hành động *tiến*, được log, có conflict check (Jotform); ID tái dùng (Airtable) | `reverts_id`; UI chia "incarnation" tại `delete` |
-| L12 | Payload có version (Airtable `payloadVersion`; auditlog v3) | cột `schema_version` |
-| L13 | Cap chi phí (Salesforce 20 field) | `HISTORY_MAX_VALUE_BYTES`, allow-list, bỏ no-op |
-| L14 | Đừng phụ thuộc lib bị archive (supa\_audit) | Tự cài đặt, chỉ mượn ý tưởng schema |
-| L15 | Mask/redact dữ liệu nhạy cảm (auditlog `mask_fields`) | Marker `redacted`, tuỳ chọn `mask` |
+| L1 | Separate *operations audit* from *row history* (AppSheet, Airtable) | Dedicated table for data changes only; login/export events later |
+| L2 | Old/new **per field** is mandatory (Jotform lacks it) | `changes.fields = {f: [old, new]}` |
+| L3 | Group operations by transaction (Airtable, Directus `parent`) | `change_set_id` |
+| L4 | Explicit source + actor with guest/system sentinels (Airtable `source`, AppSheet -1/-2) | `source`, `actor_id NULL`, `actor_label` |
+| L5 | Blind spot when writes happen outside the app (AppSheet) | Bulk guard + (Phase 4) DB trigger + `history_reconcile` |
+| L6 | Recursion prevention (bots do not trigger bots) | `RowChange` is never tracked; written with a Core insert |
+| L7 | Wrong null/blank comparisons cause misfires (AppSheet) | Comparison with a `NO_VALUE` sentinel, normalised through `diff_repr`; `""` ≠ `None` when the type distinguishes them |
+| L8 | Right indexes from day one + keyset pagination (Directus #17894) | Index `(model_label, object_pk, id DESC)`; no OFFSET |
+| L9 | Retention as a first-class, per-model feature (Airtable, Salesforce, Directus) | `HISTORY_RETENTION_DAYS` + per-model override; drop partition (Phase 4) |
+| L10 | Reads must be permission-aware (Airtable) | Filter fields by `FieldSpec` + viewer permissions |
+| L11 | Restore is a *forward* action, logged, with conflict checks (Jotform); IDs are reused (Airtable) | `reverts_id`; UI splits "incarnations" at `delete` |
+| L12 | Payload has a version (Airtable `payloadVersion`; auditlog v3) | `schema_version` column |
+| L13 | Cap cost (Salesforce 20-field limit) | `HISTORY_MAX_VALUE_BYTES`, allow-lists, skip no-ops |
+| L14 | Do not depend on archived libraries (supa\_audit) | Implement it ourselves; borrow schema ideas only |
+| L15 | Mask/redact sensitive data (auditlog `mask_fields`) | `redacted` marker, optional `mask` |
 
 ---
 
-## 3. Yêu cầu
+## 3. Requirements
 
-**Chức năng**
+**Functional**
 
-- **F1** Ghi mọi INSERT/UPDATE/DELETE của model được track: actor, thời điểm, field old→new, source, request id, IP.
-- **F2** Timeline per-row trong admin (kiểu activity feed của Airtable), phân trang keyset.
-- **F3** Audit feed toàn cục, lọc theo model / actor / source / thời gian / `change_set`.
-- **F4** Hiển thị *permission-aware*: viewer chỉ thấy field mình được phép thấy; secret không bao giờ lộ.
-- **F5** Hoàn tác một thay đổi / khôi phục row đã xoá (Phase 3), luôn tạo entry mới.
-- **F6** Export NDJSON/CSV, retention theo model, purge an toàn.
+- **F1** Record every INSERT/UPDATE/DELETE of tracked models: actor, timestamp, field old→new, source, request id, IP.
+- **F2** Per-row timeline in the admin (Airtable-style activity feed), keyset paginated.
+- **F3** Global audit feed, filtered by model / actor / source / time / `change_set`.
+- **F4** *Permission-aware* rendering: viewers only see fields they are allowed to see; secrets never leak.
+- **F5** Revert a change / restore a deleted row (Phase 3), always producing a new entry.
+- **F6** NDJSON/CSV export, per-model retention, safe purge.
 
-**Phi chức năng**
+**Non-functional**
 
-- **NF1 Atomic:** history commit ⇔ data commit (cùng transaction).
-- **NF2 Overhead thấp:** 1 `executemany` / flush; không thêm SELECT cho update. *Ngân sách mục tiêu cần xác nhận bằng benchmark ở Phase 1, không phải số đã đo.*
-- **NF3 Append-only** và về sau tamper-evident.
-- **NF4 Portable:** SQLite (dev/test) + Postgres (prod); tính năng chỉ-Postgres phải tuỳ chọn.
-- **NF5 Đúng layering** (import-linter).
-- **NF6 Tiến hoá schema:** đổi tên/xoá/đổi kiểu cột không làm hỏng history cũ.
-- **NF7 Quan sát được:** log, signal, check, lệnh CLI.
+- **NF1 Atomic:** history commit ⇔ data commit (same transaction).
+- **NF2 Low overhead:** 1 `executemany` / flush; no extra SELECTs for updates. *The target budget must be confirmed by a Phase 1 benchmark; these are not measured numbers yet.*
+- **NF3 Append-only** and eventually tamper-evident.
+- **NF4 Portable:** SQLite (dev/test) + Postgres (prod); Postgres-only features must be optional.
+- **NF5 Correct layering** (import-linter).
+- **NF6 Schema evolution:** renaming/dropping/retyping columns must not break old history.
+- **NF7 Observable:** logs, signals, checks, CLI commands.
 
-**Không nằm trong phạm vi v1:** comment trên row, ghi *đọc* (access log), history cho schema/config, tracking thay đổi của DB ngoài app, UI diff 3 chiều.
+**Out of scope for v1:** row comments, recording *reads* (access log), schema/config history, tracking changes made outside the app, 3-way diff UI.
 
 ---
 
-## 4. Kiến trúc
+## 4. Architecture
 
 ### 4.1 Component view
 
@@ -158,16 +163,17 @@ Thêm: trash giữ mặc định 30 ngày; record tạo lại sau retention nh�
         AsyncSession (get_db: 1 txn/request)            session_scope()
                      │  views / services: add, setattr, delete, flush
         ┌────────────▼─────────────────────────────────────────────┐
-        │ contrib.history.capture (listeners trên sync Session)      │
-        │  before_flush → tính Pending từ attribute history (no IO)  │
-        │  after_flush  → 1× INSERT executemany (cùng transaction)   │
+        │ contrib.history.capture (listeners on the sync Session)    │
+        │  before_flush → compute Pending from attribute history     │
+        │                 (no IO)                                    │
+        │  after_flush  → 1× INSERT executemany (same transaction)   │
         └────────────┬─────────────────────────────────────────────┘
                      ▼
-          history_row_change  (append-only, cùng commit với data)
+          history_row_change  (append-only, commits with the data)
                      ▲
-        HistoryService (keyset, filter, che field theo quyền)
+        HistoryService (keyset, filters, permission-aware masking)
                      ▲
-   admin: /<model>/{pk}/history · card trong form.html · /admin/history
+   admin: /<model>/{pk}/history · form.html card · /admin/history
 ```
 
 ### 4.2 Layering (import-linter)
@@ -175,77 +181,77 @@ Thêm: trash giữ mặc định 30 ngày; record tạo lại sau retention nh�
 ```toml
 layers = [
   "obox_builder.contrib.admin",
-  "obox_builder.contrib.history",   # MỚI — admin import được, auth thì không cần
+  "obox_builder.contrib.history",   # NEW — admin may import it, auth does not need to
   "obox_builder.contrib.auth",
   "obox_builder.core", ... "obox_builder.db", "obox_builder.apps", "obox_builder.conf", "obox_builder.utils",
 ]
 ```
 
-`history` chỉ import `db`, `fields`, `apps`, `core.signals/utils`, `conf` — tất cả ở tầng thấp hơn. Model khai báo declaratively, **không import**:
+`history` only imports `db`, `fields`, `apps`, `core.signals/utils`, `conf` — all lower layers. Models declare it declaratively and **import nothing**:
 
 ```python
 class User(Model, TimestampMixin):
     __history__ = {"relations": ["roles"], "exclude": ["meta"]}
 ```
 
-`Model` base thêm `__history__: ClassVar[bool | Mapping[str, Any] | None] = None` (cùng kiểu với `__permissions__`). `contrib.history` đọc ở `ready()`. Với model của bên thứ ba có API lập trình `history.track(Model, ...)` (giống `auditlog.register`).
+The `Model` base gains `__history__: ClassVar[bool | Mapping[str, Any] | None] = None` (same shape as `__permissions__`). `contrib.history` reads it in `ready()`. Third-party models can opt in programmatically with `history.track(Model, ...)` (like `auditlog.register`).
 
-### 4.3 Luồng ghi
+### 4.3 Write path
 
-1. `RequestIDMiddleware` gán `request_id`; router admin gắn *resolver* vào `db.info` (chưa biết user — late-binding).
-2. Dependency xác thực điền `request.state.user`; view sửa object, gọi `flush()` trong `begin_nested()`.
-3. **`before_flush`**: reset `session.info[PENDING]` (loại rác từ flush lỗi trước đó); duyệt `session.new / dirty / deleted`, với type được track thì tính `Pending` từ `attribute history` — *không* chạm attribute có thể lazy-load.
-4. SQLAlchemy phát INSERT/UPDATE/DELETE → PK của row mới đã có.
-5. **`after_flush`**: dựng rows, resolve context, `session.connection().execute(insert(RowChange), rows)` — một `executemany`.
-6. Savepoint rollback (`IntegrityError` trong `_create`) kéo theo history cùng rollback; vì không có bảng header nên `change_set_id` luôn hợp lệ.
-7. Commit cuối request → atomic. `post_record` signal gửi sau `after_commit`.
+1. `RequestIDMiddleware` assigns `request_id`; the admin router attaches a *resolver* to `db.info` (the user is unknown yet — late binding).
+2. The authentication dependency fills `request.state.user`; the view mutates the object and calls `flush()` inside `begin_nested()`.
+3. **`before_flush`**: resets `session.info[PENDING]` (garbage from a previously failed flush); walks `session.new / dirty / deleted` and, for tracked types, computes `Pending` from *attribute history* — it *never* touches an attribute that could lazy-load.
+4. SQLAlchemy emits INSERT/UPDATE/DELETE → new-row PKs are now available.
+5. **`after_flush`**: builds rows, resolves the context, `session.connection().execute(insert(RowChange), rows)` — a single `executemany`.
+6. Savepoint rollback (`IntegrityError` in `_create`) rolls history back with it; with no header table, `change_set_id` is always valid.
+7. End-of-request commit → atomic. The `post_record` signal is sent after `after_commit`.
 
-`change_set_id` sinh lười, lưu `session.info`, xoá ở `after_commit` / `after_rollback` của transaction ngoài cùng.
+`change_set_id` is generated lazily, stored in `session.info`, and cleared on the outermost transaction's `after_commit` / `after_rollback`.
 
-### 4.4 Design patterns áp dụng
+### 4.4 Applied design patterns
 
-| Pattern | Áp dụng | Vì sao |
+| Pattern | Use | Why |
 | --- | --- | --- |
-| **Observer** | Session events + `Signal` (`pre_record` / `post_record`) | Capture không sửa view/service |
-| **Unit of Work** | `flush` là ranh giới batch + atomic | 1 insert/flush |
-| **Strategy** | `FieldType.diff_repr()` | Đúng triết lý lõi của `fields/` |
-| **Registry** | `trackers: dict[type, Tracker]` dựng ở `ready()` | Giống `site.register`, `field_types` |
-| **Context Object + Null Object + Ambient Context** | `HistoryContext`; actor `system`; ContextVar | Không truyền actor qua mọi hàm |
-| **Append-only event log** | `history_row_change` | Sự thật bất biến; suy ra state bằng reverse-apply |
-| **Memento (reverse delta)** | Lưu `old` → khôi phục không cần snapshot | Hai chiều replay |
-| **Command** | Revert = lệnh tường minh sinh thay đổi mới | Không bao giờ sửa lịch sử |
-| **Repository / Query Object** | `HistoryService`, filter kiểu `QuerySpec` | Tách đọc khỏi UI |
-| **Cursor-based pull / outbox** | `id` đơn điệu làm cursor cho shipper ngoài | Giống Airtable payload cursor |
-| **Dependency inversion** | `__history__` khai báo thay vì import | Giữ layering |
+| **Observer** | Session events + `Signal` (`pre_record` / `post_record`) | Capture without touching views/services |
+| **Unit of Work** | `flush` is the batch boundary + atomicity | 1 insert per flush |
+| **Strategy** | `FieldType.diff_repr()` | Matches the core philosophy of `fields/` |
+| **Registry** | `trackers: dict[type, Tracker]` built in `ready()` | Like `site.register`, `field_types` |
+| **Context Object + Null Object + Ambient Context** | `HistoryContext`; `system` actor; ContextVar | No actor threading through every function |
+| **Append-only event log** | `history_row_change` | Immutable facts; derive state by reverse-apply |
+| **Memento (reverse delta)** | Store `old` → restore without snapshots | Two-way replay |
+| **Command** | Revert = an explicit command that produces a new change | History is never edited |
+| **Repository / Query Object** | `HistoryService`, `QuerySpec`-style filters | Reading is decoupled from the UI |
+| **Cursor-based pull / outbox** | Monotonic `id` as the cursor for external shippers | Like the Airtable payload cursor |
+| **Dependency inversion** | Declare `__history__` instead of importing | Preserves layering |
 | **Fail-closed / fail-open policy** | `HISTORY_FAILURE_MODE` | Compliance vs availability |
 
 ---
 
 ## 5. Database model
 
-### 5.1 Tổng quan
+### 5.1 Overview
 
-Một bảng fact duy nhất, không FK ra ngoài, không bảng header.
+A single fact table: no outgoing FKs, no header table.
 
 ```
 history_row_change
-  id            BIGINT identity PK     monotonic: thứ tự timeline + cursor phân trang
-  occurred_at   timestamptz            UTC, do app set
-  change_set_id uuid                   1 DB transaction (nhóm thao tác đa-row)
+  id            BIGINT identity PK     monotonic: timeline order + pagination cursor
+  occurred_at   timestamptz            UTC, set by the app
+  change_set_id uuid                   1 DB transaction (multi-row change group)
   op            create | update | delete
   model_label   'auth.user'   object_pk '42'   object_repr 'vinh'
   changes       jsonb (payload v1)     schema_version smallint
-  row_version   int NULL               (nếu model có VersionedMixin)
+  row_version   int NULL               (when the model has VersionedMixin)
   actor_id NULL · actor_label · source · request_id · ip · user_agent
   reason NULL · reverts_id NULL
 ```
 
-### 5.2 Model (SQLAlchemy 2.0, theo convention hiện có)
+### 5.2 Model (SQLAlchemy 2.0, following existing conventions)
 
 ```python
 # obox_builder/contrib/history/models.py
-class RowChange(Model):  # tablename suy ra: history_row_change
-    __history__ = False  # recursion guard: không bao giờ track chính nó
+class RowChange(Model):  # tablename derived: history_row_change
+    __history__ = False  # recursion guard: never track itself
 
     id: Mapped[int] = mapped_column(BigIntIdentity, primary_key=True)
     occurred_at: Mapped[datetime] = mapped_column(TZDateTime, default=utcnow)
@@ -257,14 +263,14 @@ class RowChange(Model):  # tablename suy ra: history_row_change
     changes: Mapped[JsonDict] = mapped_column(JSONB)
     schema_version: Mapped[int] = mapped_column(sa.SmallInteger, default=1)
     row_version: Mapped[int | None]
-    actor_id: Mapped[int | None] = mapped_column(sa.BigInteger)  # KHÔNG FK
+    actor_id: Mapped[int | None] = mapped_column(sa.BigInteger)  # NO FK
     actor_label: Mapped[str] = mapped_column(sa.String(150), default="")
     source: Mapped[str] = mapped_column(sa.String(16))
     request_id: Mapped[str | None] = mapped_column(sa.String(64))
     ip: Mapped[str | None] = mapped_column(sa.String(45))
     user_agent: Mapped[str | None] = mapped_column(sa.String(255))
     reason: Mapped[str | None] = mapped_column(sa.String(500))
-    reverts_id: Mapped[int | None] = mapped_column(sa.BigInteger)  # soft ref, không FK
+    reverts_id: Mapped[int | None] = mapped_column(sa.BigInteger)  # soft ref, no FK
 
     __table_args__ = (
         sa.CheckConstraint("op IN ('create','update','delete')", name="op"),
@@ -280,18 +286,18 @@ class RowChange(Model):  # tablename suy ra: history_row_change
     )
 ```
 
-| Cột | Quyết định |
+| Column | Decision |
 | --- | --- |
-| `model_label` | Dùng đúng định danh sẵn có `ModelAdmin.model_label` (`app_label.model_name`) |
-| `object_pk` | Text chuẩn hoá (int/str/UUID). Admin hiện chỉ hỗ trợ PK đơn (`primary_key[0]`); PK ghép → JSON array dạng text |
-| `object_repr` | Snapshot `str(obj)`, fallback `#pk` (cùng quy ước `_object_label_for`) để row đã xoá vẫn đọc được |
-| `actor_id` / `actor_label` | Không FK: không import `auth`, sống sót khi xoá user. `actor_label` = username tại thời điểm đó |
-| `reverts_id` | Soft reference, không FK, để partition/purge không bị ràng buộc |
-| `row_version` | Thứ tự per-row tuyệt đối nếu model dùng `VersionedMixin` (Phase 3), ngược lại NULL |
+| `model_label` | Reuse the existing `ModelAdmin.model_label` identity (`app_label.model_name`) |
+| `object_pk` | Normalised text (int/str/UUID). The admin only supports single PKs (`primary_key[0]`); composite PKs → JSON array as text |
+| `object_repr` | `str(obj)` snapshot, fallback `#pk` (same convention as `_object_label_for`) so deleted rows stay readable |
+| `actor_id` / `actor_label` | No FK: no `auth` import, survives user deletion. `actor_label` = the username at that moment |
+| `reverts_id` | Soft reference, no FK, so partitioning/purging has no constraints |
+| `row_version` | Absolute per-row sequence when the model uses `VersionedMixin` (Phase 3); NULL otherwise |
 
-**Bốn bất biến giữ đường partition mở:** `occurred_at` luôn NOT NULL và do app set; không FK trỏ *vào* bảng này; không unique ngoài PK; mọi query timeline luôn mang `(model_label, object_pk)`.
+**Four invariants that keep the partition door open:** `occurred_at` is always NOT NULL and app-set; no FK pointing *into* this table; no unique constraints beyond the PK; every timeline query always carries `(model_label, object_pk)`.
 
-### 5.3 Payload `changes` — schema v1
+### 5.3 `changes` payload — schema v1
 
 ```json
 {
@@ -303,37 +309,37 @@ class RowChange(Model):  # tablename suy ra: history_row_change
 }
 ```
 
-- Key sắp xếp theo tên field (deterministic → golden test được). Giá trị qua `FieldType.diff_repr`.
-- `create`: `[null, new]` cho mọi field non-null. `delete`: `[old, null]` cho mọi field non-null ⇒ **tombstone chính là snapshot đầy đủ cuối cùng**, không cần cột snapshot riêng. `update`: chỉ field có net change.
-- Bỏ PK (đã nằm ở `object_pk`), bỏ field bị `exclude` hoặc `history=False`. Field `secret` chỉ vào `redacted` (biết *có* đổi, không biết giá trị).
-- FK (`Link`): lưu giá trị cột FK thô, không lưu repr object liên quan.
-- M2M: id dạng string (ổn định cho int/UUID), ghi vào row của phía *chủ động sửa*.
-- Giá trị vượt `HISTORY_MAX_VALUE_BYTES`: lưu preview 256 ký tự + `{len, sha256}` trong `truncated`; entry đó **không revert được**.
-- `unknown_old`: field đổi nhưng giá trị cũ chưa load (deferred/expired). Tuyệt đối không lazy-load trong listener.
-- Thêm key mới là tương thích ngược; đổi nghĩa key cũ ⇒ tăng `schema_version`; reader hỗ trợ tối thiểu 2 version.
+- Keys are sorted by field name (deterministic → golden tests). Values go through `FieldType.diff_repr`.
+- `create`: `[null, new]` for every non-null field. `delete`: `[old, null]` for every non-null field ⇒ the **tombstone is the full final snapshot**, so no separate snapshot column is needed. `update`: only fields with a net change.
+- Drop the PK (it lives in `object_pk`); drop `exclude`d or `history=False` fields. `secret` fields appear only in `redacted` (you know *that* it changed, never the value).
+- FKs (`Link`): store the raw FK column value, never the related object's repr.
+- M2M: ids as strings (stable for int/UUID), recorded on the row of the *actively-mutating* side.
+- Values over `HISTORY_MAX_VALUE_BYTES`: store a 256-character preview + `{len, sha256}` under `truncated`; such an entry **cannot be reverted**.
+- `unknown_old`: the field changed but its old value was never loaded (deferred/expired). Never lazy-load inside the listener.
+- Adding a new key is backward-compatible; changing the meaning of an existing key bumps `schema_version`; readers support at least 2 versions.
 
-### 5.4 Index và dạng query
+### 5.4 Indexes and query shapes
 
 ```sql
--- Timeline của 1 row: keyset, KHÔNG dùng OFFSET
+-- One row's timeline: keyset, never OFFSET
 SELECT * FROM history_row_change
 WHERE model_label = :m AND object_pk = :pk AND id < :cursor
-ORDER BY id DESC LIMIT 51;            -- 50 + 1 để biết còn trang sau
+ORDER BY id DESC LIMIT 51;            -- 50 + 1 to know whether more pages exist
 
--- Feed toàn cục
+-- Global feed
 ... WHERE model_label = :m AND id < :cursor ORDER BY id DESC LIMIT 51;
 ... WHERE actor_id    = :a AND id < :cursor ORDER BY id DESC LIMIT 51;
 
--- Mọi thay đổi của một thao tác (1 request = 1 change_set)
+-- Everything from one change_set (1 request = 1 change_set)
 ... WHERE change_set_id = :cs ORDER BY id;
 ```
 
-`request_id` dùng để đối chiếu log; muốn tra trực tiếp thì thêm partial index `WHERE request_id IS NOT NULL`. Chi phí ghi của 5 index trên bảng chỉ-chèn cần đo ở Phase 1; nếu write path nhạy cảm, bỏ index `model` (feed theo model sẽ lọc bằng BRIN + `model_label`).
+`request_id` is for log correlation; to look it up directly, add a partial index `WHERE request_id IS NOT NULL`. The write cost of the 5 indexes on an insert-only table must be measured in Phase 1; if the write path is sensitive, drop the `model` index (per-model feeds can filter with BRIN + `model_label`).
 
-### 5.5 Append-only (phòng thủ nhiều lớp)
+### 5.5 Append-only (defense in depth)
 
-1. **App:** chỉ INSERT bằng Core; không có đường UPDATE/DELETE trong code, ngoại trừ lệnh bảo trì.
-2. **DB trigger**, cài bằng receiver `post_migrate` (cùng cơ chế `sync_permissions_receiver`, idempotent):
+1. **App:** Core INSERT only; there is no UPDATE/DELETE path in the code except maintenance commands.
+2. **DB triggers**, installed by a `post_migrate` receiver (same mechanism as `sync_permissions_receiver`, idempotent):
 
 ```sql
 CREATE OR REPLACE FUNCTION history_forbid_mutation() RETURNS trigger AS $$
@@ -350,39 +356,39 @@ CREATE TRIGGER history_row_change_no_truncate BEFORE TRUNCATE ON history_row_cha
   FOR EACH STATEMENT EXECUTE FUNCTION history_forbid_mutation();
 ```
 
-SQLite (dev/test): trigger chặn `UPDATE` bằng `RAISE(ABORT, ...)`; cho phép `DELETE` để purge ở môi trường dev. 3. **Role DB (ranh giới thật):** `GRANT INSERT, SELECT` cho role của app; `REVOKE UPDATE, DELETE, TRUNCATE`; role bảo trì riêng cho purge/anonymize.
+SQLite (dev/test): a trigger blocks `UPDATE` with `RAISE(ABORT, ...)`; `DELETE` stays allowed so dev purges keep working. 3. **DB roles (the real boundary):** `GRANT INSERT, SELECT` to the app role; `REVOKE UPDATE, DELETE, TRUNCATE`; a separate maintenance role for purge/anonymize.
 
-> ⚠️ GUC `obox.history_maintenance` chỉ là guardrail chống tai nạn/bug: bất kỳ user nào có quyền `SET` đều bật được. Ranh giới bảo mật thật là `REVOKE` + role riêng. Chống superuser/DBA xấu cần hash-chain và neo ra ngoài (Phase 4).
+> ⚠️ The `obox.history_maintenance` GUC is only a guardrail against accidents/bugs: anyone with `SET` privilege can turn it on. The real security boundary is `REVOKE` + a separate role. Defeating a malicious superuser/DBA requires hash-chaining and external anchoring (Phase 4).
 
 ### 5.6 Retention, partitioning, sizing
 
-- **Retention:** `HISTORY_RETENTION_DAYS` toàn cục + override theo model qua `__history__["retention_days"]`. Lệnh `history_purge` xoá theo lô (≤10k dòng/lô, nghỉ giữa lô), bật `SET LOCAL obox.history_maintenance = 'on'`, và log mỗi lô ra logger (không ghi vào chính bảng).
-- **Partitioning (Phase 4, chỉ Postgres):** RANGE theo tháng trên `occurred_at`, PK `(id, occurred_at)`, có partition `DEFAULT` để insert không bao giờ fail khi cron lỡ nhịp; retention = `DROP PARTITION` (O(1), không bloat). Chuyển bảng hiện hữu: tạo bảng partitioned mới rồi gắn bảng cũ làm partition đầu tiên (cần unique index chứa cột partition và CHECK range đã validate) hoặc backfill theo lô. Query timeline đi qua nhiều partition nhờ MergeAppend trên index `(model_label, object_pk, id DESC)` + `LIMIT` nên dừng sớm.
-- **Sizing (giả định, KHÔNG phải số đo):** \~300 B cố định (cột + 5 index) + \~300 B payload ≈ 600 B/entry ⇒ 1M entry ≈ 0,6 GB; 50M ≈ 30 GB. Thay bằng số đo thật ở exit criteria của Phase 1.
+- **Retention:** global `HISTORY_RETENTION_DAYS` + per-model override via `__history__["retention_days"]`. The `history_purge` command deletes in batches (≤10k rows per batch, sleeping between batches), enables `SET LOCAL obox.history_maintenance = 'on'`, and logs every batch to a logger (never into the table itself).
+- **Partitioning (Phase 4, Postgres only):** monthly RANGE on `occurred_at`, PK `(id, occurred_at)`, with a `DEFAULT` partition so inserts never fail when cron drifts; retention = `DROP PARTITION` (O(1), no bloat). Migrating the existing table: create the new partitioned table and attach the old table as the first partition (requires a unique index containing the partition column and a validated CHECK range) or backfill in batches. Timeline queries traverse partitions via MergeAppend on the `(model_label, object_pk, id DESC)` index + `LIMIT`, so they stop early.
+- **Sizing (assumptions, NOT measurements):** ~300 B fixed (columns + 5 indexes) + ~300 B payload ≈ 600 B/entry ⇒ 1M entries ≈ 0.6 GB; 50M ≈ 30 GB. Replace with real measurements at the Phase 1 exit criteria.
 
-### 5.7 Các hình dạng dữ liệu đã cân nhắc
+### 5.7 Data shapes considered
 
-| Phương án | Ưu | Nhược | Kết luận |
+| Option | Pros | Cons | Verdict |
 | --- | --- | --- | --- |
-| Snapshot cả row mỗi version (SQLAlchemy `history_meta`, simple-history) | Restore dễ | Phình theo độ rộng row × số lần sửa | Không |
-| EAV, 1 dòng/field (Salesforce) | Truy vấn và ACL theo field dễ | N dòng/lần save, mất tính nguyên tử của row | Không |
-| **Delta JSONB / row** (auditlog, Directus `delta`) | Compact, 1 dòng/row/flush | Truy vấn theo field cần JSONB | **Chọn** |
-| Delta + checkpoint snapshot định kỳ | Point-in-time nhanh | Phức tạp hơn | Để sau nếu cần (thêm cột nullable, rẻ trên Postgres) |
+| Full row snapshot per version (SQLAlchemy `history_meta`, simple-history) | Easy restores | Grows with row width × number of edits | No |
+| EAV, one row per field (Salesforce) | Easy field-level queries and ACLs | N rows per save, loses the row's atomicity | No |
+| **Delta JSONB / row** (auditlog, Directus `delta`) | Compact, 1 row/row/flush | Field-level queries need JSONB | **Chosen** |
+| Delta + periodic checkpoint snapshots | Fast point-in-time | More complex | Later if needed (nullable column, cheap on Postgres) |
 
 ---
 
 ## 6. Capture engine
 
-### 6.1 Tracker (resolve một lần ở `ready()`)
+### 6.1 Tracker (resolved once in `ready()`)
 
-Nguồn field: `introspect_model(model, overrides=...)`, rồi lọc: bỏ PK; bỏ `FieldSpec.history is False` (không phải secret); bỏ cột `TimestampMixin` (`created_at`, `updated_at`); bỏ `__history__["exclude"]`; nếu có `__history__["fields"]` thì chỉ lấy allow-list. Field `secret` chỉ đưa vào `redacted`. Với `auth.User`, gắn `info={"admin": {"history": False}}` cho `last_login_at`, `failed_login_count`, `locked_until`, `password_changed_at` để khỏi nhiễu.
+Field source: `introspect_model(model, overrides=...)`, then filter: drop the PK; drop `FieldSpec.history is False` (non-secret); drop `TimestampMixin` columns (`created_at`, `updated_at`); drop `__history__["exclude"]`; when `__history__["fields"]` is set, keep only the allow-list. `secret` fields go to `redacted` only. For `auth.User`, attach `info={"admin": {"history": False}}` to `last_login_at`, `failed_login_count`, `locked_until`, `password_changed_at` to avoid noise.
 
 ### 6.2 Pseudocode
 
 ```python
 @event.listens_for(Session, "before_flush")
 def before_flush(session, ctx, instances):
-    pending = session.info[PENDING] = []  # reset: flush lỗi trước đó không để lại rác
+    pending = session.info[PENDING] = []  # reset: a previously failed flush leaves no garbage
     for obj in session.new:
         _add(pending, obj, "create")
     for obj in session.dirty:
@@ -395,8 +401,8 @@ def _add(pending, obj, op):
     tracker = trackers.get(type(obj))
     if tracker is None:
         return
-    change = tracker.diff(obj, op)  # chỉ đọc attribute history đã load, không IO
-    if change.has_effect:  # no-op / chỉ field bị loại => bỏ
+    change = tracker.diff(obj, op)  # reads only loaded attribute history, no IO
+    if change.has_effect:  # no-op / only excluded fields => skip
         pending.append(change)
 
 
@@ -407,40 +413,40 @@ def after_flush(session, ctx):
         return
     context = resolve_context(session)  # session.info -> ContextVar -> system
     cs = session.info.setdefault(CHANGE_SET, uuid4())
-    rows = [c.to_row(context, cs) for c in pending]  # PK của row mới đã có sau flush
-    session.connection().execute(sa.insert(RowChange), rows)  # 1 executemany, cùng transaction
+    rows = [c.to_row(context, cs) for c in pending]  # new-row PKs exist after flush
+    session.connection().execute(sa.insert(RowChange), rows)  # 1 executemany, same transaction
 ```
 
-- **Update:** với mỗi spec đọc `state.attrs[key].history` (property này *không* phát loader). `deleted` rỗng nghĩa là giá trị cũ chưa load ⇒ đưa vào `unknown_old`.
-- **Delete:** dùng `state.attrs[key].loaded_value` (trả `NO_VALUE` nếu chưa load).
-- **So sánh:** `diff_repr(old) != diff_repr(new)` với sentinel `NO_VALUE` (bài học L7, tránh lỗi blank=blank của AppSheet).
-- **M2M:** với mỗi relationship trong `__history__["relations"]` có `secondary`, đọc `history.added / deleted` ⇒ `m2m[rel] = {add, remove}`. Collection phải được load trước khi gán (code `users.py` đã làm); **thêm test khoá hành vi này** vì `lazy="raise"`.
-- Listener gắn vào class `sqlalchemy.orm.Session` (framework async-only nên đó chính là sync session bên dưới `AsyncSession`).
+- **Update:** for each spec read `state.attrs[key].history` (this property does *not* emit a loader). An empty `deleted` means the old value was never loaded ⇒ add it to `unknown_old`.
+- **Delete:** use `state.attrs[key].loaded_value` (returns `NO_VALUE` when never loaded).
+- **Comparison:** `diff_repr(old) != diff_repr(new)` with a `NO_VALUE` sentinel (lesson L7, avoiding AppSheet's blank=blank bug).
+- **M2M:** for each relationship in `__history__["relations"]` that has a `secondary`, read `history.added / deleted` ⇒ `m2m[rel] = {add, remove}`. The collection must be loaded before assignment (the `users.py` code already does this); **add a test pinning this behaviour** because of `lazy="raise"`.
+- Listeners attach to the `sqlalchemy.orm.Session` class (the framework is async-only, so that is exactly the sync session under `AsyncSession`).
 
-### 6.3 Ma trận edge case
+### 6.3 Edge-case matrix
 
-| # | Tình huống | Hành vi | Giảm thiểu / test |
+| # | Situation | Behaviour | Mitigation / test |
 | --- | --- | --- | --- |
-| 1 | Rollback hoặc savepoint rollback | Không có history (cùng transaction) | Test `_create` với `IntegrityError` |
-| 2 | `update()`/`delete()` bulk (ORM-enabled) | Không qua unit-of-work ⇒ không có entry | Guard `do_orm_execute` theo `HISTORY_BULK_POLICY` (`ignore`/`warn`/`raise`); helper `history.bulk_update()` |
-| 3 | SQL thô / psql / service khác | **Blind spot** (giống AppSheet) | Phase 4: trigger an toàn + `history_reconcile`; ghi rõ trong tài liệu |
-| 4 | `ON DELETE CASCADE` ở DB | Row con không được ghi | `delete` của row cha ghi snapshot m2m đã load; hoặc cascade ở ORM cho model được track |
-| 5 | Hai writer cùng sửa 1 row | `old` có thể cũ (lost update) | `VersionedMixin` (`version_id_col`) ⇒ `StaleDataError`; trigger DB cho độ chính xác tuyệt đối |
-| 6 | Attribute deferred/expired | `unknown_old`, **không** lazy-load | Test với `lazy="raise"` |
-| 7 | PK bị tái sử dụng (SQLite) | Timeline gộp hai "đời" | UI cắt đoạn tại `delete`; identity của Postgres không tái dùng |
-| 8 | No-op save / chỉ đổi cột bị loại | Bỏ qua | Chống nhiễu `touch_session` |
-| 9 | Giá trị khổng lồ | Truncate + sha256 | `HISTORY_MAX_VALUE_BYTES` |
-| 10 | Field secret | Chỉ marker `redacted` | Test "không lộ giá trị" |
-| 11 | `Decimal`, `datetime`, enum | Qua `diff_repr` | Hoàn thiện type còn thiếu ở Phase 1 |
-| 12 | Cùng row flush 2 lần trong 1 transaction | 2 entry cùng `change_set` | UI gộp theo `change_set` |
-| 13 | Đổi tên model | `model_label` cũ thành mồ côi | Lệnh bảo trì `history_relabel` |
-| 14 | Xoá/đổi kiểu cột | Giữ tên cũ, UI gắn nhãn "legacy field" | `schema_version`, fallback `humanize(name)` |
-| 15 | CLI / job không có request | ContextVar hoặc actor `system` | `history.use(...)` |
-| 16 | Insert history lỗi | `closed`: fail cả transaction; `open`: savepoint + log + metric | `HISTORY_FAILURE_MODE` |
+| 1 | Rollback or savepoint rollback | No history (same transaction) | Test `_create` with `IntegrityError` |
+| 2 | Bulk `update()`/`delete()` (ORM-enabled) | Bypasses the unit of work ⇒ no entry | `do_orm_execute` guard honouring `HISTORY_BULK_POLICY` (`ignore`/`warn`/`raise`); `history.bulk_update()` helper |
+| 3 | Raw SQL / psql / another service | **Blind spot** (like AppSheet) | Phase 4: safety-net trigger + `history_reconcile`; documented |
+| 4 | `ON DELETE CASCADE` in the DB | Child rows are not recorded | The parent's `delete` records the loaded m2m snapshot; or use ORM cascades on tracked models |
+| 5 | Two writers editing one row | `old` may be stale (lost update) | `VersionedMixin` (`version_id_col`) ⇒ `StaleDataError`; DB trigger for absolute accuracy |
+| 6 | Deferred/expired attribute | `unknown_old`, **no** lazy-load | Test with `lazy="raise"` |
+| 7 | PK reuse (SQLite) | Timeline merges two "lives" | UI splits at `delete`; Postgres identity never reuses |
+| 8 | No-op save / only excluded columns changed | Skipped | Fights `touch_session` noise |
+| 9 | Huge values | Truncate + sha256 | `HISTORY_MAX_VALUE_BYTES` |
+| 10 | Secret field | `redacted` marker only | Test "value never leaks" |
+| 11 | `Decimal`, `datetime`, enums | Through `diff_repr` | Finish the missing types in Phase 1 |
+| 12 | Same row flushed twice in one transaction | 2 entries in the same `change_set` | UI groups by `change_set` |
+| 13 | Model renamed | Old `model_label` becomes orphaned | `history_relabel` maintenance command |
+| 14 | Column dropped/retyped | Keep old names, UI labels them "legacy field" | `schema_version`, `humanize(name)` fallback |
+| 15 | CLI / job without a request | ContextVar or the `system` actor | `history.use(...)` |
+| 16 | History insert fails | `closed`: fail the whole transaction; `open`: savepoint + log + metric | `HISTORY_FAILURE_MODE` |
 
 ---
 
-## 7. Truyền ngữ cảnh (actor, source)
+## 7. Context propagation (actor, source)
 
 ```python
 @dataclass(frozen=True, slots=True)
@@ -455,12 +461,12 @@ class HistoryContext:
     reverts_id: int | None = None
 ```
 
-Thứ tự resolve: `session.info["obox.history.ctx"]` (callable late-bound) → ContextVar → `HistoryContext.system()`.
+Resolution order: `session.info["obox.history.ctx"]` (late-bound callable) → ContextVar → `HistoryContext.system()`.
 
 ```python
-# Web: router admin thêm dependency cạnh bind_site
+# Web: the admin router adds a dependency next to bind_site
 async def bind_history(request: Request, db: AsyncSession = Depends(get_db)) -> None:
-    history.bind(db, request)  # lưu closure; đọc request.state.user lúc flush
+    history.bind(db, request)  # stores a closure; reads request.state.user at flush time
 
 
 # CLI / job
@@ -468,27 +474,27 @@ async with history.use(source="cli", actor_label="cli:createsuperuser"):
     await services.create_user(...)
 ```
 
-- **Late-binding là then chốt:** dependency cấp router chạy *trước* `permission_required` (nơi điền `request.state.user`), nên resolver phải đọc user ở thời điểm flush, không phải lúc bind.
-- **IP:** chỉ tin `X-Forwarded-For` khi `HISTORY_TRUSTED_PROXIES` được cấu hình; mặc định dùng `request.client.host` (audit log không được tin header do client gửi).
-- **Sentinel:** `actor_id = NULL` + `actor_label` ∈ {`system`, `anonymous`, `cli:<user>`} (học từ AppSheet `-1/-2`, nhưng không dùng số ma thuật).
+- **Late binding is essential:** the router-level dependency runs *before* `permission_required` (which fills `request.state.user`), so the resolver must read the user at flush time, not at bind time.
+- **IP:** trust `X-Forwarded-For` only when `HISTORY_TRUSTED_PROXIES` is configured; otherwise use `request.client.host` (audit logs must not trust client-supplied headers).
+- **Sentinels:** `actor_id = NULL` + `actor_label` ∈ {`system`, `anonymous`, `cli:<user>`} (learned from AppSheet `-1/-2`, but without magic numbers).
 
 ---
 
-## 8. Read path, UI và phân quyền
+## 8. Read path, UI, and permissions
 
-| Route | Mục đích | Quyền |
+| Route | Purpose | Permission |
 | --- | --- | --- |
-| `GET /admin/<path>/{pk}/history` | Timeline đầy đủ, `?before=<id>` | `ModelAdmin.has_history_permission` |
-| `GET /admin/history` | Feed toàn cục + filter | `history.view_row_change` |
-| `GET /admin/history/{change_set_id}` | Chi tiết một thao tác | như trên |
-| `POST /admin/<path>/{pk}/history/{entry_id}/revert` (P3) | Hoàn tác | `history.restore_row_change` + `change`/`add` của model |
+| `GET /admin/<path>/{pk}/history` | Full timeline, `?before=<id>` | `ModelAdmin.has_history_permission` |
+| `GET /admin/history` | Global feed + filters | `history.view_row_change` |
+| `GET /admin/history/{change_set_id}` | Detail of one change set | same as above |
+| `POST /admin/<path>/{pk}/history/{entry_id}/revert` (P3) | Revert | `history.restore_row_change` + the model's `change`/`add` |
 | `GET /admin/history/export` (P3) | NDJSON / CSV | `history.export_row_change` |
 
-- Route per-model đăng ký trong `register_model_routes` khi model được track.
-- `has_history_permission(ctx, obj=None)` = `history.view_row_change` **và** `has_view_permission` (theo mẫu `has_*_permission` hiện có). Permission cấp app khai ở `HistoryConfig.permissions` (cơ chế `AppConfig.permissions` + `sync_permissions` đã có). Feed toàn cục chỉ hiện model mà viewer có quyền `view`.
-- **UI:** cột phải của `form.html` (hiện chỉ có card nút) thêm card *Recent activity* (5 entry) + liên kết *View all*; chỉ hiện ở trang change, không hiện ở add. Mỗi entry: initials của actor, thời gian tương đối (tooltip UTC), badge `op` và `source`, danh sách `field: old → new`. Stack giữ nguyên: Jinja2 SSR + Tabler. Autoescape luôn bật, **cấm `|safe`** cho old/new (XSS từ dữ liệu đã lưu).
-- **Che theo quyền (L10):** `visible = {spec.name for spec in form_specs + list_specs if not spec.secret}`; field ngoài tập này bị lọc khi render. `redacted` hiện là "đã thay đổi" không kèm giá trị. Field không còn trong spec (legacy) chỉ superuser thấy vì không biết nó có nhạy cảm hay không.
-- `HistoryService` trả dataclass `HistoryItem` đã áp masking; template không bao giờ đọc JSON thô:
+- Per-model routes are registered in `register_model_routes` when the model is tracked.
+- `has_history_permission(ctx, obj=None)` = `history.view_row_change` **and** `has_view_permission` (following the existing `has_*_permission` pattern). App-level permissions are declared in `HistoryConfig.permissions` (the existing `AppConfig.permissions` + `sync_permissions` mechanism). The global feed only shows models the viewer has `view` on.
+- **UI:** the right column of `form.html` (currently just the button card) gains a *Recent activity* card (5 entries) + a *View all* link; shown on change pages only, not on add. Each entry: actor initials, relative time (UTC tooltip), `op` and `source` badges, a `field: old → new` list. Stack unchanged: Jinja2 SSR + Tabler. Autoescape stays on; **`|safe` is forbidden** for old/new values (XSS from stored data).
+- **Permission-aware masking (L10):** `visible = {spec.name for spec in form_specs + list_specs if not spec.secret}`; fields outside this set are filtered at render time. `redacted` renders as "changed" without a value. Fields no longer in any spec (legacy) are superuser-only because their sensitivity is unknown.
+- `HistoryService` returns dataclasses already masked; templates never read raw JSON:
 
 ```python
 recent(db, admin, pk, limit=5)
@@ -501,94 +507,94 @@ change_set(db, change_set_id)
 
 ## 9. Revert / Restore (Phase 3)
 
-Nguyên tắc: **không bao giờ sửa hay xoá entry cũ.** Revert là một thay đổi tiến, được log với `source='revert'` và `reverts_id` (Jotform cũng log mọi lần restore).
+Principle: **never edit or delete an existing entry.** A revert is a forward change, logged with `source='revert'` and `reverts_id` (Jotform also logs every restore).
 
 `revert(entry)`:
 
-1. Kiểm tra quyền; chặn các field có `truncated`/`redacted`/`mask` và liệt kê rõ field nào không khôi phục được.
-2. Trong một transaction: `SELECT ... FOR UPDATE` row hiện tại (Postgres; SQLite bỏ qua).
-3. **Conflict check** từng field: `current == entry.new` thì cho qua, ngược lại trả 409 kèm `old / new / current` để người dùng chọn (3-way ở mức field).
-4. Áp `old` qua đường chuẩn (`FieldType.from_input` + schema form) nên validator/constraint vẫn chạy; context `source=revert`.
-5. Capture engine tự sinh entry mới `op=update, reverts_id=entry.id`.
+1. Check permissions; block fields that are `truncated`/`redacted`/`mask`ed and list exactly which fields cannot be restored.
+2. In one transaction: `SELECT ... FOR UPDATE` the current row (Postgres; skipped on SQLite).
+3. **Per-field conflict check:** `current == entry.new` passes; otherwise return 409 with `old / new / current` for the user to choose (field-level 3-way).
+4. Apply `old` through the standard path (`FieldType.from_input` + the form schema) so validators/constraints still run; context `source=revert`.
+5. The capture engine writes a new entry `op=update, reverts_id=entry.id` by itself.
 
-Biến thể: revert `delete` = INSERT lại với PK gốc nếu PK chưa bị dùng (PK gốc luôn nhỏ hơn giá trị sequence hiện tại nên không va chạm), ghi `op=create`; revert `create` = delete có xác nhận; revert cả `change_set` = áp ngược theo `id DESC` trong một transaction, hoặc thất bại toàn bộ.
-
----
-
-## 10. Bảo mật, riêng tư, tuân thủ
-
-- **Secret** không bao giờ lưu giá trị, chỉ marker `redacted`.
-- **PII:** `__history__["mask"]` (che một phần kiểu `a***@x.com`, field đó không revert được) hoặc `redacted` (chỉ marker); chọn theo field.
-- **Erasure (GDPR):** `history_anonymize --actor-id N` hoặc `--model M --pk K` chạy bằng role bảo trì, thay `actor_label`/giá trị bằng token ẩn, **không xoá** entry (giữ cấu trúc timeline); mỗi lần chạy được log.
-- **Truy cập:** phân quyền như mục 8; export có rate limit và log (logger `obox.history.audit`); CSV chống formula injection (tiền tố `'` cho ô bắt đầu bằng `=`, `+`, `-`, `@`).
-- **Không tin dữ liệu do client gửi:** `RequestIDMiddleware` hiện nhận nguyên `x-request-id` từ client ⇒ phải chuẩn hoá về `[A-Za-z0-9._-]{1,64}` trước khi lưu, và coi đó là *gợi ý đối chiếu*, không phải bằng chứng. IP chỉ tin theo `HISTORY_TRUSTED_PROXIES`.
-- **Mã hoá at-rest:** ở tầng DB/đĩa; history chứa bản sao dữ liệu nhạy cảm nên cần cùng mức bảo vệ với bảng gốc.
-- **Tamper evidence (Phase 4):** bảng `history_seal(block_id, first_id, last_id, count, merkle_root, prev_block_hash, block_hash, sealed_at)`. Worker `history_seal` niêm phong các entry *cũ hơn một cửa sổ trễ* (lớn hơn `idle_in_transaction_session_timeout`/`statement_timeout`, ví dụ 10 phút) theo thứ tự `id`, để entry commit muộn không chèn vào khối đã seal; định kỳ neo `block_hash` ra nơi ngoài (object storage WORM / log service); `history_verify` kiểm tra lại. Entry vẫn bất biến, hash không ghi ngược vào entry.
+Variants: reverting a `delete` = INSERT again with the original PK if it is unused (the original PK is always below the current sequence value, so no collision), recorded as `op=create`; reverting a `create` = a confirmed delete; reverting a whole `change_set` = apply in reverse `id DESC` order inside one transaction, or fail entirely.
 
 ---
 
-## 11. Cấu hình, quan sát, kiểm tra hệ thống
+## 10. Security, privacy, compliance
 
-**Settings** (thêm vào `BaseSettings`, prefix `OBOX_`; bắt buộc khai báo vì `extra="forbid"`):
+- **Secrets** are never stored, only the `redacted` marker.
+- **PII:** `__history__["mask"]` (partial masking like `a***@x.com`; such fields cannot be reverted) or `redacted` (marker only); choose per field.
+- **Erasure (GDPR):** `history_anonymize --actor-id N` or `--model M --pk K` runs under the maintenance role, replacing `actor_label`/values with opaque tokens and **never deleting** entries (timeline structure stays intact); every run is logged.
+- **Access:** permissions as in section 8; exports are rate-limited and logged (logger `obox.history.audit`); CSV guards against formula injection (prefix `'` on cells starting with `=`, `+`, `-`, `@`).
+- **Never trust client-supplied data:** `RequestIDMiddleware` currently accepts the raw `x-request-id` header ⇒ normalise it to `[A-Za-z0-9._-]{1,64}` before storing, and treat it as a *correlation hint*, not evidence. IP trust follows `HISTORY_TRUSTED_PROXIES`.
+- **Encryption at rest:** at the DB/disk layer; history holds copies of sensitive data, so it needs the same protections as the source table.
+- **Tamper evidence (Phase 4):** table `history_seal(block_id, first_id, last_id, count, merkle_root, prev_block_hash, block_hash, sealed_at)`. A `history_seal` worker seals entries *older than a lag window* (larger than `idle_in_transaction_session_timeout`/`statement_timeout`, e.g. 10 minutes) in `id` order, so late-committing entries cannot slip into a sealed block; `block_hash` is periodically anchored outside (WORM object storage / a log service); `history_verify` re-checks. Entries stay immutable; hashes are never written back into entries.
 
-| Setting | Mặc định | Ý nghĩa |
+---
+
+## 11. Configuration, observability, system checks
+
+**Settings** (added to `BaseSettings`, prefix `OBOX_`; explicit declaration mandatory because of `extra="forbid"`):
+
+| Setting | Default | Meaning |
 | --- | --- | --- |
-| `HISTORY_ENABLED` | `True` | Công tắc tổng |
-| `HISTORY_FAILURE_MODE` | `"closed"` | `closed`: fail cả transaction; `open`: savepoint + log + tiếp tục |
-| `HISTORY_BULK_POLICY` | `"warn"` | Bulk update/delete lên model được track: `ignore` / `warn` / `raise` |
-| `HISTORY_MAX_VALUE_BYTES` | `8192` | Ngưỡng truncate mỗi giá trị |
-| `HISTORY_RETENTION_DAYS` | `None` | `None` = giữ mãi |
-| `HISTORY_TRUSTED_PROXIES` | `[]` | Danh sách proxy được tin `X-Forwarded-For` |
-| `HISTORY_TRACK_ALL_ADMIN_MODELS` | `False` | Bật cho mọi model đã register trong `AdminSite` |
+| `HISTORY_ENABLED` | `True` | Master switch |
+| `HISTORY_FAILURE_MODE` | `"closed"` | `closed`: fail the whole transaction; `open`: savepoint + log + continue |
+| `HISTORY_BULK_POLICY` | `"warn"` | Bulk update/delete on tracked models: `ignore` / `warn` / `raise` |
+| `HISTORY_MAX_VALUE_BYTES` | `8192` | Truncation threshold per value |
+| `HISTORY_RETENTION_DAYS` | `None` | `None` = keep forever |
+| `HISTORY_TRUSTED_PROXIES` | `[]` | Proxies trusted for `X-Forwarded-For` |
+| `HISTORY_TRACK_ALL_ADMIN_MODELS` | `False` | Enable for every model registered in the `AdminSite` |
 
-**Khai báo theo model:** `__history__ = True` hoặc `{"fields": [...], "exclude": [...], "relations": [...], "mask": [...], "retention_days": int}`.
+**Per-model declaration:** `__history__ = True` or `{"fields": [...], "exclude": [...], "relations": [...], "mask": [...], "retention_days": int}`.
 
-**System checks** (cùng hệ `core/checks`): `obox.history.E201` PK ghép/không có PK; `E202` `relations` không phải relationship có `secondary`; `E203` field không tồn tại trong `fields`/`exclude`/`mask`; `W201` model được track nhưng không có `VersionedMixin` (rủi ro lost update); `W202` `HISTORY_FAILURE_MODE="open"`.
+**System checks** (same `core/checks` system): `obox.history.E201` composite/missing PK; `E202` `relations` entry is not a relationship with a `secondary`; `E203` unknown field in `fields`/`exclude`/`mask`; `W201` tracked model without `VersionedMixin` (lost-update risk); `W202` `HISTORY_FAILURE_MODE="open"`.
 
-**Signals:** `pre_record`, `post_record` (đồng bộ, dùng `core.signals.Signal.send`; `post_record` bắn sau `after_commit`) là điểm cắm cho Prometheus/OTel và shipper SIEM. Metrics đề xuất: `history_entries_written_total{model,op}`, `history_write_seconds`, `history_failures_total`, `history_bulk_untracked_total`, `history_table_bytes`. Log: logger `obox.history`.
+**Signals:** `pre_record`, `post_record` (synchronous, using `core.signals.Signal.send`; `post_record` fires after `after_commit`) are the plug points for Prometheus/OTel and SIEM shippers. Suggested metrics: `history_entries_written_total{model,op}`, `history_write_seconds`, `history_failures_total`, `history_bulk_untracked_total`, `history_table_bytes`. Logs: logger `obox.history`.
 
-**CLI** (đặt trong `management/commands/` của app, như `sync_permissions`): `history_purge`, `history_export`, `history_anonymize`, `history_relabel`; Phase 4: `history_seal`, `history_verify`, `history_partition`, `history_reconcile`.
+**CLI** (under the app's `management/commands/`, like `sync_permissions`): `history_purge`, `history_export`, `history_anonymize`, `history_relabel`; Phase 4: `history_seal`, `history_verify`, `history_partition`, `history_reconcile`.
 
 ---
 
-## 12. Chiến lược kiểm thử
+## 12. Test strategy
 
-Package `tests/history/`, dùng fixture `db` / `client` / `login`. CI đã chạy hai lượt (SQLite và Postgres 17) nên mọi test mặc định phải portable; test chỉ-Postgres gắn skip theo dialect.
+Package `tests/history/`, using the `db` / `client` / `login` fixtures. CI already runs twice (SQLite and Postgres 17), so every test must be portable by default; Postgres-only tests skip by dialect.
 
-| Nhóm | Nội dung |
+| Group | Content |
 | --- | --- |
-| Unit (thuần) | Engine diff; `diff_repr` mọi `FieldType` (round-trip JSON); truncate/redact/mask; **golden file** payload v1 để đóng băng schema |
-| Integration flush | create/update/delete; no-op; cột bị loại; M2M `roles`; model `__history__ = False` không bị track; `RowChange` không tự track |
-| Atomicity | Rollback ⇒ 0 entry; `IntegrityError` trong `begin_nested()` ⇒ 0 entry và không để rác sang flush sau; `change_set_id` reset sau commit |
-| Context | Web: `actor_id` đúng dù dependency router chạy trước auth (late-binding); CLI `history.use`; mặc định `system`; `request_id` được sanitize |
-| Admin UI | Trang history render; 403 khi thiếu quyền; secret/field ẩn không lộ; XSS (`<script>` trong old/new bị escape); card trong form |
-| Hiệu năng | Test đếm số câu SQL mỗi flush = đúng +1 insert (không N+1); benchmark có marker, không chạy mặc định |
-| Chỉ-Postgres | Trigger append-only; concurrency hai session cùng row (có/không `VersionedMixin`); partition (P4) |
-| Kiến trúc | `lint-imports` với layer mới; `ruff`; `pyright`; `mkdocs build --strict` |
+| Unit (pure) | Diff engine; `diff_repr` for every `FieldType` (JSON round-trip); truncate/redact/mask; **golden file** for the v1 payload to freeze the schema |
+| Integration (flush) | create/update/delete; no-op; excluded columns; M2M `roles`; `__history__ = False` models are not tracked; `RowChange` never tracks itself |
+| Atomicity | Rollback ⇒ 0 entries; `IntegrityError` inside `begin_nested()` ⇒ 0 entries and no garbage leaking into the next flush; `change_set_id` resets after commit |
+| Context | Web: correct `actor_id` even though the router dependency runs before auth (late binding); CLI `history.use`; default `system`; sanitized `request_id` |
+| Admin UI | History pages render; 403 without permission; secret/hidden fields never leak; XSS (`<script>` in old/new is escaped); card in the form |
+| Performance | Test that SQL count per flush = exactly +1 insert (no N+1); benchmarks behind a marker, not run by default |
+| Postgres-only | Append-only trigger; two concurrent sessions on one row (with/without `VersionedMixin`); partitioning (P4) |
+| Architecture | `lint-imports` with the new layer; `ruff`; `pyright`; `mkdocs build --strict` |
 
 ---
 
 ## 13. Roadmap
 
-Ước lượng thô cho 1 dev quen codebase, chỉ để sắp thứ tự, không phải cam kết.
+Rough estimates for one developer familiar with the codebase — ordering aid, not commitments.
 
-| Phase | Nội dung | Exit criteria | Cỡ |
+| Phase | Content | Exit criteria | Size |
 | --- | --- | --- | --- |
-| **0** | ADR `docs/adr/0001-row-history.md`; spike listener + benchmark insert 1k/10k row, đo overhead và kích thước entry | Số đo thay các giả định ở 5.6 và NF2 | \~0,5 tuần |
-| **1 — MVP** | App `contrib.history`; `RowChange` + migration; hoàn thiện `diff_repr`; capture create/update/delete (chưa M2M); context (session.info + ContextVar + admin bind); `Model.__history__`; track `auth.User/Role`; settings, checks; trang timeline + card trong form; docs | CI xanh trên SQLite + PG; test không lộ secret; test atomicity; overhead nằm trong ngân sách đã đo | \~1,5–2 tuần |
-| **2** | M2M; bulk guard + helper; feed toàn cục + filter; masking theo quyền; trigger immutability (`post_migrate`); signals; `history_purge`, `history_export`; retention | Feed đúng quyền; purge theo lô an toàn; trigger chặn UPDATE | \~1–1,5 tuần |
-| **3** | Revert/restore (kể cả khôi phục row đã xoá); `VersionedMixin`; export UI; `mask`; `history_anonymize` | Conflict check đúng; revert luôn sinh entry mới | \~1,5 tuần |
-| **4** | Hardening Postgres: partitioning + partition DEFAULT; trigger lưới an toàn + `history_reconcile`; seal block + `history_verify`; tài liệu REVOKE/role; `history_relabel` | Retention bằng DROP PARTITION; verify phát hiện sửa/xoá | \~2 tuần |
+| **0** | ADR `docs/adr/0001-row-history.md`; listener spike + insert benchmark 1k/10k rows, measure overhead and entry size | Measurements replace the assumptions in 5.6 and NF2 | ~0.5 week |
+| **1 — MVP** | `contrib.history` app; `RowChange` + migration; finish `diff_repr`; capture create/update/delete (no M2M yet); context (session.info + ContextVar + admin bind); `Model.__history__`; track `auth.User/Role`; settings, checks; timeline page + form card; docs | CI green on SQLite + PG; tests prove secrets never leak; atomicity tests; overhead within the measured budget | ~1.5–2 weeks |
+| **2** | M2M; bulk guard + helper; global feed + filters; permission-aware masking; immutability trigger (`post_migrate`); signals; `history_purge`, `history_export`; retention | Feed respects permissions; batches purge safely; trigger blocks UPDATE | ~1–1.5 weeks |
+| **3** | Revert/restore (incl. deleted-row restore); `VersionedMixin`; export UI; `mask`; `history_anonymize` | Conflict checks correct; revert always produces a new entry | ~1.5 weeks |
+| **4** | Postgres hardening: partitioning + DEFAULT partition; safety-net trigger + `history_reconcile`; seal blocks + `history_verify`; REVOKE/role docs; `history_relabel` | Retention via DROP PARTITION; verify detects edits/deletes | ~2 weeks |
 
-**Danh sách file thay đổi ở Phase 1:**
+**Phase 1 changed-file list:**
 
 ```
 obox_builder/contrib/history/{__init__,apps,models,options,tracker,capture,context,payload,service,checks,signals}.py
 obox_builder/db/base.py                    + Model.__history__ ClassVar
 obox_builder/fields/types/{number,temporal,relation}.py    + diff_repr
-obox_builder/contrib/auth/models.py        + __history__ cho User/Role; info history=False cho cột gây nhiễu
-obox_builder/contrib/admin/{options,urls}.py, views/history.py (mới), views/model.py (route + card)
-obox_builder/contrib/admin/templates/admin/history/*.html, model/form.html (card), navigation.py (mục "Audit log")
+obox_builder/contrib/auth/models.py        + __history__ for User/Role; history=False for noisy columns
+obox_builder/contrib/admin/{options,urls}.py, views/history.py (new), views/model.py (route + card)
+obox_builder/contrib/admin/templates/admin/history/*.html, model/form.html (card), navigation.py ("Audit log" entry)
 obox_builder/conf/base.py                  + HISTORY_* settings
 pyproject.toml                             + importlinter layer
 docs/history.md · docs/adr/0001-row-history.md · mkdocs.yml · CHANGELOG.md
@@ -597,48 +603,48 @@ tests/history/...
 
 ---
 
-## 14. Quyết định đã cân nhắc (ADR tóm tắt)
+## 14. Considered decisions (summarised ADR)
 
-| Chủ đề | Chọn | Loại bỏ | Vì sao |
+| Topic | Chosen | Rejected | Why |
 | --- | --- | --- | --- |
-| Capture | SQLAlchemy Session events | DB trigger; CDC (logical decoding/Debezium); override `save()` | Chỉ app biết actor, request và `FieldType`; portable; trigger giữ làm lưới an toàn ở P4; CDC quá nặng cho admin nội bộ |
-| Thư viện | Tự cài đặt | sqlalchemy-continuum (bảng shadow theo model); supa\_audit (archived, chỉ Postgres) | Shadow table nhân đôi schema/migration; cần khớp `FieldType`, async, `lazy="raise"` |
-| Nhóm thao tác | `change_set_id` denormalized | Bảng header (kiểu Directus `activity`) | Tránh FK/savepoint, dễ partition; chi phí lặp metadata nhỏ |
-| Actor | `actor_id` + `actor_label` snapshot | FK `auth_user` | Giữ layering, sống sót khi xoá user; đổi lại erasure cần lệnh bảo trì |
-| Partition | Hoãn tới Phase 4 | Làm ngay ngày 1 | PK ghép + Identity không portable sang SQLite; bốn bất biến giữ đường mở |
-| Mặc định track | Opt-in theo model (`__history__`) | Track tất cả | Kiểm soát dung lượng (bài học Salesforce); `auth` luôn bật |
+| Capture | SQLAlchemy Session events | DB trigger; CDC (logical decoding/Debezium); overriding `save()` | Only the app knows the actor, request and `FieldType`; portable; the trigger stays as a Phase 4 safety net; CDC is too heavy for an internal admin |
+| Library | Build it ourselves | sqlalchemy-continuum (per-model shadow tables); supa\_audit (archived, Postgres-only) | Shadow tables double the schema/migrations; we need to match `FieldType`, async and `lazy="raise"` |
+| Change grouping | Denormalized `change_set_id` | Header table (like Directus `activity`) | Avoids FK/savepoint issues, easier partitioning; the metadata-duplication cost is small |
+| Actor | `actor_id` + `actor_label` snapshot | FK to `auth_user` | Preserves layering, survives user deletion; the trade-off is that erasure needs a maintenance command |
+| Partitioning | Deferred to Phase 4 | Do it on day one | Composite PK + Identity is not portable to SQLite; the four invariants keep the door open |
+| Tracking default | Opt-in per model (`__history__`) | Track everything | Controls volume (Salesforce lesson); `auth` is always on |
 
 ---
 
-## 15. Rủi ro và câu hỏi mở
+## 15. Risks and open questions
 
-**Rủi ro**
+**Risks**
 
-1. **Blind spot khi ghi ngoài app** (SQL thô, service khác, bulk): giảm bằng guard + Phase 4, nhưng không thể loại bỏ hoàn toàn ở tầng app.
-2. **`old` sai khi hai writer đồng thời** nếu model không có `VersionedMixin` (edge #5).
-3. **Lỗi trong listener làm hỏng flush:** mặc định fail-closed; cần test kỹ và có `HISTORY_FAILURE_MODE`.
-4. **Ngữ nghĩa attribute history của SQLAlchemy** với collection/replace/deferred: phải khoá bằng test ở Phase 1 trên cả SQLite và PG.
-5. **Tăng trưởng không giới hạn:** retention + (P4) partition; theo dõi `history_table_bytes`.
-6. **`RequestIDMiddleware` tin `x-request-id` từ client:** phải sanitize trước khi lưu.
+1. **Blind spot for writes outside the app** (raw SQL, other services, bulk): reduced by the guard + Phase 4, but never fully eliminated at the app layer.
+2. **Stale `old` under concurrent writers** when the model lacks `VersionedMixin` (edge #5).
+3. **A listener bug breaks the flush:** fail-closed by default; needs thorough tests and `HISTORY_FAILURE_MODE`.
+4. **SQLAlchemy attribute-history semantics** for collections/replace/deferred: must be pinned by tests in Phase 1 on both SQLite and PG.
+5. **Unbounded growth:** retention + (P4) partitioning; watch `history_table_bytes`.
+6. **`RequestIDMiddleware` trusts a client `x-request-id`:** must be sanitized before storing.
 
-**Câu hỏi cần bạn chốt** (ảnh hưởng thứ tự ưu tiên)
+**Open questions for you** (they influence priority order)
 
-1. Mức tuân thủ: audit nội bộ hay môi trường có quy định? (quyết định độ ưu tiên của immutability/hash-chain)
-2. Model nào phải track ngay khi ra mắt: chỉ `auth`, hay mọi model admin?
-3. Revert/restore có bắt buộc ở v1 không?
-4. Yêu cầu retention: 1 năm, 3 năm, hay vô thời hạn?
-5. DB production chỉ Postgres? (mở khoá partition và trigger)
-6. Có writer ngoài admin (API công khai, worker, service khác) không? (quyết định độ ưu tiên của trigger lưới an toàn)
+1. Compliance level: internal audit or a regulated environment? (prioritises immutability/hash-chaining)
+2. Which models must be tracked at launch: only `auth`, or every admin model?
+3. Is revert/restore mandatory for v1?
+4. Retention requirement: 1 year, 3 years, or forever?
+5. Is production Postgres-only? (unlocks partitioning and triggers)
+6. Are there writers outside the admin (public API, workers, other services)? (prioritises the safety-net trigger)
 
 ---
 
-## Nguồn
+## Sources
 
 - **Airtable:** record revision history; data retention policies; Webhooks API (payload, expiration); audit log events API — support.airtable.com, airtable.com/developers/web/api
-- **AppSheet:** Monitor app activity using Audit History (support.google.com/appsheet/answer/10104794); Bots, Events và data change, `_THISROW_BEFORE/AFTER` (answers 11432969, 11547057, 11445188)
+- **AppSheet:** Monitor app activity using Audit History (support.google.com/appsheet/answer/10104794); Bots, Events and data change, `_THISROW_BEFORE/AFTER` (answers 11432969, 11547057, 11445188)
 - **Jotform:** account activity logs (jotform.com/help/370); Tables revision history (jotform.com/help/1011); Enterprise admin console; forum "Tables: Viewing Specific Data Updates and Revision History for Submissions"
 - **Directus:** schema docs, revisions reference, issue #17894, PR #24058 (retention)
 - **Salesforce:** Field History Tracking / Field Audit Trail (Trailhead, SalesforceBen)
-- **django-auditlog** docs (usage, internals); Supabase blog "Postgres Auditing in 150 lines of SQL" và github.com/supabase/supa\_audit (archived)
+- **django-auditlog** docs (usage, internals); Supabase blog "Postgres Auditing in 150 lines of SQL" and github.com/supabase/supa\_audit (archived)
 - **SQLAlchemy 2.0:** ORM events (`before_flush`/`after_flush`), asyncio events, `examples/versioned_history`
-- **Mã nguồn:** github.com/vinhgiga/obox-builder, branch `dev` @ `dabd36d`
+- **Source code:** github.com/vinhgiga/obox-builder, branch `dev` @ `dabd36d`
