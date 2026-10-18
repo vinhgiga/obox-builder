@@ -10,8 +10,15 @@
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}"/>
 </form>
 {% endif %}
+{% if bulk_actions %}
+<form id="bulk-form" method="post" action="{{ bulk_action }}" class="d-none"
+      data-noun="{{ admin.plural_name | lower }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}"/>
+  <input type="hidden" name="select_across" value="0"/>
+</form>
+{% endif %}
 <div class="card">
-  {% if can_add or filters or searchable or inline_columns %}
+  {% if can_add or filters or searchable or inline_columns or bulk_actions %}
   <div class="card-header flex-wrap gap-2 py-2">
     {% if can_add %}
     <a href="{{ admin.add_path() }}" class="btn btn-primary">New {{ admin.name | lower }}</a>
@@ -22,6 +29,24 @@
       <span class="badge bg-blue-lt ms-1 d-none" data-inline-count>0</span>
     </button>
     <button type="button" class="btn d-none" data-inline-revert>Revert</button>
+    {% endif %}
+    {% if bulk_actions %}
+    <div class="d-flex align-items-center gap-2">
+      <select name="action" form="bulk-form" class="form-select w-auto" data-bulk-action
+              aria-label="Action">
+        <option value="">---------</option>
+        {% for bulk_action_spec in bulk_actions %}
+        <option value="{{ bulk_action_spec.name }}">{{ bulk_action_spec.description }}</option>
+        {% endfor %}
+      </select>
+      <button type="submit" form="bulk-form" class="btn">Run</button>
+      <span class="text-secondary small" data-selection-counter>0 of {{ rows | length }} selected</span>
+      {% if displayed_total > rows | length %}
+      <a href="#" class="small d-none" data-select-all data-total="{{ displayed_total }}"
+         >Select all {{ displayed_total }} {{ admin.plural_name | lower }}</a>
+      <a href="#" class="small d-none" data-select-clear>Clear selection</a>
+      {% endif %}
+    </div>
     {% endif %}
     {% if filters or searchable %}
     <form method="get" action="{{ admin.list_path() }}" class="d-flex gap-2 ms-auto">
@@ -65,6 +90,12 @@
     <table class="table table-vcenter card-table">
       <thead>
         <tr>
+          {% if bulk_actions %}
+          <th class="w-1">
+            <input type="checkbox" id="action-toggle" class="form-check-input m-0"
+                   form="bulk-form" aria-label="Select all on this page"/>
+          </th>
+          {% endif %}
           <th class="w-1 text-end">#</th>
           <th class="w-1">Actions</th>
           {% for column in columns %}
@@ -82,7 +113,14 @@
       <tbody>
         {% for row in rows %}
         <tr>
-          <td class="text-end text-secondary">{{ start_index + loop.index0 }}</td>
+          {% if bulk_actions %}
+          <td class="w-1">
+            <input type="checkbox" name="_selected_action" value="{{ row.pk }}"
+                   class="form-check-input m-0 action-select" form="bulk-form"
+                   aria-label="Select {{ row.label }}"/>
+          </td>
+          {% endif %}
+          <td class="text-end text-secondary" data-row-number>{{ start_index + loop.index0 }}</td>
           <td>
             <div class="btn-list flex-nowrap">
             {% if admin.permission_name('change') in perms %}
@@ -129,7 +167,8 @@
         </tr>
         {% else %}
         <tr>
-          <td colspan="{{ columns | length + 2 }}" class="text-center text-secondary py-4">
+          <td colspan="{{ columns | length + 2 + (1 if bulk_actions else 0) }}"
+              class="text-center text-secondary py-4">
             No {{ admin.plural_name | lower }} found.
           </td>
         </tr>

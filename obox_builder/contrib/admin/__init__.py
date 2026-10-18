@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from obox_builder.contrib.admin.actions import action, delete_selected
 from obox_builder.contrib.admin.context import AdminContext
 from obox_builder.contrib.admin.navigation import NavGroup, NavItem, build_navigation
 from obox_builder.contrib.admin.options import ModelAdmin
@@ -15,7 +16,9 @@ __all__ = [
     "ModelAdmin",
     "NavGroup",
     "NavItem",
+    "action",
     "build_navigation",
+    "delete_selected",
     "register",
     "site",
 ]

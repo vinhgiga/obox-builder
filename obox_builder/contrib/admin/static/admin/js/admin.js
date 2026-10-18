@@ -143,7 +143,10 @@
   }
 
   function isDataCell(cell) {
-    return cell.cellIndex !== 0 && !cell.querySelector("form, button, a.btn");
+    if (cell.hasAttribute("data-row-number")) {
+      return false;
+    }
+    return !cell.querySelector("form, button, a.btn, input[type='checkbox']");
   }
 
   document.addEventListener("contextmenu", function (event) {
@@ -403,7 +406,164 @@
     refresh();
   }
 
+  function stagedInlineCount() {
+    var count = 0;
+    document.querySelectorAll("[data-inline-editor]").forEach(function (editor) {
+      if (editor.value !== editor.dataset.original) {
+        count += 1;
+      }
+    });
+    return count;
+  }
+
+  function initBulkActions() {
+    var form = document.getElementById("bulk-form");
+    if (!form) {
+      return;
+    }
+    var toggle = document.getElementById("action-toggle");
+    var boxes = Array.prototype.slice.call(
+      document.querySelectorAll("input.action-select")
+    );
+    var select = document.querySelector("[data-bulk-action]");
+    var counter = document.querySelector("[data-selection-counter]");
+    var selectAllLink = document.querySelector("[data-select-all]");
+    var clearLink = document.querySelector("[data-select-clear]");
+    var selectAcross = form.querySelector('input[name="select_across"]');
+    var total = selectAllLink ? parseInt(selectAllLink.dataset.total || "0", 10) : boxes.length;
+    var noun = form.dataset.noun || "items";
+    var across = false;
+    var lastIndex = null;
+
+    function setAcross(value) {
+      across = value;
+      selectAcross.value = value ? "1" : "0";
+    }
+
+    function updateRow(box) {
+      var row = box.closest("tr");
+      if (row) {
+        row.classList.toggle("selected", box.checked);
+      }
+    }
+
+    function selectedCount() {
+      var count = 0;
+      boxes.forEach(function (box) {
+        if (box.checked) {
+          count += 1;
+        }
+      });
+      return count;
+    }
+
+    function update() {
+      var count = selectedCount();
+      if (counter) {
+        counter.textContent = across
+          ? "All " + total + " selected"
+          : count + " of " + boxes.length + " selected";
+      }
+      if (toggle) {
+        toggle.checked = boxes.length > 0 && count === boxes.length;
+        toggle.indeterminate = count > 0 && count < boxes.length;
+      }
+      if (selectAllLink) {
+        selectAllLink.classList.toggle(
+          "d-none",
+          !(count > 0 && count === boxes.length && !across && boxes.length < total)
+        );
+      }
+      if (clearLink) {
+        clearLink.classList.toggle("d-none", !across);
+      }
+    }
+
+    boxes.forEach(function (box, index) {
+      box.addEventListener("click", function (event) {
+        if (event.shiftKey && lastIndex !== null && lastIndex !== index) {
+          var start = Math.min(lastIndex, index);
+          var end = Math.max(lastIndex, index);
+          for (var i = start; i <= end; i += 1) {
+            boxes[i].checked = box.checked;
+            updateRow(boxes[i]);
+          }
+        }
+        lastIndex = index;
+        updateRow(box);
+        setAcross(false);
+        update();
+      });
+    });
+
+    if (toggle) {
+      toggle.addEventListener("change", function () {
+        boxes.forEach(function (box) {
+          box.checked = toggle.checked;
+          updateRow(box);
+        });
+        setAcross(false);
+        update();
+      });
+    }
+
+    if (selectAllLink) {
+      selectAllLink.addEventListener("click", function (event) {
+        event.preventDefault();
+        boxes.forEach(function (box) {
+          box.checked = true;
+          updateRow(box);
+        });
+        setAcross(true);
+        update();
+      });
+    }
+
+    if (clearLink) {
+      clearLink.addEventListener("click", function (event) {
+        event.preventDefault();
+        boxes.forEach(function (box) {
+          box.checked = false;
+          updateRow(box);
+        });
+        setAcross(false);
+        update();
+      });
+    }
+
+    form.addEventListener("submit", function () {
+      var message = "";
+      var destructive = false;
+      var staged = stagedInlineCount();
+      if (staged > 0) {
+        message =
+          "You have " +
+          staged +
+          " unsaved inline " +
+          (staged === 1 ? "change" : "changes") +
+          " that will be lost.";
+      }
+      if (select && select.value === "delete_selected") {
+        var count = across ? total : selectedCount();
+        if (count > 0) {
+          var deleteMessage = "Delete " + count + " " + noun + "? This cannot be undone.";
+          message = message ? message + " " + deleteMessage : deleteMessage;
+          destructive = true;
+        }
+      }
+      if (message) {
+        form.setAttribute("data-confirm", message);
+        form.setAttribute("data-confirm-label", destructive ? "Delete" : "Continue");
+      } else {
+        form.removeAttribute("data-confirm");
+      }
+    });
+
+    update();
+  }
+
   initInlineEditors();
+  initBulkActions();
   initDebouncedSearch();
   highlightSearchMatches();
   restoreSearchFocus();

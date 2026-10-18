@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import functools
 import logging
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import sqlalchemy as sa
 from pydantic import BaseModel
 
+from obox_builder.contrib.admin.actions import delete_selected
 from obox_builder.core.checks.messages import CheckMessage, Error, Warning
 from obox_builder.fields import Cell, FieldSpec, introspect_model
 from obox_builder.forms import build_schema
@@ -30,6 +33,16 @@ INLINE_TYPES = frozenset(
 )
 
 
+@dataclass(frozen=True)
+class ActionSpec:
+    """A bulk action offered on the list page."""
+
+    name: str
+    description: str
+    permissions: tuple[str, ...]
+    func: Callable[[AdminContext, sa.Select[Any]], Awaitable[Any]]
+
+
 class ModelAdmin:
     """Configuration object for one model's CRUD screens.
 
@@ -43,6 +56,9 @@ class ModelAdmin:
     list_display: ClassVar[Sequence[str]] = ()
     list_editable: ClassVar[Sequence[str]] = ()
     list_filter: ClassVar[Sequence[str]] = ()
+    #: Bulk actions on the list page; strings name ModelAdmin methods,
+    #: callables are used directly. ``None`` disables actions entirely.
+    actions: ClassVar[Sequence[str | Callable[..., Any]] | None] = ()
     search_fields: ClassVar[Sequence[str]] = ()
     ordering: ClassVar[Sequence[str]] = ()
     fields: ClassVar[Sequence[str] | None] = None
@@ -221,6 +237,56 @@ class ModelAdmin:
             )
         return self._inline_schema
 
+    # -- bulk actions -------------------------------------------------------
+    def get_actions(self, ctx: AdminContext) -> list[ActionSpec]:
+        """Actions available to ``ctx.user``: the built-in delete plus ``actions``."""
+        if self.actions is None:
+            return []
+        specs: list[ActionSpec] = []
+        seen: set[str] = set()
+        for entry in (delete_selected, *self.actions):
+            spec = self._resolve_action(entry)
+            if spec is None or spec.name in seen:
+                continue
+            seen.add(spec.name)
+            if self._action_allowed(spec, ctx):
+                specs.append(spec)
+        return specs
+
+    def _resolve_action(self, entry: str | Callable[..., Any]) -> ActionSpec | None:
+        if isinstance(entry, str):
+            method = getattr(type(self), entry, None)
+            if method is None:
+                return None
+            name = entry
+            func: Callable[..., Awaitable[Any]] = getattr(self, entry)
+        else:
+            method = entry
+            name = entry.__name__
+            func = functools.partial(entry, self)
+        description = getattr(method, "description", "") or name.replace("_", " ").capitalize()
+        if "%(" in description:
+            description = description % {
+                "verbose_name": self.name.lower(),
+                "verbose_name_plural": self.plural_name.lower(),
+            }
+        permissions = tuple(getattr(method, "allowed_permissions", ()))
+        return ActionSpec(
+            name=name,
+            description=description,
+            permissions=permissions,
+            func=func,
+        )
+
+    def _action_allowed(self, spec: ActionSpec, ctx: AdminContext) -> bool:
+        if not spec.permissions:
+            return True
+        for perm in spec.permissions:
+            checker = getattr(self, f"has_{perm}_permission", None)
+            if checker is not None and checker(ctx):
+                return True
+        return False
+
     def get_search_specs(self) -> list[FieldSpec]:
         specs = self.spec_map()
         result = []
@@ -385,6 +451,27 @@ class ModelAdmin:
                         id="obox.admin.E107",
                     )
                 )
+        for entry in self.actions or ():
+            if not isinstance(entry, str):
+                continue
+            method = getattr(type(self), entry, None)
+            if method is None:
+                messages.append(
+                    Error(
+                        f"{self.model_label}: actions references unknown method {entry!r}.",
+                        id="obox.admin.E108",
+                    )
+                )
+                continue
+            for perm in getattr(method, "allowed_permissions", ()):
+                if not hasattr(self, f"has_{perm}_permission"):
+                    messages.append(
+                        Error(
+                            f"{self.model_label}: action {entry!r} declares unknown "
+                            f"permission {perm!r}.",
+                            id="obox.admin.E108",
+                        )
+                    )
         for name in self.get_ordering(None):  # type: ignore[arg-type]
             bare = name[1:] if name.startswith("-") else name
             spec = specs.get(bare)

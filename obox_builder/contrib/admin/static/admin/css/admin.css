@@ -122,3 +122,13 @@ td.cell-modified {
 td.cell-modified .inline-editor:focus {
   background-color: var(--tblr-bg-surface, #ffffff);
 }
+
+/* -- bulk selection -------------------------------------------------------- */
+
+tbody tr.selected > td {
+  background-color: var(--tblr-bg-surface-secondary, #f6f8fb);
+}
+
+tbody tr.selected .inline-editor {
+  background-color: transparent;
+}

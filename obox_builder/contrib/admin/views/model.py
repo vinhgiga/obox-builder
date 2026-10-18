@@ -14,7 +14,7 @@ from urllib.parse import urlencode
 
 import sqlalchemy as sa
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -80,6 +80,12 @@ def _register_one(router: APIRouter, site: AdminSite, admin: ModelAdmin) -> None
         ctx = AdminContext(request=request, user=user, db=db, site=site, admin=admin)
         return await _inline(ctx)
 
+    async def actions_submit(
+        request: Request, user: Any = view_dep, db: AsyncSession = Depends(get_db)
+    ) -> Any:
+        ctx = AdminContext(request=request, user=user, db=db, site=site, admin=admin)
+        return await _actions(ctx)
+
     async def change_view(
         request: Request, pk: str, user: Any = change_dep, db: AsyncSession = Depends(get_db)
     ) -> Any:
@@ -129,6 +135,9 @@ def _register_one(router: APIRouter, site: AdminSite, admin: ModelAdmin) -> None
     router.add_api_route(f"{base}/add", add_view, methods=["GET"], name=f"{name}_add")
     router.add_api_route(f"{base}/add", add_submit, methods=["POST"], name=f"{name}_add_submit")
     router.add_api_route(f"{base}/inline", inline_submit, methods=["POST"], name=f"{name}_inline")
+    router.add_api_route(
+        f"{base}/actions", actions_submit, methods=["POST"], name=f"{name}_actions"
+    )
     router.add_api_route(f"{base}/{{pk}}", change_view, methods=["GET"], name=f"{name}_change")
     router.add_api_route(
         f"{base}/{{pk}}", change_submit, methods=["POST"], name=f"{name}_change_submit"
@@ -193,6 +202,10 @@ async def _list(
     inline_action = f"{admin.list_path()}/inline"
     if request.url.query:
         inline_action = f"{inline_action}?{request.url.query}"
+    bulk_actions = admin.get_actions(ctx)
+    bulk_action = f"{admin.list_path()}/actions"
+    if request.url.query:
+        bulk_action = f"{bulk_action}?{request.url.query}"
     context = await page_context(
         request,
         admin=admin,
@@ -215,6 +228,8 @@ async def _list(
         inline_columns=can_inline,
         inline_action=inline_action,
         inline_banner=banner,
+        bulk_actions=bulk_actions,
+        bulk_action=bulk_action,
     )
     return render(request, "admin/model/list.html", context)
 
@@ -475,6 +490,54 @@ async def _inline(ctx: AdminContext) -> HTMLResponse | RedirectResponse:
         await flash(request, f"{changed} {noun} updated.")
     else:
         await flash(request, "No changes to save.")
+    return RedirectResponse(destination, status_code=303)
+
+
+async def _actions(ctx: AdminContext) -> Response:
+    admin = _require_admin(ctx)
+    request = ctx.request
+    form = await request.form()
+    token = form.get("csrf_token")
+    await ensure_csrf(request, token if isinstance(token, str) else None)
+    specs = {spec.name: spec for spec in admin.get_actions(ctx)}
+    if not specs:
+        return _bad_request(ctx, f"Bulk actions are not enabled for {admin.name}.")
+    destination = admin.list_path()
+    if request.url.query:
+        destination = f"{destination}?{request.url.query}"
+    raw_action = form.get("action")
+    spec = specs.get(raw_action if isinstance(raw_action, str) else "")
+    if spec is None:
+        await flash(request, "No action selected.", "warning")
+        return RedirectResponse(destination, status_code=303)
+    select_across = form.get("select_across") == "1"
+    selected = [value for value in form.getlist("_selected_action") if isinstance(value, str)]
+    if not select_across and not selected:
+        await flash(
+            request,
+            "Items must be selected in order to perform actions on them. Nothing was changed.",
+            "warning",
+        )
+        return RedirectResponse(destination, status_code=303)
+    field_specs = {field.name: field for field in admin.get_field_specs()}
+    try:
+        query = QuerySpec.parse(
+            request.query_params, field_specs, default_sort=admin.get_ordering(ctx)
+        )
+        stmt = query.apply(
+            admin.get_queryset(ctx), field_specs, search_specs=admin.get_search_specs()
+        )
+    except QuerySpecError as exc:
+        return _bad_request(ctx, str(exc))
+    if not select_across:
+        try:
+            pks = [admin.parse_pk(value) for value in selected]
+        except LookupError:
+            return _bad_request(ctx, "Invalid row id in the action submission.")
+        stmt = stmt.where(admin.pk_column().in_(pks))
+    result = await spec.func(ctx, stmt)
+    if isinstance(result, Response):
+        return result
     return RedirectResponse(destination, status_code=303)
 
 
