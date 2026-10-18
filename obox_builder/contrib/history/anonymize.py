@@ -23,9 +23,9 @@ import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from obox_builder.contrib.history.immutability import (
-    MAINTENANCE_GUC,
-    SQLITE_CREATE_TRIGGER,
-    SQLITE_DROP_TRIGGER,
+    begin_maintenance,
+    end_maintenance,
+    per_transaction_maintenance,
 )
 from obox_builder.contrib.history.models import RowChange
 
@@ -61,29 +61,6 @@ def erase_payload(payload: Any) -> dict[str, Any]:
     }
 
 
-async def _start_maintenance(db: AsyncSession) -> str | None:
-    """Suspend the append-only trigger; return the mode for ``_end_maintenance``."""
-    dialect = db.get_bind().dialect.name
-    if dialect == "postgresql":
-        return "postgresql"
-    if dialect == "sqlite":
-        await db.execute(sa.text(SQLITE_DROP_TRIGGER))
-        return "sqlite"
-    return None
-
-
-async def _end_maintenance(db: AsyncSession, mode: str | None) -> None:
-    if mode == "sqlite":
-        await db.execute(sa.text(SQLITE_CREATE_TRIGGER))
-        await db.commit()
-
-
-async def _set_maintenance(db: AsyncSession, mode: str | None) -> None:
-    """Per-transaction maintenance switch on PostgreSQL (``SET LOCAL``)."""
-    if mode == "postgresql":
-        await db.execute(sa.text(MAINTENANCE_GUC))
-
-
 async def anonymize_actor(
     db: AsyncSession,
     actor_id: int,
@@ -98,10 +75,10 @@ async def anonymize_actor(
     if dry_run:
         result.updated = await _actor_count(db, actor_id)
         return result
-    mode = await _start_maintenance(db)
+    mode = await begin_maintenance(db)
     try:
         while True:
-            await _set_maintenance(db, mode)
+            await per_transaction_maintenance(db, mode)
             expired = (
                 sa.select(RowChange.id)
                 .where(RowChange.actor_id == actor_id)
@@ -128,7 +105,7 @@ async def anonymize_actor(
             if updated < batch_size:
                 break
     finally:
-        await _end_maintenance(db, mode)
+        await end_maintenance(db, mode)
     logger.info(
         "history_anonymize: actor_id=%s -> %d row(s) in %d batch(es).",
         actor_id,
@@ -156,11 +133,11 @@ async def anonymize_object(
             await db.scalar(sa.select(sa.func.count(RowChange.id)).where(*condition)) or 0
         )
         return result
-    mode = await _start_maintenance(db)
+    mode = await begin_maintenance(db)
     after_id = 0
     try:
         while True:
-            await _set_maintenance(db, mode)
+            await per_transaction_maintenance(db, mode)
             rows = (
                 await db.execute(
                     sa.select(RowChange.id, RowChange.changes, RowChange.object_repr)
@@ -195,7 +172,7 @@ async def anonymize_object(
             if len(rows) < batch_size:
                 break
     finally:
-        await _end_maintenance(db, mode)
+        await end_maintenance(db, mode)
     logger.info(
         "history_anonymize: %s#%s -> %d row(s) in %d batch(es).",
         model_label,

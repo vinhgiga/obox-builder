@@ -1,13 +1,9 @@
 from __future__ import annotations
 
-import re
-
 import typer
 
 from obox_builder.core.management import utils
 from obox_builder.core.management.base import CommandError, command
-
-MODEL_LABEL_RE = re.compile(r"^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$")
 
 
 @command(help="Erase actor or row values from history (entries are never deleted).")
@@ -26,6 +22,7 @@ def handle(
         anonymize_actor,
         anonymize_object,
     )
+    from obox_builder.contrib.history.service import MODEL_LABEL_RE
     from obox_builder.db.engine import run_async
     from obox_builder.db.session import session_scope
 

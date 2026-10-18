@@ -113,9 +113,12 @@ typeCheckingMode = "standard"
 reportMissingTypeStubs = false
 
 [tool.pytest.ini_options]
-addopts = "-ra"
+addopts = "-ra -m 'not benchmark'"
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "benchmark: wall-clock micro-benchmarks (excluded by default; run with -m benchmark -s)",
+]
 
 [tool.importlinter]
 root_package = "obox_builder"

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -19,6 +20,9 @@ from obox_builder.utils.strings import camel_to_snake
 
 DEFAULT_PAGE_SIZE = 20
 PAGE_SIZES = (10, 20, 50)
+
+#: The canonical form of a model label: ``app_label.model_name``.
+MODEL_LABEL_RE = re.compile(r"^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$")
 
 
 @dataclass(frozen=True, slots=True)

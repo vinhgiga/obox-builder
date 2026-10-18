@@ -16,8 +16,8 @@ def _dialect(db: AsyncSession) -> str:
     return db.get_bind().dialect.name
 
 
-async def _seed(db: AsyncSession) -> None:
-    item = Item(name="Anvil", sku="ANV-1")
+async def _seed(db: AsyncSession, sku: str = "ANV-1") -> None:
+    item = Item(name="Anvil", sku=sku)
     db.add(item)
     await db.commit()
 
@@ -74,7 +74,7 @@ async def test_postgres_maintenance_mode_allows_purge(db: AsyncSession) -> None:
     assert await _count(db) == 0
 
     # A new transaction is protected again (SET LOCAL does not leak).
-    await _seed(db)
+    await _seed(db, sku="ANV-2")
     with pytest.raises(ProgrammingError, match="append-only"):
         await db.execute(sa.delete(RowChange))
         await db.commit()

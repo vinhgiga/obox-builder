@@ -20,18 +20,23 @@ PREVIEW_CHARS = 256
 
 def build_changes(change: PendingChange) -> dict[str, Any]:
     """The ``changes`` JSONB document for one captured row."""
+    limit = int(settings.HISTORY_MAX_VALUE_BYTES)
     fields: dict[str, list[Any]] = {}
     truncated: dict[str, dict[str, dict[str, Any]]] = {}
     for name in sorted(change.fields):
         old, new = change.fields[name]
         prepared: list[Any] = []
         for side, value in (("old", old), ("new", new)):
-            overflow = _overflow(value)
-            if overflow is None:
+            raw = _compact_json(value)
+            data = raw.encode("utf-8")
+            if len(data) <= limit:
                 prepared.append(value)
             else:
-                prepared.append(_preview(value))
-                truncated.setdefault(name, {})[side] = overflow
+                prepared.append(raw[:PREVIEW_CHARS])
+                truncated.setdefault(name, {})[side] = {
+                    "len": len(data),
+                    "sha256": hashlib.sha256(data).hexdigest(),
+                }
         fields[name] = prepared
     return {
         "fields": fields,
@@ -54,19 +59,6 @@ def _m2m(change: PendingChange) -> dict[str, dict[str, list[str]]]:
         name: {"add": list(sides["add"]), "remove": list(sides["remove"])}
         for name, sides in sorted(change.m2m.items())
     }
-
-
-def _overflow(value: Any) -> dict[str, Any] | None:
-    limit = int(settings.HISTORY_MAX_VALUE_BYTES)
-    raw = _compact_json(value)
-    size = len(raw.encode("utf-8"))
-    if size <= limit:
-        return None
-    return {"len": size, "sha256": hashlib.sha256(raw.encode("utf-8")).hexdigest()}
-
-
-def _preview(value: Any) -> str:
-    return _compact_json(value)[:PREVIEW_CHARS]
 
 
 def _compact_json(value: Any) -> str:

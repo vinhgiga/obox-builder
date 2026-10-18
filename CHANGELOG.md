@@ -30,6 +30,18 @@ Follows [Keep a Changelog](https://keepachangelog.com/), versions follow
 - Masked values in the payload (`__history__["mask"]`), export buttons on the
   audit feed, `GET /admin/history/export` (CSV/NDJSON, `history.export_row_change`)
   and the `history_anonymize` command (actor/object scopes, dry-run).
+- Hardening: `history_reconcile` (replays each row's history, reports
+  missing/resurrected/unexpected/stale drift and `--fix` appends repair entries
+  with `source=db_trigger`), tamper-evidence seal blocks (`history_seal` builds
+  Merkle-chained blocks; `history_verify` exits non-zero on edits/deletes/chain
+  rewrites), `history_relabel` for batch `model_label` rewrites, and PostgreSQL
+  monthly partitioning (`history_partition --sql` prints the reviewed
+  conversion DDL, `--ensure` creates months + `DEFAULT`, `--drop-before` is
+  O(1) retention) with `REVOKE`/role recipes in `docs/history.md`.
+- Write-path benchmark (`tests/history/test_write_cost.py`, pytest marker
+  `benchmark`): at 500-rows-per-commit on SQLite, capture adds ~47 µs/row on
+  create and ~117 µs/row on update over a plain ORM row; payloads average
+  213 B/entry.
 
 ## [0.2.0] - 2026-10-17
 

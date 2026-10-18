@@ -54,10 +54,10 @@ async def test_stale_instance_raises_stale_data_error(db: AsyncSession) -> None:
         assert two is not None
         one.quantity = 10
         await first.flush()
+        await first.commit()  # release the row lock; the version bump is the guard
         two.quantity = 20
         with pytest.raises(StaleDataError):
             await second.flush()
-        await first.commit()
 
 
 async def test_unversioned_model_records_null_row_version(db: AsyncSession) -> None:

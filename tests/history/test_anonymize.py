@@ -130,6 +130,8 @@ async def test_anonymize_object_erases_values_only(db: AsyncSession) -> None:
 
 
 async def test_anonymize_restores_the_sqlite_guard_trigger(db: AsyncSession) -> None:
+    if db.get_bind().dialect.name == "postgresql":
+        pytest.skip("SQLite guard-trigger check")
     await _seed_actor_entries(db, 7, "dana")
     await anonymize_actor(db, 7)
 

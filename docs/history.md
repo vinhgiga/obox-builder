@@ -294,6 +294,111 @@ python manage.py history_anonymize --model blog.post --pk 17
   `redacted`). Like purge, it bypasses the append-only trigger for the run
   (`SET LOCAL obox.history_maintenance` on PostgreSQL; the SQLite trigger is
   dropped and recreated) and logs every batch to `obox.history.audit`.
+* `history_relabel` rewrites the `model_label` of existing entries when a model
+  moves (app renamed, module split) so its timeline survives:
+
+```bash
+python manage.py history_relabel --from shop.product --to catalog.product --dry-run
+python manage.py history_relabel --from shop.product --to catalog.product
+```
+
+  Rewrites in keyset batches (default 10 000 rows), under the same maintenance
+  guard as purge, logging each batch to `obox.history.audit`. Labels must match
+  `app.model`.
+
+## Reconcile blind spots
+
+Raw SQL, another service or Core bulk DML bypasses ORM capture. Reconcile
+replays each row's entries (the create snapshot followed by recorded diffs) and
+compares the reconstruction with the live table:
+
+```bash
+python manage.py history_reconcile                     # report only (default)
+python manage.py history_reconcile --model blog.post   # one label
+python manage.py history_reconcile --fix               # append repair entries
+```
+
+* Kinds: `missing` (history exists, row gone, last op isn't `delete`),
+  `resurrected` (last op is `delete`, row is back), `unexpected` (row without
+  any history — blind insert) and `stale` (recorded values differ).
+* `--fix` appends a repair entry per drift (`source="db_trigger"`,
+  `actor_label="history_reconcile"`), so the timeline shows reality again and
+  the next run is clean. Secret/masked fields and values whose plain form is
+  unknown (`redacted`/`truncated`) are never compared or repaired.
+* Labels that only exist in history (renamed/unregistered models) are reported
+  as skipped; use `history_relabel` or `history_anonymize` for them.
+
+## Tamper evidence (seal blocks)
+
+`history_seal` hashes entries into chained blocks; `history_verify` re-derives
+every leaf and fails (exit 1) when entries were edited, deleted or blocks
+rewritten:
+
+```bash
+python manage.py history_seal                          # entries older than 10 min
+python manage.py history_seal --lag 3600 --dry-run
+python manage.py history_verify
+```
+
+Each block stores a Merkle root over its entry hashes plus `prev_block_hash`,
+and every seal logs its `block_hash` to `obox.history.audit` — anchor those
+lines outside the database (WORM storage, log service, transparency log) to
+defeat a malicious DBA. Hashes are never written back into entries, so sealing
+does not touch the append-only table.
+
+## Partitioning and DROP-PARTITION retention (PostgreSQL)
+
+Beyond per-row purge, large deployments can partition by month and let
+retention `DROP` whole partitions (O(1), no bloat). Converting a live table is
+a maintenance-window operation: the command **prints reviewed DDL** instead of
+running it:
+
+```bash
+python manage.py history_partition --sql --cutoff 2026-12 > convert.sql
+psql -d obox -f convert.sql            # one short ACCESS EXCLUSIVE window
+python manage.py history_partition --ensure --months 3    # cron: monthly
+python manage.py history_partition --drop-before 2025-01  # retention
+```
+
+* `--sql` outputs the full conversion: online pre-steps (composite PK
+  `(id, occurred_at)`, validated CHECK bound for the old table), then a single
+  transaction that renames the old table to `history_row_change_legacy`,
+  creates the partitioned parent (same columns, PK, checks, indexes) and
+  attaches the legacy table as its first partition. The serial sequence is
+  shared (`OWNED BY NONE`) so dropping the legacy partition never breaks
+  inserts.
+* `--ensure` creates the current + coming months
+  (`history_row_change_YYYYMM`) plus `history_row_change_default`, so inserts
+  never fail when the monthly job drifts. It never moves rows already sitting
+  in `DEFAULT`; create partitions ahead of time.
+* `--drop-before YYYY-MM` drops only partitions whose entire range ends at or
+  before that month — never `DEFAULT`. Use `--dry-run` to preview names and
+  row counts. Partitions dropped this way bypass the trigger by design
+  (`DROP TABLE` doesn't fire row triggers); run it with a role that owns the
+  partitions.
+
+## Hardening with database roles
+
+The append-only trigger and `obox.history_maintenance` GUC are accident
+guardrails; the real security boundary is the role the app connects as:
+
+```sql
+-- Runtime role: append + read, never mutate history rows.
+GRANT SELECT, INSERT ON history_row_change TO obox_app;
+GRANT USAGE, SELECT ON SEQUENCE history_row_change_id_seq TO obox_app;
+REVOKE UPDATE, DELETE, TRUNCATE ON history_row_change FROM obox_app;
+
+-- Maintenance role (purge/anonymize/relabel/partition) only.
+GRANT UPDATE, DELETE ON history_row_change TO obox_maintenance;
+GRANT ALL ON history_row_change, history_seal_block TO obox_maintenance;
+
+-- Auditor role: history only, no business tables.
+GRANT SELECT ON history_row_change, history_seal_block TO obox_auditor;
+```
+
+Ownership/migrations run as a separate owner role. The CLI maintenance
+commands run as the maintenance role and still need the GUC/trigger handling
+they already do; `history_verify` only needs `SELECT`.
 
 Model checks (`python manage.py check`):
 
@@ -308,12 +413,14 @@ Model checks (`python manage.py check`):
 ## Limitations (roadmap)
 
 * **Blind spots**: raw SQL, other services and bulk DML outside the ORM are
-  not captured (the bulk guard only sees ORM statements; the trigger blocks
-  tampering but does not reconstruct the change). Phase 4 adds
-  `history_reconcile`.
-* **Hardening (Phase 4, PostgreSQL)**: monthly partitions + `DROP PARTITION`
-  retention, hash-chained seal blocks (`history_verify`), `history_relabel`
-  and documented `REVOKE`/role recipes.
+  not captured as they happen (the bulk guard only sees ORM statements;
+  the trigger blocks tampering but does not reconstruct the change).
+  `history_reconcile --fix` repairs the trail afterwards, but only for values
+  it can still see: secret/masked fields and `redacted`/`truncated` payloads
+  are never reconstructed.
+* **Tamper evidence is detective, not preventive**: a privileged actor can
+  still edit rows; `history_verify` detects it only if block hashes were
+  anchored outside the database.
 * **Concurrent writers** are protected when the model uses `VersionedMixin`
   (stale flushes raise `StaleDataError`, reverted entries are conflict-checked);
   unversioned models can still record an `old` value that no longer matches at

@@ -1,6 +1,6 @@
 # Row History — Architecture, System Design & Database Model
 
-**Project:** obox-builder · **Branch:** `dev` @ `dabd36d` (v0.2.1) · **Date:** 2026-10-18 · **Status:** Accepted — Phases 1–3 shipped
+**Project:** obox-builder · **Branch:** `dev` @ `dabd36d` (v0.2.1) · **Date:** 2026-10-18 · **Status:** Accepted — Phases 1–4 shipped
 
 > **Scope:** a *row history* feature for the hand-rolled FastAPI admin: record *who* changed *what*, *when* and *from where* on every row; show a timeline; support revert later. This document is based on (1) reading the `dev` branch code and (2) research into Airtable, AppSheet, Jotform and reference systems (Directus, Salesforce, django-auditlog, supa\_audit, SQLAlchemy).
 
@@ -24,8 +24,21 @@
 > `templates/admin/users/form.html` and `templates/admin/roles/form.html`
 > (bespoke pages), the shared timeline page in `templates/admin/history.html`
 > and the global feed in `templates/admin/history_feed.html`; the blocked-revert
-> page is `templates/admin/revert.html`. Not yet done: Phase 1 exit benchmark
-> (NF2), partition/seal/hardening items (Phase 4).
+> page is `templates/admin/revert.html`. Phase 4 done: `history_reconcile`
+> (per-label replay of create snapshots + diffs; reports
+> missing/resurrected/unexpected/stale and `--fix` appends repair entries with
+> `source="db_trigger"`), seal blocks (`history_seal` builds Merkle-chained
+> `history_seal_block` rows over a lag window; `history_verify` re-derives every
+> leaf and exits non-zero on edits/deletes/chain rewrites), `history_relabel`
+> (batch `model_label` rewrite under the maintenance guard) and PostgreSQL
+> monthly partitioning (`history_partition --sql` prints the reviewed
+> conversion DDL — composite PK, validated CHECK, attach of the legacy table,
+> shared sequence; `--ensure` creates months + `DEFAULT`; `--drop-before` is
+> O(1) retention). The NF2/insert benchmark landed as
+> `tests/history/test_write_cost.py` (`pytest -m benchmark`), and the PG-only
+> paths (partition conversion, triggers, maintenance GUC) are exercised against
+> real PostgreSQL both locally (18.4) and in CI (`postgres:17-alpine`). The
+> "deviations" paragraph below predates Phase 4 and is kept for history.
 
 ## 0. Decision summary
 
@@ -117,11 +130,11 @@ Also: trash retention defaults to 30 days; records re-created after retention ge
 | L2 | Old/new **per field** is mandatory (Jotform lacks it) | `changes.fields = {f: [old, new]}` |
 | L3 | Group operations by transaction (Airtable, Directus `parent`) | `change_set_id` |
 | L4 | Explicit source + actor with guest/system sentinels (Airtable `source`, AppSheet -1/-2) | `source`, `actor_id NULL`, `actor_label` |
-| L5 | Blind spot when writes happen outside the app (AppSheet) | Bulk guard + (Phase 4) DB trigger + `history_reconcile` |
+| L5 | Blind spot when writes happen outside the app (AppSheet) | Bulk guard + DB trigger + `history_reconcile` (replay + `--fix`) |
 | L6 | Recursion prevention (bots do not trigger bots) | `RowChange` is never tracked; written with a Core insert |
 | L7 | Wrong null/blank comparisons cause misfires (AppSheet) | Comparison with a `NO_VALUE` sentinel, normalised through `diff_repr`; `""` ≠ `None` when the type distinguishes them |
 | L8 | Right indexes from day one + keyset pagination (Directus #17894) | Index `(model_label, object_pk, id DESC)`; no OFFSET |
-| L9 | Retention as a first-class, per-model feature (Airtable, Salesforce, Directus) | `HISTORY_RETENTION_DAYS` + per-model override; drop partition (Phase 4) |
+| L9 | Retention as a first-class, per-model feature (Airtable, Salesforce, Directus) | `HISTORY_RETENTION_DAYS` + per-model override; `history_purge` and (PG) `history_partition --drop-before` |
 | L10 | Reads must be permission-aware (Airtable) | Filter fields by `FieldSpec` + viewer permissions |
 | L11 | Restore is a *forward* action, logged, with conflict checks (Jotform); IDs are reused (Airtable) | `reverts_id`; UI splits "incarnations" at `delete` |
 | L12 | Payload has a version (Airtable `payloadVersion`; auditlog v3) | `schema_version` column |
@@ -145,7 +158,7 @@ Also: trash retention defaults to 30 days; records re-created after retention ge
 **Non-functional**
 
 - **NF1 Atomic:** history commit ⇔ data commit (same transaction).
-- **NF2 Low overhead:** 1 `executemany` / flush; no extra SELECTs for updates. *The target budget must be confirmed by a Phase 1 benchmark; these are not measured numbers yet.*
+- **NF2 Low overhead:** 1 `executemany` / flush; no extra SELECTs for updates. Measured (2026-10-18, in-memory SQLite on macOS, `tests/history/test_write_cost.py -m benchmark`): vs the same ORM flush on an untracked model, **+44 µs/row on creates (×1.38)** and **+117 µs/row on 1-field updates of a 12-column model (×12 vs a 3-column control)**; ~8k changed rows/s; the invariant test asserts exactly +1 `INSERT` statement per flush.
 - **NF3 Append-only** and eventually tamper-evident.
 - **NF4 Portable:** SQLite (dev/test) + Postgres (prod); Postgres-only features must be optional.
 - **NF5 Correct layering** (import-linter).
@@ -342,7 +355,7 @@ ORDER BY id DESC LIMIT 51;            -- 50 + 1 to know whether more pages exist
 ... WHERE change_set_id = :cs ORDER BY id;
 ```
 
-`request_id` is for log correlation; to look it up directly, add a partial index `WHERE request_id IS NOT NULL`. The write cost of the 5 indexes on an insert-only table must be measured in Phase 1; if the write path is sensitive, drop the `model` index (per-model feeds can filter with BRIN + `model_label`).
+`request_id` is for log correlation; to look it up directly, add a partial index `WHERE request_id IS NOT NULL`. The write cost of the 5 indexes on an insert-only table was measured in Phase 1 (NF2: +47 µs/row create, +117 µs/row update at 500 rows/commit on SQLite, see 5.6); if the write path is sensitive, drop the `model` index (per-model feeds can filter with BRIN + `model_label`).
 
 ### 5.5 Append-only (defense in depth)
 
@@ -366,13 +379,13 @@ CREATE TRIGGER history_row_change_no_truncate BEFORE TRUNCATE ON history_row_cha
 
 SQLite (dev/test): a trigger blocks `UPDATE` with `RAISE(ABORT, ...)`; `DELETE` stays allowed so dev purges keep working. 3. **DB roles (the real boundary):** `GRANT INSERT, SELECT` to the app role; `REVOKE UPDATE, DELETE, TRUNCATE`; a separate maintenance role for purge/anonymize.
 
-> ⚠️ The `obox.history_maintenance` GUC is only a guardrail against accidents/bugs: anyone with `SET` privilege can turn it on. The real security boundary is `REVOKE` + a separate role. Defeating a malicious superuser/DBA requires hash-chaining and external anchoring (Phase 4).
+> ⚠️ The `obox.history_maintenance` GUC is only a guardrail against accidents/bugs: anyone with `SET` privilege can turn it on. The real security boundary is `REVOKE` + a separate role. Defeating a malicious superuser/DBA requires hash-chaining and external anchoring (shipped: `history_seal`/`history_verify`).
 
 ### 5.6 Retention, partitioning, sizing
 
 - **Retention:** global `HISTORY_RETENTION_DAYS` + per-model override via `__history__["retention_days"]`. The `history_purge` command deletes in batches (≤10k rows per batch, sleeping between batches), enables `SET LOCAL obox.history_maintenance = 'on'`, and logs every batch to a logger (never into the table itself).
-- **Partitioning (Phase 4, Postgres only):** monthly RANGE on `occurred_at`, PK `(id, occurred_at)`, with a `DEFAULT` partition so inserts never fail when cron drifts; retention = `DROP PARTITION` (O(1), no bloat). Migrating the existing table: create the new partitioned table and attach the old table as the first partition (requires a unique index containing the partition column and a validated CHECK range) or backfill in batches. Timeline queries traverse partitions via MergeAppend on the `(model_label, object_pk, id DESC)` index + `LIMIT`, so they stop early.
-- **Sizing (assumptions, NOT measurements):** ~300 B fixed (columns + 5 indexes) + ~300 B payload ≈ 600 B/entry ⇒ 1M entries ≈ 0.6 GB; 50M ≈ 30 GB. Replace with real measurements at the Phase 1 exit criteria.
+- **Partitioning (shipped: Postgres only):** monthly RANGE on `occurred_at`, PK `(id, occurred_at)`, with a `DEFAULT` partition so inserts never fail when cron drifts; retention = `DROP PARTITION` (O(1), no bloat). Migrating the existing table: create the new partitioned table and attach the old table as the first partition (requires a unique index containing the partition column and a validated CHECK range) or backfill in batches; the shipped path is `history_partition --sql` → reviewed DDL → `--ensure` for new months → `--drop-before` for retention. Timeline queries traverse partitions via MergeAppend on the `(model_label, object_pk, id DESC)` index + `LIMIT`, so they stop early.
+- **Sizing (measured):** payload JSON averaged **213 B** per entry in the Phase 1 benchmark (12-column model, 80-char text, JSON meta; creates 313 B, updates ~115 B). On PostgreSQL 18 (10k rows, 245 B payloads, all indexes, fresh insert, no bloat) the table measures **603 B/entry** (heap 432 B + indexes 168 B) — close to the 500 B working estimate. Budget ~600 B/entry ⇒ 1M entries ≈ 0.6 GB before any bloat.
 
 ### 5.7 Data shapes considered
 
@@ -437,7 +450,7 @@ def after_flush(session, ctx):
 | --- | --- | --- | --- |
 | 1 | Rollback or savepoint rollback | No history (same transaction) | Test `_create` with `IntegrityError` |
 | 2 | Bulk `update()`/`delete()` (ORM-enabled) | Bypasses the unit of work ⇒ no entry | `do_orm_execute` guard honouring `HISTORY_BULK_POLICY` (`ignore`/`warn`/`raise`); `history.bulk_update()` helper |
-| 3 | Raw SQL / psql / another service | **Blind spot** (like AppSheet) | Phase 4: safety-net trigger + `history_reconcile`; documented |
+| 3 | Raw SQL / psql / another service | **Blind spot** (like AppSheet) | DB trigger blocks tampering; `history_reconcile` replays and `--fix` repairs; documented |
 | 4 | `ON DELETE CASCADE` in the DB | Child rows are not recorded | The parent's `delete` records the loaded m2m snapshot; or use ORM cascades on tracked models |
 | 5 | Two writers editing one row | `old` may be stale (lost update) | `VersionedMixin` (`version_id_col`) ⇒ `StaleDataError`; DB trigger for absolute accuracy |
 | 6 | Deferred/expired attribute | `unknown_old`, **no** lazy-load | Test with `lazy="raise"` |
@@ -537,7 +550,7 @@ Variants: reverting a `delete` = INSERT again with the original PK if it is unus
 - **Access:** permissions as in section 8; exports are rate-limited and logged (logger `obox.history.audit`); CSV guards against formula injection (prefix `'` on cells starting with `=`, `+`, `-`, `@`).
 - **Never trust client-supplied data:** `RequestIDMiddleware` currently accepts the raw `x-request-id` header ⇒ normalise it to `[A-Za-z0-9._-]{1,64}` before storing, and treat it as a *correlation hint*, not evidence. IP trust follows `HISTORY_TRUSTED_PROXIES`.
 - **Encryption at rest:** at the DB/disk layer; history holds copies of sensitive data, so it needs the same protections as the source table.
-- **Tamper evidence (Phase 4):** table `history_seal(block_id, first_id, last_id, count, merkle_root, prev_block_hash, block_hash, sealed_at)`. A `history_seal` worker seals entries *older than a lag window* (larger than `idle_in_transaction_session_timeout`/`statement_timeout`, e.g. 10 minutes) in `id` order, so late-committing entries cannot slip into a sealed block; `block_hash` is periodically anchored outside (WORM object storage / a log service); `history_verify` re-checks. Entries stay immutable; hashes are never written back into entries.
+- **Tamper evidence (shipped):** table `history_seal_block(block_id, first_id, last_id, count, merkle_root, prev_block_hash, block_hash, sealed_at)`. A `history_seal` worker seals entries *older than a lag window* (larger than `idle_in_transaction_session_timeout`/`statement_timeout`, e.g. 10 minutes) in `id` order, so late-committing entries cannot slip into a sealed block; `block_hash` is periodically anchored outside (WORM object storage / a log service); `history_verify` re-checks. Entries stay immutable; hashes are never written back into entries.
 
 ---
 
@@ -561,7 +574,7 @@ Variants: reverting a `delete` = INSERT again with the original PK if it is unus
 
 **Signals:** `pre_record`, `post_record` (synchronous, using `core.signals.Signal.send`; `post_record` fires after `after_commit`) are the plug points for Prometheus/OTel and SIEM shippers. Suggested metrics: `history_entries_written_total{model,op}`, `history_write_seconds`, `history_failures_total`, `history_bulk_untracked_total`, `history_table_bytes`. Logs: logger `obox.history`.
 
-**CLI** (under the app's `management/commands/`, like `sync_permissions`): `history_purge`, `history_export`, `history_anonymize`, `history_relabel`; Phase 4: `history_seal`, `history_verify`, `history_partition`, `history_reconcile`.
+**CLI** (under the app's `management/commands/`, like `sync_permissions`): `history_purge`, `history_export`, `history_anonymize`, `history_relabel` (all shipped, together with `history_seal`, `history_verify`, `history_partition`, `history_reconcile`).
 
 ---
 
@@ -588,11 +601,11 @@ Rough estimates for one developer familiar with the codebase — ordering aid, n
 
 | Phase | Content | Exit criteria | Size |
 | --- | --- | --- | --- |
-| **0** | ADR `docs/adr/0001-row-history.md`; listener spike + insert benchmark 1k/10k rows, measure overhead and entry size | Measurements replace the assumptions in 5.6 and NF2 | ~0.5 week |
+| **0** | ADR `docs/adr/0001-row-history.md`; listener spike + insert benchmark 1k/10k rows, measure overhead and entry size | Measurements replace the assumptions in 5.6 and NF2 — done 2026-10-18 (`tests/history/test_write_cost.py -m benchmark`) | ~0.5 week |
 | **1 — MVP** | `contrib.history` app; `RowChange` + migration; finish `diff_repr`; capture create/update/delete (no M2M yet); context (session.info + ContextVar + admin bind); `Model.__history__`; track `auth.User/Role`; settings, checks; timeline page + form card; docs | CI green on SQLite + PG; tests prove secrets never leak; atomicity tests; overhead within the measured budget | ~1.5–2 weeks |
 | **2** | M2M; bulk guard + helper; global feed + filters; permission-aware masking; immutability trigger (`post_migrate`); signals; `history_purge`, `history_export`; retention | Feed respects permissions; batches purge safely; trigger blocks UPDATE | ~1–1.5 weeks |
 | **3** | Revert/restore (incl. deleted-row restore); `VersionedMixin`; export UI; `mask`; `history_anonymize` | Conflict checks correct; revert always produces a new entry | ~1.5 weeks |
-| **4** | Postgres hardening: partitioning + DEFAULT partition; safety-net trigger + `history_reconcile`; seal blocks + `history_verify`; REVOKE/role docs; `history_relabel` | Retention via DROP PARTITION; verify detects edits/deletes | ~2 weeks |
+| **4** | Postgres hardening: partitioning + DEFAULT partition; safety-net trigger + `history_reconcile`; seal blocks + `history_verify`; REVOKE/role docs; `history_relabel` | Retention via DROP PARTITION; verify detects edits/deletes — done 2026-10-18 (`tests/history/test_partition.py`, `test_seal.py`, `test_reconcile.py`; PG paths run against real PostgreSQL) | ~2 weeks |
 
 **Phase 1 changed-file list:**
 

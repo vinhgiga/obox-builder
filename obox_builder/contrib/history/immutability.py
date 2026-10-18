@@ -69,6 +69,33 @@ async def install(db: AsyncSession) -> bool:
     return bool(ddl)
 
 
+# -- maintenance sessions (purge, anonymize, relabel) -------------------------
+
+
+async def begin_maintenance(db: AsyncSession) -> str | None:
+    """Suspend the append-only guard; return the mode for the helpers below."""
+    dialect = db.get_bind().dialect.name
+    if dialect == "postgresql":
+        return "postgresql"
+    if dialect == "sqlite":
+        await db.execute(sa.text(SQLITE_DROP_TRIGGER))
+        return "sqlite"
+    return None
+
+
+async def per_transaction_maintenance(db: AsyncSession, mode: str | None) -> None:
+    """Per-transaction maintenance switch on PostgreSQL (``SET LOCAL``)."""
+    if mode == "postgresql":
+        await db.execute(sa.text(MAINTENANCE_GUC))
+
+
+async def end_maintenance(db: AsyncSession, mode: str | None) -> None:
+    """Re-create the SQLite trigger; PostgreSQL needs no cleanup."""
+    if mode == "sqlite":
+        await db.execute(sa.text(SQLITE_CREATE_TRIGGER))
+        await db.commit()
+
+
 async def install_trigger_receiver(sender: object, **kwargs: object) -> None:
     """``post_migrate`` receiver: install the append-only triggers."""
     from obox_builder.db.session import session_scope
