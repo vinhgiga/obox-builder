@@ -86,9 +86,11 @@ async def grant_permissions(username: str, *permissions: str) -> None:
     from obox_builder.db.session import session_scope
 
     async with session_scope() as db:
-        role = Role(name=f"{username}-role")
-        db.add(role)
-        await db.flush()
+        role = await db.scalar(sa.select(Role).where(Role.name == f"{username}-role"))
+        if role is None:
+            role = Role(name=f"{username}-role")
+            db.add(role)
+            await db.flush()
         await db.refresh(role, ["permissions"])
         for name in permissions:
             app_label, _, codename = name.partition(".")
@@ -98,12 +100,14 @@ async def grant_permissions(username: str, *permissions: str) -> None:
                 )
             )
             assert perm is not None
-            role.permissions.append(perm)
+            if perm not in role.permissions:
+                role.permissions.append(perm)
         await db.flush()
         user = await db.scalar(sa.select(User).where(User.username == username))
         assert user is not None
         await db.refresh(user, ["roles"])
-        user.roles.append(role)
+        if role not in user.roles:
+            user.roles.append(role)
 
 
 async def login_session(client: httpx.AsyncClient, username: str) -> str:

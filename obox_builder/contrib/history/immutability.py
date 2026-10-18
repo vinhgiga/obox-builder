@@ -19,6 +19,16 @@ logger = logging.getLogger("obox.history")
 
 TABLE = "history_row_change"
 
+#: Local switch that lets maintenance commands (purge, anonymize) mutate rows.
+MAINTENANCE_GUC = "SET LOCAL obox.history_maintenance = 'on'"
+
+#: SQLite maintenance path: dropped before maintenance updates, recreated after.
+SQLITE_DROP_TRIGGER = f"DROP TRIGGER IF EXISTS {TABLE}_immutable"
+SQLITE_CREATE_TRIGGER = (
+    f"CREATE TRIGGER {TABLE}_immutable BEFORE UPDATE ON {TABLE} "
+    f"BEGIN SELECT RAISE(ABORT, '{TABLE} is append-only (UPDATE)'); END"
+)
+
 _PG_FUNCTION_SQL = f"""
 CREATE OR REPLACE FUNCTION history_forbid_mutation() RETURNS trigger AS $$
 BEGIN
@@ -47,13 +57,7 @@ def statements(dialect: str) -> list[str]:
             ),
         ]
     if dialect == "sqlite":
-        return [
-            f"DROP TRIGGER IF EXISTS {TABLE}_immutable",
-            (
-                f"CREATE TRIGGER {TABLE}_immutable BEFORE UPDATE ON {TABLE} "
-                f"BEGIN SELECT RAISE(ABORT, '{TABLE} is append-only (UPDATE)'); END"
-            ),
-        ]
+        return [SQLITE_DROP_TRIGGER, SQLITE_CREATE_TRIGGER]
     return []
 
 

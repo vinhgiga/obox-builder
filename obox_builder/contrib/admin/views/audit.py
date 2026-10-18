@@ -1,7 +1,11 @@
-"""Global audit feed and change-set detail views (``/admin/history``)."""
+"""Global audit feed, change-set detail, export and change-set revert."""
 
 from __future__ import annotations
 
+import csv
+import io
+import json
+import logging
 from datetime import UTC, date, datetime, timedelta
 from typing import Annotated, Any
 from uuid import UUID
@@ -9,6 +13,7 @@ from uuid import UUID
 from fastapi import Depends, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from obox_builder.contrib.admin.context import AdminContext
 from obox_builder.contrib.admin.views.common import page_context
 from obox_builder.contrib.admin.views.history import (
     DiffMask,
@@ -17,23 +22,47 @@ from obox_builder.contrib.admin.views.history import (
     entry_view,
     model_timeline_available,
 )
+from obox_builder.contrib.admin.views.revert import revert_change_set
 from obox_builder.contrib.auth.dependencies import permission_required
 from obox_builder.contrib.auth.models import User
-from obox_builder.contrib.history import HISTORY_VIEW_PERMISSION
+from obox_builder.contrib.history import (
+    HISTORY_EXPORT_PERMISSION,
+    HISTORY_RESTORE_PERMISSION,
+    HISTORY_VIEW_PERMISSION,
+)
+from obox_builder.contrib.history.export import export_entries, guard_cell
 from obox_builder.contrib.history.models import OPS, SOURCES
 from obox_builder.contrib.history.service import (
     FeedFilters,
     change_set_entries,
     feed_count,
     feed_entries,
+    to_entry,
 )
 from obox_builder.db.session import get_db
 from obox_builder.http.shortcuts import render
 
+logger = logging.getLogger("obox.history.audit")
+
 AuditReaders = Annotated[User, Depends(permission_required(HISTORY_VIEW_PERMISSION))]
+AuditExporters = Annotated[User, Depends(permission_required(HISTORY_EXPORT_PERMISSION))]
+AuditRestorers = Annotated[User, Depends(permission_required(HISTORY_RESTORE_PERMISSION))]
 
 FEED_PAGE_SIZE = 50
 CHANGE_SET_LIMIT = 200
+EXPORT_LIMIT = 10_000
+EXPORT_COLUMNS = (
+    "id",
+    "change_set_id",
+    "occurred_at",
+    "op",
+    "source",
+    "actor",
+    "model",
+    "object_pk",
+    "object_repr",
+    "changes",
+)
 _ORPHAN_MASK = DiffMask(visible=frozenset(), known=frozenset(), is_superuser=True)
 
 
@@ -173,5 +202,123 @@ async def history_change_set(
         before=None,
         back_url="/admin/history",
         timeline_url=f"/admin/history/{change_set_id}",
+        can_revert=user.is_superuser and user.has_perm(HISTORY_RESTORE_PERMISSION),
+        revert_url=f"/admin/history/{change_set_id}/revert",
     )
     return render(request, "admin/history.html", context)
+
+
+async def history_change_set_revert(
+    request: Request,
+    change_set_id: UUID,
+    user: AuditRestorers,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """``POST /admin/history/{change_set_id}/revert`` (reverse order, one flush)."""
+    from obox_builder.contrib.admin.site import site
+
+    allowed, _admins = _scope(user)
+    ctx = AdminContext(request=request, user=user, db=db, site=site, admin=None)
+    return await revert_change_set(ctx, change_set_id, allowed=allowed)
+
+
+# -- export -----------------------------------------------------------------
+
+
+def _change_text(view: dict[str, Any]) -> str:
+    parts: list[str] = []
+    for diff in view["diffs"]:
+        parts.append(f"{diff['label']}: {diff['old']} -> {diff['new']}")
+    for relation in view["m2m"]:
+        added = ", ".join(relation["added"]) or "-"
+        removed = ", ".join(relation["removed"]) or "-"
+        parts.append(f"{relation['label']}: +[{added}] -[{removed}]")
+    for diff in view["masked"]:
+        parts.append(f"{diff['label']}: {diff['old']} -> {diff['new']} (masked)")
+    for label in view["redacted"]:
+        parts.append(f"{label}: (secret)")
+    for label in view["unknown_old"]:
+        parts.append(f"{label}: (unknown old)")
+    if view["truncated"]:
+        parts.append("(payload truncated)")
+    return "; ".join(parts)
+
+
+async def _export_records(
+    db: AsyncSession,
+    filters: FeedFilters,
+    admins: dict[str, Any],
+    *,
+    user: User,
+) -> list[dict[str, str]]:
+    """Masked feed rows in chronological order (permission-aware, ADR §8)."""
+    masks: dict[str, DiffMask] = {}
+    records: list[dict[str, str]] = []
+    async for row in export_entries(db, filters, batch_size=EXPORT_LIMIT):
+        mask = masks.get(row.model_label)
+        if mask is None:
+            admin = admins.get(row.model_label)
+            mask = (
+                diff_mask(admin.model, admin=admin, user=user)
+                if admin is not None
+                else _ORPHAN_MASK
+            )
+            masks[row.model_label] = mask
+        view = entry_view(to_entry(row), mask=mask)
+        records.append(
+            {
+                "id": str(view["id"]),
+                "change_set_id": str(view["change_set_id"]),
+                "occurred_at": view["occurred_at"].isoformat(),
+                "op": view["op"],
+                "source": view["source"],
+                "actor": view["actor_label"],
+                "model": view["model_label"],
+                "object_pk": view["object_pk"],
+                "object_repr": view["object_repr"],
+                "changes": _change_text(view),
+            }
+        )
+    return records
+
+
+async def history_export(
+    request: Request,
+    user: AuditExporters,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """``GET /admin/history/export``: the filtered feed as CSV or NDJSON."""
+    fmt = request.query_params.get("format", "csv").strip().lower() or "csv"
+    if fmt not in ("csv", "ndjson"):
+        return render(
+            request,
+            "admin/errors/400.html",
+            {"site_name": "obox admin", "message": f"Unknown export format {fmt!r}."},
+            status_code=400,
+        )
+    allowed, admins = _scope(user)
+    filters = _feed_filters(request, allowed)
+    records = await _export_records(db, filters, admins, user=user)
+    stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+    if fmt == "ndjson":
+        body = "".join(json.dumps(record, ensure_ascii=False) + "\n" for record in records)
+        media_type = "application/x-ndjson; charset=utf-8"
+    else:
+        buffer = io.StringIO()
+        writer = csv.writer(buffer, lineterminator="\n")
+        writer.writerow(EXPORT_COLUMNS)
+        for record in records:
+            writer.writerow(guard_cell(record[column]) for column in EXPORT_COLUMNS)
+        body = buffer.getvalue()
+        media_type = "text/csv; charset=utf-8"
+    logger.info(
+        "Exported %d entries (format=%s) by %s.",
+        len(records),
+        fmt,
+        getattr(user, "username", "system"),
+    )
+    return Response(
+        content=body,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="history-{stamp}.{fmt}"'},
+    )

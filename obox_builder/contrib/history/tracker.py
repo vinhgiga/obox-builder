@@ -29,10 +29,12 @@ __all__ = [
     "declared_models",
     "get_tracker",
     "is_tracked",
+    "mask_value",
     "track",
 ]
 
 TIMESTAMP_FIELDS = frozenset({"created_at", "updated_at"})
+MASK_STARS = "***"
 
 _UNKNOWN = object()
 
@@ -44,9 +46,11 @@ class TrackedField:
     name: str
     label: str
     spec: FieldSpec
-    #: ``True`` for secrets and masked fields: only the ``redacted`` marker is
-    #: recorded, never the values.
+    #: ``True`` for secrets: only the ``redacted`` marker is recorded.
     secret: bool = False
+    #: ``True`` for partially masked fields (``a***@x.com``); the masked value
+    #: is recorded under ``masked`` and can never be reverted.
+    masked: bool = False
 
 
 @dataclass(frozen=True)
@@ -66,6 +70,7 @@ class PendingChange:
     obj: Any
     fields: dict[str, list[Any]] = field(default_factory=dict)
     redacted: list[str] = field(default_factory=list)
+    masked: dict[str, list[Any]] = field(default_factory=dict)
     unknown_old: list[str] = field(default_factory=list)
     #: Raw ``(added, removed)`` object pairs per relation, resolved to ids in
     #: ``fill_m2m`` (new related rows have no PK before the INSERT).
@@ -76,14 +81,19 @@ class PendingChange:
     @property
     def has_effect(self) -> bool:
         return bool(
-            self.fields or self.redacted or self.unknown_old or self.m2m or self.m2m_pending
+            self.fields
+            or self.redacted
+            or self.masked
+            or self.unknown_old
+            or self.m2m
+            or self.m2m_pending
         )
 
 
 class Tracker:
     """Resolved capture plan for one model."""
 
-    __slots__ = ("fields", "model", "model_label", "options", "pk_key", "relations")
+    __slots__ = ("fields", "model", "model_label", "options", "pk_key", "relations", "version_key")
 
     def __init__(self, model: type[Any], options: HistoryOptions) -> None:
         self.model = model
@@ -91,11 +101,20 @@ class Tracker:
         mapper = sa.inspect(model)
         self.model_label = f"{model._model_label}.{camel_to_snake(model.__name__)}"
         self.pk_key = mapper.primary_key[0].key
+        version_col = mapper.version_id_col
+        self.version_key = version_col.key if version_col is not None else None
         self.fields = _select_fields(model, options)
         self.relations = _select_relations(model, options)
 
     def pk(self, obj: Any) -> Any:
         return getattr(obj, self.pk_key, None)
+
+    def row_version(self, obj: Any) -> int | None:
+        """The current optimistic-lock version (``VersionedMixin``), else ``None``."""
+        if self.version_key is None:
+            return None
+        value = getattr(obj, self.version_key, None)
+        return None if value is None else int(value)
 
     def object_repr(self, obj: Any) -> str:
         """Snapshot of ``str(obj)`` with a ``#pk`` fallback (survives deletion)."""
@@ -137,7 +156,7 @@ class Tracker:
                 new_repr = tf.spec.type.diff_repr(new)
                 if old_repr == new_repr:
                     continue
-                change.fields[tf.name] = [old_repr, new_repr]
+                _store(change, tf, [old_repr, new_repr])
             else:  # delete
                 value = attr.loaded_value
                 if value is NO_VALUE:
@@ -146,7 +165,7 @@ class Tracker:
                 value_repr = tf.spec.type.diff_repr(value)
                 if value_repr is None:
                     continue
-                change.fields[tf.name] = [value_repr, None]
+                _store(change, tf, [value_repr, None])
         self._diff_m2m(state, op, change)
         # CREATE snapshots are completed in ``after_flush`` (column defaults),
         # so an empty create still has to reach the write stage.
@@ -197,7 +216,7 @@ class Tracker:
             value_repr = tf.spec.type.diff_repr(value)
             if value_repr is None:
                 continue
-            change.fields[tf.name] = [None, value_repr]
+            _store(change, tf, [None, value_repr])
 
     def fill_m2m(self, change: PendingChange) -> None:
         """Resolve pending relation objects to ``str(pk)`` id lists (``after_flush``)."""
@@ -209,6 +228,29 @@ class Tracker:
             remove_ids -= both
             if add_ids or remove_ids:
                 change.m2m[name] = {"add": sorted(add_ids), "remove": sorted(remove_ids)}
+
+
+def _store(change: PendingChange, tf: TrackedField, pair: list[Any]) -> None:
+    """Record a diff pair under ``fields`` or ``masked`` (masked = display-safe)."""
+    if tf.masked:
+        change.masked[tf.name] = [mask_value(side) if side is not None else None for side in pair]
+    else:
+        change.fields[tf.name] = pair
+
+
+def mask_value(value: Any) -> str:
+    """Partially mask a diff value for storage (``a***@x.com``, ``h***o``).
+
+    Masked fields are recorded so the change is visible without exposing the
+    value; because the real value is gone, a masked field cannot be reverted.
+    """
+    text = str(value)
+    if "@" in text:
+        local, _, domain = text.partition("@")
+        return f"{local[:1]}{MASK_STARS}@{domain}"
+    if len(text) <= 2:
+        return "*" * len(text)
+    return f"{text[0]}{MASK_STARS}{text[-1]}"
 
 
 def _ids(objects: list[Any]) -> set[str]:
@@ -242,11 +284,16 @@ def _select_relations(model: type[Any], options: HistoryOptions) -> tuple[Tracke
 
 def _select_fields(model: type[Any], options: HistoryOptions) -> list[TrackedField]:
     is_timestamped = issubclass(model, TimestampMixin)
+    versioned = sa.inspect(model).version_id_col is not None
     fields: list[TrackedField] = []
     for spec in introspect_model(model):
         if spec.primary_key:
             continue
         if is_timestamped and spec.name in TIMESTAMP_FIELDS:
+            continue
+        # The optimistic-lock counter is captured in ``row_version``, not as a
+        # content field.
+        if versioned and spec.name == "version":
             continue
         if spec.name in options.exclude:
             continue
@@ -254,10 +301,17 @@ def _select_fields(model: type[Any], options: HistoryOptions) -> list[TrackedFie
             continue
         if not spec.history and not spec.secret:
             continue
-        # Secrets and masked fields are recorded as a ``redacted`` marker only
-        # (partial masking arrives in a later phase).
-        secret = spec.secret or spec.name in options.mask
-        fields.append(TrackedField(name=spec.name, label=spec.label, spec=spec, secret=secret))
+        # Secrets record a ``redacted`` marker only; ``mask`` fields record a
+        # partially masked value (and are not revertable).
+        fields.append(
+            TrackedField(
+                name=spec.name,
+                label=spec.label,
+                spec=spec,
+                secret=spec.secret,
+                masked=not spec.secret and spec.name in options.mask,
+            )
+        )
     return fields
 
 

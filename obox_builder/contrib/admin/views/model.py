@@ -27,14 +27,17 @@ from obox_builder.contrib.admin.views.common import (
     page_context,
 )
 from obox_builder.contrib.admin.views.history import (
+    RevertLinks,
     before_cursor,
     build_card,
     diff_mask,
     timeline_available,
     timeline_context,
 )
+from obox_builder.contrib.admin.views.revert import OP_PERMISSION, revert_entry
 from obox_builder.contrib.auth.dependencies import permission_required
-from obox_builder.contrib.history import HISTORY_VIEW_PERMISSION
+from obox_builder.contrib.history import HISTORY_RESTORE_PERMISSION, HISTORY_VIEW_PERMISSION
+from obox_builder.contrib.history.service import RowChangeEntry, entry_count
 from obox_builder.db.session import get_db
 from obox_builder.fields import FieldSpec, QuerySpec, QuerySpecError
 from obox_builder.forms import BoundForm, render_values
@@ -151,16 +154,39 @@ def _register_one(router: APIRouter, site: AdminSite, admin: ModelAdmin) -> None
         ) -> Any:
             ctx = AdminContext(request=request, user=user, db=db, site=site, admin=admin)
             try:
-                target = await _get_object(ctx, pk)
+                pk_value = admin.parse_pk(pk)
             except LookupError as exc:
                 return _not_found(ctx, str(exc))
-            return await _history(ctx, target)
+            target = await db.get(admin.model, pk_value)
+            if target is None and await entry_count(db, admin.model, pk_value) == 0:
+                return _not_found(ctx, f"{admin.name} with id {pk!r} does not exist.")
+            return await _history(ctx, target, pk_value)
 
         router.add_api_route(
             f"{base}/{{pk}}/history",
             history_view,
             methods=["GET"],
             name=f"{name}_history",
+        )
+
+        restore_perm_dep = Depends(permission_required(HISTORY_RESTORE_PERMISSION))
+
+        async def revert_submit(
+            request: Request,
+            pk: str,
+            entry_id: int,
+            user: Any = view_dep,
+            _restore_perm: Any = restore_perm_dep,
+            db: AsyncSession = Depends(get_db),
+        ) -> Any:
+            ctx = AdminContext(request=request, user=user, db=db, site=site, admin=admin)
+            return await revert_entry(ctx, pk=pk, entry_id=entry_id)
+
+        router.add_api_route(
+            f"{base}/{{pk}}/history/{{entry_id}}/revert",
+            revert_submit,
+            methods=["POST"],
+            name=f"{name}_revert",
         )
 
     router.add_api_route(base, list_view, methods=["GET"], name=f"{name}_list")
@@ -392,6 +418,7 @@ async def _render_form(
             pk,
             url=admin.history_path(pk),
             mask=diff_mask(admin.model, admin=admin, user=ctx.user),
+            revert=_revert_links(ctx, admin, pk),
         )
     context = await page_context(
         request,
@@ -600,10 +627,10 @@ async def _actions(ctx: AdminContext) -> Response:
 # -- history ----------------------------------------------------------------
 
 
-async def _history(ctx: AdminContext, target: Any) -> HTMLResponse:
+async def _history(ctx: AdminContext, target: Any, pk: Any) -> HTMLResponse:
     admin = _require_admin(ctx)
     request = ctx.request
-    pk = admin.get_pk(target)
+    deleted = target is None
     context = await page_context(
         request,
         **await timeline_context(
@@ -612,13 +639,31 @@ async def _history(ctx: AdminContext, target: Any) -> HTMLResponse:
             pk,
             before=before_cursor(request),
             heading=f"{admin.name} history",
-            subtitle=_object_label(admin, target),
-            back_url=admin.change_path(pk),
+            subtitle=f"#{pk}" if deleted else _object_label(admin, target),
+            back_url=admin.list_path() if deleted else admin.change_path(pk),
             timeline_url=request.url.path,
             mask=diff_mask(admin.model, admin=admin, user=ctx.user),
+            revert=_revert_links(ctx, admin, pk),
+            deleted=deleted,
         ),
     )
     return render(request, "admin/history.html", context)
+
+
+def _revert_links(ctx: AdminContext, admin: ModelAdmin, pk: Any) -> RevertLinks | None:
+    """Revert wiring for a timeline, or ``None`` when the user cannot restore."""
+    if not ctx.user.has_perm(HISTORY_RESTORE_PERMISSION):
+        return None
+
+    def can_revert(entry: RowChangeEntry) -> bool:
+        action = OP_PERMISSION.get(entry.op, "change")
+        return bool(getattr(admin, f"has_{action}_permission")(ctx))
+
+    return RevertLinks(
+        base_url=admin.history_path(pk),
+        specs={spec.name: spec for spec in admin.get_form_specs()},
+        can_revert=can_revert,
+    )
 
 
 # -- delete -----------------------------------------------------------------

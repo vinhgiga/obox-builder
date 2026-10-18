@@ -73,6 +73,13 @@ track(SomeModel, exclude=["cache_blob"])
 `HISTORY_TRACK_ALL_ADMIN_MODELS = True` tracks every model registered in the
 admin as a shortcut (volume warning: history grows with every save).
 
+Add `VersionedMixin` (`obox_builder.db.mixins`) to models whose edits are
+concurrent: every update carries `WHERE version = <loaded>`, the loser's flush
+raises `StaleDataError`, entries record `row_version`, and the revert UI can
+tell an outdated revert from a real conflict. `W201` warns when a tracked
+model has no version column; unversioned models still work (entries store
+`row_version = NULL`).
+
 ## Actor context
 
 Web requests resolve the actor late-bound from `request.state.user` (the admin
@@ -113,10 +120,15 @@ The stored payload (`changes`) has schema version 1:
   "fields": {"body": ["v1", "v2"]},
   "m2m": {"tags": {"add": ["7"], "remove": ["3"]}},
   "redacted": ["secret_token"],
+  "masked": {},
   "truncated": {},
   "unknown_old": []
 }
 ```
+
+Fields declared with `mask` store their display-masked values under `masked`
+(e.g. `"email": ["a***@example.com"]`), so an erasure/revert never leaks the
+raw value.
 
 M2M changes come from the rows that own the association: an entry records the
 net `add`/`remove` id lists (sorted, strings) of each declared relation. A
@@ -174,7 +186,34 @@ schema, so renames apply to old entries as long as the field still exists.
 * Each feed entry links to its row timeline and to `GET
   /admin/history/<change_set_id>`, which groups everything written in the same
   transaction (200 entries max; 404 when nothing is visible to the user).
+* The feed header offers **Export CSV / Export NDJSON** buttons that keep the
+  current filters (up to 10 000 entries, mask-aware, same permission as the
+  feed).
+* Timeline entries that can be reverted get an inline **Revert** button; the
+  change-set page gets a **Revert change set** button (superusers). Rows
+  deleted from the table still show their timeline (`/history` resolves the row
+  from history when the row is gone) with a warning banner.
 * The sidebar gets an **Audit → History** entry once the app is installed.
+
+## Restore (revert)
+
+Requires the model's op permission plus `history.restore_row_change`
+(`POST /admin/<app>/<model>/<pk>/history/<entry_id>/revert`; the change-set
+route is superuser-only). A revert is just another tracked change: it writes a
+**new** entry with `source="revert"` and `reverts_id` set to the entry it
+undoes — the original entry is never mutated.
+
+* `update` → writes the old values back; `create` → deletes the row (needs the
+  `delete` permission); `delete` → re-inserts with the recorded primary key
+  (`version` restarts at 1 — it is a fresh row, not a resurrection).
+* The whole entry reverts **all-or-nothing**, inside a nested transaction. When
+  a model is versioned and the current row changed after the recorded entry,
+  the page asks for confirmation and `?force=1` overrides the mismatch.
+* A revert is refused (409) when it cannot be expressed: M2M changes, masked or
+  redacted fields, truncated values, fields invisible to the form, or a
+  delete-restore whose primary key is already taken.
+* Reverting a change set replays its entries newest-first in one transaction;
+  any failure rolls everything back.
 
 ## Signals
 
@@ -241,6 +280,20 @@ python manage.py history_export --format csv --actor alice
   CSV to stdout or `--output`; CSV cells starting with `=`, `+`, `-` or `@`
   are prefixed with `'` to defuse spreadsheet formula injection. Every run
   logs one line to `obox.history.audit`.
+* `history_anonymize` erases identifying data **without deleting entries**:
+
+```bash
+python manage.py history_anonymize --actor-id 42 --dry-run
+python manage.py history_anonymize --actor-id 42      # blank IP/UA, label=anonymous
+python manage.py history_anonymize --model blog.post --pk 17
+```
+
+  The actor scope blanks `actor_id`/`actor_label`/`ip`/`user_agent`; the object
+  scope erases recorded field/mask/M2M values and the `object_repr` (the
+  who/when/which-fields skeleton survives, and erased names show up under
+  `redacted`). Like purge, it bypasses the append-only trigger for the run
+  (`SET LOCAL obox.history_maintenance` on PostgreSQL; the SQLite trigger is
+  dropped and recreated) and logs every batch to `obox.history.audit`.
 
 Model checks (`python manage.py check`):
 
@@ -249,6 +302,7 @@ Model checks (`python manage.py check`):
 | `obox.history.E201` | error | tracked model has a composite primary key |
 | `obox.history.E202` | error | `relations` entry is not a many-to-many |
 | `obox.history.E203` | error | unknown field name in `fields`/`exclude`/`mask` |
+| `obox.history.W201` | warning | tracked model has no `VersionedMixin` (no optimistic locking, no revert-conflict detection) |
 | `obox.history.W202` | warning | `HISTORY_FAILURE_MODE='open'` downgrades integrity |
 
 ## Limitations (roadmap)
@@ -260,6 +314,7 @@ Model checks (`python manage.py check`):
 * **Hardening (Phase 4, PostgreSQL)**: monthly partitions + `DROP PARTITION`
   retention, hash-chained seal blocks (`history_verify`), `history_relabel`
   and documented `REVOKE`/role recipes.
-* **Concurrent writers** can produce an `old` value that no longer matches at
-  commit time unless the model uses optimistic versioning (`VersionedMixin`
-  arrives in Phase 3, together with W201).
+* **Concurrent writers** are protected when the model uses `VersionedMixin`
+  (stale flushes raise `StaleDataError`, reverted entries are conflict-checked);
+  unversioned models can still record an `old` value that no longer matches at
+  commit time (`W201` flags them).

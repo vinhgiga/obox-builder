@@ -32,6 +32,7 @@ def test_bad_declarations_report_e201_e202_e203(monkeypatch: pytest.MonkeyPatch)
     assert "obox.history.E201" in ids  # composite primary key
     assert ids.count("obox.history.E202") == 2  # "made_up" + single-valued "parent"
     assert ids.count("obox.history.E203") == 3  # fields/exclude/mask typos
+    assert ids.count("obox.history.W201") == 2  # Broken + Pair lack VersionedMixin
     assert "obox.history.W202" not in ids
 
 

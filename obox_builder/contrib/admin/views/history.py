@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import Any
 
@@ -15,6 +16,7 @@ from obox_builder.contrib.history.service import (
     history_entries,
     value_text,
 )
+from obox_builder.fields import FieldSpec
 
 TIMELINE_PAGE_SIZE = 20
 CARD_LIMIT = 5
@@ -37,6 +39,18 @@ class DiffMask:
         if name in self.visible:
             return True
         return self.is_superuser and name not in self.known
+
+
+@dataclass(frozen=True)
+class RevertLinks:
+    """Per-entry revert wiring for one timeline (``can_revert`` = permissions)."""
+
+    base_url: str
+    specs: dict[str, FieldSpec]
+    can_revert: Callable[[RowChangeEntry], bool]
+
+    def url(self, entry: RowChangeEntry) -> str:
+        return f"{self.base_url}/{entry.id}/revert"
 
 
 def diff_mask(model: type[Any], *, user: Any, admin: Any = None) -> DiffMask:
@@ -92,17 +106,23 @@ def before_cursor(request: Request) -> int | None:
         return None
 
 
-def entry_view(entry: RowChangeEntry, *, mask: DiffMask | None = None) -> dict[str, Any]:
+def entry_view(
+    entry: RowChangeEntry,
+    *,
+    mask: DiffMask | None = None,
+    revert: RevertLinks | None = None,
+) -> dict[str, Any]:
     labels = field_labels(entry.model_label)
     if mask is not None:
         entry = replace(
             entry,
             diffs=tuple(diff for diff in entry.diffs if mask.allows(diff.name)),
             m2m=tuple(rel for rel in entry.m2m if mask.allows(rel.name)),
+            masked=tuple(diff for diff in entry.masked if mask.allows(diff.name)),
             redacted=tuple(name for name in entry.redacted if mask.allows(name)),
             unknown_old=tuple(name for name in entry.unknown_old if mask.allows(name)),
         )
-    return {
+    view: dict[str, Any] = {
         "id": entry.id,
         "change_set_id": entry.change_set_id,
         "op": entry.op,
@@ -120,10 +140,24 @@ def entry_view(entry: RowChangeEntry, *, mask: DiffMask | None = None) -> dict[s
             {"label": diff.label, "added": list(diff.added), "removed": list(diff.removed)}
             for diff in entry.m2m
         ],
+        "masked": [
+            {"label": diff.label, "old": value_text(diff.old), "new": value_text(diff.new)}
+            for diff in entry.masked
+        ],
         "redacted": [labels.get(name, name) for name in entry.redacted],
         "unknown_old": [labels.get(name, name) for name in entry.unknown_old],
         "truncated": entry.truncated,
+        "revertable": False,
+        "revert_url": "",
     }
+    if revert is not None:
+        from obox_builder.contrib.admin.views.revert import blocked_fields
+
+        view["revertable"] = revert.can_revert(entry) and not blocked_fields(
+            entry, revert.specs, mask=mask
+        )
+        view["revert_url"] = revert.url(entry)
+    return view
 
 
 async def build_card(
@@ -133,13 +167,14 @@ async def build_card(
     *,
     url: str,
     mask: DiffMask | None = None,
+    revert: RevertLinks | None = None,
 ) -> dict[str, Any]:
     """Latest entries for the change-form card (never paginated)."""
     count = await entry_count(db, model, pk)
     entries = await history_entries(db, model, pk, limit=CARD_LIMIT)
     return {
         "count": count,
-        "entries": [entry_view(entry, mask=mask) for entry in entries],
+        "entries": [entry_view(entry, mask=mask, revert=revert) for entry in entries],
         "url": url,
     }
 
@@ -151,6 +186,7 @@ async def build_page(
     *,
     before: int | None,
     mask: DiffMask | None = None,
+    revert: RevertLinks | None = None,
 ) -> dict[str, Any]:
     """One keyset page of the full timeline (newest first)."""
     count = await entry_count(db, model, pk)
@@ -158,7 +194,7 @@ async def build_page(
     older = entries[-1].id if len(entries) == TIMELINE_PAGE_SIZE else None
     return {
         "count": count,
-        "entries": [entry_view(entry, mask=mask) for entry in entries],
+        "entries": [entry_view(entry, mask=mask, revert=revert) for entry in entries],
         "older": older,
         "before": before,
     }
@@ -175,6 +211,8 @@ async def timeline_context(
     back_url: str,
     timeline_url: str,
     mask: DiffMask | None = None,
+    revert: RevertLinks | None = None,
+    deleted: bool = False,
 ) -> dict[str, Any]:
     """Template context for the standalone timeline page (all entry points)."""
     return {
@@ -182,5 +220,6 @@ async def timeline_context(
         "subtitle": subtitle,
         "back_url": back_url,
         "timeline_url": timeline_url,
-        **await build_page(db, model, pk, before=before, mask=mask),
+        "deleted_target": deleted,
+        **await build_page(db, model, pk, before=before, mask=mask, revert=revert),
     }

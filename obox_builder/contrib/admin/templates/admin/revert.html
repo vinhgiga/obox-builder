@@ -1,0 +1,98 @@
+{% extends "admin/base.html" %}
+{% block title %}{{ heading }}{% endblock %}
+{% block content %}
+<div class="page-header d-print-none">
+  <div class="row g-2 align-items-center">
+    <div class="col">
+      <h2 class="page-title">
+        {{ heading }} <span class="text-secondary">/ {{ subtitle }}</span>
+      </h2>
+      <div class="text-secondary mt-1">
+        {% if conflicts %}
+        The row changed since these entries were recorded, so reverting would
+        overwrite newer edits.
+        {% else %}
+        These changes cannot be reverted because their previous values are not
+        available.
+        {% endif %}
+      </div>
+    </div>
+    <div class="col-auto ms-auto d-print-none">
+      <div class="btn-list">
+        {% if force_url %}
+        <form method="post" action="{{ force_url }}"
+          onsubmit="return confirm('Revert anyway? Newer edits to the same fields will be overwritten and recorded in a new history entry.');">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+          <input type="hidden" name="force" value="1" />
+          <button type="submit" class="btn btn-danger">Revert anyway</button>
+        </form>
+        {% endif %}
+        <a href="{{ back_url }}" class="btn">Back</a>
+      </div>
+    </div>
+  </div>
+</div>
+{% if blocked %}
+<div class="card mb-3">
+  <div class="card-header"><h3 class="card-title">Cannot be restored</h3></div>
+  <div class="table-responsive">
+    <table class="table table-vcenter card-table">
+      <thead>
+        <tr>
+          <th>Entry</th>
+          <th>Field</th>
+          <th>Reason</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in blocked %}
+        <tr>
+          <td>
+            {% if item.object_repr %}{{ item.object_repr }}{% endif %}
+            {% if item.model_label %}<div class="text-secondary small">{{ item.model_label }}</div>{% endif %}
+          </td>
+          <td>
+            {% if item.label %}{{ item.label }}{% endif %}
+            {% if item.name and item.name != item.label %}<div class="text-secondary small">{{ item.name }}</div>{% endif %}
+          </td>
+          <td>{{ item.reason }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+{% if conflicts %}
+<div class="card">
+  <div class="card-header"><h3 class="card-title">Conflicts with newer edits</h3></div>
+  <div class="table-responsive">
+    <table class="table table-vcenter card-table">
+      <thead>
+        <tr>
+          <th>Entry</th>
+          <th>Field</th>
+          <th>Recorded before</th>
+          <th>Recorded after</th>
+          <th>Current value</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in conflicts %}
+        <tr>
+          <td>
+            {% if item.object_repr %}{{ item.object_repr }}{% endif %}
+            {% if item.model_label %}<div class="text-secondary small">{{ item.model_label }}</div>{% endif %}
+          </td>
+          <td>{{ item.label }}</td>
+          <td class="text-secondary" style="overflow-wrap: anywhere">{{ item.old }}</td>
+          <td class="text-secondary" style="overflow-wrap: anywhere">{{ item.new }}</td>
+          <td style="overflow-wrap: anywhere">{{ item.current }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

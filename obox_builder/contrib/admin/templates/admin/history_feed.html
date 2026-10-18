@@ -60,6 +60,10 @@
         <div class="btn-list">
           <button type="submit" class="btn btn-primary">Filter</button>
           <a href="{{ timeline_url }}" class="btn">Reset</a>
+          <a href="/admin/history/export?{{ querystring(request.query_params, before=None, format='csv') }}"
+            class="btn btn-outline-secondary">Export CSV</a>
+          <a href="/admin/history/export?{{ querystring(request.query_params, before=None, format='ndjson') }}"
+            class="btn btn-outline-secondary">NDJSON</a>
         </div>
       </div>
     </form>

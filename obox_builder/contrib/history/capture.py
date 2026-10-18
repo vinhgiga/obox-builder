@@ -166,7 +166,7 @@ def _row_for(
         "object_repr": tracker.object_repr(obj),
         "changes": build_changes(change),
         "schema_version": SCHEMA_VERSION,
-        "row_version": None,
+        "row_version": tracker.row_version(obj),
         "actor_id": context.actor_id,
         "actor_label": (context.actor_label or "system")[:150],
         "source": context.source,

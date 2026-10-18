@@ -1,6 +1,6 @@
 # Row History — Architecture, System Design & Database Model
 
-**Project:** obox-builder · **Branch:** `dev` @ `dabd36d` (v0.2.1) · **Date:** 2026-10-18 · **Status:** Accepted — Phase 1 (MVP) + Phase 2 shipped
+**Project:** obox-builder · **Branch:** `dev` @ `dabd36d` (v0.2.1) · **Date:** 2026-10-18 · **Status:** Accepted — Phases 1–3 shipped
 
 > **Scope:** a *row history* feature for the hand-rolled FastAPI admin: record *who* changed *what*, *when* and *from where* on every row; show a timeline; support revert later. This document is based on (1) reading the `dev` branch code and (2) research into Airtable, AppSheet, Jotform and reference systems (Directus, Salesforce, django-auditlog, supa\_audit, SQLAlchemy).
 
@@ -10,14 +10,22 @@
 > permission-aware masking, append-only triggers installed via `post_migrate`
 > (Postgres blocks UPDATE/DELETE/TRUNCATE; SQLite blocks UPDATE only so dev
 > purges keep working), `history.bulk_update`, `history_purge` + per-model
-> retention, `history_export` (NDJSON/CSV, formula-injection guard). Minor
-> deviations from the RFC: added the `HISTORY_TRACK_ALL_ADMIN_MODELS` setting;
-> the timeline uses the keyset `?before=<id>` as designed; the card lives in
+> retention, `history_export` (NDJSON/CSV, formula-injection guard). Phase 3
+> done: `VersionedMixin` + `W201`, `row_version` on entries, entry and
+> change-set revert (`POST .../revert`, conflict + forced override, deleted-row
+> restore, `history.restore_row_change`), `mask` classification with masked
+> values in the payload, audit-feed export UI (`GET /admin/history/export`,
+> `history.export_row_change`) and `history_anonymize` (actor/object scopes;
+> SQLite drops the append-only trigger for the run, PostgreSQL uses
+> `obox.history_maintenance`). Minor deviations from the RFC: added the
+> `HISTORY_TRACK_ALL_ADMIN_MODELS` setting; the timeline uses the keyset
+> `?before=<id>` as designed; the card lives in
 > `templates/admin/model/form.html` (regular models),
 > `templates/admin/users/form.html` and `templates/admin/roles/form.html`
 > (bespoke pages), the shared timeline page in `templates/admin/history.html`
-> and the global feed in `templates/admin/history_feed.html`; the `W201` check
-> (VersionedMixin) is not active because `VersionedMixin` is Phase 3.
+> and the global feed in `templates/admin/history_feed.html`; the blocked-revert
+> page is `templates/admin/revert.html`. Not yet done: Phase 1 exit benchmark
+> (NF2), partition/seal/hardening items (Phase 4).
 
 ## 0. Decision summary
 

@@ -8,7 +8,7 @@ from obox_builder.db.engine import (
     run_async,
     to_sync_url,
 )
-from obox_builder.db.mixins import TimestampMixin
+from obox_builder.db.mixins import TimestampMixin, VersionedMixin
 from obox_builder.db.session import get_db, session_scope
 from obox_builder.db.types import JSONB, JsonDict, TZDateTime
 
@@ -19,6 +19,7 @@ __all__ = [
     "Model",
     "ModelBase",
     "TimestampMixin",
+    "VersionedMixin",
     "camel_to_snake",
     "dispose",
     "get_db",

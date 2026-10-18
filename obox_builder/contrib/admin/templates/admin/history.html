@@ -11,17 +11,32 @@
       <div class="text-secondary mt-1">{{ count }} change{{ '' if count == 1 else 's' }} recorded</div>
     </div>
     <div class="col-auto ms-auto d-print-none">
-      <a href="{{ back_url }}" class="btn">Back</a>
+      <div class="btn-list">
+        {% if can_revert %}
+        <form method="post" action="{{ revert_url }}"
+          onsubmit="return confirm('Revert this entire change set? Entries are reverted in reverse order and a new history entry records each revert.');">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+          <button type="submit" class="btn btn-outline-primary">Revert change set</button>
+        </form>
+        {% endif %}
+        <a href="{{ back_url }}" class="btn">Back</a>
+      </div>
     </div>
   </div>
 </div>
+{% if deleted_target %}
+<div class="alert alert-warning" role="alert">
+  This row has been deleted. The history below is kept for auditing; restoring a
+  <code>delete</code> entry re-creates the row with its original id when free.
+</div>
+{% endif %}
 <div class="card">
   <div class="card-body">
     {% if not entries %}
     <div class="text-secondary">No changes recorded.</div>
     {% endif %}
     {% for entry in entries %}
-      {{ entry_item(entry, true) }}
+      {{ entry_item(entry, true, csrf_token) }}
     {% endfor %}
   </div>
   {% if older %}

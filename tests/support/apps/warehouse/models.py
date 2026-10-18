@@ -5,7 +5,7 @@ from decimal import Decimal
 from typing import Any
 
 import sqlalchemy as sa
-from obox_builder.db import JSONB, JsonDict, Model, TimestampMixin, relationship
+from obox_builder.db import JSONB, JsonDict, Model, TimestampMixin, VersionedMixin, relationship
 from obox_builder.db.types import BigIntIdentity, TZDateTime
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -17,7 +17,7 @@ item_tags = sa.Table(
 )
 
 
-class Shelf(Model, TimestampMixin):
+class Shelf(Model, TimestampMixin, VersionedMixin):
     __history__ = True
 
     id: Mapped[int] = mapped_column(BigIntIdentity, primary_key=True)
@@ -29,7 +29,7 @@ class Shelf(Model, TimestampMixin):
         return self.code
 
 
-class Item(Model, TimestampMixin):
+class Item(Model, TimestampMixin, VersionedMixin):
     """Kitchen-sink tracked model exercising every field-kind diff."""
 
     __history__: Any = {"relations": ["tags"]}
@@ -59,7 +59,7 @@ class Item(Model, TimestampMixin):
         return self.name
 
 
-class Tag(Model, TimestampMixin):
+class Tag(Model, TimestampMixin, VersionedMixin):
     __history__ = True
 
     id: Mapped[int] = mapped_column(BigIntIdentity, primary_key=True)
@@ -69,6 +69,19 @@ class Tag(Model, TimestampMixin):
 
     def __str__(self) -> str:
         return self.label
+
+
+class Contact(Model, TimestampMixin, VersionedMixin):
+    """Versioned tracked model with a partially masked field."""
+
+    __history__: Any = {"mask": ["email"]}
+
+    id: Mapped[int] = mapped_column(BigIntIdentity, primary_key=True)
+    name: Mapped[str] = mapped_column(sa.String(120))
+    email: Mapped[str] = mapped_column(sa.String(254), default="")
+
+    def __str__(self) -> str:
+        return self.name
 
 
 class Crate(Model, TimestampMixin):

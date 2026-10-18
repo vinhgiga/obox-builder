@@ -6,6 +6,8 @@
   relationship (only M2M is recordable).
 * ``obox.history.E203`` — ``fields``/``exclude``/``mask`` reference an unknown
   attribute.
+* ``obox.history.W201`` — tracked model without ``VersionedMixin`` (lost-update
+  risk when two writers edit one row).
 * ``obox.history.W202`` — ``HISTORY_FAILURE_MODE='open'`` downgrades history
   failures to log entries.
 """
@@ -18,6 +20,7 @@ from obox_builder.conf import settings
 from obox_builder.contrib.history.tracker import declared_models
 from obox_builder.core.checks import register
 from obox_builder.core.checks.messages import CheckMessage, Error, Warning
+from obox_builder.db.mixins import VersionedMixin
 
 TAG = "history"
 
@@ -34,6 +37,14 @@ def check_history_models() -> list[CheckMessage]:
                 Error(
                     f"Row history for {name} requires a single-column primary key.",
                     id="obox.history.E201",
+                )
+            )
+        if not issubclass(model, VersionedMixin):
+            messages.append(
+                Warning(
+                    f"{name}: tracked without VersionedMixin; concurrent writers "
+                    "can silently overwrite each other (lost update).",
+                    id="obox.history.W201",
                 )
             )
         attrs = set(mapper.attrs.keys())

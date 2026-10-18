@@ -9,7 +9,7 @@ from typing import Any, ClassVar
 import sqlalchemy as sa
 from sqlalchemy.orm import Mapped, mapped_column
 
-from obox_builder.db import Model, TimestampMixin, relationship
+from obox_builder.db import Model, TimestampMixin, VersionedMixin, relationship
 from obox_builder.db.base import ModelBase
 from obox_builder.db.types import JSONB, BigIntIdentity, JsonDict, TZDateTime
 
@@ -44,7 +44,7 @@ role_permissions = sa.Table(
 )
 
 
-class User(Model, TimestampMixin):
+class User(Model, TimestampMixin, VersionedMixin):
     """Accounts are part of the audit trail: identity changes are recorded."""
 
     __history__: ClassVar[bool | Mapping[str, Any] | None] = {
@@ -93,7 +93,7 @@ class User(Model, TimestampMixin):
         return f"<User {self.username!r}>"
 
 
-class Role(Model, TimestampMixin):
+class Role(Model, TimestampMixin, VersionedMixin):
     """Roles are assignable identities, so they are tracked as well."""
 
     __history__ = True

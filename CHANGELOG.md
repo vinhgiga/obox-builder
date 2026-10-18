@@ -18,8 +18,18 @@ Follows [Keep a Changelog](https://keepachangelog.com/), versions follow
 - Append-only DB triggers installed by `migrate`; `history_purge` and
   `history_export` commands (NDJSON/CSV) with per-model retention.
 - `HISTORY_*` settings, `pre_record`/`post_record` signals, model checks
-  (`E201`–`E203`, `W202`), `history.service` read API, and tracking for
+  (`E201`–`E203`, `W201`, `W202`), `history.service` read API, and tracking for
   `auth.User`/`auth.Role`.
+- Revert/restore: per-entry and per-change-set `POST .../revert` with
+  conflict detection (`?force=1`), deleted-row restore, all-or-nothing
+  semantics, and `history.restore_row_change`; blocked reverts (M2M, masked,
+  redacted, truncated, taken PK) render `admin/revert.html`.
+- `VersionedMixin` optimistic locking (`version` column, `StaleDataError` on
+  stale flushes) recorded as `row_version` on entries; `W201` warns for
+  tracked models without it.
+- Masked values in the payload (`__history__["mask"]`), export buttons on the
+  audit feed, `GET /admin/history/export` (CSV/NDJSON, `history.export_row_change`)
+  and the `history_anonymize` command (actor/object scopes, dry-run).
 
 ## [0.2.0] - 2026-10-17
 

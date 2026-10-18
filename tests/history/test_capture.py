@@ -45,8 +45,9 @@ async def test_create_records_full_row(db: AsyncSession) -> None:
     assert row.actor_id is None
     assert row.schema_version == 1
     payload = row.changes
-    assert set(payload) == {"fields", "m2m", "redacted", "truncated", "unknown_old"}
+    assert set(payload) == {"fields", "m2m", "masked", "redacted", "truncated", "unknown_old"}
     assert payload["m2m"] == {}
+    assert payload["masked"] == {}
     assert payload["redacted"] == []
     assert payload["truncated"] == {}
     assert payload["unknown_old"] == []
@@ -195,6 +196,7 @@ async def test_payload_for_one_row_matches_golden_shape(db: AsyncSession) -> Non
             "quantity": [1, 2],
         },
         "m2m": {},
+        "masked": {},
         "redacted": [],
         "truncated": {},
         "unknown_old": [],

@@ -15,7 +15,15 @@ from obox_builder.contrib.history.tracker import get_tracker, is_tracked, track
 #: Permission required to read the row-history timeline in the admin.
 HISTORY_VIEW_PERMISSION = "history.view_row_change"
 
+#: Permission required to revert a recorded change (needs the model op too).
+HISTORY_RESTORE_PERMISSION = "history.restore_row_change"
+
+#: Permission required to export the audit feed (NDJSON/CSV).
+HISTORY_EXPORT_PERMISSION = "history.export_row_change"
+
 __all__ = [
+    "HISTORY_EXPORT_PERMISSION",
+    "HISTORY_RESTORE_PERMISSION",
     "HISTORY_VIEW_PERMISSION",
     "HistoryContext",
     "HistoryOptions",

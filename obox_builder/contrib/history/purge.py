@@ -18,6 +18,7 @@ import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from obox_builder.conf import settings
+from obox_builder.contrib.history.immutability import MAINTENANCE_GUC
 from obox_builder.contrib.history.models import RowChange
 from obox_builder.contrib.history.service import model_label
 from obox_builder.core.utils.time import utcnow
@@ -26,7 +27,6 @@ logger = logging.getLogger("obox.history")
 
 MAX_BATCH_SIZE = 10_000
 BATCH_PAUSE_SECONDS = 0.05
-MAINTENANCE_GUC = "SET LOCAL obox.history_maintenance = 'on'"
 
 
 @dataclass

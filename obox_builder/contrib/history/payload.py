@@ -37,9 +37,15 @@ def build_changes(change: PendingChange) -> dict[str, Any]:
         "fields": fields,
         "m2m": _m2m(change),
         "redacted": sorted(change.redacted),
+        "masked": _masked(change),
         "truncated": truncated,
         "unknown_old": sorted(change.unknown_old),
     }
+
+
+def _masked(change: PendingChange) -> dict[str, list[Any]]:
+    """Partially masked values (``a***@x.com``); never revertable."""
+    return {name: list(change.masked[name]) for name in sorted(change.masked)}
 
 
 def _m2m(change: PendingChange) -> dict[str, dict[str, list[str]]]:

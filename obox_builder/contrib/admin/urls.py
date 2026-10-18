@@ -11,6 +11,8 @@ from obox_builder.contrib.admin.deps import HISTORY_APP, bind_history
 from obox_builder.contrib.admin.views import (
     dashboard,
     history_change_set,
+    history_change_set_revert,
+    history_export,
     history_feed,
     login_submit,
     login_view,
@@ -98,10 +100,22 @@ def build_router(site: AdminSite) -> APIRouter:
     if apps.is_installed(HISTORY_APP):
         router.add_api_route("/history", history_feed, methods=["GET"], name="admin:history_feed")
         router.add_api_route(
+            "/history/export",
+            history_export,
+            methods=["GET"],
+            name="admin:history_export",
+        )
+        router.add_api_route(
             "/history/{change_set_id}",
             history_change_set,
             methods=["GET"],
             name="admin:history_change_set",
+        )
+        router.add_api_route(
+            "/history/{change_set_id}/revert",
+            history_change_set_revert,
+            methods=["POST"],
+            name="admin:history_change_set_revert",
         )
     register_model_routes(router, site)
     return router
