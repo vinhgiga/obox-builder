@@ -11,9 +11,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from obox_builder.contrib.admin.views.common import ensure_csrf, flash, page_context
+from obox_builder.contrib.admin.views.history import (
+    before_cursor,
+    build_card,
+    model_timeline_available,
+    timeline_context,
+)
 from obox_builder.contrib.auth.dependencies import permission_required
 from obox_builder.contrib.auth.models import Permission, Role, User, user_roles
 from obox_builder.contrib.auth.permissions import collect_permissions
+from obox_builder.contrib.history import HISTORY_VIEW_PERMISSION
 from obox_builder.db.session import get_db
 from obox_builder.http.shortcuts import redirect, render
 
@@ -23,8 +30,23 @@ ViewRoles = Annotated[User, Depends(permission_required("auth.view_role"))]
 AddRoles = Annotated[User, Depends(permission_required("auth.add_role"))]
 ChangeRoles = Annotated[User, Depends(permission_required("auth.change_role"))]
 DeleteRoles = Annotated[User, Depends(permission_required("auth.delete_role"))]
+HistoryRoles = Annotated[User, Depends(permission_required(HISTORY_VIEW_PERMISSION))]
 
 CRUD_ACTIONS = ("view", "add", "change", "delete")
+
+
+def _history_visible(user: User) -> bool:
+    return (
+        model_timeline_available(Role)
+        and user.has_perm("auth.view_role")
+        and user.has_perm(HISTORY_VIEW_PERMISSION)
+    )
+
+
+async def _history_for(db: AsyncSession, user: User, target: Role) -> dict[str, object] | None:
+    if not _history_visible(user):
+        return None
+    return await build_card(db, Role, target.id, url=f"/admin/roles/{target.id}/history")
 
 
 async def _permission_matrix(db: AsyncSession) -> list[dict[str, object]]:
@@ -77,6 +99,7 @@ async def role_list(
         roles=roles,
         user_counts=user_counts,
         start_index=1,
+        show_history=_history_visible(user),
     )
     return render(request, "admin/roles/list.html", context)
 
@@ -132,8 +155,35 @@ async def role_edit(
         "target": role,
         "matrix": await _permission_matrix(db),
         "selected_permission_ids": {permission.id for permission in role.permissions},
+        "history": await _history_for(db, user, role),
     }
     return render(request, "admin/roles/form.html", await page_context(request, **context))
+
+
+async def role_history(
+    request: Request,
+    role_id: int,
+    user: ViewRoles,
+    history_reader: HistoryRoles,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    role = await db.get(Role, role_id)
+    if role is None:
+        return render(request, "admin/errors/404.html", {}, status_code=404)
+    context = await page_context(
+        request,
+        **await timeline_context(
+            db,
+            Role,
+            role.id,
+            before=before_cursor(request),
+            heading="Role history",
+            subtitle=role.name,
+            back_url=f"/admin/roles/{role.id}",
+            timeline_url=request.url.path,
+        ),
+    )
+    return render(request, "admin/history.html", context)
 
 
 async def role_edit_submit(
@@ -180,6 +230,7 @@ async def role_edit_submit(
         "form": {"name": name, "description": description},
         "matrix": await _permission_matrix(db),
         "selected_permission_ids": set(permission_ids),
+        "history": await _history_for(db, user, role),
     }
     return render(
         request, "admin/roles/form.html", await page_context(request, **context), status_code=200

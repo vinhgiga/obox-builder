@@ -135,6 +135,9 @@ class ModelAdmin:
     def delete_path(self, pk: Any) -> str:
         return f"{self.list_path()}/{pk}/delete"
 
+    def history_path(self, pk: Any) -> str:
+        return f"{self.list_path()}/{pk}/history"
+
     # -- permissions --------------------------------------------------------
     def permission_codename(self, action: str) -> str:
         return f"{action}_{self.model_name}"
@@ -153,6 +156,14 @@ class ModelAdmin:
 
     def has_delete_permission(self, ctx: AdminContext, obj: Any = None) -> bool:
         return bool(ctx.user.has_perm(self.permission_name("delete")))
+
+    def has_history_permission(self, ctx: AdminContext, obj: Any = None) -> bool:
+        """Reading the audit trail requires the row-history permission *and* view."""
+        from obox_builder.contrib.history import HISTORY_VIEW_PERMISSION
+
+        return self.has_view_permission(ctx, obj) and bool(
+            ctx.user.has_perm(HISTORY_VIEW_PERMISSION)
+        )
 
     # -- queryset -----------------------------------------------------------
     def get_queryset(self, ctx: AdminContext) -> sa.Select[Any]:

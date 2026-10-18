@@ -1,5 +1,6 @@
 {% extends "admin/base.html" %}
 {% from "admin/macros/forms.html" import field, csrf %}
+{% from "admin/macros/history.html" import entry_item %}
 {% block title %}{{ "Edit role" if target else "New role" }}{% endblock %}
 {% set values = form or {} %}
 {% block content %}
@@ -94,6 +95,25 @@
           {% endfor %}
         </tbody>
       </table>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if history %}
+  <div class="card mb-3">
+    <div class="card-header">
+      <h3 class="card-title">History <span class="badge bg-blue-lt ms-1">{{ history.count }}</span></h3>
+      <div class="card-options">
+        <a href="{{ history.url }}" class="btn btn-sm">Full history</a>
+      </div>
+    </div>
+    <div class="card-body">
+      {% if not history.entries %}
+      <div class="text-secondary">No changes recorded yet.</div>
+      {% endif %}
+      {% for entry in history.entries %}
+        {{ entry_item(entry) }}
+      {% endfor %}
     </div>
   </div>
   {% endif %}

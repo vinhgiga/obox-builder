@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime
-from typing import ClassVar
+from typing import Any, ClassVar
 
 import sqlalchemy as sa
 from sqlalchemy.orm import Mapped, mapped_column
@@ -44,6 +45,13 @@ role_permissions = sa.Table(
 
 
 class User(Model, TimestampMixin):
+    """Accounts are part of the audit trail: identity changes are recorded."""
+
+    __history__: ClassVar[bool | Mapping[str, Any] | None] = {
+        "exclude": ["meta"],
+        "relations": ["roles"],
+    }
+
     # Effective permissions loaded per request (deny-by-default when not loaded).
     permissions: frozenset[str] = frozenset()
 
@@ -54,10 +62,18 @@ class User(Model, TimestampMixin):
     full_name: Mapped[str] = mapped_column(sa.String(255), default="")
     is_active: Mapped[bool] = mapped_column(default=True)
     is_superuser: Mapped[bool] = mapped_column(default=False)
-    last_login_at: Mapped[datetime | None] = mapped_column(TZDateTime)
-    password_changed_at: Mapped[datetime | None] = mapped_column(TZDateTime)
-    failed_login_count: Mapped[int] = mapped_column(default=0)
-    locked_until: Mapped[datetime | None] = mapped_column(TZDateTime)
+    # Login bookkeeping: noise for the audit trail (the sessions table and logs
+    # already cover authentication events).
+    last_login_at: Mapped[datetime | None] = mapped_column(
+        TZDateTime, info={"admin": {"history": False}}
+    )
+    password_changed_at: Mapped[datetime | None] = mapped_column(
+        TZDateTime, info={"admin": {"history": False}}
+    )
+    failed_login_count: Mapped[int] = mapped_column(default=0, info={"admin": {"history": False}})
+    locked_until: Mapped[datetime | None] = mapped_column(
+        TZDateTime, info={"admin": {"history": False}}
+    )
     meta: Mapped[JsonDict] = mapped_column(JSONB, default=dict)
 
     roles: Mapped[list[Role]] = relationship(secondary=user_roles, back_populates="users")
@@ -78,6 +94,10 @@ class User(Model, TimestampMixin):
 
 
 class Role(Model, TimestampMixin):
+    """Roles are assignable identities, so they are tracked as well."""
+
+    __history__ = True
+
     id: Mapped[int] = mapped_column(BigIntIdentity, primary_key=True)
     name: Mapped[str] = mapped_column(sa.String(150), unique=True)
     description: Mapped[str] = mapped_column(sa.Text, default="")

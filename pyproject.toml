@@ -125,6 +125,7 @@ name = "Layered architecture"
 type = "layers"
 layers = [
     "obox_builder.contrib.admin",
+    "obox_builder.contrib.history",
     "obox_builder.contrib.auth",
     "obox_builder.core",
     "obox_builder.http",

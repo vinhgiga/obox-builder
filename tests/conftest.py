@@ -8,6 +8,8 @@ import pytest
 from obox_builder import conf
 from obox_builder.apps import apps
 from obox_builder.apps.registry import Apps
+from obox_builder.contrib.history import context as history_context
+from obox_builder.contrib.history import tracker as history_tracker
 from obox_builder.core.checks import registry as checks_registry
 from obox_builder.core.management import utils as cli_utils
 from obox_builder.core.signals import post_migrate
@@ -16,7 +18,7 @@ from obox_builder.db import engine as db_engine
 from tests.support import events
 
 SUPPORT_APPS_PREFIX = "tests.support.apps"
-MODEL_APP_MODULES = {"tests.support.apps.shop"}
+MODEL_APP_MODULES = {"tests.support.apps.shop", "tests.support.apps.warehouse"}
 
 
 def _purge_support_app_modules() -> None:
@@ -42,8 +44,12 @@ def guard_global_state() -> Iterator[None]:
     saved_checks = list(checks_registry._checks)
     saved_cli_state = (cli_utils.state.verbosity, cli_utils.state.no_color)
     saved_post_migrate_receivers = dict(post_migrate._receivers)
+    saved_trackers = dict(history_tracker._trackers)
+    saved_explicit_trackers = dict(history_tracker._explicit)
+    saved_tracker_built = history_tracker._built
 
     events.RECORDS.clear()
+    history_context._reset()
     _purge_support_app_modules()
     try:
         yield
@@ -60,6 +66,12 @@ def guard_global_state() -> Iterator[None]:
         cli_utils.state.verbosity, cli_utils.state.no_color = saved_cli_state
         post_migrate._receivers.clear()
         post_migrate._receivers.update(saved_post_migrate_receivers)
+        history_tracker._trackers.clear()
+        history_tracker._trackers.update(saved_trackers)
+        history_tracker._explicit.clear()
+        history_tracker._explicit.update(saved_explicit_trackers)
+        history_tracker._built = saved_tracker_built
+        history_context._reset()
         db_engine._reset()
         events.RECORDS.clear()
         _purge_support_app_modules()

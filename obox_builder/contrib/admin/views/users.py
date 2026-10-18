@@ -11,10 +11,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from obox_builder.contrib.admin.views.common import PAGE_SIZE, ensure_csrf, flash, page_context
+from obox_builder.contrib.admin.views.history import (
+    before_cursor,
+    build_card,
+    model_timeline_available,
+    timeline_context,
+)
 from obox_builder.contrib.auth import services
 from obox_builder.contrib.auth.dependencies import permission_required
 from obox_builder.contrib.auth.models import Role, User, user_roles
 from obox_builder.contrib.auth.validators import PasswordValidationError
+from obox_builder.contrib.history import HISTORY_VIEW_PERMISSION
 from obox_builder.db.session import get_db
 from obox_builder.http.shortcuts import redirect, render
 
@@ -23,6 +30,21 @@ logger = logging.getLogger(__name__)
 ViewUsers = Annotated[User, Depends(permission_required("auth.view_user"))]
 AddUsers = Annotated[User, Depends(permission_required("auth.add_user"))]
 ChangeUsers = Annotated[User, Depends(permission_required("auth.change_user"))]
+HistoryUsers = Annotated[User, Depends(permission_required(HISTORY_VIEW_PERMISSION))]
+
+
+def _history_visible(user: User) -> bool:
+    return (
+        model_timeline_available(User)
+        and user.has_perm("auth.view_user")
+        and user.has_perm(HISTORY_VIEW_PERMISSION)
+    )
+
+
+async def _history_for(db: AsyncSession, user: User, target: User) -> dict[str, object] | None:
+    if not _history_visible(user):
+        return None
+    return await build_card(db, User, target.id, url=f"/admin/users/{target.id}/history")
 
 
 async def _all_roles(db: AsyncSession) -> list[Role]:
@@ -83,6 +105,7 @@ async def user_list(
         pages=pages,
         start_index=(page - 1) * PAGE_SIZE + 1,
         total=total,
+        show_history=_history_visible(user),
     )
     return render(request, "admin/users/list.html", context)
 
@@ -179,8 +202,35 @@ async def user_edit(
         target,
         roles,
         selected_role_ids={role.id for role in target.roles},
+        history=await _history_for(db, user, target),
     )
     return render(request, "admin/users/form.html", await page_context(request, **context))
+
+
+async def user_history(
+    request: Request,
+    user_id: int,
+    user: ViewUsers,
+    history_reader: HistoryUsers,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    target = await db.get(User, user_id)
+    if target is None:
+        return render(request, "admin/errors/404.html", {}, status_code=404)
+    context = await page_context(
+        request,
+        **await timeline_context(
+            db,
+            User,
+            target.id,
+            before=before_cursor(request),
+            heading="User history",
+            subtitle=target.username,
+            back_url=f"/admin/users/{target.id}",
+            timeline_url=request.url.path,
+        ),
+    )
+    return render(request, "admin/history.html", context)
 
 
 async def user_edit_submit(
@@ -251,6 +301,7 @@ async def user_edit_submit(
             "is_active": is_active,
             "is_superuser": is_superuser,
         },
+        history=await _history_for(db, user, target),
     )
     return render(
         request, "admin/users/form.html", await page_context(request, **context), status_code=200

@@ -98,6 +98,9 @@
     var menu = document.createElement("div");
     menu.className = "dropdown-menu context-menu";
     menu.innerHTML = [
+      '<button type="button" class="dropdown-item d-none" data-context-history>',
+      '  <i class="ti ti-history me-2"></i>Row history',
+      '</button>',
       '<button type="button" class="dropdown-item" data-context-copy>',
       '  <i class="ti ti-copy me-2"></i>Copy',
       '</button>',
@@ -105,6 +108,15 @@
       '  <i class="ti ti-trash me-2"></i>Delete row',
       '</button>',
     ].join("\n");
+    menu.querySelector("[data-context-history]").addEventListener("click", function () {
+      var cell = contextCell;
+      closeContextMenu();
+      var row = cell && cell.closest("tr");
+      var url = row && row.dataset.historyUrl;
+      if (url) {
+        window.location.href = url;
+      }
+    });
     menu.querySelector("[data-context-copy]").addEventListener("click", function () {
       var cell = contextCell;
       closeContextMenu();
@@ -131,6 +143,10 @@
     }
     contextCell = cell;
     var row = cell.closest("tr");
+    var historyUrl = row.dataset.historyUrl || "";
+    contextMenu
+      .querySelector("[data-context-history]")
+      .classList.toggle("d-none", !historyUrl);
     var deletable = Boolean(row.querySelector("form[data-confirm]"));
     contextMenu
       .querySelector("[data-context-delete]")
@@ -151,7 +167,16 @@
 
   document.addEventListener("contextmenu", function (event) {
     var cell = event.target.closest("table tbody td");
-    if (!cell || !isDataCell(cell)) {
+    if (!cell) {
+      return;
+    }
+    var row = cell.closest("tr");
+    var interactive = event.target.closest("input, select, textarea, button, a, form");
+    var historyOnly =
+      Boolean(row && row.dataset.historyUrl) &&
+      !interactive &&
+      !cell.hasAttribute("data-row-number");
+    if (!isDataCell(cell) && !historyOnly) {
       return;
     }
     event.preventDefault();

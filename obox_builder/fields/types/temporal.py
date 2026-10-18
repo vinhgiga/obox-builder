@@ -15,6 +15,10 @@ def _empty(raw: Any) -> bool:
     return raw is None or (isinstance(raw, str) and raw.strip() == "")
 
 
+def _as_str(value: Any) -> Any:
+    return None if value is None else str(value)
+
+
 class Date(FieldType):
     name = "date"
     widget = "date"
@@ -34,6 +38,9 @@ class Date(FieldType):
         if isinstance(value, str):
             return value
         return value.isoformat() if isinstance(value, dt.date) else ""
+
+    def diff_repr(self, value: Any) -> Any:
+        return value.isoformat() if isinstance(value, dt.date) else _as_str(value)
 
     def cell(self, value: Any, spec: FieldSpec) -> Cell:
         text = value.isoformat() if isinstance(value, dt.date) else ""
@@ -62,6 +69,9 @@ class DateTime(FieldType):
             return value.strftime("%Y-%m-%dT%H:%M")
         return ""
 
+    def diff_repr(self, value: Any) -> Any:
+        return value.isoformat() if isinstance(value, dt.datetime) else _as_str(value)
+
     def cell(self, value: Any, spec: FieldSpec) -> Cell:
         text = value.strftime("%Y-%m-%d %H:%M") if isinstance(value, dt.datetime) else ""
         return Cell(text=text, value=value, kind="datetime")
@@ -86,6 +96,9 @@ class Time(FieldType):
         if isinstance(value, str):
             return value
         return value.strftime("%H:%M") if isinstance(value, dt.time) else ""
+
+    def diff_repr(self, value: Any) -> Any:
+        return value.isoformat() if isinstance(value, dt.time) else _as_str(value)
 
     def cell(self, value: Any, spec: FieldSpec) -> Cell:
         text = value.strftime("%H:%M") if isinstance(value, dt.time) else ""

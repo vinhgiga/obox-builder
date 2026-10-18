@@ -30,6 +30,11 @@ class Link(FieldType):
             return value
         return raw
 
+    def diff_repr(self, value: Any) -> Any:
+        if value is None or isinstance(value, (int, str)):
+            return value
+        return str(value)
+
     def cell(self, value: Any, spec: FieldSpec) -> Cell:
         if value is None:
             return Cell(text="", value=None, kind="link")

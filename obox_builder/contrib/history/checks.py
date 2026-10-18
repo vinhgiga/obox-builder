@@ -1,0 +1,67 @@
+"""System checks for declared ``__history__`` models.
+
+* ``obox.history.E201`` — tracked model has a composite primary key (v1 does
+  not support it).
+* ``obox.history.E202`` — ``relations`` entry is not a many-to-many
+  relationship (only M2M is recordable).
+* ``obox.history.E203`` — ``fields``/``exclude``/``mask`` reference an unknown
+  attribute.
+* ``obox.history.W202`` — ``HISTORY_FAILURE_MODE='open'`` downgrades history
+  failures to log entries.
+"""
+
+from __future__ import annotations
+
+import sqlalchemy as sa
+
+from obox_builder.conf import settings
+from obox_builder.contrib.history.tracker import declared_models
+from obox_builder.core.checks import register
+from obox_builder.core.checks.messages import CheckMessage, Error, Warning
+
+TAG = "history"
+
+
+@register(tags=(TAG,))
+def check_history_models() -> list[CheckMessage]:
+    messages: list[CheckMessage] = []
+    for model, options in declared_models():
+        label = getattr(model, "_model_label", "") or model.__module__
+        name = f"{label}.{model.__name__}"
+        mapper = sa.inspect(model)
+        if len(mapper.primary_key) != 1:
+            messages.append(
+                Error(
+                    f"Row history for {name} requires a single-column primary key.",
+                    id="obox.history.E201",
+                )
+            )
+        attrs = set(mapper.attrs.keys())
+        declared = sorted(set(options.fields or ()) | set(options.exclude) | set(options.mask))
+        for field in declared:
+            if field not in attrs:
+                messages.append(
+                    Error(
+                        f"{name}: __history__ references unknown field {field!r}.",
+                        id="obox.history.E203",
+                    )
+                )
+        for relation in options.relations:
+            rel = mapper.relationships.get(relation)
+            if rel is None or rel.secondary is None:
+                messages.append(
+                    Error(
+                        f"{name}: __history__ relation {relation!r} must be a "
+                        "many-to-many relationship.",
+                        id="obox.history.E202",
+                    )
+                )
+    if settings.HISTORY_FAILURE_MODE == "open":
+        messages.append(
+            Warning(
+                "HISTORY_FAILURE_MODE is 'open': row history write failures are "
+                "logged and swallowed instead of failing the transaction.",
+                id="obox.history.W202",
+            )
+        )
+    return messages

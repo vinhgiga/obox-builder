@@ -26,7 +26,14 @@ from obox_builder.contrib.admin.views.common import (
     flash,
     page_context,
 )
+from obox_builder.contrib.admin.views.history import (
+    before_cursor,
+    build_card,
+    timeline_available,
+    timeline_context,
+)
 from obox_builder.contrib.auth.dependencies import permission_required
+from obox_builder.contrib.history import HISTORY_VIEW_PERMISSION
 from obox_builder.db.session import get_db
 from obox_builder.fields import FieldSpec, QuerySpec, QuerySpecError
 from obox_builder.forms import BoundForm, render_values
@@ -131,6 +138,30 @@ def _register_one(router: APIRouter, site: AdminSite, admin: ModelAdmin) -> None
             return _not_found(ctx, str(exc))
         return await _delete(ctx, target)
 
+    if timeline_available(admin):
+        history_perm_dep = Depends(permission_required(HISTORY_VIEW_PERMISSION))
+
+        async def history_view(
+            request: Request,
+            pk: str,
+            user: Any = view_dep,
+            _history_perm: Any = history_perm_dep,
+            db: AsyncSession = Depends(get_db),
+        ) -> Any:
+            ctx = AdminContext(request=request, user=user, db=db, site=site, admin=admin)
+            try:
+                target = await _get_object(ctx, pk)
+            except LookupError as exc:
+                return _not_found(ctx, str(exc))
+            return await _history(ctx, target)
+
+        router.add_api_route(
+            f"{base}/{{pk}}/history",
+            history_view,
+            methods=["GET"],
+            name=f"{name}_history",
+        )
+
     router.add_api_route(base, list_view, methods=["GET"], name=f"{name}_list")
     router.add_api_route(f"{base}/add", add_view, methods=["GET"], name=f"{name}_add")
     router.add_api_route(f"{base}/add", add_submit, methods=["POST"], name=f"{name}_add_submit")
@@ -188,15 +219,24 @@ async def _list(
         edits = _inline_edits(admin, columns, objects, inline_values, inline_errors)
     else:
         edits = [[None] * len(columns) for _ in objects]
-    rows = [
-        {
-            "pk": admin.get_pk(obj),
-            "label": _object_label(admin, obj),
-            "cells": [admin.build_cell(spec, obj) for spec in columns],
-            "edits": row_edits,
-        }
-        for obj, row_edits in zip(objects, edits, strict=True)
-    ]
+    has_history_ui = timeline_available(admin)
+    rows: list[dict[str, Any]] = []
+    for obj, row_edits in zip(objects, edits, strict=True):
+        pk = admin.get_pk(obj)
+        history_url = (
+            admin.history_path(pk)
+            if has_history_ui and admin.has_history_permission(ctx, obj)
+            else None
+        )
+        rows.append(
+            {
+                "pk": pk,
+                "label": _object_label(admin, obj),
+                "cells": [admin.build_cell(spec, obj) for spec in columns],
+                "edits": row_edits,
+                "history_url": history_url,
+            }
+        )
     pages = max(1, -(-total // query.size))
     filters = _build_filters(request, admin)
     inline_action = f"{admin.list_path()}/inline"
@@ -338,6 +378,14 @@ async def _render_form(
     specs = [spec for spec in admin.get_form_specs() if not spec.readonly]
     if values is None:
         values = _initial_values(ctx, specs)
+    history: Mapping[str, Any] | None = None
+    if (
+        target is not None
+        and timeline_available(admin)
+        and admin.has_history_permission(ctx, target)
+    ):
+        pk = admin.get_pk(target)
+        history = await build_card(ctx.db, admin.model, pk, url=admin.history_path(pk))
     context = await page_context(
         request,
         admin=admin,
@@ -350,6 +398,7 @@ async def _render_form(
         action=admin.add_path() if is_add else admin.change_path(admin.get_pk(target)),
         title=f"New {admin.name.lower()}" if is_add else f"Edit {admin.name.lower()}",
         subtitle="" if is_add else _object_label(admin, target),
+        history=history,
     )
     return render(request, "admin/model/form.html", context)
 
@@ -539,6 +588,29 @@ async def _actions(ctx: AdminContext) -> Response:
     if isinstance(result, Response):
         return result
     return RedirectResponse(destination, status_code=303)
+
+
+# -- history ----------------------------------------------------------------
+
+
+async def _history(ctx: AdminContext, target: Any) -> HTMLResponse:
+    admin = _require_admin(ctx)
+    request = ctx.request
+    pk = admin.get_pk(target)
+    context = await page_context(
+        request,
+        **await timeline_context(
+            ctx.db,
+            admin.model,
+            pk,
+            before=before_cursor(request),
+            heading=f"{admin.name} history",
+            subtitle=_object_label(admin, target),
+            back_url=admin.change_path(pk),
+            timeline_url=request.url.path,
+        ),
+    )
+    return render(request, "admin/history.html", context)
 
 
 # -- delete -----------------------------------------------------------------

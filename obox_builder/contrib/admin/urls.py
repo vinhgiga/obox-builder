@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Depends, Request
 
+from obox_builder.contrib.admin.deps import bind_history
 from obox_builder.contrib.admin.views import (
     dashboard,
     login_submit,
@@ -18,14 +19,18 @@ from obox_builder.contrib.admin.views import (
     role_delete,
     role_edit,
     role_edit_submit,
+    role_history,
     role_list,
     user_create,
     user_create_submit,
     user_edit,
     user_edit_submit,
+    user_history,
     user_list,
 )
+from obox_builder.contrib.admin.views.history import model_timeline_available
 from obox_builder.contrib.admin.views.model import register_model_routes
+from obox_builder.contrib.auth.models import Role, User
 
 if TYPE_CHECKING:
     from obox_builder.contrib.admin.site import AdminSite
@@ -35,7 +40,7 @@ def build_router(site: AdminSite) -> APIRouter:
     async def bind_site(request: Request) -> None:
         request.state.admin_site = site
 
-    router = APIRouter(tags=["admin"], dependencies=[Depends(bind_site)])
+    router = APIRouter(tags=["admin"], dependencies=[Depends(bind_site), Depends(bind_history)])
 
     router.add_api_route("/", dashboard, methods=["GET"], name="admin:dashboard")
     router.add_api_route("/login", login_view, methods=["GET"], name="admin:login")
@@ -60,6 +65,13 @@ def build_router(site: AdminSite) -> APIRouter:
     router.add_api_route(
         "/users/{user_id}", user_edit_submit, methods=["POST"], name="admin:user_edit_submit"
     )
+    if model_timeline_available(User):
+        router.add_api_route(
+            "/users/{user_id}/history",
+            user_history,
+            methods=["GET"],
+            name="admin:user_history",
+        )
 
     router.add_api_route("/roles", role_list, methods=["GET"], name="admin:role_list")
     router.add_api_route("/roles/new", role_create, methods=["GET"], name="admin:role_create")
@@ -73,5 +85,12 @@ def build_router(site: AdminSite) -> APIRouter:
     router.add_api_route(
         "/roles/{role_id}/delete", role_delete, methods=["POST"], name="admin:role_delete"
     )
+    if model_timeline_available(Role):
+        router.add_api_route(
+            "/roles/{role_id}/history",
+            role_history,
+            methods=["GET"],
+            name="admin:role_history",
+        )
     register_model_routes(router, site)
     return router

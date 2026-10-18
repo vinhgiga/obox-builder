@@ -5,6 +5,18 @@ Follows [Keep a Changelog](https://keepachangelog.com/), versions follow
 
 ## [Unreleased]
 
+### Added
+
+- **Row history**: `obox_builder.contrib.history` — append-only
+  `history_row_change` captured from SQLAlchemy session events in the same
+  transaction as the data change; `Model.__history__` declarations (incl.
+  secret redaction and per-field opt-out), `history.track`, `history.use`
+  context, `HISTORY_*` settings, failure/bulk policies, `pre_record`/
+  `post_record` signals, model checks (`E201`–`E203`, `W202`), a read API
+  (`history.service` with keyset pagination), the admin history card + per-row
+  timeline page (`history.view_row_change`), per-row ORM bulk deletes, and
+  tracking for `auth.User`/`auth.Role`.
+
 ## [0.2.0] - 2026-10-17
 
 ### Added

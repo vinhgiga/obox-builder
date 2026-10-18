@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any, ClassVar
 
 from sqlalchemy import MetaData
@@ -39,6 +40,10 @@ class Model(ModelBase):
     app_label: ClassVar[str] = ""
     _model_label: ClassVar[str] = ""
     __permissions__: ClassVar[list[tuple[str, str]]] = []
+    #: Row-history declaration: ``True`` for defaults, ``False``/``None`` to opt
+    #: out, or a mapping with ``fields``/``exclude``/``relations``/``mask``/
+    #: ``retention_days`` (see ``docs/history.md``).
+    __history__: ClassVar[bool | Mapping[str, Any] | None] = None
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         if not cls.__dict__.get("__abstract__", False):

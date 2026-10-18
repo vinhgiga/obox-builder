@@ -12,6 +12,7 @@ from obox_builder.contrib.admin.views.roles import (
     role_delete,
     role_edit,
     role_edit_submit,
+    role_history,
     role_list,
 )
 from obox_builder.contrib.admin.views.users import (
@@ -19,6 +20,7 @@ from obox_builder.contrib.admin.views.users import (
     user_create_submit,
     user_edit,
     user_edit_submit,
+    user_history,
     user_list,
 )
 
@@ -34,10 +36,12 @@ __all__ = [
     "role_delete",
     "role_edit",
     "role_edit_submit",
+    "role_history",
     "role_list",
     "user_create",
     "user_create_submit",
     "user_edit",
     "user_edit_submit",
+    "user_history",
     "user_list",
 ]

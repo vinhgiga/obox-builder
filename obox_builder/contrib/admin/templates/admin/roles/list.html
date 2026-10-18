@@ -24,7 +24,7 @@
       </thead>
       <tbody>
         {% for role in roles %}
-        <tr>
+        <tr{% if show_history %} data-history-url="/admin/roles/{{ role.id }}/history"{% endif %}>
           <td class="text-end text-secondary">{{ start_index + loop.index0 }}</td>
           <td>
             <div class="btn-list flex-nowrap">

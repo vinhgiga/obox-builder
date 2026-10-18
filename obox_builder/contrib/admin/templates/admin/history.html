@@ -1,0 +1,41 @@
+{% extends "admin/base.html" %}
+{% from "admin/macros/history.html" import entry_item %}
+{% block title %}History{% endblock %}
+{% block content %}
+<div class="page-header d-print-none">
+  <div class="row g-2 align-items-center">
+    <div class="col">
+      <h2 class="page-title">
+        {{ heading }} <span class="text-secondary">/ {{ subtitle }}</span>
+      </h2>
+      <div class="text-secondary mt-1">{{ count }} change{{ '' if count == 1 else 's' }} recorded</div>
+    </div>
+    <div class="col-auto ms-auto d-print-none">
+      <a href="{{ back_url }}" class="btn">Back</a>
+    </div>
+  </div>
+</div>
+<div class="card">
+  <div class="card-body">
+    {% if not entries %}
+    <div class="text-secondary">No changes recorded for this row yet.</div>
+    {% endif %}
+    {% for entry in entries %}
+      {{ entry_item(entry, true) }}
+    {% endfor %}
+  </div>
+  {% if older %}
+  <div class="card-footer d-flex align-items-center">
+    <span class="text-secondary small">Showing the most recent changes.</span>
+    <div class="ms-auto btn-list">
+      {% if before %}<a href="{{ timeline_url }}" class="btn btn-sm">Newest</a>{% endif %}
+      <a href="{{ timeline_url }}?before={{ older }}" class="btn btn-sm">Older</a>
+    </div>
+  </div>
+  {% elif before %}
+  <div class="card-footer">
+    <a href="{{ timeline_url }}" class="btn btn-sm">Newest</a>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

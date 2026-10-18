@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings as PydanticBaseSettings
@@ -44,6 +44,22 @@ class BaseSettings(PydanticBaseSettings):
     LOGIN_LOCKOUT_SECONDS: int = 900
     PASSWORD_MIN_LENGTH: int = 8
     SUPERUSER_PASSWORD: SecretStr | None = None
+    HISTORY_ENABLED: bool = True
+    #: ``closed`` fails the transaction when history cannot be written;
+    #: ``open`` logs the failure and lets the data change commit.
+    HISTORY_FAILURE_MODE: Literal["closed", "open"] = "closed"
+    #: What to do about bulk ORM/Core writes against tracked models that bypass
+    #: the unit of work: ``ignore``, ``warn`` (log) or ``raise``.
+    HISTORY_BULK_POLICY: Literal["ignore", "warn", "raise"] = "warn"
+    #: Values larger than this (as compact JSON bytes) are truncated in payloads.
+    HISTORY_MAX_VALUE_BYTES: int = 8192
+    #: Global retention; ``None`` keeps entries forever.
+    HISTORY_RETENTION_DAYS: int | None = None
+    #: Proxies whose ``X-Forwarded-For`` header is trusted for client IPs.
+    HISTORY_TRUSTED_PROXIES: list[str] = Field(default_factory=list)
+    #: Track every model registered on the admin site, even without
+    #: ``__history__``.
+    HISTORY_TRACK_ALL_ADMIN_MODELS: bool = False
     LOGGING: dict[str, Any] | None = None
 
     @field_validator("SECRET_KEY")

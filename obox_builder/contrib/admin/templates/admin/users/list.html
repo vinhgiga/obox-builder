@@ -31,7 +31,7 @@
       </thead>
       <tbody>
         {% for item in users %}
-        <tr>
+        <tr{% if show_history %} data-history-url="/admin/users/{{ item.id }}/history"{% endif %}>
           <td class="text-end text-secondary">{{ start_index + loop.index0 }}</td>
           <td>
             {% if perms.auth.change_user %}

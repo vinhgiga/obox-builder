@@ -54,7 +54,11 @@ def action(
 
 @action(description="Delete selected %(verbose_name_plural)s", permissions=("delete",))
 async def delete_selected(admin: ModelAdmin, ctx: AdminContext, queryset: sa.Select[Any]) -> None:
-    """Delete every row matched by ``queryset`` (built-in, all-or-nothing)."""
+    """Delete every row matched by ``queryset`` (built-in, all-or-nothing).
+
+    Rows are deleted through the ORM one at a time so per-row side effects
+    (row history, signals) observe each change individually.
+    """
     pk_column = admin.pk_column()
     pks = (
         (await ctx.db.execute(queryset.with_only_columns(pk_column).order_by(None))).scalars().all()
@@ -62,10 +66,18 @@ async def delete_selected(admin: ModelAdmin, ctx: AdminContext, queryset: sa.Sel
     if not pks:
         await add_message(ctx.request, "No matching records to delete.", "warning")
         return
+    objects: list[Any] = []
     try:
         async with ctx.db.begin_nested():
-            await ctx.db.execute(sa.delete(admin.model).where(pk_column.in_(pks)))
+            for pk in pks:
+                obj = await ctx.db.get(admin.model, pk)
+                if obj is not None:
+                    objects.append(obj)
+                    await ctx.db.delete(obj)
+            await ctx.db.flush()
     except IntegrityError as exc:
+        for obj in objects:
+            ctx.db.expunge(obj)
         await add_message(
             ctx.request,
             f"Could not delete: the database rejected the change ({exc.orig}).",

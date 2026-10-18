@@ -112,7 +112,7 @@
       </thead>
       <tbody>
         {% for row in rows %}
-        <tr>
+        <tr{% if row.history_url %} data-history-url="{{ row.history_url }}"{% endif %}>
           {% if bulk_actions %}
           <td class="w-1">
             <input type="checkbox" name="_selected_action" value="{{ row.pk }}"

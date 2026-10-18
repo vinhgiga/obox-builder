@@ -32,6 +32,9 @@ class Integer(FieldType):
             return raw.strip()
         return raw
 
+    def diff_repr(self, value: Any) -> Any:
+        return None if value is None else int(value)
+
     def cell(self, value: Any, spec: FieldSpec) -> Cell:
         return Cell(text="" if value is None else str(value), value=value, kind="number")
 
@@ -60,6 +63,9 @@ class Decimal(FieldType):
         if scale is not None and isinstance(value, DecimalValue):
             return f"{value:.{int(scale)}f}"
         return str(value)
+
+    def diff_repr(self, value: Any) -> Any:
+        return None if value is None else str(value)
 
     def cell(self, value: Any, spec: FieldSpec) -> Cell:
         if value is None:
