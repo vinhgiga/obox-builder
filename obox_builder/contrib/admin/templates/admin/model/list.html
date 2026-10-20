@@ -112,7 +112,7 @@
       </thead>
       <tbody>
         {% for row in rows %}
-        <tr{% if row.history_url %} data-history-url="{{ row.history_url }}"{% endif %}>
+        <tr{% if row.history_url %} data-history-url="{{ row.history_url }}"{% endif %}{% if row.comments_url %} data-comments-url="{{ row.comments_url }}"{% endif %}>
           {% if bulk_actions %}
           <td class="w-1">
             <input type="checkbox" name="_selected_action" value="{{ row.pk }}"
@@ -132,6 +132,12 @@
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}"/>
               <button type="submit" class="btn btn-sm btn-danger">Delete</button>
             </form>
+            {% endif %}
+            {% if row.comments_url %}
+            <a href="{{ row.comments_url }}" class="btn btn-sm">
+              Comments
+              {% if row.comments_count %}<span class="badge bg-blue-lt ms-1">{{ row.comments_count }}</span>{% endif %}
+            </a>
             {% endif %}
             </div>
           </td>

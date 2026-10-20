@@ -1,0 +1,149 @@
+{% macro time(comment) -%}
+<span class="text-secondary small" title="{{ comment.created_at.isoformat() }}"
+  >{{ comment.created_at | format_datetime }}</span>
+{%- endmacro %}
+
+{% macro comment_item(comment, comments_url, csrf_token, can_add=false, allow_replies=false,
+                      root=false, edit_comment_id=None, edit_body="", error="", error_field="",
+                      reply_parent=None, mention_url="", mention_model="", max_length=10000,
+                      read_only=false) %}
+<div class="comment mb-3{{ ' comment-deleted' if comment.deleted }}" id="comment-{{ comment.id }}">
+  <div class="d-flex align-items-center gap-2 flex-wrap">
+    <strong>{{ comment.author_label }}</strong>
+    {% if root and comment.resolved_at %}<span class="badge bg-green-lt">resolved</span>{% endif %}
+    {% if comment.edited_at %}<span class="badge bg-secondary-lt" title="{{ comment.edited_at.isoformat() }}">edited</span>{% endif %}
+    {% if comment.deleted %}<span class="badge bg-red-lt">deleted</span>{% endif %}
+    <span class="ms-auto">{{ time(comment) }}</span>
+  </div>
+  {% if comment.deleted and not comment.body %}
+  <div class="text-secondary fst-italic mt-1">
+    This comment was deleted{% if comment.deleted_by_label %} by {{ comment.deleted_by_label }}{% endif %}.
+  </div>
+  {% else %}
+  <div class="comment-body mt-1">{{ comment.body }}</div>
+  {% endif %}
+  {% if root and comment.resolved_at %}
+  <div class="text-secondary small mt-1">
+    Resolved{% if comment.resolved_by_label %} by {{ comment.resolved_by_label }}{% endif %}
+    &middot; {{ comment.resolved_at | format_datetime }}
+  </div>
+  {% endif %}
+  {% if error and edit_comment_id and edit_comment_id == comment.id %}
+  <div class="text-danger small mt-1">{{ error }}</div>
+  {% endif %}
+  {% if not read_only %}
+  <div class="d-flex align-items-center gap-3 mt-1">
+    {% if comment.can_edit %}
+    <button type="button" class="btn btn-link btn-sm p-0" data-comment-edit-toggle="edit-{{ comment.id }}">Edit</button>
+    {% endif %}
+    {% if root and can_add and allow_replies and not comment.deleted %}
+    <button type="button" class="btn btn-link btn-sm p-0" data-comment-reply-toggle="reply-{{ comment.id }}">Reply</button>
+    {% endif %}
+    {% if comment.can_delete %}
+    <form method="post" action="{{ comments_url }}/{{ comment.id }}/delete" class="d-inline"
+          data-confirm="Delete this comment? The text is removed for everyone.">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}"/>
+      <button type="submit" class="btn btn-link btn-sm p-0 text-danger">Delete</button>
+    </form>
+    {% endif %}
+    {% if root and comment.can_resolve %}
+    <form method="post" action="{{ comments_url }}/{{ comment.id }}/{{ 'reopen' if comment.resolved_at else 'resolve' }}" class="d-inline">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}"/>
+      <button type="submit" class="btn btn-link btn-sm p-0">{{ 'Reopen' if comment.resolved_at else 'Resolve' }}</button>
+    </form>
+    {% endif %}
+  </div>
+  {% if comment.can_edit %}
+  <form method="post" action="{{ comments_url }}/{{ comment.id }}/edit"
+        class="mt-2{{ '' if edit_comment_id == comment.id else ' d-none' }}"
+        data-comment-edit-form="edit-{{ comment.id }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}"/>
+    <textarea name="body" rows="3" maxlength="{{ max_length }}"
+              class="form-control{{ ' is-invalid' if error and edit_comment_id == comment.id }}"
+              data-comment-composer data-mention-url="{{ mention_url }}"
+              data-mention-model="{{ mention_model }}">{{ edit_body if edit_comment_id == comment.id else comment.raw_body }}</textarea>
+    {% if error and edit_comment_id == comment.id and error_field == 'body' %}
+    <div class="invalid-feedback">{{ error }}</div>
+    {% endif %}
+    <div class="btn-list mt-2">
+      <button type="submit" class="btn btn-sm btn-primary">Save</button>
+      <button type="button" class="btn btn-sm" data-comment-edit-cancel>Cancel</button>
+    </div>
+  </form>
+  {% endif %}
+  {% if root and can_add and allow_replies and not comment.deleted %}
+  <form method="post" action="{{ comments_url }}"
+        class="mt-2{{ '' if reply_parent == comment.id else ' d-none' }}"
+        data-comment-reply-form="reply-{{ comment.id }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}"/>
+    <input type="hidden" name="parent_id" value="{{ comment.id }}"/>
+    {% if reply_parent == comment.id %}
+    <input type="hidden" name="idempotency_key" value="{{ csrf_token[:24] ~ '-' ~ comment.id }}"/>
+    {% else %}
+    <input type="hidden" name="idempotency_key" value=""/>
+    {% endif %}
+    <textarea name="body" rows="2" maxlength="{{ max_length }}" placeholder="Reply to {{ comment.author_label }}"
+              class="form-control{{ ' is-invalid' if error and reply_parent == comment.id }}"
+              data-comment-composer data-mention-url="{{ mention_url }}"
+              data-mention-model="{{ mention_model }}">{{ body_value if reply_parent == comment.id else '' }}</textarea>
+    {% if error and reply_parent == comment.id %}
+    <div class="invalid-feedback">{{ error }}</div>
+    {% endif %}
+    <div class="btn-list mt-2">
+      <button type="submit" class="btn btn-sm btn-primary">Reply</button>
+      <button type="button" class="btn btn-sm" data-comment-reply-cancel>Cancel</button>
+    </div>
+  </form>
+  {% endif %}
+  {% endif %}
+</div>
+{% endmacro %}
+
+{% macro thread_item(thread, comments_url, csrf_token, can_add=false, allow_replies=false,
+                     edit_comment_id=None, edit_body="", error="", error_field="",
+                     reply_parent=None, body_value="", mention_url="", mention_model="", max_length=10000,
+                     read_only=false) %}
+<div class="comment-thread mb-4" id="thread-{{ thread.root.id }}">
+  {{ comment_item(thread.root, comments_url, csrf_token, can_add, allow_replies, true,
+                  edit_comment_id, edit_body, error, error_field, reply_parent,
+                  mention_url, mention_model, max_length, read_only) }}
+  {% if thread.replies %}
+  <div class="ms-4 ps-3 border-start">
+    {% for reply in thread.replies %}
+      {{ comment_item(reply, comments_url, csrf_token, can_add, false, false,
+                      edit_comment_id, edit_body, error, error_field, none,
+                      mention_url, mention_model, max_length, read_only) }}
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+{% endmacro %}
+
+{% macro card(comments) %}
+<div class="card mb-3">
+  <div class="card-header">
+    <h3 class="card-title">Comments <span class="badge bg-blue-lt ms-1">{{ comments.count }}</span></h3>
+    <div class="card-options">
+      <a href="{{ comments.url }}" class="btn btn-sm">Open comments</a>
+    </div>
+  </div>
+  <div class="card-body">
+    {% if not comments.threads %}
+    <div class="text-secondary">No comments yet.</div>
+    {% endif %}
+    {% for thread in comments.threads %}
+    <div class="mb-3">
+      <div class="d-flex align-items-center gap-2 flex-wrap">
+        <strong>{{ thread.root.author_label }}</strong>
+        {% if thread.root.resolved_at %}<span class="badge bg-green-lt">resolved</span>{% endif %}
+        <span class="ms-auto">{{ time(thread.root) }}</span>
+      </div>
+      <div class="comment-body mt-1">{{ thread.root.body }}</div>
+      {% if thread.replies %}
+      <div class="text-secondary small mt-1">{{ thread.replies | length }} repl{{ 'y' if thread.replies | length == 1 else 'ies' }}</div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endmacro %}

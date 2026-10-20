@@ -7,6 +7,16 @@ Follows [Keep a Changelog](https://keepachangelog.com/), versions follow
 
 ### Added
 
+- **Row comments** (`obox_builder.contrib.comments`): one-level threads with
+  mentions, edit windows, tombstones, resolve/reopen, permission-aware reads,
+  safe plain-text rendering, savepoint writes and `pre_comment`/`post_comment`
+  signals.
+- Admin UI for row comments: standalone thread page, edit-form comments card,
+  list badges, context menu, mention autocomplete at
+  `/admin/comments/mentionable`, CSRF-protected actions and problem pages.
+- `Model.__comments__` declarations, `COMMENTS_*` settings, model checks
+  (`E301`–`E303`, `W301`), idempotency keys, rate limiting and the
+  `CommentService`/`queries` read/write APIs.
 - **Row history** (`obox_builder.contrib.history`): append-only
   `history_row_change` written in the same transaction as the data change;
   `Model.__history__` declarations, `history.track()`, secret redaction,

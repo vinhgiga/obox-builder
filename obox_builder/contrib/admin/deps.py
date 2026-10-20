@@ -9,6 +9,7 @@ from obox_builder.apps import apps
 from obox_builder.db.session import get_db
 
 HISTORY_APP = "obox_builder.contrib.history"
+COMMENTS_APP = "obox_builder.contrib.comments"
 
 
 async def bind_history(request: Request, db: AsyncSession = Depends(get_db)) -> None:

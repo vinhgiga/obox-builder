@@ -60,6 +60,27 @@ class BaseSettings(PydanticBaseSettings):
     #: Track every model registered on the admin site, even without
     #: ``__history__``.
     HISTORY_TRACK_ALL_ADMIN_MODELS: bool = False
+    # -- row comments -------------------------------------------------------
+    #: Master switch for ``__comments__`` models and their UI.
+    COMMENTS_ENABLED: bool = True
+    #: Application cap per comment (the database hard cap is 20,000).
+    COMMENTS_MAX_LENGTH: int = Field(default=10_000, ge=1, le=20_000)
+    #: Maximum number of distinct users mentionable in one comment.
+    COMMENTS_MAX_MENTIONS: int = Field(default=20, ge=1, le=100)
+    #: Authors may edit their own comment within this window; ``None`` is unlimited.
+    COMMENTS_EDIT_WINDOW_SECONDS: int | None = Field(default=None, ge=0)
+    #: Review window before deleted comments are purged (Phase 2).
+    COMMENTS_DELETED_RETENTION_DAYS: int = Field(default=30, ge=0)
+    #: Read notifications are removed after this many days (Phase 2).
+    COMMENTS_NOTIFICATION_RETENTION_DAYS: int = Field(default=90, ge=0)
+    #: Comments per author per minute; ``0`` disables the limiter.
+    COMMENTS_RATE_LIMIT_PER_MINUTE: int = Field(default=20, ge=0)
+    #: Implicit subscription mode after commenting or being mentioned (Phase 2).
+    COMMENTS_AUTO_SUBSCRIBE_MODE: Literal["all", "mentions", "muted"] = "all"
+    #: Include the comment body in outgoing email (Phase 3; privacy default off).
+    COMMENTS_NOTIFY_EMAIL_INCLUDE_BODY: bool = False
+    #: Outbox attempts before a delivery is parked (Phase 3).
+    COMMENTS_OUTBOX_MAX_ATTEMPTS: int = Field(default=8, ge=1)
     LOGGING: dict[str, Any] | None = None
 
     @field_validator("SECRET_KEY")

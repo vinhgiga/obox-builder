@@ -18,7 +18,11 @@ from obox_builder.db import engine as db_engine
 from tests.support import events
 
 SUPPORT_APPS_PREFIX = "tests.support.apps"
-MODEL_APP_MODULES = {"tests.support.apps.shop", "tests.support.apps.warehouse"}
+MODEL_APP_MODULES = {
+    "tests.support.apps.shop",
+    "tests.support.apps.warehouse",
+    "tests.support.apps.commentsdemo",
+}
 
 
 def _purge_support_app_modules() -> None:

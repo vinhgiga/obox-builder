@@ -101,6 +101,9 @@
       '<button type="button" class="dropdown-item d-none" data-context-history>',
       '  <i class="ti ti-history me-2"></i>Row history',
       '</button>',
+      '<button type="button" class="dropdown-item d-none" data-context-comments>',
+      '  <i class="ti ti-message me-2"></i>Comments',
+      '</button>',
       '<button type="button" class="dropdown-item" data-context-copy>',
       '  <i class="ti ti-copy me-2"></i>Copy',
       '</button>',
@@ -113,6 +116,15 @@
       closeContextMenu();
       var row = cell && cell.closest("tr");
       var url = row && row.dataset.historyUrl;
+      if (url) {
+        window.location.href = url;
+      }
+    });
+    menu.querySelector("[data-context-comments]").addEventListener("click", function () {
+      var cell = contextCell;
+      closeContextMenu();
+      var row = cell && cell.closest("tr");
+      var url = row && row.dataset.commentsUrl;
       if (url) {
         window.location.href = url;
       }
@@ -147,6 +159,10 @@
     contextMenu
       .querySelector("[data-context-history]")
       .classList.toggle("d-none", !historyUrl);
+    var commentsUrl = row.dataset.commentsUrl || "";
+    contextMenu
+      .querySelector("[data-context-comments]")
+      .classList.toggle("d-none", !commentsUrl);
     var deletable = Boolean(row.querySelector("form[data-confirm]"));
     contextMenu
       .querySelector("[data-context-delete]")

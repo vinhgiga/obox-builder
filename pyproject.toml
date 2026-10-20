@@ -8,6 +8,7 @@ dependencies = [
     "alembic>=1.20,<2",
     "fastapi>=0.143.3,<0.144",
     "jinja2>=3.1.6,<4",
+    "markupsafe>=3.0,<4",
     "pwdlib[argon2]>=0.3.1,<1",
     "pydantic>=2.14,<3",
     "pydantic-settings>=2.16,<3",
@@ -128,7 +129,7 @@ name = "Layered architecture"
 type = "layers"
 layers = [
     "obox_builder.contrib.admin",
-    "obox_builder.contrib.history",
+    "obox_builder.contrib.history | obox_builder.contrib.comments",
     "obox_builder.contrib.auth",
     "obox_builder.core",
     "obox_builder.http",

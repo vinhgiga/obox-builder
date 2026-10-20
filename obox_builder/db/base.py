@@ -44,6 +44,10 @@ class Model(ModelBase):
     #: out, or a mapping with ``fields``/``exclude``/``relations``/``mask``/
     #: ``retention_days`` (see ``docs/history.md``).
     __history__: ClassVar[bool | Mapping[str, Any] | None] = None
+    #: Row-comments declaration: ``True`` for defaults, ``False``/``None`` to opt
+    #: out, or a mapping with ``max_length``/``allow_replies``/
+    #: ``edit_window_seconds`` (see ``docs/comments.md``).
+    __comments__: ClassVar[bool | Mapping[str, Any] | None] = None
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         if not cls.__dict__.get("__abstract__", False):

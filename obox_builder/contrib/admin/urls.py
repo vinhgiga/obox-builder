@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from fastapi import APIRouter, Depends, Request
 
 from obox_builder.apps import apps
-from obox_builder.contrib.admin.deps import HISTORY_APP, bind_history
+from obox_builder.contrib.admin.deps import COMMENTS_APP, HISTORY_APP, bind_history
 from obox_builder.contrib.admin.views import (
     dashboard,
     history_change_set,
@@ -116,6 +116,15 @@ def build_router(site: AdminSite) -> APIRouter:
             history_change_set_revert,
             methods=["POST"],
             name="admin:history_change_set_revert",
+        )
+    if apps.is_installed(COMMENTS_APP):
+        from obox_builder.contrib.admin.views.comments import mentionable
+
+        router.add_api_route(
+            "/comments/mentionable",
+            mentionable,
+            methods=["GET"],
+            name="admin:comments_mentionable",
         )
     register_model_routes(router, site)
     return router

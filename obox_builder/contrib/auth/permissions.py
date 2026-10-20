@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -142,6 +143,30 @@ async def get_user_permissions(db: AsyncSession, user_id: int) -> frozenset[str]
     )
     rows = (await db.execute(statement)).all()
     return frozenset(f"{app_label}.{codename}" for app_label, codename in rows)
+
+
+async def get_users_permissions(
+    db: AsyncSession, user_ids: Iterable[int]
+) -> dict[int, frozenset[str]]:
+    """Effective permissions for several users in one query.
+
+    Missing ids map to an empty set (inactive or deleted accounts). Superusers
+    still return their stored set; callers must check ``User.is_superuser``.
+    """
+    ids = {int(user_id) for user_id in user_ids}
+    result: dict[int, frozenset[str]] = {user_id: frozenset() for user_id in ids}
+    if not ids:
+        return result
+    statement = (
+        select(user_roles.c.user_id, Permission.app_label, Permission.codename)
+        .join(role_permissions, Permission.id == role_permissions.c.permission_id)
+        .join(user_roles, role_permissions.c.role_id == user_roles.c.role_id)
+        .where(user_roles.c.user_id.in_(ids))
+    )
+    grouped: dict[int, set[str]] = {user_id: set() for user_id in ids}
+    for user_id, app_label, codename in (await db.execute(statement)).all():
+        grouped[int(user_id)].add(f"{app_label}.{codename}")
+    return {user_id: frozenset(values) for user_id, values in grouped.items()}
 
 
 async def sync_permissions_receiver(sender: object, **kwargs: object) -> None:

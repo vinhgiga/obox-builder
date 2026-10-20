@@ -2,6 +2,7 @@
 {% from "admin/macros/forms.html" import csrf %}
 {% from "admin/macros/widgets.html" import widget %}
 {% from "admin/macros/history.html" import entry_item %}
+{% from "admin/macros/comments.html" import card as comment_card %}
 {% block title %}{{ title }}{% endblock %}
 {% block content %}
 <div class="page-header d-print-none">
@@ -40,8 +41,10 @@
       </div>
       {% endif %}
     </div>
-    {% if history %}
+    {% if history or comments %}
     <div class="col-lg-4">
+      {% if comments %}{{ comment_card(comments) }}{% endif %}
+      {% if history %}
       <div class="card">
         <div class="card-header">
           <h3 class="card-title">History <span class="badge bg-blue-lt ms-1">{{ history.count }}</span></h3>
@@ -58,6 +61,7 @@
           {% endfor %}
         </div>
       </div>
+      {% endif %}
     </div>
     {% endif %}
   </div>

@@ -138,6 +138,12 @@ class ModelAdmin:
     def history_path(self, pk: Any) -> str:
         return f"{self.list_path()}/{pk}/history"
 
+    def comments_path(self, pk: Any) -> str:
+        return f"{self.list_path()}/{pk}/comments"
+
+    def comment_action_path(self, pk: Any, comment_id: int, action: str) -> str:
+        return f"{self.comments_path(pk)}/{comment_id}/{action}"
+
     # -- permissions --------------------------------------------------------
     def permission_codename(self, action: str) -> str:
         return f"{action}_{self.model_name}"
@@ -163,6 +169,35 @@ class ModelAdmin:
 
         return self.has_view_permission(ctx, obj) and bool(
             ctx.user.has_perm(HISTORY_VIEW_PERMISSION)
+        )
+
+    def comments_available(self) -> bool:
+        """True when the comments app is installed and this model opts in."""
+        from obox_builder.apps import apps
+        from obox_builder.contrib.comments import APP_NAME
+        from obox_builder.contrib.comments.registry import is_commentable
+
+        return apps.is_installed(APP_NAME) and is_commentable(self.model)
+
+    def has_comment_view_permission(self, ctx: AdminContext, obj: Any = None) -> bool:
+        from obox_builder.contrib.comments import COMMENTS_VIEW_PERMISSION
+
+        return self.has_view_permission(ctx, obj) and bool(
+            ctx.user.has_perm(COMMENTS_VIEW_PERMISSION)
+        )
+
+    def has_comment_add_permission(self, ctx: AdminContext, obj: Any = None) -> bool:
+        from obox_builder.contrib.comments import COMMENTS_ADD_PERMISSION
+
+        return self.has_view_permission(ctx, obj) and bool(
+            ctx.user.has_perm(COMMENTS_ADD_PERMISSION)
+        )
+
+    def has_comment_moderate_permission(self, ctx: AdminContext, obj: Any = None) -> bool:
+        from obox_builder.contrib.comments import COMMENTS_MODERATE_PERMISSION
+
+        return self.has_view_permission(ctx, obj) and bool(
+            ctx.user.has_perm(COMMENTS_MODERATE_PERMISSION)
         )
 
     # -- queryset -----------------------------------------------------------

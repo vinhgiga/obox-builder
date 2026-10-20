@@ -35,6 +35,7 @@ nav:
   - Home: index.md
   - Quick start: quickstart.md
   - Row history: history.md
+  - Row comments: comments.md
   - Testing: testing.md
   - Design decisions:
       - ADR-0001 Row history: adr/0001-row-history.md

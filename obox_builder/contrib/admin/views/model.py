@@ -142,6 +142,11 @@ def _register_one(router: APIRouter, site: AdminSite, admin: ModelAdmin) -> None
             return _not_found(ctx, str(exc))
         return await _delete(ctx, target)
 
+    if admin.comments_available():
+        from obox_builder.contrib.admin.views.comments import register_comment_routes
+
+        register_comment_routes(router, site, admin)
+
     if timeline_available(admin):
         history_perm_dep = Depends(permission_required(HISTORY_VIEW_PERMISSION))
 
@@ -247,12 +252,27 @@ async def _list(
     else:
         edits = [[None] * len(columns) for _ in objects]
     has_history_ui = timeline_available(admin)
+    has_comments_ui = admin.comments_available()
+    comment_counts: dict[str, int] = {}
+    if has_comments_ui:
+        from obox_builder.contrib.comments.queries import counts_for_page
+
+        comment_counts = await counts_for_page(
+            ctx.db,
+            admin.model_label,
+            [str(admin.get_pk(obj)) for obj in objects],
+        )
     rows: list[dict[str, Any]] = []
     for obj, row_edits in zip(objects, edits, strict=True):
         pk = admin.get_pk(obj)
         history_url = (
             admin.history_path(pk)
             if has_history_ui and admin.has_history_permission(ctx, obj)
+            else None
+        )
+        comments_url = (
+            admin.comments_path(pk)
+            if has_comments_ui and admin.has_comment_view_permission(ctx, obj)
             else None
         )
         rows.append(
@@ -262,6 +282,8 @@ async def _list(
                 "cells": [admin.build_cell(spec, obj) for spec in columns],
                 "edits": row_edits,
                 "history_url": history_url,
+                "comments_url": comments_url,
+                "comments_count": comment_counts.get(str(pk), 0) if comments_url else 0,
             }
         )
     pages = max(1, -(-total // query.size))
@@ -420,6 +442,32 @@ async def _render_form(
             mask=diff_mask(admin.model, admin=admin, user=ctx.user),
             revert=_revert_links(ctx, admin, pk),
         )
+    comments: Mapping[str, Any] | None = None
+    if (
+        target is not None
+        and admin.comments_available()
+        and admin.has_comment_view_permission(ctx, target)
+    ):
+        from obox_builder.contrib.comments.policy import CommentPolicy
+        from obox_builder.contrib.comments.queries import latest_threads
+        from obox_builder.contrib.comments.registry import get_options
+        from obox_builder.contrib.comments.targets import CommentTarget
+
+        pk = admin.get_pk(target)
+        comment_target = CommentTarget(
+            admin.model_label, str(pk), _object_label(admin, target)[:255]
+        )
+        policy = CommentPolicy(
+            user=ctx.user,
+            view_permission=admin.permission_name("view"),
+            change_permission=admin.permission_name("change"),
+        )
+        card = await latest_threads(ctx.db, comment_target, policy, get_options(admin.model))
+        comments = {
+            "count": card.count,
+            "threads": card.threads,
+            "url": admin.comments_path(pk),
+        }
     context = await page_context(
         request,
         admin=admin,
@@ -433,6 +481,7 @@ async def _render_form(
         title=f"New {admin.name.lower()}" if is_add else f"Edit {admin.name.lower()}",
         subtitle="" if is_add else _object_label(admin, target),
         history=history,
+        comments=comments,
     )
     return render(request, "admin/model/form.html", context)
 
