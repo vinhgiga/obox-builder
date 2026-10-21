@@ -2,7 +2,7 @@
 name = "obox-builder"
 version = "0.2.1"
 description = "Django-flavoured internal admin framework built on FastAPI"
-readme = "README.md"
+readme = "docs/quickstart.md"
 requires-python = ">=3.11"
 dependencies = [
     "alembic>=1.20,<2",
@@ -43,9 +43,6 @@ dev = [
     "pytest-cov>=7.1,<8",
     "ruff>=0.17.1,<1",
 ]
-docs = [
-    "mkdocs-material>=9.7.7,<10",
-]
 
 [build-system]
 requires = ["hatchling"]
@@ -55,7 +52,7 @@ build-backend = "hatchling.build"
 packages = ["obox_builder"]
 
 [tool.hatch.build.targets.sdist]
-include = ["obox_builder", "tests", "README.md", "CHANGELOG.md"]
+include = ["obox_builder", "tests", "docs/quickstart.md", "CHANGELOG.md", "*plan*.md"]
 
 [tool.ruff]
 line-length = 100
@@ -129,6 +126,7 @@ name = "Layered architecture"
 type = "layers"
 layers = [
     "obox_builder.contrib.admin",
+    "obox_builder.contrib.events",
     "obox_builder.contrib.history | obox_builder.contrib.comments",
     "obox_builder.contrib.auth",
     "obox_builder.core",

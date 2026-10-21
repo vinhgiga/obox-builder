@@ -81,6 +81,17 @@ class BaseSettings(PydanticBaseSettings):
     COMMENTS_NOTIFY_EMAIL_INCLUDE_BODY: bool = False
     #: Outbox attempts before a delivery is parked (Phase 3).
     COMMENTS_OUTBOX_MAX_ATTEMPTS: int = Field(default=8, ge=1)
+    # -- durable events -----------------------------------------------------
+    EVENTS_ENABLED: bool = True
+    EVENTS_EMBEDDED_WORKER: bool = False
+    EVENTS_POLL_INTERVAL: float = Field(default=1.0, gt=0)
+    EVENTS_LEASE_SECONDS: int = Field(default=120, ge=2)
+    EVENTS_SHUTDOWN_TIMEOUT: float = Field(default=30.0, gt=0)
+    EVENTS_MAX_PAYLOAD_BYTES: int = Field(default=262_144, ge=1)
+    EVENTS_MAX_HOPS: int = Field(default=16, ge=1, le=100)
+    EVENTS_BULK_POLICY: Literal["ignore", "warn", "raise"] = "warn"
+    EVENTS_RETRY_BASE_SECONDS: float = Field(default=2.0, gt=0)
+    EVENTS_RETRY_MAX_SECONDS: float = Field(default=3600.0, gt=0)
     LOGGING: dict[str, Any] | None = None
 
     @field_validator("SECRET_KEY")

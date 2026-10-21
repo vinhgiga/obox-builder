@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
+from obox_builder.apps import apps
 from obox_builder.conf import settings
 from obox_builder.core.exceptions import ImproperlyConfigured
 
@@ -42,12 +43,29 @@ def to_sync_url(url: str) -> str:
 def _enable_sqlite_foreign_keys(engine: AsyncEngine) -> None:
     if engine.dialect.name != "sqlite":
         return
+    event_transactions = bool(
+        apps.models_ready
+        and settings.EVENTS_ENABLED
+        and apps.is_installed("obox_builder.contrib.events")
+    )
 
     @event.listens_for(engine.sync_engine, "connect")
     def _set_pragma(dbapi_connection: Any, _record: Any) -> None:
+        # Disable sqlite3's legacy implicit transaction handling. In legacy
+        # mode a SAVEPOINT before the first DML lives outside the outer
+        # transaction and can survive its rollback.
+        if event_transactions:
+            dbapi_connection.isolation_level = None
         cursor = dbapi_connection.cursor()
         cursor.execute("PRAGMA foreign_keys=ON")
         cursor.close()
+
+    if event_transactions:
+
+        @event.listens_for(engine.sync_engine, "begin")
+        def _begin(connection: Any) -> None:
+            immediate = connection.get_execution_options().get("sqlite_begin_immediate", False)
+            connection.exec_driver_sql("BEGIN IMMEDIATE" if immediate else "BEGIN")
 
 
 class _EngineState:

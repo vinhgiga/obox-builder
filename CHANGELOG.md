@@ -7,6 +7,14 @@ Follows [Keep a Changelog](https://keepachangelog.com/), versions follow
 
 ### Added
 
+- **Durable events, Phase 1** (`obox_builder.contrib.events`): transactional
+  outbox, domain publishing, opt-in `Model.__events__` capture using history's
+  privacy rules, code subscriptions, worker leases/fencing, retries and dead
+  letters, attempt history, operator CLI and optional embedded worker.
+- `AppConfig.lifespan()` for async app resources; event-enabled SQLite engines
+  use explicit transactions so released savepoints obey outer rollback.
+- Automated event coverage for capture/privacy, transaction/savepoint isolation,
+  subscriptions, retries, lease fencing, replay, worker lifecycle and operator commands.
 - **Row comments** (`obox_builder.contrib.comments`): one-level threads with
   mentions, edit windows, tombstones, resolve/reopen, permission-aware reads,
   safe plain-text rendering, savepoint writes and `pre_comment`/`post_comment`
@@ -52,6 +60,12 @@ Follows [Keep a Changelog](https://keepachangelog.com/), versions follow
   `benchmark`): at 500-rows-per-commit on SQLite, capture adds ~47 µs/row on
   create and ~117 µs/row on update over a plain ORM row; payloads average
   213 B/entry.
+
+### Removed
+
+- Unverified documentation, README files and generated project READMEs. Keep the
+  quickstart, changelog and implementation plans; package metadata uses the quickstart.
+- MkDocs dependencies, build commands and documentation deployment workflow.
 
 ## [0.2.0] - 2026-10-17
 

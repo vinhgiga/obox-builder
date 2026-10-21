@@ -29,11 +29,3 @@ check: fmt lint test
 # Re-vendor Tabler + Tabler Icons into contrib/admin/static.
 vendor:
     uv run python scripts/vendor_frontend.py
-
-# Serve the documentation site with live reload.
-docs:
-    uv run --group docs mkdocs serve
-
-# Build the documentation site (strict).
-docs-build:
-    uv run --group docs mkdocs build --strict

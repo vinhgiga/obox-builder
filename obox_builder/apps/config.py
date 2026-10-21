@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import re
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from importlib import import_module
 from importlib.util import find_spec
 from pathlib import Path
@@ -146,3 +148,8 @@ class AppConfig:
 
     def ready(self) -> None:
         """Hook called once all app models have been imported."""
+
+    @asynccontextmanager
+    async def lifespan(self) -> AsyncIterator[None]:
+        """Optional async resources, entered at ASGI startup and closed in reverse."""
+        yield

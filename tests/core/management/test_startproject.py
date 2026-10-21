@@ -14,7 +14,6 @@ from typer.testing import CliRunner
 EXPECTED_PROJECT_FILES = [
     "manage.py",
     "pyproject.toml",
-    "README.md",
     ".env.example",
     "config/__init__.py",
     "config/settings.py",
@@ -67,6 +66,7 @@ def test_startproject_creates_expected_tree(
     for relative in EXPECTED_PROJECT_FILES:
         assert (project / relative).is_file(), relative
     assert not list(project.rglob("*-tpl"))
+    assert not list(project.rglob("*.md"))
     _assert_compiles(project)
 
 

@@ -9,11 +9,8 @@ repos:
       - id: check-merge-conflict
       - id: check-toml
       - id: check-yaml
-        # mkdocs.yml uses python/name tags (material emoji); mkdocs validates it.
-        exclude: ^mkdocs\.yml$
       - id: end-of-file-fixer
       - id: trailing-whitespace
-        exclude: ^docs/
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.17.1
     hooks:

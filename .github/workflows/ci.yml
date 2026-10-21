@@ -20,12 +20,11 @@ jobs:
       - uses: astral-sh/setup-uv@v10.3.0
         with:
           enable-cache: true
-      - run: uv sync --all-extras --group docs
+      - run: uv sync --all-extras
       - run: uv run ruff check --output-format=github .
       - run: uv run ruff format --check .
       - run: uv run pyright
       - run: uv run lint-imports
-      - run: uv run mkdocs build --strict
 
   test:
     runs-on: ubuntu-latest

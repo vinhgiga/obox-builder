@@ -48,6 +48,8 @@ class Model(ModelBase):
     #: out, or a mapping with ``max_length``/``allow_replies``/
     #: ``edit_window_seconds`` (see ``docs/comments.md``).
     __comments__: ClassVar[bool | Mapping[str, Any] | None] = None
+    #: Opt-in durable data-change events.
+    __events__: ClassVar[bool | Mapping[str, Any] | None] = None
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         if not cls.__dict__.get("__abstract__", False):

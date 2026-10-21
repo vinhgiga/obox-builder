@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import AsyncIterator, Iterator
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from importlib import import_module
 from typing import Any, cast
 from urllib.parse import quote
@@ -76,10 +76,15 @@ async def permission_denied_handler(request: Request, exc: Exception) -> Respons
 async def lifespan(application: FastAPI) -> AsyncIterator[None]:
     """Build the engine/sessionmaker at startup and dispose on shutdown."""
     from obox_builder import db
+    from obox_builder.apps import apps
 
     application.state.sessionmaker = db.get_sessionmaker()
     try:
-        yield
+        async with AsyncExitStack() as stack:
+            if apps.ready:
+                for config in apps.get_app_configs():
+                    await stack.enter_async_context(config.lifespan())
+            yield
     finally:
         await db.dispose()
 
