@@ -57,7 +57,7 @@ def diff_mask(model: type[Any], *, user: Any, admin: Any = None) -> DiffMask:
     """Build the entry filter for ``user`` viewing ``model`` (admin optional).
 
     With an ``admin`` the visible set is the non-secret form/list specs, so a
-    field hidden from the interface stays hidden in history (Airtable rule).
+    field hidden from the interface stays hidden in history.
     Without one (bespoke pages) every recorded non-secret field is visible.
     Declared relations are an explicit recording opt-in and are always visible.
     """
