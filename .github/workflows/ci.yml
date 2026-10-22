@@ -57,3 +57,17 @@ jobs:
       - run: uv run pytest --cov=obox_builder --cov-report=term-missing
         env:
           OBOX_DATABASE_URL: postgresql+psycopg_async://obox:obox@localhost:5432/obox
+
+  jobs-windows:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.0
+        with:
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+      - run: uv sync --extra sqlite
+      - run: uv run pytest tests/jobs

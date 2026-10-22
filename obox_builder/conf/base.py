@@ -92,6 +92,15 @@ class BaseSettings(PydanticBaseSettings):
     EVENTS_BULK_POLICY: Literal["ignore", "warn", "raise"] = "warn"
     EVENTS_RETRY_BASE_SECONDS: float = Field(default=2.0, gt=0)
     EVENTS_RETRY_MAX_SECONDS: float = Field(default=3600.0, gt=0)
+    # -- process-isolated background jobs ----------------------------------
+    JOBS_ENABLED: bool = True
+    JOBS_POLL_INTERVAL: float = Field(default=1.0, gt=0, allow_inf_nan=False)
+    JOBS_LEASE_SECONDS: int = Field(default=60, ge=3)
+    JOBS_WORKER_HEARTBEAT_SECONDS: float = Field(default=5.0, ge=0.1, allow_inf_nan=False)
+    JOBS_SHUTDOWN_TIMEOUT: float = Field(default=30.0, gt=0, allow_inf_nan=False)
+    JOBS_MAX_PAYLOAD_BYTES: int = Field(default=262_144, ge=1)
+    JOBS_RETRY_BACKOFF: float = Field(default=2.0, gt=0, allow_inf_nan=False)
+    JOBS_RETRY_BACKOFF_MAX: float = Field(default=600.0, gt=0, allow_inf_nan=False)
     LOGGING: dict[str, Any] | None = None
 
     @field_validator("SECRET_KEY")

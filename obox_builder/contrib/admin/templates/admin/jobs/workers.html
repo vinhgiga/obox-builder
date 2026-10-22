@@ -1,0 +1,27 @@
+{% extends "admin/jobs/base.html" %}
+{% from "admin/jobs/macros.html" import timestamp, paging with context %}
+{% block jobs_filters %}
+<form class="jobs-filters" method="get" action="/admin/jobs/workers">
+  <div class="input-icon jobs-search"><span class="input-icon-addon"><i class="ti ti-search"></i></span><input class="form-control" type="search" name="q" value="{{ filters.q }}" placeholder="Search worker name" aria-label="Search worker name" maxlength="155"/></div>
+  <select name="state" class="form-select" aria-label="Worker status"><option value="">All workers</option><option value="online" {{ 'selected' if filters.state == 'online' }}>Online</option><option value="offline" {{ 'selected' if filters.state == 'offline' }}>Offline</option></select>
+  <button class="btn btn-primary" type="submit">Filter</button>{% if filters.q or filters.state %}<a class="btn" href="/admin/jobs/workers">Clear</a>{% endif %}
+</form>
+{% endblock %}
+{% block jobs_content %}
+<div class="jobs-worker-stats">
+  <a class="card jobs-state" href="/admin/jobs/workers"><div class="subheader">All workers</div><div class="jobs-stat">{{ total }}</div><span class="text-secondary small">Registered processes</span></a>
+  <a class="card jobs-state" href="?state=online"><div class="subheader"><span class="jobs-dot text-green"></span>Online</div><div class="jobs-stat">{{ online_count }}</div><span class="text-secondary small">Including idle workers</span></a>
+  <a class="card jobs-state" href="?state=offline"><div class="subheader"><span class="jobs-dot text-secondary"></span>Offline</div><div class="jobs-stat">{{ offline_count }}</div><span class="text-secondary small">Stopped or missing heartbeat</span></a>
+</div>
+<div class="card">
+  <div class="card-header"><h3 class="card-title">Workers</h3><span class="text-secondary small ms-auto">Offline after {{ '%g' | format(offline_seconds) }}s without a heartbeat</span></div>
+  <div class="table-responsive"><table class="table table-vcenter card-table jobs-table">
+    <thead><tr><th>Worker / PID</th><th>Status</th><th>Queues</th><th>Active / Slots</th><th>Succeeded</th><th>Failed</th><th>Last heartbeat</th><th>Started / Stopped</th></tr></thead>
+    <tbody>{% for item in workers %}{% set worker = item.worker %}
+      <tr><td class="jobs-worker-cell"><strong>{{ worker.hostname }}</strong><span class="small text-secondary d-block">PID {{ worker.pid }}{% if perms.jobs.view_task %} · <a href="/admin/jobs/tasks?{{ querystring({}, worker=worker.hostname) }}">View tasks</a>{% endif %}</span></td><td><span class="badge bg-{{ 'green' if item.online else 'secondary' }}-lt jobs-status"><span class="jobs-dot"></span>{{ 'Online' if item.online else 'Offline' }}</span></td><td>{% for queue in worker.queues %}<span class="badge bg-blue-lt me-1">{{ queue }}</span>{% endfor %}</td><td><strong>{{ item.active }}</strong><span class="text-secondary"> / {{ worker.concurrency }}</span></td><td>{{ item.stats.get('SUCCESS', 0) }}</td><td class="{{ 'text-danger' if item.stats.get('FAILURE', 0) }}">{{ item.stats.get('FAILURE', 0) }}</td><td class="jobs-date">{{ timestamp(worker.heartbeat_at) }}</td><td class="jobs-date">{{ timestamp(worker.started_at) }}{% if worker.stopped_at %}<span class="d-block text-secondary small">Stopped {{ worker.stopped_at | format_datetime('%H:%M:%S') }}</span>{% endif %}</td></tr>
+    {% else %}<tr><td colspan="8"><div class="empty"><div class="empty-icon"><i class="ti ti-server"></i></div><p class="empty-title">No workers match these filters</p><p class="empty-subtitle text-secondary">Workers appear here when they start, even before receiving a task.</p></div></td></tr>{% endfor %}</tbody>
+  </table></div>
+  {{ paging(page, pages, filtered, request) }}
+</div>
+<p class="text-secondary small mt-2">Task counts reflect retained jobs. An offline worker may still have an expired task awaiting recovery.</p>
+{% endblock %}

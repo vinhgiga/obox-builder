@@ -24,6 +24,11 @@ async def get_db() -> AsyncIterator[AsyncSession]:
     """FastAPI dependency: one transaction per request (commit on success)."""
     async with get_sessionmaker()() as session:
         try:
+            if session.get_bind().dialect.name == "sqlite":
+                # HTTP views (including session renewal) commonly read before
+                # writing. Reserve the writer up front when explicit SQLite
+                # transactions are enabled, avoiding read-to-write deadlocks.
+                await session.connection(execution_options={"sqlite_begin_immediate": True})
             yield session
             await session.commit()
         except BaseException:

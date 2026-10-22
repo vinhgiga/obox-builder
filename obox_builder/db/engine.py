@@ -43,10 +43,12 @@ def to_sync_url(url: str) -> str:
 def _enable_sqlite_foreign_keys(engine: AsyncEngine) -> None:
     if engine.dialect.name != "sqlite":
         return
-    event_transactions = bool(
+    durable_transactions = bool(
         apps.models_ready
-        and settings.EVENTS_ENABLED
-        and apps.is_installed("obox_builder.contrib.events")
+        and (
+            (settings.EVENTS_ENABLED and apps.is_installed("obox_builder.contrib.events"))
+            or (settings.JOBS_ENABLED and apps.is_installed("obox_builder.contrib.jobs"))
+        )
     )
 
     @event.listens_for(engine.sync_engine, "connect")
@@ -54,13 +56,13 @@ def _enable_sqlite_foreign_keys(engine: AsyncEngine) -> None:
         # Disable sqlite3's legacy implicit transaction handling. In legacy
         # mode a SAVEPOINT before the first DML lives outside the outer
         # transaction and can survive its rollback.
-        if event_transactions:
+        if durable_transactions:
             dbapi_connection.isolation_level = None
         cursor = dbapi_connection.cursor()
         cursor.execute("PRAGMA foreign_keys=ON")
         cursor.close()
 
-    if event_transactions:
+    if durable_transactions:
 
         @event.listens_for(engine.sync_engine, "begin")
         def _begin(connection: Any) -> None:

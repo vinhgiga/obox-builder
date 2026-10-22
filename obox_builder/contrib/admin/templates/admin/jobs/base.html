@@ -1,0 +1,33 @@
+{% extends "admin/base.html" %}
+{% block title %}Background jobs{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="{{ static('admin/css/jobs.css') }}"/>{% endblock %}
+{% block extra_js %}<script src="{{ static('admin/js/jobs.js') }}" defer></script>{% endblock %}
+{% block content %}
+<section class="jobs-monitor" data-jobs-monitor>
+  <div class="page-header jobs-header">
+    <div>
+      <div class="page-pretitle">Operations</div>
+      <h2 class="page-title">Background jobs</h2>
+      <p class="text-secondary mt-1 mb-0">Task execution, queues and worker health.</p>
+    </div>
+    <div class="jobs-refresh">
+      <span class="small text-secondary" data-refresh-status role="status">Updated {{ generated_at | format_datetime('%H:%M:%S') }} UTC</span>
+      <label class="form-check form-switch mb-0">
+        <input class="form-check-input" type="checkbox" data-auto-refresh checked/>
+        <span class="form-check-label">Live · 5s</span>
+      </label>
+      <a href="{{ request.url }}" class="btn btn-icon" data-refresh-now aria-label="Refresh monitor"><i class="ti ti-refresh"></i></a>
+    </div>
+  </div>
+  <nav class="jobs-tabs" aria-label="Background job views">
+    {% if perms.jobs.view_task %}<a class="{{ 'active' if tab == 'tasks' }}" href="/admin/jobs/tasks" {{ 'aria-current=page' if tab == 'tasks' }}><i class="ti ti-list-check"></i>Tasks</a>{% endif %}
+    {% if perms.jobs.view_worker %}<a class="{{ 'active' if tab == 'workers' }}" href="/admin/jobs/workers" {{ 'aria-current=page' if tab == 'workers' }}><i class="ti ti-server"></i>Workers</a>{% endif %}
+  </nav>
+  {% if not jobs_enabled %}<div class="alert alert-warning" role="status">Background jobs are disabled. History remains available.</div>{% endif %}
+  {% block jobs_filters %}{% endblock %}
+  <div id="jobs-content" data-jobs-content data-terminal="{{ 'true' if terminal else 'false' }}">
+    {% block jobs_content %}{% endblock %}
+  </div>
+  <p class="jobs-footnote text-secondary small">Times are shown in UTC. Live updates pause while you inspect or edit this page.</p>
+</section>
+{% endblock %}

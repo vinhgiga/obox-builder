@@ -1,0 +1,18 @@
+{% macro badge(status, states) -%}
+{% set state = states.get(status, (status, 'secondary')) %}
+<span class="badge bg-{{ state[1] }}-lt jobs-status"><span class="jobs-dot"></span>{{ state[0] }}</span>
+{%- endmacro %}
+
+{% macro timestamp(value) -%}
+{% if value %}<time datetime="{{ value.isoformat() }}">{{ value | format_datetime('%d %b %Y, %H:%M:%S') }}</time>{% else %}<span class="text-secondary">—</span>{% endif %}
+{%- endmacro %}
+
+{% macro paging(page, pages, total, request) -%}
+<div class="card-footer d-flex align-items-center justify-content-between gap-2">
+  <span class="text-secondary small">{{ total }} {{ 'worker' if 'workers' in request.url.path else 'task' }}{{ 's' if total != 1 }} · Page {{ page }} of {{ pages }}</span>
+  <div class="btn-list">
+    {% if page > 1 %}<a class="btn btn-sm" href="?{{ querystring(request.query_params, page=page-1) }}">Previous</a>{% endif %}
+    {% if page < pages %}<a class="btn btn-sm" href="?{{ querystring(request.query_params, page=page+1) }}">Next <i class="ti ti-arrow-right ms-1"></i></a>{% endif %}
+  </div>
+</div>
+{%- endmacro %}

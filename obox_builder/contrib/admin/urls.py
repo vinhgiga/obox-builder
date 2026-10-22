@@ -126,5 +126,25 @@ def build_router(site: AdminSite) -> APIRouter:
             methods=["GET"],
             name="admin:comments_mentionable",
         )
+    if apps.is_installed("obox_builder.contrib.jobs"):
+        from obox_builder.contrib.admin.views.jobs import (
+            job_index,
+            task_action,
+            task_detail,
+            task_list,
+            worker_list,
+        )
+
+        router.add_api_route("/jobs", job_index, methods=["GET"], name="admin:jobs")
+        router.add_api_route("/jobs/tasks", task_list, methods=["GET"], name="admin:job_tasks")
+        router.add_api_route(
+            "/jobs/workers", worker_list, methods=["GET"], name="admin:job_workers"
+        )
+        router.add_api_route(
+            "/jobs/tasks/{task_id}", task_detail, methods=["GET"], name="admin:job_task"
+        )
+        router.add_api_route(
+            "/jobs/tasks/{task_id}/{action}", task_action, methods=["POST"], name="admin:job_action"
+        )
     register_model_routes(router, site)
     return router

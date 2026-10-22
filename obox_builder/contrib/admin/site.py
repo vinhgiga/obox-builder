@@ -101,7 +101,31 @@ class AdminSite:
     # -- navigation ---------------------------------------------------------
     def get_nav_groups(self) -> list[NavGroup]:
         """Explicit navigation plus one group per app with registered admins."""
+        from obox_builder.apps import apps
+
         groups = list(self.navigation)
+        if apps.is_installed("obox_builder.contrib.jobs") and not any(
+            item.url == "/admin/jobs/tasks" for group in groups for item in group.items
+        ):
+            groups.append(
+                NavGroup(
+                    label="Background jobs",
+                    items=[
+                        NavItem(
+                            "Tasks",
+                            "/admin/jobs/tasks",
+                            icon="ti-list-check",
+                            required_perm="jobs.view_task",
+                        ),
+                        NavItem(
+                            "Workers",
+                            "/admin/jobs/workers",
+                            icon="ti-server",
+                            required_perm="jobs.view_worker",
+                        ),
+                    ],
+                )
+            )
         registry_items: dict[str, list[NavItem]] = {}
         for admin in self._registry.values():
             group_label = self._app_label_text(admin.app_label)
