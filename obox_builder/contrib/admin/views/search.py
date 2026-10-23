@@ -11,12 +11,12 @@ from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from obox_builder.contrib.admin.context import AdminContext
+from obox_builder.contrib.admin.rendering import render
 from obox_builder.contrib.admin.views.common import current_site, page_context
 from obox_builder.contrib.auth.dependencies import login_required
 from obox_builder.db.search import fold_text
 from obox_builder.db.session import get_db
 from obox_builder.fields import QuerySpec, QuerySpecError
-from obox_builder.templating import render
 
 PER_MODEL = 20
 

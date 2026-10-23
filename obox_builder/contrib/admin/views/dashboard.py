@@ -6,12 +6,12 @@ from fastapi import Depends, Request, Response
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from obox_builder.contrib.admin.rendering import render
 from obox_builder.contrib.admin.views.common import page_context
 from obox_builder.contrib.auth.dependencies import login_required
 from obox_builder.contrib.auth.models import Permission, Role, User
 from obox_builder.contrib.auth.models import Session as AuthSession
 from obox_builder.db.session import get_db
-from obox_builder.http.shortcuts import render
 
 
 async def dashboard(

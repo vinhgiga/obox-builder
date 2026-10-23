@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, defer
 
 from obox_builder.conf import settings
+from obox_builder.contrib.admin.rendering import render
 from obox_builder.contrib.admin.views.common import ensure_csrf, flash, page_context
 from obox_builder.contrib.auth.dependencies import permission_required
 from obox_builder.contrib.auth.models import User
@@ -19,7 +20,7 @@ from obox_builder.contrib.jobs import services
 from obox_builder.contrib.jobs.models import Task, TaskAttempt, Worker
 from obox_builder.core.utils.time import utcnow
 from obox_builder.db.session import get_db
-from obox_builder.http.shortcuts import redirect, render
+from obox_builder.http.shortcuts import redirect
 
 TaskReaders = Annotated[User, Depends(permission_required("jobs.view_task"))]
 WorkerReaders = Annotated[User, Depends(permission_required("jobs.view_worker"))]

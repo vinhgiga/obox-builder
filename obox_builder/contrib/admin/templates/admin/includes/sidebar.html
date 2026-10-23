@@ -1,4 +1,4 @@
-<aside class="navbar navbar-vertical navbar-expand-lg" data-bs-theme="dark">
+<aside id="admin-sidebar-shell"{% if admin_fragment %} hx-swap-oob="outerHTML"{% endif %} class="navbar navbar-vertical navbar-expand-lg" data-bs-theme="dark">
   <div class="container-fluid">
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#admin-sidebar">
       <span class="navbar-toggler-icon"></span>
@@ -15,7 +15,7 @@
           {% for item in group.items %}
             {% set is_active = current_path == item.url or (item.url != '/admin/' and current_path.startswith(item.url)) %}
             <li class="nav-item {{ 'active' if is_active }}">
-              <a class="nav-link" href="{{ item.url }}">
+              <a class="nav-link" href="{{ item.url }}"{% if is_active %} aria-current="page"{% endif %}>
                 <span class="nav-link-icon d-md-none d-lg-inline-block">
                   {% if item.icon %}<i class="ti {{ item.icon }}"></i>{% endif %}
                 </span>

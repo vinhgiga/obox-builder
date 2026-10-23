@@ -1,5 +1,6 @@
-(() => {
+(function initListQuery() {
   "use strict";
+  document.addEventListener("admin:load", initListQuery);
   const form = document.querySelector("#list-query");
   const config = document.querySelector("#list-query-config");
   if (!form || !config) return;

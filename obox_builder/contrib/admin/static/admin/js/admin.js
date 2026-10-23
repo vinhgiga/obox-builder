@@ -3,6 +3,7 @@
 
   var confirmDialog = null;
   var pendingForm = null;
+  var pendingSubmitter = null;
 
   function buildConfirmDialog() {
     var dialog = document.createElement("dialog");
@@ -25,10 +26,11 @@
     });
     dialog.querySelector("[data-confirm-ok]").addEventListener("click", function () {
       var form = pendingForm;
+      var submitter = pendingSubmitter;
       dialog.close();
       if (form) {
         form.dataset.confirmed = "true";
-        form.requestSubmit();
+        form.requestSubmit(submitter || undefined);
       }
     });
     dialog.addEventListener("click", function (event) {
@@ -59,6 +61,7 @@
     if (!(form instanceof HTMLFormElement)) {
       return;
     }
+    form.dispatchEvent(new Event("admin:confirm"));
     var message = form.getAttribute("data-confirm");
     if (!message) {
       return;
@@ -68,8 +71,10 @@
       return;
     }
     event.preventDefault();
+    event.stopImmediatePropagation();
+    pendingSubmitter = event.submitter;
     openConfirmDialog(form, message);
-  });
+  }, true);
 
   var contextMenu = null;
   var contextCell = null;
@@ -117,7 +122,11 @@
       var row = cell && cell.closest("tr");
       var url = row && row.dataset.historyUrl;
       if (url) {
-        window.location.href = url;
+        if (window.htmx) {
+          htmx.ajax("GET", url, {target: "#admin-main", swap: "outerHTML", push: "true"});
+        } else {
+          window.location.href = url;
+        }
       }
     });
     menu.querySelector("[data-context-comments]").addEventListener("click", function () {
@@ -126,7 +135,11 @@
       var row = cell && cell.closest("tr");
       var url = row && row.dataset.commentsUrl;
       if (url) {
-        window.location.href = url;
+        if (window.htmx) {
+          htmx.ajax("GET", url, {target: "#admin-main", swap: "outerHTML", push: "true"});
+        } else {
+          window.location.href = url;
+        }
       }
     });
     menu.querySelector("[data-context-copy]").addEventListener("click", function () {
@@ -231,11 +244,14 @@
   });
 
   var SEARCH_DEBOUNCE_MS = 400;
+  var searchInputs = new WeakSet();
 
   function initDebouncedSearch() {
     document
       .querySelectorAll('form input[name="q"]')
       .forEach(function (input) {
+        if (searchInputs.has(input)) return;
+        searchInputs.add(input);
         var form = input.form;
         if (!form) {
           return;
@@ -252,8 +268,11 @@
               return;
             }
             lastValue = input.value;
-            form.submit();
+            form.requestSubmit();
           }, SEARCH_DEBOUNCE_MS);
+        });
+        input.addEventListener("admin:cancel-search", function () {
+          window.clearTimeout(timer);
         });
         form.addEventListener("submit", function () {
           window.clearTimeout(timer);
@@ -572,7 +591,7 @@
       });
     }
 
-    form.addEventListener("submit", function () {
+    form.addEventListener("admin:confirm", function () {
       var message = "";
       var destructive = false;
       var staged = stagedInlineCount();
@@ -603,9 +622,22 @@
     update();
   }
 
-  initInlineEditors();
-  initBulkActions();
-  initDebouncedSearch();
-  highlightSearchMatches();
-  restoreSearchFocus();
+  function initPage() {
+    if (confirmDialog && !confirmDialog.isConnected) confirmDialog = null;
+    if (contextMenu && !contextMenu.isConnected) contextMenu = null;
+    initInlineEditors();
+    initBulkActions();
+    initDebouncedSearch();
+    highlightSearchMatches();
+    restoreSearchFocus();
+  }
+  document.addEventListener("admin:load", initPage);
+  document.addEventListener("admin:leave", function () {
+    closeContextMenu();
+    if (confirmDialog && confirmDialog.open) confirmDialog.close();
+    document.querySelectorAll('form input[name="q"]').forEach(function (input) {
+      input.dispatchEvent(new Event("admin:cancel-search"));
+    });
+  });
+  initPage();
 })();

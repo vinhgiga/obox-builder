@@ -18,6 +18,7 @@ from obox_builder.conf import settings
 from obox_builder.contrib.admin.context import AdminContext
 from obox_builder.contrib.admin.imports import AdminImportResource
 from obox_builder.contrib.admin.options import ModelAdmin
+from obox_builder.contrib.admin.rendering import render
 from obox_builder.contrib.admin.site import AdminSite
 from obox_builder.contrib.admin.tasks import import_spreadsheet
 from obox_builder.contrib.admin.views.common import ensure_csrf, page_context
@@ -29,7 +30,6 @@ from obox_builder.contrib.jobs.models import Task
 from obox_builder.contrib.jobs.services import retry
 from obox_builder.core.exceptions import ImproperlyConfigured, PermissionDenied
 from obox_builder.db.session import get_db, session_scope
-from obox_builder.templating import render
 from obox_builder.utils.module_loading import import_string
 
 BUSY = {"uploaded", "parsing", "validating", "queued", "committing"}

@@ -25,6 +25,7 @@ class BaseSettings(PydanticBaseSettings):
     SECRET_KEY: SecretStr
     DEBUG: bool = False
     DATABASE_URL: str
+    ADMIN_SMOOTH_NAVIGATION: bool = True
     #: Use ICU Vietnamese ordering for admin text sort/group; None uses the database default.
     ADMIN_TEXT_COLLATION: Literal["vi"] | None = None
     INSTALLED_APPS: list[str] = Field(default_factory=list)

@@ -10,6 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from obox_builder.contrib.admin.rendering import render
 from obox_builder.contrib.admin.views.common import PAGE_SIZE, ensure_csrf, flash, page_context
 from obox_builder.contrib.admin.views.history import (
     before_cursor,
@@ -24,7 +25,7 @@ from obox_builder.contrib.auth.models import Role, User, user_roles
 from obox_builder.contrib.auth.validators import PasswordValidationError
 from obox_builder.contrib.history import HISTORY_VIEW_PERMISSION
 from obox_builder.db.session import get_db
-from obox_builder.http.shortcuts import redirect, render
+from obox_builder.http.shortcuts import redirect
 
 logger = logging.getLogger(__name__)
 

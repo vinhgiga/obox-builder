@@ -6,6 +6,7 @@ from fastapi import Depends, Form, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from obox_builder.conf import settings
+from obox_builder.contrib.admin.rendering import render
 from obox_builder.contrib.admin.views.common import ensure_csrf, page_context
 from obox_builder.contrib.auth import csrf, services, sessions
 from obox_builder.contrib.auth.dependencies import get_auth_session, login_required
@@ -14,7 +15,7 @@ from obox_builder.contrib.auth.models import User
 from obox_builder.contrib.auth.validators import PasswordValidationError
 from obox_builder.db.session import get_db
 from obox_builder.http.messages import add_session_message
-from obox_builder.http.shortcuts import redirect, render
+from obox_builder.http.shortcuts import redirect
 from obox_builder.http.urls import safe_next_url
 
 

@@ -132,3 +132,27 @@ tbody tr.selected > td {
 tbody tr.selected .inline-editor {
   background-color: transparent;
 }
+
+/* Keep the current page visible while the next response is loading. */
+#admin-progress {
+  position: fixed;
+  inset: 0 0 auto;
+  height: 2px;
+  z-index: 1100;
+  background: var(--tblr-primary);
+  opacity: 0;
+  transform: scaleX(0);
+  transform-origin: left;
+}
+#admin-progress.htmx-request {
+  opacity: 1;
+  transform: scaleX(.85);
+  transition: transform 6s ease-out, opacity .15s .12s;
+}
+#admin-main:focus, #admin-main [tabindex="-1"]:focus { outline: none; }
+@media (prefers-reduced-motion: no-preference) {
+  ::view-transition-old(root), ::view-transition-new(root) { animation-duration: .15s; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #admin-progress.htmx-request { transition: none; }
+}

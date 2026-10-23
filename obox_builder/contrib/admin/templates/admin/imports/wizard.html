@@ -1,6 +1,6 @@
 {% extends "admin/base.html" %}
 {% block title %}Import {{ admin.plural_name | lower }}{% endblock %}
-{% block extra_css %}{% if busy %}<meta http-equiv="refresh" content="3"/>{% endif %}{% endblock %}
+{% block extra_css %}{% if busy %}{% if smooth_navigation %}<noscript>{% endif %}<meta http-equiv="refresh" content="3"/>{% if smooth_navigation %}</noscript>{% endif %}{% endif %}{% endblock %}
 {% block content %}
 <div class="page-header mb-3">
   <a href="{{ admin.list_path() }}" class="text-secondary">{{ admin.plural_name }}</a>
@@ -11,7 +11,7 @@
 {% if not session %}
   <p>Upload an XLSX, CSV or TSV file (UTF-8). Maximum {{ max_mb }} MB and {{ max_rows }} rows.</p>
   {% if modes %}
-  <form method="post" enctype="multipart/form-data">
+  <form method="post" enctype="multipart/form-data" hx-encoding="multipart/form-data">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}"/>
     <label class="form-label" for="import-file">Spreadsheet</label>
     <input id="import-file" name="file" type="file" accept=".xlsx,.csv,.tsv" required class="form-control mb-3"/>
@@ -32,7 +32,7 @@
     <input type="hidden" name="revision" value="{{ session.revision }}"/>
     <button class="btn btn-primary" name="action" value="retry">Retry processing</button>
   </form>
-  {% elif busy %}<p role="status">Processing in the background. This page refreshes automatically. You can leave and return to this URL.</p>{% endif %}
+  {% elif busy %}<p role="status" data-import-refresh>Processing in the background. This page refreshes automatically. You can leave and return to this URL.</p>{% endif %}
   {% if session.status == 'setup' %}
   <form method="post">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}"/>
@@ -66,7 +66,7 @@
   <div class="mt-3 d-flex flex-wrap gap-3">
     {% for name in ['insert','update','skip','error'] %}<span>{{ name | capitalize }}: <strong>{{ counts.get(name,0) }}</strong>{% if session.status != 'review' and name != 'error' %} ({{ counts.get(name ~ '_done',0) }} applied){% endif %}</span>{% endfor %}
   </div>
-  {% if counts.get('error',0) %}<a class="btn mt-3" href="{{ admin.import_path() }}/{{ session.id }}/errors">Download errors (CSV)</a>{% endif %}
+  {% if counts.get('error',0) %}<a hx-boost="false" class="btn mt-3" href="{{ admin.import_path() }}/{{ session.id }}/errors">Download errors (CSV)</a>{% endif %}
   {% endif %}
   {% if session.status == 'review' %}
   <form method="post" class="mt-3">

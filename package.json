@@ -1,0 +1,12 @@
+{
+  "name": "obox-builder-ui-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "lint": "node scripts/lint-js.mjs",
+    "test": "node --test tests/browser/navigation.test.mjs"
+  },
+  "devDependencies": {
+    "playwright": "1.62.1"
+  }
+}

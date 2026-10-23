@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from obox_builder.conf import settings
 from obox_builder.contrib.admin.context import AdminContext
 from obox_builder.contrib.admin.options import ModelAdmin
+from obox_builder.contrib.admin.rendering import render
 from obox_builder.contrib.admin.site import AdminSite
 from obox_builder.contrib.admin.views.common import (
     current_site,
@@ -41,7 +42,6 @@ from obox_builder.contrib.comments.service import CommentService
 from obox_builder.contrib.comments.targets import CommentTarget
 from obox_builder.core.exceptions import ImproperlyConfigured, PermissionDenied
 from obox_builder.db.session import get_db
-from obox_builder.templating import build_context, render_template
 
 __all__ = ["register_comment_routes", "mentionable"]
 
@@ -306,11 +306,10 @@ async def render_page(
         mention_model=admin.model_label,
         max_length=_max_length(options),
     )
-    return HTMLResponse(
-        render_template("admin/comments.html", build_context(request, context)),
-        status_code=status_code,
-        headers=headers,
-    )
+    response = render(request, "admin/comments.html", context, status_code=status_code)
+    if headers:
+        response.headers.update(headers)
+    return response
 
 
 async def _set_resolved(
@@ -372,10 +371,7 @@ def _problem(
         "message": message,
         "back_url": back_url,
     }
-    return HTMLResponse(
-        render_template("admin/errors/problem.html", build_context(request, context)),
-        status_code=status_code,
-    )
+    return render(request, "admin/errors/problem.html", context, status_code=status_code)
 
 
 # -- helpers ----------------------------------------------------------------

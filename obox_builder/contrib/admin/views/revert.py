@@ -27,6 +27,7 @@ from sqlalchemy.orm.exc import StaleDataError
 
 from obox_builder.contrib.admin.context import AdminContext
 from obox_builder.contrib.admin.options import ModelAdmin
+from obox_builder.contrib.admin.rendering import render
 from obox_builder.contrib.admin.views.common import ensure_csrf, flash, page_context
 from obox_builder.contrib.history import HISTORY_RESTORE_PERMISSION
 from obox_builder.contrib.history.context import CTX_KEY, from_request
@@ -39,7 +40,6 @@ from obox_builder.contrib.history.service import (
 )
 from obox_builder.fields import FieldSpec
 from obox_builder.forms import BoundForm, build_schema
-from obox_builder.http.shortcuts import render
 
 if TYPE_CHECKING:
     from obox_builder.contrib.admin.views.history import DiffMask

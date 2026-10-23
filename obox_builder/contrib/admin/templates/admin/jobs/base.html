@@ -1,7 +1,7 @@
 {% extends "admin/base.html" %}
 {% block title %}Background jobs{% endblock %}
-{% block extra_css %}<link rel="stylesheet" href="{{ static('admin/css/jobs.css') }}"/>{% endblock %}
-{% block extra_js %}<script src="{{ static('admin/js/jobs.js') }}" defer></script>{% endblock %}
+
+
 {% block content %}
 <section class="jobs-monitor" data-jobs-monitor>
   <div class="page-header jobs-header">
@@ -16,7 +16,7 @@
         <input class="form-check-input" type="checkbox" data-auto-refresh checked/>
         <span class="form-check-label">Live · 5s</span>
       </label>
-      <a href="{{ request.url }}" class="btn btn-icon" data-refresh-now aria-label="Refresh monitor"><i class="ti ti-refresh"></i></a>
+      <a href="{{ request.url }}" class="btn btn-icon" hx-boost="false" data-refresh-now aria-label="Refresh monitor"><i class="ti ti-refresh"></i></a>
     </div>
   </div>
   <nav class="jobs-tabs" aria-label="Background job views">

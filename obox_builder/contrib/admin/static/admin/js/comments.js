@@ -187,7 +187,16 @@
     });
   }
 
-  document.querySelectorAll("[data-comment-composer]").forEach(initComposer);
+  function initPage() {
+    document.querySelectorAll("[data-comment-composer]").forEach(initComposer);
+  }
+  document.addEventListener("admin:load", initPage);
+  document.addEventListener("admin:leave", function () {
+    clearTimeout(debounceTimer);
+    if (requestController) requestController.abort();
+    closeMenu();
+  });
+  initPage();
 
   document.addEventListener("click", function (event) {
     if (menu && !menu.contains(event.target)) {

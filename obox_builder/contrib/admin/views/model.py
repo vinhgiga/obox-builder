@@ -24,6 +24,7 @@ from obox_builder.contrib.admin.context import AdminContext
 from obox_builder.contrib.admin.list_query import group_headers, load_query, view_scope
 from obox_builder.contrib.admin.models import SavedView
 from obox_builder.contrib.admin.options import ModelAdmin
+from obox_builder.contrib.admin.rendering import render
 from obox_builder.contrib.admin.site import AdminSite
 from obox_builder.contrib.admin.views.common import (
     ensure_csrf,
@@ -45,7 +46,6 @@ from obox_builder.contrib.history.service import RowChangeEntry, entry_count
 from obox_builder.db.session import get_db
 from obox_builder.fields import FieldSpec, QuerySpec, QuerySpecError
 from obox_builder.forms import BoundForm, render_values
-from obox_builder.templating import render
 
 logger = logging.getLogger(__name__)
 

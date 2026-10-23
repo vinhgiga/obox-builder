@@ -14,6 +14,7 @@ from fastapi import Depends, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from obox_builder.contrib.admin.context import AdminContext
+from obox_builder.contrib.admin.rendering import render
 from obox_builder.contrib.admin.views.common import page_context
 from obox_builder.contrib.admin.views.history import (
     DiffMask,
@@ -40,7 +41,6 @@ from obox_builder.contrib.history.service import (
     to_entry,
 )
 from obox_builder.db.session import get_db
-from obox_builder.http.shortcuts import render
 
 logger = logging.getLogger("obox.history.audit")
 

@@ -1,4 +1,4 @@
-<header class="navbar navbar-expand-md d-print-none">
+<header id="admin-navbar"{% if admin_fragment %} hx-swap-oob="outerHTML"{% endif %} class="navbar navbar-expand-md d-print-none">
   <div class="container-xl">
     <form method="get" action="/admin/search" class="d-flex gap-2 me-3" role="search">
       <input type="search" name="q" maxlength="200" class="form-control" placeholder="Search all models" aria-label="Search all models"/>
@@ -15,7 +15,7 @@
         </a>
         <div class="dropdown-menu dropdown-menu-end dropdown-menu-arrow">
           <a href="/admin/password_change" class="dropdown-item"><i class="ti ti-key me-2"></i>Change password</a>
-          <form method="post" action="/admin/logout" class="m-0">
+          <form method="post" action="/admin/logout" hx-boost="false" class="m-0">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}"/>
             <button type="submit" class="dropdown-item"><i class="ti ti-logout me-2"></i>Log out</button>
           </form>

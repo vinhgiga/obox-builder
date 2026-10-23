@@ -60,7 +60,11 @@ async def page_context(request: Request, **extra: Any) -> dict[str, Any]:
         "site_name": "obox admin",
         "current_path": request.url.path,
         "csrf_token": csrf_token_for(request),
-        "messages": await get_and_clear_messages(request),
+        "messages": (
+            []
+            if request.headers.get("hx-preloaded") == "true"
+            else await get_and_clear_messages(request)
+        ),
     }
     context.update(extra)
     return context

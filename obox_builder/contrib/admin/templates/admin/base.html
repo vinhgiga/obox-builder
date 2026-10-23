@@ -1,30 +1,57 @@
+{% if not admin_fragment %}
 <!doctype html>
 <html lang="en" data-bs-theme="light">
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
+{% endif %}
   <title>{% block title %}Admin{% endblock %} &middot; {{ site_name }}</title>
+{% if not admin_fragment %}
   <link rel="stylesheet" href="{{ static('admin/vendor/tabler/tabler.min.css') }}"/>
   <link rel="stylesheet" href="{{ static('admin/vendor/tabler-icons/tabler-icons.min.css') }}"/>
   <link rel="stylesheet" href="{{ static('admin/css/tw.css') }}"/>
   <link rel="stylesheet" href="{{ static('admin/css/admin.css') }}"/>
+  <link rel="stylesheet" href="{{ static('admin/css/jobs.css') }}"/>
+  <script src="{{ static('admin/vendor/tabler/tabler.min.js') }}" defer></script>
+  {% if smooth_navigation %}
+  <script src="{{ static('admin/vendor/htmx-4.0.0.min.js') }}" defer></script>
+  <script src="{{ static('admin/vendor/hx-preload-4.0.0.js') }}" defer></script>
+  <script src="{{ static('admin/js/navigation.js') }}" defer></script>
+  {% endif %}
+  {% for script in ['admin', 'list-query', 'comments', 'jobs'] %}
+  <script src="{{ static('admin/js/' ~ script ~ '.js') }}" defer></script>
+  {% endfor %}
+{% endif %}
   {% block extra_css %}{% endblock %}
+{% if not admin_fragment %}
 </head>
-<body class="layout-fluid">
+<body class="layout-fluid"{% if smooth_navigation %}
+      hx-boost:inherited="true" hx-target:inherited="#admin-main"
+      hx-swap:inherited="outerHTML" hx-sync:inherited="body:replace"
+      hx-indicator:inherited="#admin-progress"{% endif %}>
+<div id="admin-progress" aria-hidden="true"></div>
+<div id="admin-network-error" class="alert alert-danger d-none" role="alert">
+  Connection failed. Please try again.
+</div>
 <div class="page">
+{% endif %}
   {% include "admin/includes/sidebar.html" %}
+{% if not admin_fragment %}
   <div class="page-wrapper">
+{% endif %}
     {% include "admin/includes/navbar.html" %}
-    <div class="page-body">
+    <main id="admin-main" class="page-body" tabindex="-1" hx-history-elt>
       <div class="container-xl">
         {% include "admin/includes/flash.html" %}
         {% block content %}{% endblock %}
       </div>
-    </div>
+    </main>
+{% if not admin_fragment %}
   </div>
 </div>
-<script src="{{ static('admin/vendor/tabler/tabler.min.js') }}" defer></script>
-<script src="{{ static('admin/js/admin.js') }}" defer></script>
+{% endif %}
 {% block extra_js %}{% endblock %}
+{% if not admin_fragment %}
 </body>
 </html>
+{% endif %}

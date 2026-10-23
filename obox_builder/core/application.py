@@ -33,7 +33,11 @@ async def not_authenticated_handler(request: Request, exc: Exception) -> Respons
     """HTML clients get a redirect to LOGIN_URL; JSON clients get 401."""
     if _wants_html(request):
         login_url = f"{settings.LOGIN_URL}?next={_next_url(request)}"
-        response: Response = RedirectResponse(login_url, status_code=303)
+        response: Response
+        if request.headers.get("hx-request") == "true":
+            response = Response(status_code=401, headers={"HX-Redirect": login_url})
+        else:
+            response = RedirectResponse(login_url, status_code=303)
     else:
         response = JSONResponse({"detail": str(exc) or "Authentication required."}, status_code=401)
     response.delete_cookie(
