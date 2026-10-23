@@ -29,8 +29,9 @@ class AdminSite:
     re-setups and module reloads are idempotent.
     """
 
-    def __init__(self, name: str = "admin") -> None:
+    def __init__(self, name: str = "admin", *, import_path: str | None = None) -> None:
         self.name = name
+        self.import_path = import_path
         self.navigation: list[NavGroup] = default_navigation()
         self._registry: dict[str, ModelAdmin] = {}
         self._discovered = False
@@ -169,4 +170,4 @@ def model_label_for(model: type[Any]) -> str:
     return f"{app_label}.{camel_to_snake(model.__name__)}"
 
 
-site = AdminSite()
+site = AdminSite(import_path="obox_builder.contrib.admin.site.site")

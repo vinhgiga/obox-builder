@@ -1,0 +1,99 @@
+{% extends "admin/base.html" %}
+{% block title %}Import {{ admin.plural_name | lower }}{% endblock %}
+{% block extra_css %}{% if busy %}<meta http-equiv="refresh" content="3"/>{% endif %}{% endblock %}
+{% block content %}
+<div class="page-header mb-3">
+  <a href="{{ admin.list_path() }}" class="text-secondary">{{ admin.plural_name }}</a>
+  <h2 class="page-title">Import spreadsheet</h2>
+</div>
+{% if error %}<div class="alert alert-danger" role="alert">{{ error }}</div>{% endif %}
+<div class="card mb-3"><div class="card-body">
+{% if not session %}
+  <p>Upload an XLSX, CSV or TSV file (UTF-8). Maximum {{ max_mb }} MB and {{ max_rows }} rows.</p>
+  {% if modes %}
+  <form method="post" enctype="multipart/form-data">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}"/>
+    <label class="form-label" for="import-file">Spreadsheet</label>
+    <input id="import-file" name="file" type="file" accept=".xlsx,.csv,.tsv" required class="form-control mb-3"/>
+    <label class="form-label" for="import-mode">How to import</label>
+    <select id="import-mode" name="mode" class="form-select mb-3">
+      {% for mode in modes %}<option value="{{ mode }}">{{ {'insert':'Add new records', 'upsert':'Add or update by key', 'update-only':'Update matching records only', 'skip-existing':'Add new records; skip existing keys'}[mode] }}</option>{% endfor %}
+    </select>
+    <button class="btn btn-primary">Upload</button>
+  </form>
+  {% else %}<p>No import mode is available with your current permissions and model configuration.</p>{% endif %}
+{% else %}
+  <div class="d-flex justify-content-between"><strong>{{ session.filename }}</strong><span class="badge bg-blue-lt">{{ session.status }}</span></div>
+  <p class="text-secondary mt-2">Mode: {{ session.mode }} · {{ session.total }} rows · {{ session.processed }} processed</p>
+  {% if session.error %}<div class="alert alert-danger">{{ session.error }}</div>{% endif %}
+  {% if task_failed %}
+  <div class="alert alert-danger">Processing stopped. Saved batches are preserved; retry continues from the saved progress.</div>
+  <form method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"/>
+    <input type="hidden" name="revision" value="{{ session.revision }}"/>
+    <button class="btn btn-primary" name="action" value="retry">Retry processing</button>
+  </form>
+  {% elif busy %}<p role="status">Processing in the background. This page refreshes automatically. You can leave and return to this URL.</p>{% endif %}
+  {% if session.status == 'setup' %}
+  <form method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}"/>
+    <input type="hidden" name="revision" value="{{ session.revision }}"/>
+    <label class="form-label" for="import-sheet">Worksheet</label>
+    <select id="import-sheet" name="sheet" class="form-select mb-3">{% for sheet in session.sheets %}<option>{{ sheet }}</option>{% endfor %}</select>
+    <label class="form-label" for="import-header">Header row</label>
+    <input id="import-header" name="header_row" type="number" value="1" min="1" max="100" required class="form-control mb-3"/>
+    <p class="text-secondary">Sample from the first visible worksheet:</p>
+    <div class="table-responsive mb-3"><table class="table table-sm"><tbody>{% for row in session.sample %}<tr><th>{{ loop.index }}</th>{% for value in row %}<td>{{ value if value is not none else '' }}</td>{% endfor %}</tr>{% endfor %}</tbody></table></div>
+    <button class="btn btn-primary" name="action" value="parse">Read worksheet</button>
+  </form>
+  {% endif %}
+  {% if session.status in ['mapping','review'] %}
+  <form method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}"/>
+    <input type="hidden" name="revision" value="{{ session.revision }}"/>
+    <h3>Match columns</h3>
+    <p>Blank mapped cells clear optional fields. Columns you skip keep existing values when updating. Keys must be unique within this file.</p>
+    <p>Generated IDs identify existing records. Leave generated IDs blank for new records.</p>
+    <div class="table-responsive"><table class="table"><thead><tr><th>Spreadsheet column</th><th>Field</th></tr></thead><tbody>
+    {% for header in session.headers %}{% set index = loop.index0 | string %}<tr><td><label for="column-{{ index }}">{{ loop.index }}. {{ header or '(unnamed)' }}</label></td>
+      <td><select id="column-{{ index }}" name="column:{{ index }}" class="form-select"><option value="">Skip column</option>
+      {% for spec in specs %}<option value="{{ spec.name }}" {{ 'selected' if mapping.get(index) == spec.name }}>{{ spec.label }}{{ ' *' if spec.required }}</option>{% endfor %}
+      </select></td></tr>{% endfor %}
+    </tbody></table></div>
+    <button class="btn" name="action" value="map">Validate and preview</button>
+  </form>
+  {% endif %}
+  {% if session.status in ['review','completed','cancelled','failed'] %}
+  <div class="mt-3 d-flex flex-wrap gap-3">
+    {% for name in ['insert','update','skip','error'] %}<span>{{ name | capitalize }}: <strong>{{ counts.get(name,0) }}</strong>{% if session.status != 'review' and name != 'error' %} ({{ counts.get(name ~ '_done',0) }} applied){% endif %}</span>{% endfor %}
+  </div>
+  {% if counts.get('error',0) %}<a class="btn mt-3" href="{{ admin.import_path() }}/{{ session.id }}/errors">Download errors (CSV)</a>{% endif %}
+  {% endif %}
+  {% if session.status == 'review' %}
+  <form method="post" class="mt-3">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}"/><input type="hidden" name="revision" value="{{ session.revision }}"/>
+    <p>Only valid rows will be applied. Rows with errors are skipped. Saved batches remain applied if processing is cancelled.</p>
+    <button class="btn btn-primary" name="action" value="commit">Confirm import</button>
+  </form>
+  {% endif %}
+  {% if session.status not in ['completed','cancelled'] %}
+  <form method="post" class="mt-3"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"/>
+    <input type="hidden" name="revision" value="{{ session.revision }}"/>
+    <button class="btn btn-outline-danger" name="action" value="cancel">Cancel import</button>
+  </form>
+  {% endif %}
+{% endif %}
+</div></div>
+{% if rows %}
+<div class="card"><div class="card-body">
+  <h3>Rows</h3>
+  <p><a href="?errors=1">Errors only</a> · <a href="?">All rows</a></p>
+  <div class="table-responsive"><table class="table table-sm"><thead><tr><th>Source row</th><th>Action</th>{% for header in session.headers %}<th>{{ header }}</th>{% endfor %}<th>Errors</th></tr></thead><tbody>
+  {% for row in rows %}<tr><td>{{ row.number }}</td><td>{{ row.action }}{{ ' (applied)' if row.committed }}</td>
+  {% for value in row.data %}<td>{{ value if value is not none else '' }}</td>{% endfor %}
+  <td>{% for field,messages in row.errors.items() %}{{ field }}: {{ messages | join('; ') }} {% endfor %}</td></tr>{% endfor %}
+  </tbody></table></div>
+  <div class="btn-list">{% if page > 1 %}<a class="btn" href="?page={{ page-1 }}&amp;errors={{ request.query_params.get('errors','') }}">Previous</a>{% endif %}
+  {% if has_next %}<a class="btn" href="?page={{ page+1 }}&amp;errors={{ request.query_params.get('errors','') }}">Next</a>{% endif %}</div>
+</div></div>
+{% endif %}
+{% endblock %}

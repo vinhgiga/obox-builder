@@ -18,8 +18,11 @@
 </form>
 {% endif %}
 <div class="card">
-  {% if can_add or filters or searchable or inline_columns or bulk_actions %}
+  {% if can_add or filters or searchable or inline_columns or bulk_actions or admin.imports_available() %}
   <div class="card-header flex-wrap gap-2 py-2">
+    {% if admin.imports_available() and (admin.permission_name('add') in perms or admin.permission_name('change') in perms) %}
+    <a href="{{ admin.import_path() }}" class="btn">Import spreadsheet</a>
+    {% endif %}
     {% if can_add %}
     <a href="{{ admin.add_path() }}" class="btn btn-primary">New {{ admin.name | lower }}</a>
     {% endif %}

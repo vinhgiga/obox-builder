@@ -70,6 +70,24 @@ class ModelAdmin:
     per_page: ClassVar[int] = DEFAULT_PER_PAGE
     #: URL segment(s) under ``/admin``; defaults to ``<app_label>/<model_name>``.
     base_path: ClassVar[str | None] = None
+    import_enabled: ClassVar[bool] = False
+    import_keys: ClassVar[Sequence[str]] = ()
+
+    def imports_available(self) -> bool:
+        from obox_builder.apps import apps
+        from obox_builder.conf import settings
+
+        return (
+            self.import_enabled
+            and settings.JOBS_ENABLED
+            and all(
+                apps.is_installed(name)
+                for name in ("obox_builder.contrib.imports", "obox_builder.contrib.jobs")
+            )
+        )
+
+    def import_path(self) -> str:
+        return f"{self.list_path()}/import"
 
     def __init__(self, model: type[Any], site: AdminSite | None = None) -> None:
         self._model = model

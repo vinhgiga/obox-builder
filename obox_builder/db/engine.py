@@ -48,6 +48,7 @@ def _enable_sqlite_foreign_keys(engine: AsyncEngine) -> None:
         and (
             (settings.EVENTS_ENABLED and apps.is_installed("obox_builder.contrib.events"))
             or (settings.JOBS_ENABLED and apps.is_installed("obox_builder.contrib.jobs"))
+            or apps.is_installed("obox_builder.contrib.imports")
         )
     )
 

@@ -61,6 +61,10 @@ def _register_one(router: APIRouter, site: AdminSite, admin: ModelAdmin) -> None
     # Paths are relative to the mount point (``/admin``); ModelAdmin.list_path()
     # returns the absolute path used in links and redirects.
     base = f"/{admin.path_prefix}"
+    if admin.imports_available():
+        from obox_builder.contrib.admin.views.imports import register_import_routes
+
+        register_import_routes(router, site, admin)
     name = admin.route_prefix
     view_dep = Depends(permission_required(admin.permission_name("view")))
     add_dep = Depends(permission_required(admin.permission_name("add")))

@@ -101,6 +101,11 @@ class BaseSettings(PydanticBaseSettings):
     JOBS_MAX_PAYLOAD_BYTES: int = Field(default=262_144, ge=1)
     JOBS_RETRY_BACKOFF: float = Field(default=2.0, gt=0, allow_inf_nan=False)
     JOBS_RETRY_BACKOFF_MAX: float = Field(default=600.0, gt=0, allow_inf_nan=False)
+    IMPORT_MAX_FILE_BYTES: int = Field(default=50 * 1024 * 1024, ge=1)
+    IMPORT_MAX_UNPACKED_BYTES: int = Field(default=512 * 1024 * 1024, ge=1)
+    IMPORT_MAX_ROWS: int = Field(default=100_000, ge=1, le=100_000)
+    IMPORT_MAX_COLUMNS: int = Field(default=200, ge=1, le=1000)
+    IMPORT_RETENTION_DAYS: int = Field(default=7, ge=1)
     LOGGING: dict[str, Any] | None = None
 
     @field_validator("SECRET_KEY")

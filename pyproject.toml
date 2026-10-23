@@ -6,9 +6,11 @@ readme = "docs/quickstart.md"
 requires-python = ">=3.11"
 dependencies = [
     "alembic>=1.20,<2",
+    "defusedxml>=0.7.1,<1",
     "fastapi>=0.143.3,<0.144",
     "jinja2>=3.1.6,<4",
     "markupsafe>=3.0,<4",
+    "openpyxl>=3.1.5,<4",
     "pwdlib[argon2]>=0.3.1,<1",
     "pydantic>=2.14,<3",
     "pydantic-settings>=2.16,<3",
@@ -126,6 +128,7 @@ name = "Layered architecture"
 type = "layers"
 layers = [
     "obox_builder.contrib.admin",
+    "obox_builder.contrib.imports",
     "obox_builder.contrib.jobs",
     "obox_builder.contrib.events",
     "obox_builder.contrib.history | obox_builder.contrib.comments",
