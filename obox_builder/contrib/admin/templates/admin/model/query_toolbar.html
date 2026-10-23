@@ -1,0 +1,55 @@
+<div class="card-body border-bottom">
+  <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+    <span class="text-secondary">My views</span>
+    <a href="{{ admin.list_path() }}" class="btn btn-sm{{ ' btn-primary' if not selected_view }}">All records</a>
+    {% for view in saved_views %}
+    <a href="{{ admin.list_path() }}?view={{ view.id }}" class="btn btn-sm{{ ' btn-primary' if selected_view and selected_view.id == view.id }}">{{ view.name }}</a>
+    {% endfor %}
+    {% if selected_view %}
+    <form method="post" action="{{ admin.list_path() }}/views/{{ selected_view.id }}/delete" data-confirm="Delete this saved view?">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}"/>
+      <button class="btn btn-sm btn-outline-danger" type="submit">Delete view</button>
+    </form>
+    {% endif %}
+  </div>
+  <form id="list-query" method="get" action="{{ admin.list_path() }}" class="d-flex flex-column gap-3">
+    {% if selected_view %}<input type="hidden" name="view" value="{{ selected_view.id }}"/>{% endif %}
+    <input type="hidden" name="filter" value="{{ query_state.filter }}"/>
+    <input type="hidden" name="sort" value="{{ query_state.get('sort', '') }}"/>
+    <input type="hidden" name="group" value="{{ query_state.get('group', '') }}"/>
+    <input type="hidden" name="size" value="{{ size }}"/>
+    {% if searchable %}
+    <div class="input-group">
+      <input type="search" name="q" value="{{ q }}" class="form-control" maxlength="200"
+             placeholder="Search {{ admin.plural_name | lower }}" aria-label="Search {{ admin.plural_name | lower }}"/>
+      <button class="btn" type="submit">Search</button>
+    </div>
+    {% endif %}
+    <div class="d-flex flex-wrap gap-3">
+      <details class="flex-fill" data-query-panel="filter">
+        <summary>Filter</summary>
+        <div data-query-filters class="mt-2"></div>
+      </details>
+      <details class="flex-fill" data-query-panel="sort">
+        <summary>Sort ({{ sort_terms | length }})</summary>
+        <div data-query-sort class="mt-2"></div>
+      </details>
+      <details class="flex-fill" data-query-panel="group">
+        <summary>Group ({{ group_terms | length }})</summary>
+        <div data-query-group class="mt-2"></div>
+      </details>
+    </div>
+    <div class="d-flex flex-wrap align-items-center gap-2">
+      <button class="btn btn-primary" type="submit">Apply</button>
+      <a href="{{ admin.list_path() }}" class="btn">Reset</a>
+    </div>
+    <noscript>Enable JavaScript to edit filters, sort order and groups.</noscript>
+  </form>
+  <form method="post" action="{{ admin.list_path() }}/views{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="d-flex flex-wrap gap-2 mt-3" data-save-view>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}"/>
+    <input name="name" value="{{ selected_view.name if selected_view else '' }}" class="form-control w-auto" required maxlength="100" placeholder="View name" aria-label="View name"/>
+    <button type="submit" class="btn">{{ 'Update view' if selected_view else 'Save view' }}</button>
+    {% if selected_view %}<button type="submit" name="save_as" value="new" class="btn">Save as new</button>{% endif %}
+  </form>
+</div>
+<script type="application/json" id="list-query-config">{{ {'fields': query_fields, 'filter': filter_tree, 'sort': sort_terms, 'group': group_terms} | tojson }}</script>

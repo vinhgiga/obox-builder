@@ -15,7 +15,7 @@ from obox_builder.fields.base import (
     RecordContext,
 )
 from obox_builder.fields.introspect import introspect_model
-from obox_builder.fields.query import FilterTerm, QuerySpec, QuerySpecError, SortTerm
+from obox_builder.fields.query import FilterGroup, FilterTerm, QuerySpec, QuerySpecError, SortTerm
 from obox_builder.fields.registry import FieldTypes, field_types
 
 __all__ = [
@@ -26,6 +26,7 @@ __all__ = [
     "FieldSpec",
     "FieldType",
     "FieldTypes",
+    "FilterGroup",
     "FilterTerm",
     "Operator",
     "QuerySpec",

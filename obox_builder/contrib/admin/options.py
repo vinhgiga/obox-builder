@@ -356,7 +356,13 @@ class ModelAdmin:
         result = []
         for name in self.search_fields:
             spec = specs.get(name)
-            if spec is not None and spec.column is not None and "." not in name:
+            if (
+                spec is not None
+                and spec.column is not None
+                and "." not in name
+                and spec.type.searchable
+                and not spec.secret
+            ):
                 result.append(spec)
         return result
 

@@ -196,7 +196,9 @@ class FieldType(ABC):
     def build_search(self, column: ColumnElement[Any], term: str) -> ColumnElement[bool]:
         if not self.searchable:
             raise FieldSearchError(f"{self.name} fields cannot be searched.")
-        return self._like(column, f"%{like_escape(term)}%")
+        from obox_builder.db.search import SearchText, fold_text
+
+        return SearchText(column).like(f"%{like_escape(fold_text(term))}%", escape="\\")
 
 
 def like_escape(value: Any) -> str:

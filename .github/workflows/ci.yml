@@ -20,6 +20,7 @@ jobs:
       - uses: astral-sh/setup-uv@v10.3.0
         with:
           enable-cache: true
+      - run: sudo apt-get update && sudo apt-get install -y libicu-dev pkg-config
       - run: uv sync --all-extras
       - run: uv run ruff check --output-format=github .
       - run: uv run ruff format --check .
@@ -52,6 +53,7 @@ jobs:
         with:
           enable-cache: true
           python-version: ${{ matrix.python-version }}
+      - run: sudo apt-get update && sudo apt-get install -y libicu-dev pkg-config
       - run: uv sync --all-extras
       - run: uv run pytest --cov=obox_builder --cov-report=term-missing
       - run: uv run pytest --cov=obox_builder --cov-report=term-missing

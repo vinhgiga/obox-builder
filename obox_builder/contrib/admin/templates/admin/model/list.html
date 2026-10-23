@@ -18,7 +18,7 @@
 </form>
 {% endif %}
 <div class="card">
-  {% if can_add or filters or searchable or inline_columns or bulk_actions or admin.imports_available() %}
+  {% if can_add or inline_columns or bulk_actions or admin.imports_available() %}
   <div class="card-header flex-wrap gap-2 py-2">
     {% if admin.imports_available() and (admin.permission_name('add') in perms or admin.permission_name('change') in perms) %}
     <a href="{{ admin.import_path() }}" class="btn">Import spreadsheet</a>
@@ -51,41 +51,9 @@
       {% endif %}
     </div>
     {% endif %}
-    {% if filters or searchable %}
-    <form method="get" action="{{ admin.list_path() }}" class="d-flex gap-2 ms-auto">
-      {% for value in request.query_params.getlist('sort') %}
-        <input type="hidden" name="sort" value="{{ value }}"/>
-      {% endfor %}
-      {% for filter in filters %}
-      <select name="f" class="form-select w-auto" onchange="this.form.submit()">
-        <option value="">{{ filter.spec.label }}: all</option>
-        {% for option_value, option_label in filter.options %}
-        <option value="{{ filter.spec.name }}:eq:{{ option_value }}"
-                {{ 'selected' if filter.current == option_value }}>{{ option_label }}</option>
-        {% endfor %}
-      </select>
-      {% endfor %}
-      {% if searchable %}
-      <div class="input-group">
-        <input type="text" name="q" value="{{ q }}" class="form-control"
-               placeholder="Search {{ admin.plural_name | lower }}" autocomplete="off"/>
-        <button type="submit" class="btn btn-icon" aria-label="Search">
-          <svg xmlns="http://www.w3.org/2000/svg" class="icon" width="24" height="24" viewBox="0 0 24 24"
-               stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round">
-            <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
-            <path d="M10 10m-7 0a7 7 0 1 0 14 0a7 7 0 1 0 -14 0"/>
-            <path d="M21 21l-6 -6"/>
-          </svg>
-        </button>
-      </div>
-      {% endif %}
-      {% if filters %}
-      <noscript><button type="submit" class="btn">Apply</button></noscript>
-      {% endif %}
-    </form>
-    {% endif %}
   </div>
   {% endif %}
+  {% include "admin/model/query_toolbar.html" %}
   {% if inline_banner %}
   <div class="alert alert-danger rounded-0 mb-0" role="alert">{{ inline_banner }}</div>
   {% endif %}
@@ -115,7 +83,17 @@
       </thead>
       <tbody>
         {% for row in rows %}
-        <tr{% if row.history_url %} data-history-url="{{ row.history_url }}"{% endif %}{% if row.comments_url %} data-comments-url="{{ row.comments_url }}"{% endif %}>
+        {% for group in row.groups %}
+        <tr data-group-header="{{ group.level }}" class="table-light">
+          <td colspan="{{ columns | length + 2 + (1 if bulk_actions else 0) }}">
+            <button type="button" class="btn btn-sm" data-group-toggle aria-expanded="true">
+              {{ '↳ ' * (group.level - 1) }}{{ group.label }}: {{ group.value }}
+              <span class="badge bg-secondary-lt ms-2">{{ group.count }}</span>
+            </button>
+          </td>
+        </tr>
+        {% endfor %}
+        <tr data-group-row{% if row.history_url %} data-history-url="{{ row.history_url }}"{% endif %}{% if row.comments_url %} data-comments-url="{{ row.comments_url }}"{% endif %}>
           {% if bulk_actions %}
           <td class="w-1">
             <input type="checkbox" name="_selected_action" value="{{ row.pk }}"
@@ -187,4 +165,8 @@
   </div>
 </div>
 {% include "admin/includes/pagination.html" %}
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ static('admin/js/list-query.js') }}" defer></script>
 {% endblock %}

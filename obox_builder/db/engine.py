@@ -59,6 +59,11 @@ def _enable_sqlite_foreign_keys(engine: AsyncEngine) -> None:
         # transaction and can survive its rollback.
         if durable_transactions:
             dbapi_connection.isolation_level = None
+        from obox_builder.db.collation import sqlite_sort_key
+        from obox_builder.db.search import fold_text
+
+        dbapi_connection.create_function("obox_search_text", 1, fold_text, deterministic=True)
+        dbapi_connection.create_function("obox_vi_sort_key", 1, sqlite_sort_key())
         cursor = dbapi_connection.cursor()
         cursor.execute("PRAGMA foreign_keys=ON")
         cursor.close()
@@ -71,6 +76,29 @@ def _enable_sqlite_foreign_keys(engine: AsyncEngine) -> None:
             connection.exec_driver_sql("BEGIN IMMEDIATE" if immediate else "BEGIN")
 
 
+def _check_postgres_collation(engine: AsyncEngine) -> None:
+    if engine.dialect.name != "postgresql" or settings.ADMIN_TEXT_COLLATION != "vi":
+        return
+
+    @event.listens_for(engine.sync_engine, "connect")
+    def _check_collation(dbapi_connection: Any, _record: Any) -> None:
+        cursor = dbapi_connection.cursor()
+        try:
+            cursor.execute(
+                "SELECT collprovider::text, collisdeterministic FROM pg_catalog.pg_collation "
+                "WHERE collnamespace = 'pg_catalog'::regnamespace AND collname = 'vi-x-icu'"
+            )
+            row = cursor.fetchone()
+        finally:
+            cursor.close()
+            dbapi_connection.rollback()
+        if row is None or row[0] != "i" or not row[1]:
+            raise ImproperlyConfigured(
+                'ADMIN_TEXT_COLLATION="vi" requires PostgreSQL with the deterministic '
+                'ICU collation pg_catalog."vi-x-icu". Use a PostgreSQL build with ICU support.'
+            )
+
+
 class _EngineState:
     def __init__(self) -> None:
         self._engine: AsyncEngine | None = None
@@ -81,6 +109,7 @@ class _EngineState:
             url = settings.DATABASE_URL
             self._engine = create_async_engine(url, pool_pre_ping=True)
             _enable_sqlite_foreign_keys(self._engine)
+            _check_postgres_collation(self._engine)
         return self._engine
 
     def sessionmaker(self) -> async_sessionmaker[AsyncSession]:

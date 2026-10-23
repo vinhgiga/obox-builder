@@ -35,6 +35,7 @@ from obox_builder.contrib.admin.views import (
 )
 from obox_builder.contrib.admin.views.history import model_timeline_available
 from obox_builder.contrib.admin.views.model import register_model_routes
+from obox_builder.contrib.admin.views.search import global_search
 from obox_builder.contrib.auth.models import Role, User
 
 if TYPE_CHECKING:
@@ -47,6 +48,7 @@ def build_router(site: AdminSite) -> APIRouter:
 
     router = APIRouter(tags=["admin"], dependencies=[Depends(bind_site), Depends(bind_history)])
 
+    router.add_api_route("/search", global_search, methods=["GET"], name="admin:search")
     router.add_api_route("/", dashboard, methods=["GET"], name="admin:dashboard")
     router.add_api_route("/login", login_view, methods=["GET"], name="admin:login")
     router.add_api_route("/login", login_submit, methods=["POST"], name="admin:login_submit")

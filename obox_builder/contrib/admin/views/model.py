@@ -7,6 +7,7 @@ the OpenAPI schema (M9) can enumerate them.
 
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import Mapping, Sequence
 from typing import Any
@@ -18,7 +19,10 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from obox_builder.conf import settings
 from obox_builder.contrib.admin.context import AdminContext
+from obox_builder.contrib.admin.list_query import group_headers, load_query, view_scope
+from obox_builder.contrib.admin.models import SavedView
 from obox_builder.contrib.admin.options import ModelAdmin
 from obox_builder.contrib.admin.site import AdminSite
 from obox_builder.contrib.admin.views.common import (
@@ -198,6 +202,29 @@ def _register_one(router: APIRouter, site: AdminSite, admin: ModelAdmin) -> None
             name=f"{name}_revert",
         )
 
+    async def view_save(
+        request: Request, user: Any = view_dep, db: AsyncSession = Depends(get_db)
+    ) -> Any:
+        from obox_builder.contrib.admin.views.saved_views import save_view
+
+        ctx = AdminContext(request=request, user=user, db=db, site=site, admin=admin)
+        return await save_view(ctx)
+
+    async def view_delete(
+        request: Request, view_id: int, user: Any = view_dep, db: AsyncSession = Depends(get_db)
+    ) -> Any:
+        from obox_builder.contrib.admin.views.saved_views import delete_view
+
+        ctx = AdminContext(request=request, user=user, db=db, site=site, admin=admin)
+        return await delete_view(ctx, view_id)
+
+    router.add_api_route(f"{base}/views", view_save, methods=["POST"], name=f"{name}_view_save")
+    router.add_api_route(
+        f"{base}/views/{{view_id}}/delete",
+        view_delete,
+        methods=["POST"],
+        name=f"{name}_view_delete",
+    )
     router.add_api_route(base, list_view, methods=["GET"], name=f"{name}_list")
     router.add_api_route(f"{base}/add", add_view, methods=["GET"], name=f"{name}_add")
     router.add_api_route(f"{base}/add", add_submit, methods=["POST"], name=f"{name}_add_submit")
@@ -231,13 +258,20 @@ async def _list(
     request = ctx.request
     specs = {spec.name: spec for spec in admin.get_field_specs()}
     try:
-        query = QuerySpec.parse(request.query_params, specs, default_sort=admin.get_ordering(ctx))
+        query, selected_view = await load_query(ctx)
     except QuerySpecError as exc:
         return _bad_request(ctx, str(exc))
+    except LookupError as exc:
+        return _not_found(ctx, str(exc))
 
     stmt = admin.get_queryset(ctx)
     try:
-        stmt = query.apply(stmt, specs, search_specs=admin.get_search_specs())
+        stmt = query.apply(
+            stmt,
+            specs,
+            search_specs=admin.get_search_specs(),
+            text_collation=settings.ADMIN_TEXT_COLLATION,
+        )
     except QuerySpecError as exc:
         return _bad_request(ctx, str(exc))
 
@@ -249,6 +283,7 @@ async def _list(
     result = await ctx.db.execute(stmt.limit(query.size).offset(offset))
     objects = result.scalars().unique().all()
 
+    headers = await group_headers(ctx, stmt, query, specs, objects)
     columns = admin.get_list_specs()
     can_inline = bool(admin.get_inline_specs()) and admin.has_change_permission(ctx)
     if can_inline:
@@ -267,7 +302,7 @@ async def _list(
             [str(admin.get_pk(obj)) for obj in objects],
         )
     rows: list[dict[str, Any]] = []
-    for obj, row_edits in zip(objects, edits, strict=True):
+    for obj, row_edits, row_headers in zip(objects, edits, headers, strict=True):
         pk = admin.get_pk(obj)
         history_url = (
             admin.history_path(pk)
@@ -281,6 +316,7 @@ async def _list(
         )
         rows.append(
             {
+                "groups": row_headers,
                 "pk": pk,
                 "label": _object_label(admin, obj),
                 "cells": [admin.build_cell(spec, obj) for spec in columns],
@@ -291,7 +327,6 @@ async def _list(
             }
         )
     pages = max(1, -(-total // query.size))
-    filters = _build_filters(request, admin)
     inline_action = f"{admin.list_path()}/inline"
     if request.url.query:
         inline_action = f"{inline_action}?{request.url.query}"
@@ -299,8 +334,35 @@ async def _list(
     bulk_action = f"{admin.list_path()}/actions"
     if request.url.query:
         bulk_action = f"{bulk_action}?{request.url.query}"
+    tree = query.combined_filters()
+    query_state = query.to_params()
+    query_state.pop("f", None)
+    query_state.pop("page", None)
+    query_state["filter"] = json.dumps(tree.to_dict(), ensure_ascii=False)
     context = await page_context(
         request,
+        query_state=query_state,
+        filter_tree=tree.to_dict(),
+        query_fields=[
+            {
+                "name": spec.name,
+                "label": spec.label,
+                "type": spec.type.name,
+                "sortable": spec.type.sortable,
+                "operators": [
+                    {"name": op.name, "label": op.label} for op in spec.type.operators.values()
+                ],
+                "choices": _spec_choices(spec),
+            }
+            for spec in specs.values()
+            if spec.column is not None and not spec.secret
+        ],
+        sort_terms=[{"field": term.field, "descending": term.descending} for term in query.sort],
+        group_terms=[{"field": term.field, "descending": term.descending} for term in query.group],
+        saved_views=(
+            await ctx.db.scalars(view_scope(ctx).order_by(SavedView.name, SavedView.id))
+        ).all(),
+        selected_view=selected_view,
         admin=admin,
         columns=columns,
         rows=rows,
@@ -314,9 +376,8 @@ async def _list(
         displayed_total=min(total, COUNT_CAP),
         searchable=bool(admin.get_search_specs()),
         can_add=admin.has_add_permission(ctx),
-        filters=filters,
-        sort_state=lambda field: _sort_state(request, field),
-        sort_href=lambda field: _sort_href(request, field),
+        sort_state=lambda field: _sort_state(request, field, query),
+        sort_href=lambda field: _sort_href(request, field, query),
         delete_href=lambda pk: admin.delete_path(pk),
         inline_columns=can_inline,
         inline_action=inline_action,
@@ -382,15 +443,17 @@ def _inline_edits(
     return edits
 
 
-def _sort_terms(request: Request) -> list[str]:
+def _sort_terms(request: Request, query: QuerySpec | None = None) -> list[str]:
+    if query is not None:
+        return [f"{'-' if term.descending else ''}{term.field}" for term in query.sort]
     terms: list[str] = []
     for raw in request.query_params.getlist("sort"):
         terms.extend(part.strip() for part in raw.split(",") if part.strip())
     return terms
 
 
-def _sort_state(request: Request, field: str) -> str:
-    for term in _sort_terms(request):
+def _sort_state(request: Request, field: str, query: QuerySpec | None = None) -> str:
+    for term in _sort_terms(request, query):
         if term == field:
             return "asc"
         if term == f"-{field}":
@@ -398,17 +461,26 @@ def _sort_state(request: Request, field: str) -> str:
     return ""
 
 
-def _sort_href(request: Request, field: str) -> str:
-    terms = _sort_terms(request)
-    current = _sort_state(request, field)
+def _sort_href(request: Request, field: str, query: QuerySpec | None = None) -> str:
+    terms = (
+        _sort_terms(request, query)
+        if "sort" in request.query_params or "view" in request.query_params
+        else []
+    )
+    current = _sort_state(request, field, query)
     updated = [term for term in terms if term.lstrip("-") != field]
+    updated = updated[:4]
     if current == "asc":
         updated.append(f"-{field}")
     elif current == "desc":
         updated.append(field)
     else:
         updated.append(f"-{field}")
-    pairs = [(key, value) for key, value in request.query_params.multi_items() if key != "sort"]
+    pairs = [
+        (key, value)
+        for key, value in request.query_params.multi_items()
+        if key not in {"sort", "page"}
+    ]
     if updated:
         pairs.append(("sort", ",".join(updated)))
     return f"{request.url.path}?{urlencode(pairs)}"
@@ -657,14 +729,17 @@ async def _actions(ctx: AdminContext) -> Response:
         return RedirectResponse(destination, status_code=303)
     field_specs = {field.name: field for field in admin.get_field_specs()}
     try:
-        query = QuerySpec.parse(
-            request.query_params, field_specs, default_sort=admin.get_ordering(ctx)
-        )
+        query, _selected = await load_query(ctx)
         stmt = query.apply(
-            admin.get_queryset(ctx), field_specs, search_specs=admin.get_search_specs()
+            admin.get_queryset(ctx),
+            field_specs,
+            search_specs=admin.get_search_specs(),
+            text_collation=settings.ADMIN_TEXT_COLLATION,
         )
     except QuerySpecError as exc:
         return _bad_request(ctx, str(exc))
+    except LookupError as exc:
+        return _not_found(ctx, str(exc))
     if not select_across:
         try:
             pks = [admin.parse_pk(value) for value in selected]
@@ -845,22 +920,3 @@ def _spec_choices(spec: FieldSpec) -> list[tuple[str, str]]:
         if isinstance(result, (list, tuple)):
             return [(str(value), str(label)) for value, label in result]
     return []
-
-
-def _build_filters(request: Request, admin: ModelAdmin) -> list[dict[str, Any]]:
-    filters: list[dict[str, Any]] = []
-    for spec in admin.get_filter_specs():
-        if spec.type.name == "single_select":
-            options = _spec_choices(spec)
-        elif spec.type.name == "checkbox":
-            options = [("true", "Yes"), ("false", "No")]
-        else:
-            continue
-        current = ""
-        for term in request.query_params.getlist("f"):
-            field_name, _, remainder = str(term).partition(":")
-            if field_name == spec.name and ":" in remainder:
-                _op, _, value = remainder.partition(":")
-                current = value
-        filters.append({"spec": spec, "options": options, "current": current})
-    return filters

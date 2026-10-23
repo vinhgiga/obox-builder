@@ -24,6 +24,9 @@ dependencies = [
 postgres = ["psycopg[binary,pool]>=3.3,<4", "asyncpg>=0.32,<1"]
 sqlite = ["aiosqlite>=0.22,<1"]
 tailwind = ["pytailwindcss>=0.4.2,<1"]
+vietnamese = [
+    "pyicu>=2.16,<3",
+]
 
 [project.scripts]
 obox = "obox_builder.core.management:execute_from_command_line"
