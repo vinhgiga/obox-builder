@@ -265,7 +265,7 @@ async def test_readonly_fields_are_visible_without_becoming_writable(
         ],
     )
     response = await client.get(f"{LIST_URL}/{pk}")
-    assert "314159" in response.text
+    assert "314,159" in response.text
     assert "JSON value" in response.text
     assert 'name="price_cents"' not in response.text
     assert (

@@ -8,6 +8,16 @@ from typing import Any
 from obox_builder.fields.base import Cell, FieldSpec, FieldType
 from obox_builder.fields.types.text import EQ, GT, GTE, IN, ISNULL, LT, LTE, NE
 
+
+def _localized_number(value: Any) -> str:
+    from obox_builder.conf import settings
+
+    text = f"{value:,}"
+    if settings.LANGUAGE_CODE == "vi":
+        return text.replace(",", "\0").replace(".", ",").replace("\0", ".")
+    return text
+
+
 NUMBER_OPERATORS = {op.name: op for op in (EQ, NE, GT, GTE, LT, LTE, IN, ISNULL)}
 
 
@@ -36,7 +46,9 @@ class Integer(FieldType):
         return None if value is None else int(value)
 
     def cell(self, value: Any, spec: FieldSpec) -> Cell:
-        return Cell(text="" if value is None else str(value), value=value, kind="number")
+        return Cell(
+            text="" if value is None else _localized_number(value), value=value, kind="number"
+        )
 
 
 class Decimal(FieldType):
@@ -70,4 +82,4 @@ class Decimal(FieldType):
     def cell(self, value: Any, spec: FieldSpec) -> Cell:
         if value is None:
             return Cell(text="", value=value, kind="number")
-        return Cell(text=self.to_input(value, spec), value=value, kind="number")
+        return Cell(text=_localized_number(value), value=value, kind="number")

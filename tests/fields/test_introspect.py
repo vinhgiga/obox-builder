@@ -68,10 +68,11 @@ def test_foreign_key_becomes_link_with_relationship_target() -> None:
     assert spec.label == "Category"
 
 
-def test_json_columns_are_readonly() -> None:
+def test_json_columns_are_editable_with_the_json_widget() -> None:
     meta = specs_for(Product)["meta"]
     assert meta.type.name == "json"
-    assert meta.readonly is True
+    assert meta.type.widget == "json"
+    assert meta.editable is True
 
 
 def test_secret_by_suffix_and_by_info() -> None:

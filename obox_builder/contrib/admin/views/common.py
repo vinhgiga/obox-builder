@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 from fastapi import Request
 
+from obox_builder.conf import settings
 from obox_builder.contrib.admin.navigation import build_navigation
 from obox_builder.contrib.auth.csrf import get_csrf_token, validate_csrf
 from obox_builder.contrib.auth.models import AnonymousUser, User
@@ -58,6 +59,7 @@ async def page_context(request: Request, **extra: Any) -> dict[str, Any]:
     context: dict[str, Any] = {
         "nav_groups": build_navigation(user, admin_site.get_nav_groups()),
         "site_name": "obox admin",
+        "language_code": settings.LANGUAGE_CODE,
         "current_path": request.url.path,
         "csrf_token": csrf_token_for(request),
         "messages": (
@@ -66,5 +68,9 @@ async def page_context(request: Request, **extra: Any) -> dict[str, Any]:
             else await get_and_clear_messages(request)
         ),
     }
+    admin = extra.get("admin")
+    if admin is not None:
+        context["admin_css"] = admin.extra_css
+        context["admin_js"] = admin.extra_js
     context.update(extra)
     return context

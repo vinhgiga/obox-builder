@@ -85,12 +85,7 @@ def introspect_model(
         nullable = bool(column.nullable) if column.nullable is not None else True
         has_default = column.default is not None or column.server_default is not None
         auto_managed = isinstance(getattr(column.server_default, "arg", None), sa.Function)
-        readonly = (
-            bool(info.get("readonly", False))
-            or bool(column.primary_key)
-            or isinstance(field_type, Json)
-            or auto_managed
-        )
+        readonly = bool(info.get("readonly", False)) or bool(column.primary_key) or auto_managed
         required = (
             bool(info.get("required", False)) or (not nullable and not has_default)
         ) and not readonly

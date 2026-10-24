@@ -5,6 +5,7 @@ from typing import Any
 import httpx
 import pytest
 import sqlalchemy as sa
+from obox_builder.contrib.admin import SimpleListFilter, site
 from obox_builder.db.session import session_scope
 
 from tests.admin.conftest import (
@@ -187,7 +188,20 @@ async def test_validation_errors_are_shown_per_field(client: httpx.AsyncClient) 
     assert 'value="abc"' in response.text
 
 
-async def test_readonly_and_secret_fields_cannot_be_injected(client: httpx.AsyncClient) -> None:
+async def test_invalid_json_is_rejected_before_save(client: httpx.AsyncClient) -> None:
+    await make_user("alice", is_superuser=True)
+    token = await login_session(client, "alice")
+    csrf = await csrf_for("alice", token)
+    response = await client.post(ADD_URL, data={"csrf_token": csrf, **product_form(meta="{bad")})
+    assert response.status_code == 200
+    assert "Enter valid JSON." in response.text
+    async with session_scope() as db:
+        assert await db.scalar(sa.select(sa.func.count()).select_from(Product)) == 0
+
+
+async def test_json_is_editable_and_primary_key_injection_is_ignored(
+    client: httpx.AsyncClient,
+) -> None:
     product_id = await make_product("Widget")
     await make_user("alice", is_superuser=True)
     await login_session(client, "alice")
@@ -206,7 +220,7 @@ async def test_readonly_and_secret_fields_cannot_be_injected(client: httpx.Async
     product = await get_product(product_id)
     assert product is not None
     assert product.name == "Renamed"
-    assert product.meta == {}
+    assert product.meta == {"injected": True}
     assert product.id == product_id
 
 
@@ -220,9 +234,85 @@ async def test_change_form_prefills_values_and_link_choices(client: httpx.AsyncC
     assert 'value="Novel"' in response.text
     assert 'value="250"' in response.text
     assert f'<option value="{category_id}" selected>Books</option>' in response.text
-    assert 'name="meta"' not in response.text
+    assert 'name="meta"' in response.text
     assert 'name="id"' not in response.text
     assert 'name="created_at"' not in response.text
+
+
+async def test_save_as_new_creates_a_distinct_record(client: httpx.AsyncClient) -> None:
+    product_id = await make_product("Original")
+    await make_user("alice", is_superuser=True)
+    await login_session(client, "alice")
+    token = await csrf_for("alice")
+    response = await client.post(
+        f"{LIST_URL}/{product_id}",
+        data={"csrf_token": token, **product_form(name="Copy"), "_action": "save_as_new"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    async with session_scope() as db:
+        names = set((await db.scalars(sa.select(Product.name))).all())
+    assert names == {"Original", "Copy"}
+
+
+async def test_custom_simple_list_filter_applies_and_rejects_unknown_values(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tests.support.apps.shop.models import Product
+
+    class ActiveFilter(SimpleListFilter):
+        title = "Active state"
+        parameter_name = "active_state"
+
+        def lookups(self) -> tuple[tuple[str, str], ...]:
+            return (("active", "Active"), ("inactive", "Inactive"))
+
+        def queryset(self, queryset: sa.Select[Any], value: str) -> sa.Select[Any]:
+            return sa.select(Product)
+
+    admin = site.get_model_admin_for(Product)
+    assert admin is not None
+    monkeypatch.setattr(type(admin), "list_filter", (ActiveFilter,))
+    default_queryset = admin.get_queryset
+    monkeypatch.setattr(
+        admin,
+        "get_queryset",
+        lambda ctx: default_queryset(ctx).where(Product.name == "Active result"),
+    )
+    await make_product("Active result", is_active=True)
+    await make_product("Inactive result", is_active=False)
+    await make_user("alice", is_superuser=True)
+    await login_session(client, "alice")
+
+    response = await client.get(f"{LIST_URL}?active_state=active")
+    assert response.status_code == 200
+    assert "Active result" in response.text
+    assert "Inactive result" not in response.text
+    invalid = await client.get(f"{LIST_URL}?active_state=unknown")
+    assert invalid.status_code == 400
+
+
+async def test_relation_search_and_filter_follow_related_visibility(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    category_id = await make_category("Books")
+    other_category_id = await make_category("Games")
+    await make_product("Novel", category_id=category_id)
+    await make_product("Controller", category_id=other_category_id)
+    await make_user("alice", is_superuser=True)
+    await login_session(client, "alice")
+    admin = site.get_model_admin_for(Product)
+    assert admin is not None
+    monkeypatch.setattr(type(admin), "search_fields", ("category__name",))
+    monkeypatch.setattr(type(admin), "list_filter", ("category__name",))
+
+    searched = await client.get(f"{LIST_URL}?q=Books")
+    filtered = await client.get(f"{LIST_URL}?f=category__name:eq:Books")
+    assert searched.status_code == filtered.status_code == 200
+    assert "Novel" in searched.text
+    assert "Controller" not in searched.text
+    assert "Novel" in filtered.text
+    assert "Controller" not in filtered.text
 
 
 async def test_delete_requires_confirmation_then_removes(client: httpx.AsyncClient) -> None:

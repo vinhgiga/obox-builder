@@ -630,7 +630,67 @@
     initDebouncedSearch();
     highlightSearchMatches();
     restoreSearchFocus();
+    initTheme();
+    initPrepopulatedFields();
   }
+
+  function initTheme() {
+    var root = document.documentElement;
+    var theme = "light";
+    try {
+      theme = window.localStorage.getItem("obox-admin-theme") || "light";
+    } catch (_error) {}
+    root.setAttribute("data-bs-theme", theme);
+    document.querySelectorAll("[data-theme-toggle]").forEach(function (button) {
+      button.textContent = theme === "dark" ? "Light mode" : "Dark mode";
+      button.setAttribute("aria-label", theme === "dark" ? "Switch to light theme" : "Switch to dark theme");
+    });
+  }
+
+  function initPrepopulatedFields() {
+    document.querySelectorAll("form[data-prepopulated-fields]").forEach(function (form) {
+      if (form.dataset.prepopulateReady === "true") return;
+      form.dataset.prepopulateReady = "true";
+      var config;
+      try {
+        config = JSON.parse(form.dataset.prepopulatedFields || "{}");
+      } catch (_error) {
+        return;
+      }
+      Object.keys(config).forEach(function (targetName) {
+        var target = form.elements.namedItem(targetName);
+        var sources = config[targetName].map(function (name) {
+          return form.elements.namedItem(name);
+        }).filter(Boolean);
+        if (!target || !sources.length) return;
+        var edited = Boolean(target.value);
+        target.addEventListener("input", function () { edited = true; });
+        target.addEventListener("change", function () { edited = true; });
+        function update() {
+          if (edited) return;
+          var text = sources.map(function (field) { return field.value || ""; }).join(" ");
+          target.value = text.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+            .toLowerCase().replace(/đ/g, "d")
+            .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+        }
+        sources.forEach(function (field) {
+          field.addEventListener("input", update);
+          field.addEventListener("change", update);
+        });
+      });
+    });
+  }
+
+  document.addEventListener("click", function (event) {
+    var button = event.target.closest("[data-theme-toggle]");
+    if (!button) return;
+    var next = document.documentElement.getAttribute("data-bs-theme") === "dark" ? "light" : "dark";
+    try {
+      window.localStorage.setItem("obox-admin-theme", next);
+    } catch (_error) {}
+    document.documentElement.setAttribute("data-bs-theme", next);
+    initTheme();
+  });
   document.addEventListener("admin:load", initPage);
   document.addEventListener("admin:leave", function () {
     closeContextMenu();

@@ -25,6 +25,20 @@
       <button class="btn" type="submit">Search</button>
     </div>
     {% endif %}
+    {% if simple_filters %}
+    <div class="d-flex flex-wrap gap-3">
+      {% for filter in simple_filters %}
+      <label class="form-label">{{ filter.title }}
+        <select name="{{ filter.parameter_name }}" class="form-select">
+          <option value="">All</option>
+          {% for value, label in filter.lookups %}
+          <option value="{{ value }}" {{ 'selected' if filter.value == value }}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      {% endfor %}
+    </div>
+    {% endif %}
     <div class="d-flex flex-wrap gap-3">
       <details class="flex-fill" data-query-panel="filter">
         <summary>Filter</summary>

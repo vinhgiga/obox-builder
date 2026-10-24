@@ -5,6 +5,7 @@ from __future__ import annotations
 from obox_builder.fields.registry import field_types
 from obox_builder.fields.types.boolean import Checkbox
 from obox_builder.fields.types.choice import SingleSelect
+from obox_builder.fields.types.file import File
 from obox_builder.fields.types.json import Json
 from obox_builder.fields.types.number import Decimal, Integer
 from obox_builder.fields.types.relation import Link, MultiLink
@@ -27,6 +28,7 @@ BUILTIN_TYPES: tuple[type, ...] = (
     Link,
     MultiLink,
     Json,
+    File,
 )
 
 for _type in BUILTIN_TYPES:
@@ -39,6 +41,7 @@ __all__ = [
     "DateTime",
     "Decimal",
     "Email",
+    "File",
     "Integer",
     "Json",
     "Link",

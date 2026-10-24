@@ -1,4 +1,4 @@
-{% macro widget(spec, value, errors, choices, readonly, prefix="", autocomplete_url="", html_required=true) %}
+{% macro widget(spec, value, errors, choices, readonly, prefix="", autocomplete_url="", file_url="", html_required=true) %}
 {% set name = prefix ~ spec.name %}
 <div class="mb-3">
   <label class="form-label {{ 'required' if spec.required and not readonly }}" for="id_{{ name }}">{{ spec.label }}</label>
@@ -22,7 +22,11 @@
     </div>
   {% elif spec.type.widget == 'textarea' or spec.type.widget == 'json' %}
     <textarea class="form-control {{ 'is-invalid' if errors }}" name="{{ name }}" id="id_{{ name }}"
-              rows="4" {% if readonly %}disabled{% endif %}>{{ value or '' }}</textarea>
+              rows="{{ 12 if spec.type.widget == 'json' else 4 }}" {% if spec.type.widget == 'json' %}spellcheck="false"{% endif %} {% if readonly %}disabled{% endif %}>{{ value or '' }}</textarea>
+  {% elif spec.type.widget == 'file' %}
+    {% if value and file_url %}<a class="d-block mb-2" href="{{ file_url }}">Current file: {{ value.split('/')[-1] }}</a>{% endif %}
+    <input type="file" name="{{ name }}" id="id_{{ name }}" class="form-control {{ 'is-invalid' if errors }}"
+           accept="{{ spec.type.accept | join(',') }}" {% if readonly %}disabled{% endif %}/>
   {% elif spec.type.widget == 'number' %}
     <input type="number" step="{{ 'any' if spec.type.name == 'decimal' else '1' }}"
            name="{{ name }}" id="id_{{ name }}" value="{{ value or '' }}"

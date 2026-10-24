@@ -15,8 +15,8 @@ from typing import Any
 from urllib.parse import urlencode
 
 import sqlalchemy as sa
-from fastapi import APIRouter, Depends, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -30,6 +30,12 @@ from obox_builder.contrib.admin.options import ModelAdmin
 from obox_builder.contrib.admin.relations import build_cells, relation_choices, validate_relations
 from obox_builder.contrib.admin.rendering import render
 from obox_builder.contrib.admin.site import AdminSite
+from obox_builder.contrib.admin.uploads import (
+    discard_uploads,
+    persist_uploads,
+    resolve_upload,
+    stage_uploads,
+)
 from obox_builder.contrib.admin.views.common import (
     ensure_csrf,
     flash,
@@ -131,6 +137,37 @@ def _register_one(router: APIRouter, site: AdminSite, admin: ModelAdmin) -> None
         except LookupError as exc:
             return _not_found(ctx, str(exc))
         return await _update(ctx, target)
+
+    async def file_view(
+        request: Request,
+        pk: str,
+        field_name: str,
+        user: Any = user_dep,
+        db: AsyncSession = Depends(get_db),
+    ) -> Any:
+        ctx = AdminContext(request=request, user=user, db=db, site=site, admin=admin)
+        try:
+            target = await _get_object(ctx, pk)
+        except LookupError as exc:
+            return _not_found(ctx, str(exc))
+        if not (admin.has_view_permission(ctx, target) or admin.has_change_permission(ctx, target)):
+            admin.check_permission(ctx, "view", target)
+        spec = next(
+            (field for field in admin.get_form_fields(ctx) if field.name == field_name), None
+        )
+        path = (
+            resolve_upload(str(getattr(target, field_name, "")))
+            if spec is not None and spec.type.name == "file"
+            else None
+        )
+        if path is None:
+            return _not_found(ctx, "File not found.")
+        return FileResponse(
+            path,
+            media_type="application/octet-stream",
+            filename=path.name,
+            headers={"X-Content-Type-Options": "nosniff"},
+        )
 
     async def delete_view(
         request: Request, pk: str, user: Any = user_dep, db: AsyncSession = Depends(get_db)
@@ -243,6 +280,9 @@ def _register_one(router: APIRouter, site: AdminSite, admin: ModelAdmin) -> None
     )
     router.add_api_route(f"{base}/{{pk}}", change_view, methods=["GET"], name=f"{name}_change")
     router.add_api_route(
+        f"{base}/{{pk}}/files/{{field_name}}", file_view, methods=["GET"], name=f"{name}_file"
+    )
+    router.add_api_route(
         f"{base}/{{pk}}", change_submit, methods=["POST"], name=f"{name}_change_submit"
     )
     router.add_api_route(
@@ -266,7 +306,7 @@ async def _list(
     admin = _require_admin(ctx)
     admin.check_permission(ctx, "view")
     request = ctx.request
-    specs = {spec.name: spec for spec in admin.get_field_specs()}
+    specs = admin.get_query_specs(ctx)
     try:
         query, selected_view = await load_query(ctx)
     except QuerySpecError as exc:
@@ -279,11 +319,32 @@ async def _list(
         stmt = query.apply(
             stmt,
             specs,
-            search_specs=admin.get_search_specs(),
+            search_specs=admin.get_search_specs(ctx),
             text_collation=settings.ADMIN_TEXT_COLLATION,
         )
     except QuerySpecError as exc:
         return _bad_request(ctx, str(exc))
+
+    simple_filters = []
+    for filter_class in admin.list_filter:
+        if isinstance(filter_class, str):
+            continue
+        filter_instance = filter_class(ctx)
+        lookups = [(str(value), str(label)) for value, label in filter_instance.lookups()]
+        value = request.query_params.get(filter_class.parameter_name, "")
+        if value and value not in {item[0] for item in lookups}:
+            return _bad_request(ctx, f"Invalid {filter_class.parameter_name!r} filter value.")
+        if value:
+            scoped_ids = stmt.with_only_columns(admin.pk_column()).order_by(None)
+            stmt = filter_instance.queryset(stmt, value).where(admin.pk_column().in_(scoped_ids))
+        simple_filters.append(
+            {
+                "title": filter_class.title,
+                "parameter_name": filter_class.parameter_name,
+                "lookups": lookups,
+                "value": value,
+            }
+        )
 
     total = await ctx.db.scalar(
         sa.select(sa.func.count()).select_from(stmt.order_by(None).subquery())
@@ -363,14 +424,14 @@ async def _list(
                 "name": spec.name,
                 "label": spec.label,
                 "type": spec.type.name,
-                "sortable": spec.type.sortable,
+                "sortable": spec.type.sortable and not spec.options.get("relationship_path"),
                 "operators": [
                     {"name": op.name, "label": op.label} for op in spec.type.operators.values()
                 ],
                 "choices": _spec_choices(spec),
             }
             for spec in specs.values()
-            if spec.column is not None and not spec.secret
+            if spec.column is not None and not spec.secret and not spec.options.get("computed")
         ],
         sort_terms=[{"field": term.field, "descending": term.descending} for term in query.sort],
         group_terms=[{"field": term.field, "descending": term.descending} for term in query.group],
@@ -389,7 +450,8 @@ async def _list(
         total=total,
         total_capped=total > COUNT_CAP,
         displayed_total=min(total, COUNT_CAP),
-        searchable=bool(admin.get_search_specs()),
+        searchable=bool(admin.get_search_specs(ctx)),
+        simple_filters=simple_filters,
         can_add=admin.has_add_permission(ctx),
         sort_state=lambda field: _sort_state(request, field, query),
         sort_href=lambda field: _sort_href(request, field, query),
@@ -399,6 +461,8 @@ async def _list(
         inline_banner=banner,
         bulk_actions=bulk_actions,
         bulk_action=bulk_action,
+        admin_css=admin.extra_css,
+        admin_js=admin.extra_js,
     )
     return render(request, "admin/model/list.html", context)
 
@@ -579,6 +643,7 @@ async def _render_form(
         request,
         admin=admin,
         specs=specs,
+        form_layout=admin.get_form_layout(specs),
         values=dict(values or {}),
         errors=dict(errors or {}),
         choices=await _choice_map(ctx, [] if readonly else specs, values),
@@ -587,6 +652,16 @@ async def _render_form(
             + (f"?object={admin.get_pk(target)}" if target is not None else "")
             for spec in specs
             if spec.name in admin.autocomplete_fields
+        },
+        file_urls={
+            spec.name: f"{admin.list_path()}/{admin.get_pk(target)}/files/{spec.name}"
+            for spec in specs
+            if target is not None and spec.type.name == "file" and getattr(target, spec.name, None)
+        },
+        prepopulated_fields={
+            target_name: list(sources)
+            for target_name, sources in admin.prepopulated_fields.items()
+            if target_name in {spec.name for spec in specs}
         },
         readonly_cells=dict(zip((spec.name for spec in specs), cells, strict=not is_add)),
         readonly=readonly,
@@ -599,6 +674,8 @@ async def _render_form(
         subtitle="" if is_add else _object_label(admin, target),
         history=history,
         comments=comments,
+        admin_css=admin.extra_css,
+        admin_js=admin.extra_js,
     )
     return render(request, "admin/model/form.html", context)
 
@@ -610,8 +687,10 @@ async def _create(ctx: AdminContext) -> Response:
     data = await _submitted_data(request)
     await ensure_csrf(request, data.get("csrf_token"))
     specs = admin.get_form_fields(ctx)
+    data, staged_uploads, upload_errors = await stage_uploads(data, specs)
     schema = admin.get_form(ctx)
     bound = BoundForm.bind(specs, schema, data, base=ctx.record_context())
+    bound.errors.update(upload_errors)
     if bound.is_valid:
         await validate_relations(ctx, bound)
     formsets = await load_inlines(ctx, None, data)
@@ -622,6 +701,7 @@ async def _create(ctx: AdminContext) -> Response:
     obj = admin.model()
     ctx.obj = obj
     try:
+        persist_uploads(staged_uploads)
         async with ctx.db.begin_nested():
             bound.apply_to(obj)
             await admin.save_model(ctx, obj, bound, change=False)
@@ -630,26 +710,37 @@ async def _create(ctx: AdminContext) -> Response:
                 await formset.save(obj)
             await ctx.db.flush()
     except IntegrityError as exc:
+        discard_uploads(staged_uploads)
         return await _render_form(
             ctx,
             values=_values_from_data(data, specs),
             errors={"__all__": [_integrity_message(exc)]},
             formsets=formsets,
         )
+    except BaseException:
+        discard_uploads(staged_uploads)
+        raise
     await flash(request, f"{admin.name} {_object_label(admin, obj)!r} was created.")
     return await admin.response_add(ctx, obj)
 
 
 async def _update(ctx: AdminContext, target: Any) -> Response:
     admin = _require_admin(ctx)
-    admin.check_permission(ctx, "change", target)
     request = ctx.request
     data = await _submitted_data(request)
     await ensure_csrf(request, data.get("csrf_token"))
+    if data.get("_action") == "save_as_new":
+        admin.check_permission(ctx, "add")
+        if not (admin.has_view_permission(ctx, target) or admin.has_change_permission(ctx, target)):
+            admin.check_permission(ctx, "view", target)
+        return await _save_as_new(ctx, data, target)
+    admin.check_permission(ctx, "change", target)
     ctx.obj = target
     specs = admin.get_form_fields(ctx)
+    data, staged_uploads, upload_errors = await stage_uploads(data, specs, target)
     schema = admin.get_form(ctx, change=True)
     bound = BoundForm.bind(specs, schema, data, base=ctx.record_context())
+    bound.errors.update(upload_errors)
     if bound.is_valid:
         await validate_relations(ctx, bound)
     formsets = await load_inlines(ctx, target, data)
@@ -662,6 +753,7 @@ async def _update(ctx: AdminContext, target: Any) -> Response:
             formsets=formsets,
         )
     try:
+        persist_uploads(staged_uploads)
         async with ctx.db.begin_nested():
             bound.apply_to(target)
             await admin.save_model(ctx, target, bound, change=True)
@@ -670,6 +762,7 @@ async def _update(ctx: AdminContext, target: Any) -> Response:
                 await formset.save(target)
             await ctx.db.flush()
     except IntegrityError as exc:
+        discard_uploads(staged_uploads)
         await ctx.db.refresh(target)
         return await _render_form(
             ctx,
@@ -678,8 +771,83 @@ async def _update(ctx: AdminContext, target: Any) -> Response:
             errors={"__all__": [_integrity_message(exc)]},
             formsets=formsets,
         )
+    except BaseException:
+        discard_uploads(staged_uploads)
+        raise
     await flash(request, f"{admin.name} {_object_label(admin, target)!r} was updated.")
     return await admin.response_change(ctx, target)
+
+
+async def _save_as_new(ctx: AdminContext, data: dict[str, Any], source: Any) -> Response:
+    """Create a new row from editable submitted values, excluding all primary keys."""
+    admin = _require_admin(ctx)
+    ctx.obj = None
+    specs = admin.get_form_fields(ctx)
+    data = _copy_inline_submission(admin, data)
+    data, staged_uploads, upload_errors = await stage_uploads(data, specs, source)
+    bound = BoundForm.bind(specs, admin.get_form(ctx), data, base=ctx.record_context())
+    bound.errors.update(upload_errors)
+    if bound.is_valid:
+        await validate_relations(ctx, bound)
+    formsets = await load_inlines(ctx, None, data)
+    if not bound.is_valid or not all(formset.is_valid for formset in formsets):
+        return await _render_form(
+            ctx, values=_values_from_data(data, specs), errors=bound.errors, formsets=formsets
+        )
+    obj = admin.model()
+    try:
+        persist_uploads(staged_uploads)
+        async with ctx.db.begin_nested():
+            bound.apply_to(obj)
+            await admin.save_model(ctx, obj, bound, change=False)
+            await admin.save_related(ctx, obj, bound, change=False)
+            for formset in formsets:
+                await formset.save(obj)
+            await ctx.db.flush()
+    except IntegrityError as exc:
+        discard_uploads(staged_uploads)
+        return await _render_form(
+            ctx,
+            values=_values_from_data(data, specs),
+            errors={"__all__": [_integrity_message(exc)]},
+            formsets=formsets,
+        )
+    except BaseException:
+        discard_uploads(staged_uploads)
+        raise
+    await flash(ctx.request, f"{admin.name} was copied into a new record.")
+    return await admin.response_add(ctx, obj)
+
+
+def _copy_inline_submission(admin: ModelAdmin, data: dict[str, Any]) -> dict[str, Any]:
+    copied = dict(data)
+    for index, _inline in enumerate(admin.inlines):
+        prefix = f"inline:{index}:"
+        total_key = f"{prefix}_total"
+        try:
+            total = min(max(int(data.get(total_key, 0)), 0), 1000)
+        except (TypeError, ValueError):
+            continue
+        rows = []
+        for position in range(total):
+            row_prefix = f"{prefix}{position}:"
+            row = {
+                key[len(row_prefix) :]: value
+                for key, value in data.items()
+                if key.startswith(row_prefix)
+            }
+            if row.get("_delete") == "1":
+                continue
+            rows.append({key: value for key, value in row.items() if key not in {"_pk", "_delete"}})
+        for key in tuple(copied):
+            if key.startswith(prefix):
+                copied.pop(key)
+        copied[total_key] = str(len(rows))
+        for position, row in enumerate(rows):
+            for key, value in row.items():
+                copied[f"{prefix}{position}:{key}"] = value
+    copied["_action"] = "save"
+    return copied
 
 
 async def _inline(ctx: AdminContext) -> HTMLResponse | RedirectResponse:
@@ -805,7 +973,7 @@ async def _actions(ctx: AdminContext) -> Response:
         stmt = query.apply(
             admin.get_queryset(ctx),
             field_specs,
-            search_specs=admin.get_search_specs(),
+            search_specs=admin.get_search_specs(ctx),
             text_collation=settings.ADMIN_TEXT_COLLATION,
         )
     except QuerySpecError as exc:
@@ -954,10 +1122,18 @@ def _require_admin(ctx: AdminContext) -> ModelAdmin:
 
 
 async def _submitted_data(request: Request) -> dict[str, Any]:
+    raw_length = request.headers.get("content-length")
+    if raw_length:
+        try:
+            content_length = int(raw_length)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid Content-Length header.") from None
+        if content_length > settings.ADMIN_MAX_UPLOAD_BYTES + 1024 * 1024:
+            raise HTTPException(status_code=413, detail="Admin form request is too large.")
     form = await request.form()
     data: dict[str, Any] = {}
     for key in form:
-        values = [value for value in form.getlist(key) if isinstance(value, str)]
+        values = list(form.getlist(key))
         if key == "csrf_token" and len(values) != 1:
             raise PermissionDenied("CSRF check failed: supply one token.")
         data[key] = values if len(values) > 1 else values[0] if values else ""

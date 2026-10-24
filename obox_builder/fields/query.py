@@ -185,27 +185,43 @@ class QuerySpec:
         if self.filter_group is not None:
             stmt = stmt.where(_condition(self.filter_group, specs))
         if self.q and search_specs:
-            conditions = [
-                spec.type.build_search(spec.column, self.q)
-                for spec in search_specs
-                if spec.column is not None and spec.type.searchable and not spec.secret
-            ]
+            conditions = []
+            for spec in search_specs:
+                if spec.column is None or not spec.type.searchable or spec.secret:
+                    continue
+                mode = spec.options.get("search_mode", "contains")
+                condition: ColumnElement[bool]
+                if mode in {"exact", "startswith"}:
+                    from obox_builder.db.search import SearchText, fold_text
+                    from obox_builder.fields.base import like_escape
+
+                    term = like_escape(fold_text(self.q) or "")
+                    if mode == "startswith":
+                        term += "%"
+                    condition = SearchText(spec.column).like(term, escape="\\")
+                else:
+                    condition = spec.type.build_search(spec.column, self.q)
+                conditions.append(_related_condition(spec, condition))
             if conditions:
                 stmt = stmt.where(or_(*conditions))
-        ordered = self.group + [
-            term for term in self.sort if term.field not in {g.field for g in self.group}
+        ordered_terms = self.group + [
+            sort_term
+            for sort_term in self.sort
+            if sort_term.field not in {group_term.field for group_term in self.group}
         ]
-        if ordered:
+        if ordered_terms:
             stmt = stmt.order_by(None)
-        for term in ordered:
-            column = specs[term.field].column
+        for sort_term in ordered_terms:
+            column = specs[sort_term.field].column
             if column is None:
-                raise QuerySpecError(f"Field {term.field!r} cannot be sorted.")
+                raise QuerySpecError(f"Field {sort_term.field!r} cannot be sorted.")
             if text_collation == "vi" and isinstance(column.type, String):
                 text_column = cast(column, String) if isinstance(column.type, Enum) else column
                 column = VietnameseOrder(text_column)
-            stmt = stmt.order_by((column.desc() if term.descending else column.asc()).nulls_last())
-        names = {term.field for term in ordered}
+            stmt = stmt.order_by(
+                (column.desc() if sort_term.descending else column.asc()).nulls_last()
+            )
+        names = {sort_term.field for sort_term in ordered_terms}
         for spec in specs.values():
             if spec.primary_key and spec.column is not None and spec.name not in names:
                 stmt = stmt.order_by(spec.column.asc())
@@ -223,12 +239,27 @@ def _condition(
         conditions = [_condition(child, specs) for child in node.children]
         return (and_ if node.conjunction == "and" else or_)(*conditions)
     spec = specs.get(node.field)
-    if spec is None or spec.column is None or spec.secret:
+    if spec is None or spec.column is None or spec.secret or spec.options.get("computed"):
         raise QuerySpecError(f"Field {node.field!r} cannot be filtered.")
     try:
-        return spec.type.build_filter(spec.column, node.op, node.value)
+        condition = spec.type.build_filter(spec.column, node.op, node.value)
+        return _related_condition(spec, condition)
     except FieldFilterError as exc:
         raise QuerySpecError(str(exc)) from exc
+
+
+def _related_condition(spec: FieldSpec, condition: ColumnElement[bool]) -> ColumnElement[bool]:
+    path = spec.options.get("relationship_path", ())
+    scopes = spec.options.get("relationship_scopes", ())
+    for relationship, scope in reversed(list(zip(path, scopes, strict=True))):
+        target_pk = relationship.property.mapper.primary_key[0]
+        condition = and_(target_pk.in_(scope), condition)
+        condition = (
+            relationship.any(condition)
+            if relationship.property.uselist
+            else relationship.has(condition)
+        )
+    return condition
 
 
 def _parse_group(
@@ -295,7 +326,7 @@ def _parse_filter(raw: str, specs: Mapping[str, FieldSpec]) -> FilterTerm:
 
 def _filter_spec(name: str, op: str, specs: Mapping[str, FieldSpec]) -> FieldSpec:
     spec = specs.get(name)
-    if spec is None or spec.secret:
+    if spec is None or spec.secret or spec.options.get("computed"):
         raise QuerySpecError(f"Unknown filter field {name!r}.")
     if spec.column is None:
         raise QuerySpecError(f"Field {name!r} cannot be filtered.")
@@ -357,7 +388,12 @@ def _parse_sort(raw: str, specs: Mapping[str, FieldSpec]) -> SortTerm:
     descending = raw.startswith("-")
     field_name = raw[1:] if descending else raw
     spec = specs.get(field_name)
-    if spec is None or spec.secret:
+    if (
+        spec is None
+        or spec.secret
+        or spec.options.get("relationship_path")
+        or (spec.column is None and not spec.options.get("computed"))
+    ):
         raise QuerySpecError(f"Unknown sort field {field_name!r}.")
     if not spec.type.sortable or spec.column is None:
         raise QuerySpecError(f"Field {field_name!r} cannot be sorted.")

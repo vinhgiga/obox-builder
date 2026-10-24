@@ -49,7 +49,7 @@ async def load_query(ctx: AdminContext) -> tuple[QuerySpec, SavedView | None]:
                 if key in {"f", "sort", "group"}
                 else ctx.request.query_params[key]
             )
-    specs = {spec.name: spec for spec in ctx.admin.get_field_specs()}
+    specs = ctx.admin.get_query_specs(ctx)
     query = QuerySpec.parse(
         params, specs, default_sort=ctx.admin.get_ordering(ctx), default_size=ctx.admin.per_page
     )

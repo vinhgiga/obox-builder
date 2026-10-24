@@ -75,7 +75,7 @@ def register_autocomplete_routes(
             raise HTTPException(400, "Invalid autocomplete request.") from exc
         target_admin, target_ctx = related_admin(ctx, spec)
         target_admin.check_permission(target_ctx, "view")
-        search_specs = target_admin.get_search_specs()
+        search_specs = target_admin.get_search_specs(target_ctx)
         if not search_specs:
             raise HTTPException(400, "Configure search_fields on the related admin.")
         query = QuerySpec(q=params.get("q", "")[:200].strip())
@@ -83,7 +83,7 @@ def register_autocomplete_routes(
             stmt = (
                 query.apply(
                     target_admin.get_queryset(target_ctx),
-                    target_admin.spec_map(),
+                    target_admin.get_query_specs(target_ctx),
                     search_specs=search_specs,
                 )
                 .order_by(None)

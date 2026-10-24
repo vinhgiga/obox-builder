@@ -25,6 +25,9 @@ class BaseSettings(PydanticBaseSettings):
     SECRET_KEY: SecretStr
     DEBUG: bool = False
     DATABASE_URL: str
+    LANGUAGE_CODE: Literal["en", "vi"] = "en"
+    MEDIA_ROOT: Path = Path("media")
+    ADMIN_MAX_UPLOAD_BYTES: int = Field(default=10 * 1024 * 1024, ge=1, le=50 * 1024 * 1024)
     ADMIN_SMOOTH_NAVIGATION: bool = True
     #: Use ICU Vietnamese ordering for admin text sort/group; None uses the database default.
     ADMIN_TEXT_COLLATION: Literal["vi"] | None = None

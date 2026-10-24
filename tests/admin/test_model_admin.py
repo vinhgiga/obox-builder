@@ -3,11 +3,13 @@ from __future__ import annotations
 from typing import Any, cast
 
 import pytest
-from obox_builder.contrib.admin import AdminContext, ModelAdmin, site
+import sqlalchemy as sa
+from obox_builder.contrib.admin import AdminContext, ModelAdmin, SimpleListFilter, display, site
 from obox_builder.contrib.admin.options import pk_value
+from obox_builder.fields import QuerySpec
 
 from tests.support.apps.shop.admin import ProductAdmin
-from tests.support.apps.shop.models import Category, Product
+from tests.support.apps.shop.models import Category, Order, Product
 
 pytestmark = pytest.mark.usefixtures("admin_env")
 
@@ -108,6 +110,81 @@ def test_list_specs_follow_list_display() -> None:
     ]
 
 
+def test_computed_display_columns_can_be_sorted_and_rendered() -> None:
+    class ReportAdmin(ModelAdmin):
+        list_display = ("id", "label")
+
+        @display(description="Product label", ordering="name")
+        def label(self, obj: Product) -> str:
+            return f"Product: {obj.name}"
+
+    admin = ReportAdmin(Product, site)
+    column = admin.get_list_specs()[1]
+    product = Product(name="Widget")
+    assert column.column is not None
+    assert column.column.key == "name"
+    assert column.label == "Product label"
+    assert admin.build_cell(column, product).text == "Product: Widget"
+    assert admin.get_query_specs()[column.name].options["computed"] is True
+
+
+def test_fieldsets_keep_field_order_and_inline_rows() -> None:
+    class DetailedAdmin(ModelAdmin):
+        fields = ("name", "price_cents", "meta")
+        fieldsets = (
+            ("Details", {"fields": ("name", ("price_cents", "meta"))}),
+            ("Extra", {"classes": ("collapse",), "fields": ("id",)}),
+        )
+
+    admin = DetailedAdmin(Product, site)
+    fields = admin.get_form_fields(admin_ctx())
+    layout = admin.get_form_layout(fields)
+    assert [[spec.name for spec in row] for row in layout[0]["rows"]] == [
+        ["name"],
+        ["price_cents", "meta"],
+    ]
+    assert layout[1]["classes"] == ("collapse",)
+
+
+def test_related_search_and_filter_fields_are_resolved() -> None:
+    class RelatedAdmin(ModelAdmin):
+        search_fields = ("category__name",)
+        list_filter = ("category__name",)
+
+    admin = RelatedAdmin(Product, site)
+    ctx = admin_ctx("shop.view_category", "shop.view_product")
+    assert admin.get_search_specs(ctx)[0].name == "category__name"
+    assert admin.get_query_specs(ctx)["category__name"].options["relationship_path"]
+    assert not {message.id for message in admin.validate()} & {
+        "obox.admin.E103",
+        "obox.admin.E104",
+    }
+
+
+def test_related_many_to_many_search_uses_exists() -> None:
+    class RelatedAdmin(ModelAdmin):
+        search_fields = ("labels__title",)
+
+    admin = RelatedAdmin(Order, site)
+    ctx = admin_ctx("shop.view_label", "shop.view_order")
+    specs = admin.get_query_specs(ctx)
+    search_specs = admin.get_search_specs(ctx)
+    statement = QuerySpec(q="news").apply(sa.select(Order), specs, search_specs=search_specs)
+    assert search_specs[0].name == "labels__title"
+    assert "EXISTS" in str(statement)
+
+
+def test_custom_list_filter_requires_a_title_and_safe_parameter_name() -> None:
+    class InvalidFilter(SimpleListFilter):
+        parameter_name = "bad-name"
+
+    class FilteredAdmin(ModelAdmin):
+        list_filter = (InvalidFilter,)
+
+    errors = {message.id for message in FilteredAdmin(Product, site).validate()}
+    assert "obox.admin.E104" in errors
+
+
 def test_list_specs_default_to_pk_plus_five_columns() -> None:
     admin = ModelAdmin(Product, site)
     names = [spec.name for spec in admin.get_list_specs()]
@@ -122,7 +199,7 @@ def test_fields_restricts_the_form_and_schema_excludes_readonly() -> None:
     admin = NarrowAdmin(Product, site)
     assert [spec.name for spec in admin.get_form_specs()] == ["name", "price_cents", "meta"]
     schema = admin.get_form_schema("add")
-    assert set(schema.model_fields) == {"name", "price_cents"}
+    assert set(schema.model_fields) == {"name", "price_cents", "meta"}
 
 
 def test_readonly_and_exclude_are_respected() -> None:
@@ -180,7 +257,7 @@ def test_validate_reports_broken_declarations() -> None:
 
 
 def test_validate_flags_unindexed_search_and_unsearchable_type() -> None:
-    class NoSearch(ProductAdmin):
+    class NoSearch(ModelAdmin):
         search_fields = ("meta", "is_active")
 
     class Unindexed(ModelAdmin):

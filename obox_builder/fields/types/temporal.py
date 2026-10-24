@@ -8,6 +8,15 @@ from typing import Any
 from obox_builder.fields.base import Cell, FieldSpec, FieldType
 from obox_builder.fields.types.text import EQ, GT, GTE, IN, ISNULL, LT, LTE, NE
 
+
+def _locale_format(value: dt.date | dt.datetime, pattern: str) -> str:
+    from obox_builder.conf import settings
+
+    if settings.LANGUAGE_CODE == "vi":
+        pattern = pattern.replace("%Y-%m-%d", "%d/%m/%Y")
+    return value.strftime(pattern)
+
+
 TEMPORAL_OPERATORS = {op.name: op for op in (EQ, NE, GT, GTE, LT, LTE, IN, ISNULL)}
 
 
@@ -43,7 +52,7 @@ class Date(FieldType):
         return value.isoformat() if isinstance(value, dt.date) else _as_str(value)
 
     def cell(self, value: Any, spec: FieldSpec) -> Cell:
-        text = value.isoformat() if isinstance(value, dt.date) else ""
+        text = _locale_format(value, "%Y-%m-%d") if isinstance(value, dt.date) else ""
         return Cell(text=text, value=value, kind="date")
 
 
@@ -73,7 +82,7 @@ class DateTime(FieldType):
         return value.isoformat() if isinstance(value, dt.datetime) else _as_str(value)
 
     def cell(self, value: Any, spec: FieldSpec) -> Cell:
-        text = value.strftime("%Y-%m-%d %H:%M") if isinstance(value, dt.datetime) else ""
+        text = _locale_format(value, "%Y-%m-%d %H:%M") if isinstance(value, dt.datetime) else ""
         return Cell(text=text, value=value, kind="datetime")
 
 
