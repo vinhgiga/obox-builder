@@ -74,12 +74,23 @@ async def test_view_only_user_gets_denied_on_mutations(client: httpx.AsyncClient
     assert "Widget" in listing.text
     assert "New product" not in listing.text
     assert (await client.get(ADD_URL, headers={"accept": "text/html"})).status_code == 403
+    detail = await client.get(f"{LIST_URL}/{product_id}", headers={"accept": "text/html"})
+    assert detail.status_code == 200
+    assert "View product" in detail.text
+    assert "Widget" in detail.text
+    assert 'name="_action"' not in detail.text
+    token = await csrf_for("viewer")
     assert (
-        await client.get(f"{LIST_URL}/{product_id}", headers={"accept": "text/html"})
+        await client.post(
+            f"{LIST_URL}/{product_id}", data={"csrf_token": token, **product_form(name="Forged")}
+        )
     ).status_code == 403
     assert (
         await client.get(f"{LIST_URL}/{product_id}/delete", headers={"accept": "text/html"})
     ).status_code == 403
+    product = await get_product(product_id)
+    assert product is not None
+    assert product.name == "Widget"
 
 
 async def test_user_with_crud_permissions_can_manage_products(client: httpx.AsyncClient) -> None:

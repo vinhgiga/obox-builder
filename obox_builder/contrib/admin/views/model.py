@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from typing import Any
 from urllib.parse import urlencode
 
@@ -24,6 +25,7 @@ from obox_builder.contrib.admin.context import AdminContext
 from obox_builder.contrib.admin.list_query import group_headers, load_query, view_scope
 from obox_builder.contrib.admin.models import SavedView
 from obox_builder.contrib.admin.options import ModelAdmin
+from obox_builder.contrib.admin.relations import build_cells, related_objects, validate_relations
 from obox_builder.contrib.admin.rendering import render
 from obox_builder.contrib.admin.site import AdminSite
 from obox_builder.contrib.admin.views.common import (
@@ -40,9 +42,10 @@ from obox_builder.contrib.admin.views.history import (
     timeline_context,
 )
 from obox_builder.contrib.admin.views.revert import OP_PERMISSION, revert_entry
-from obox_builder.contrib.auth.dependencies import permission_required
+from obox_builder.contrib.auth.dependencies import login_required, permission_required
 from obox_builder.contrib.history import HISTORY_RESTORE_PERMISSION, HISTORY_VIEW_PERMISSION
 from obox_builder.contrib.history.service import RowChangeEntry, entry_count
+from obox_builder.core.exceptions import PermissionDenied
 from obox_builder.db.session import get_db
 from obox_builder.fields import FieldSpec, QuerySpec, QuerySpecError
 from obox_builder.forms import BoundForm, render_values
@@ -70,57 +73,53 @@ def _register_one(router: APIRouter, site: AdminSite, admin: ModelAdmin) -> None
 
         register_import_routes(router, site, admin)
     name = admin.route_prefix
-    view_dep = Depends(permission_required(admin.permission_name("view")))
-    add_dep = Depends(permission_required(admin.permission_name("add")))
-    change_dep = Depends(permission_required(admin.permission_name("change")))
-    delete_dep = Depends(permission_required(admin.permission_name("delete")))
+    user_dep = Depends(login_required)
 
     async def list_view(
-        request: Request, user: Any = view_dep, db: AsyncSession = Depends(get_db)
+        request: Request, user: Any = user_dep, db: AsyncSession = Depends(get_db)
     ) -> Any:
         ctx = AdminContext(request=request, user=user, db=db, site=site, admin=admin)
         return await _list(ctx)
 
     async def add_view(
-        request: Request, user: Any = add_dep, db: AsyncSession = Depends(get_db)
+        request: Request, user: Any = user_dep, db: AsyncSession = Depends(get_db)
     ) -> Any:
         ctx = AdminContext(request=request, user=user, db=db, site=site, admin=admin)
+        admin.check_permission(ctx, "add")
         return await _render_form(ctx)
 
     async def add_submit(
-        request: Request, user: Any = add_dep, db: AsyncSession = Depends(get_db)
+        request: Request, user: Any = user_dep, db: AsyncSession = Depends(get_db)
     ) -> Any:
         ctx = AdminContext(request=request, user=user, db=db, site=site, admin=admin)
         return await _create(ctx)
 
     async def inline_submit(
-        request: Request, user: Any = change_dep, db: AsyncSession = Depends(get_db)
+        request: Request, user: Any = user_dep, db: AsyncSession = Depends(get_db)
     ) -> Any:
         ctx = AdminContext(request=request, user=user, db=db, site=site, admin=admin)
         return await _inline(ctx)
 
     async def actions_submit(
-        request: Request, user: Any = view_dep, db: AsyncSession = Depends(get_db)
+        request: Request, user: Any = user_dep, db: AsyncSession = Depends(get_db)
     ) -> Any:
         ctx = AdminContext(request=request, user=user, db=db, site=site, admin=admin)
         return await _actions(ctx)
 
     async def change_view(
-        request: Request, pk: str, user: Any = change_dep, db: AsyncSession = Depends(get_db)
+        request: Request, pk: str, user: Any = user_dep, db: AsyncSession = Depends(get_db)
     ) -> Any:
         ctx = AdminContext(request=request, user=user, db=db, site=site, admin=admin)
         try:
             target = await _get_object(ctx, pk)
         except LookupError as exc:
             return _not_found(ctx, str(exc))
-        readonly = not admin.has_change_permission(ctx, target)
-        specs = admin.get_form_specs()
-        return await _render_form(
-            ctx, target=target, readonly=readonly, values=render_values(target, specs)
-        )
+        if not (admin.has_view_permission(ctx, target) or admin.has_change_permission(ctx, target)):
+            admin.check_permission(ctx, "view", target)
+        return await _render_form(ctx, target=target)
 
     async def change_submit(
-        request: Request, pk: str, user: Any = change_dep, db: AsyncSession = Depends(get_db)
+        request: Request, pk: str, user: Any = user_dep, db: AsyncSession = Depends(get_db)
     ) -> Any:
         ctx = AdminContext(request=request, user=user, db=db, site=site, admin=admin)
         try:
@@ -130,18 +129,19 @@ def _register_one(router: APIRouter, site: AdminSite, admin: ModelAdmin) -> None
         return await _update(ctx, target)
 
     async def delete_view(
-        request: Request, pk: str, user: Any = delete_dep, db: AsyncSession = Depends(get_db)
+        request: Request, pk: str, user: Any = user_dep, db: AsyncSession = Depends(get_db)
     ) -> Any:
         ctx = AdminContext(request=request, user=user, db=db, site=site, admin=admin)
         try:
             target = await _get_object(ctx, pk)
         except LookupError as exc:
             return _not_found(ctx, str(exc))
+        admin.check_permission(ctx, "delete", target)
         context = await page_context(request, admin=admin, target=target, error="")
         return render(request, "admin/model/delete.html", context)
 
     async def delete_submit(
-        request: Request, pk: str, user: Any = delete_dep, db: AsyncSession = Depends(get_db)
+        request: Request, pk: str, user: Any = user_dep, db: AsyncSession = Depends(get_db)
     ) -> Any:
         ctx = AdminContext(request=request, user=user, db=db, site=site, admin=admin)
         try:
@@ -161,7 +161,7 @@ def _register_one(router: APIRouter, site: AdminSite, admin: ModelAdmin) -> None
         async def history_view(
             request: Request,
             pk: str,
-            user: Any = view_dep,
+            user: Any = user_dep,
             _history_perm: Any = history_perm_dep,
             db: AsyncSession = Depends(get_db),
         ) -> Any:
@@ -171,6 +171,12 @@ def _register_one(router: APIRouter, site: AdminSite, admin: ModelAdmin) -> None
             except LookupError as exc:
                 return _not_found(ctx, str(exc))
             target = await db.get(admin.model, pk_value)
+            if target is not None:
+                try:
+                    target = await _get_object(ctx, pk)
+                except LookupError as exc:
+                    return _not_found(ctx, str(exc))
+            admin.check_permission(ctx, "history", target)
             if target is None and await entry_count(db, admin.model, pk_value) == 0:
                 return _not_found(ctx, f"{admin.name} with id {pk!r} does not exist.")
             return await _history(ctx, target, pk_value)
@@ -188,7 +194,7 @@ def _register_one(router: APIRouter, site: AdminSite, admin: ModelAdmin) -> None
             request: Request,
             pk: str,
             entry_id: int,
-            user: Any = view_dep,
+            user: Any = user_dep,
             _restore_perm: Any = restore_perm_dep,
             db: AsyncSession = Depends(get_db),
         ) -> Any:
@@ -203,7 +209,7 @@ def _register_one(router: APIRouter, site: AdminSite, admin: ModelAdmin) -> None
         )
 
     async def view_save(
-        request: Request, user: Any = view_dep, db: AsyncSession = Depends(get_db)
+        request: Request, user: Any = user_dep, db: AsyncSession = Depends(get_db)
     ) -> Any:
         from obox_builder.contrib.admin.views.saved_views import save_view
 
@@ -211,7 +217,7 @@ def _register_one(router: APIRouter, site: AdminSite, admin: ModelAdmin) -> None
         return await save_view(ctx)
 
     async def view_delete(
-        request: Request, view_id: int, user: Any = view_dep, db: AsyncSession = Depends(get_db)
+        request: Request, view_id: int, user: Any = user_dep, db: AsyncSession = Depends(get_db)
     ) -> Any:
         from obox_builder.contrib.admin.views.saved_views import delete_view
 
@@ -255,6 +261,7 @@ async def _list(
     banner: str = "",
 ) -> HTMLResponse:
     admin = _require_admin(ctx)
+    admin.check_permission(ctx, "view")
     request = ctx.request
     specs = {spec.name: spec for spec in admin.get_field_specs()}
     try:
@@ -282,12 +289,13 @@ async def _list(
     offset = (query.page - 1) * query.size
     result = await ctx.db.execute(stmt.limit(query.size).offset(offset))
     objects = result.scalars().unique().all()
+    objects = [obj for obj in objects if admin.has_view_permission(replace(ctx, obj=obj), obj)]
 
     headers = await group_headers(ctx, stmt, query, specs, objects)
     columns = admin.get_list_specs()
     can_inline = bool(admin.get_inline_specs()) and admin.has_change_permission(ctx)
     if can_inline:
-        edits = _inline_edits(admin, columns, objects, inline_values, inline_errors)
+        edits = _inline_edits(ctx, admin, columns, objects, inline_values, inline_errors)
     else:
         edits = [[None] * len(columns) for _ in objects]
     has_history_ui = timeline_available(admin)
@@ -302,16 +310,18 @@ async def _list(
             [str(admin.get_pk(obj)) for obj in objects],
         )
     rows: list[dict[str, Any]] = []
-    for obj, row_edits, row_headers in zip(objects, edits, headers, strict=True):
+    cells = await build_cells(ctx, admin, columns, objects)
+    for obj, row_edits, row_headers, row_cells in zip(objects, edits, headers, cells, strict=True):
+        row_ctx = replace(ctx, obj=obj)
         pk = admin.get_pk(obj)
         history_url = (
             admin.history_path(pk)
-            if has_history_ui and admin.has_history_permission(ctx, obj)
+            if has_history_ui and admin.has_history_permission(row_ctx, obj)
             else None
         )
         comments_url = (
             admin.comments_path(pk)
-            if has_comments_ui and admin.has_comment_view_permission(ctx, obj)
+            if has_comments_ui and admin.has_comment_view_permission(row_ctx, obj)
             else None
         )
         rows.append(
@@ -319,7 +329,9 @@ async def _list(
                 "groups": row_headers,
                 "pk": pk,
                 "label": _object_label(admin, obj),
-                "cells": [admin.build_cell(spec, obj) for spec in columns],
+                "cells": row_cells,
+                "can_change": admin.has_change_permission(row_ctx, obj),
+                "can_delete": admin.has_delete_permission(row_ctx, obj),
                 "edits": row_edits,
                 "history_url": history_url,
                 "comments_url": comments_url,
@@ -389,6 +401,7 @@ async def _list(
 
 
 def _inline_edits(
+    ctx: AdminContext,
     admin: ModelAdmin,
     columns: Sequence[FieldSpec],
     objects: Sequence[Any],
@@ -398,10 +411,15 @@ def _inline_edits(
     inline_names = {spec.name for spec in admin.get_inline_specs()}
     edits: list[list[dict[str, Any] | None]] = []
     for obj in objects:
+        row_ctx = replace(ctx, obj=obj)
         pk_key = str(admin.get_pk(obj))
         row_edits: list[dict[str, Any] | None] = []
         for spec in columns:
-            if spec.name not in inline_names:
+            if (
+                spec.name not in inline_names
+                or not admin.has_change_permission(row_ctx, obj)
+                or (spec.editable_if is not None and not spec.editable_if(row_ctx.record_context()))
+            ):
                 row_edits.append(None)
                 continue
             attr = spec.options.get("value_attr", spec.name)
@@ -493,16 +511,22 @@ async def _render_form(
     ctx: AdminContext,
     *,
     target: Any = None,
-    readonly: bool = False,
     values: Mapping[str, str] | None = None,
     errors: Mapping[str, Sequence[str]] | None = None,
 ) -> HTMLResponse:
     admin = _require_admin(ctx)
     request = ctx.request
     is_add = target is None
-    specs = [spec for spec in admin.get_form_specs() if not spec.readonly]
+    ctx.obj = target
+    readonly = not is_add and not admin.has_change_permission(ctx, target)
+    specs = [
+        spec
+        for spec in admin.get_form_fields(ctx)
+        if not spec.secret and (not is_add or not spec.readonly)
+    ]
     if values is None:
-        values = _initial_values(ctx, specs)
+        values = _initial_values(ctx, specs) if is_add else render_values(target, specs)
+    cells = (await build_cells(ctx, admin, specs, [target]))[0] if not is_add else []
     history: Mapping[str, Any] | None = None
     if (
         target is not None
@@ -550,11 +574,14 @@ async def _render_form(
         specs=specs,
         values=dict(values or {}),
         errors=dict(errors or {}),
-        choices=await _choice_map(ctx, specs),
+        choices=await _choice_map(ctx, [] if readonly else specs),
+        readonly_cells=dict(zip((spec.name for spec in specs), cells, strict=not is_add)),
         readonly=readonly,
+        can_add=admin.has_add_permission(ctx),
+        can_continue=admin.has_view_permission(ctx, target),
         is_add=is_add,
         action=admin.add_path() if is_add else admin.change_path(admin.get_pk(target)),
-        title=f"New {admin.name.lower()}" if is_add else f"Edit {admin.name.lower()}",
+        title=f"{'New' if is_add else 'View' if readonly else 'Edit'} {admin.name.lower()}",
         subtitle="" if is_add else _object_label(admin, target),
         history=history,
         comments=comments,
@@ -562,21 +589,26 @@ async def _render_form(
     return render(request, "admin/model/form.html", context)
 
 
-async def _create(ctx: AdminContext) -> HTMLResponse | RedirectResponse:
+async def _create(ctx: AdminContext) -> Response:
     admin = _require_admin(ctx)
+    admin.check_permission(ctx, "add")
     request = ctx.request
     data = await _submitted_data(request)
     await ensure_csrf(request, data.get("csrf_token"))
-    specs = admin.get_form_specs()
-    schema = admin.get_form_schema("add")
+    specs = admin.get_form_fields(ctx)
+    schema = admin.get_form(ctx)
     bound = BoundForm.bind(specs, schema, data, base=ctx.record_context())
+    if bound.is_valid:
+        await validate_relations(ctx, bound)
     if not bound.is_valid:
         return await _render_form(ctx, values=_values_from_data(data, specs), errors=bound.errors)
     obj = admin.model()
-    bound.apply_to(obj)
+    ctx.obj = obj
     try:
         async with ctx.db.begin_nested():
-            ctx.db.add(obj)
+            bound.apply_to(obj)
+            await admin.save_model(ctx, obj, bound, change=False)
+            await admin.save_related(ctx, obj, bound, change=False)
             await ctx.db.flush()
     except IntegrityError as exc:
         return await _render_form(
@@ -585,19 +617,21 @@ async def _create(ctx: AdminContext) -> HTMLResponse | RedirectResponse:
             errors={"__all__": [_integrity_message(exc)]},
         )
     await flash(request, f"{admin.name} {_object_label(admin, obj)!r} was created.")
-    target = _redirect_after_save(admin, str(data.get("_action", "save")), obj)
-    return RedirectResponse(target, status_code=303)
+    return await admin.response_add(ctx, obj)
 
 
-async def _update(ctx: AdminContext, target: Any) -> HTMLResponse | RedirectResponse:
+async def _update(ctx: AdminContext, target: Any) -> Response:
     admin = _require_admin(ctx)
+    admin.check_permission(ctx, "change", target)
     request = ctx.request
     data = await _submitted_data(request)
     await ensure_csrf(request, data.get("csrf_token"))
-    specs = admin.get_form_specs()
-    schema = admin.get_form_schema("change")
     ctx.obj = target
+    specs = admin.get_form_fields(ctx)
+    schema = admin.get_form(ctx, change=True)
     bound = BoundForm.bind(specs, schema, data, base=ctx.record_context())
+    if bound.is_valid:
+        await validate_relations(ctx, bound)
     if not bound.is_valid:
         return await _render_form(
             ctx,
@@ -605,9 +639,11 @@ async def _update(ctx: AdminContext, target: Any) -> HTMLResponse | RedirectResp
             values=_values_from_data(data, specs),
             errors=bound.errors,
         )
-    bound.apply_to(target)
     try:
         async with ctx.db.begin_nested():
+            bound.apply_to(target)
+            await admin.save_model(ctx, target, bound, change=True)
+            await admin.save_related(ctx, target, bound, change=True)
             await ctx.db.flush()
     except IntegrityError as exc:
         await ctx.db.refresh(target)
@@ -618,12 +654,13 @@ async def _update(ctx: AdminContext, target: Any) -> HTMLResponse | RedirectResp
             errors={"__all__": [_integrity_message(exc)]},
         )
     await flash(request, f"{admin.name} {_object_label(admin, target)!r} was updated.")
-    destination = _redirect_after_save(admin, str(data.get("_action", "save")), target)
-    return RedirectResponse(destination, status_code=303)
+    return await admin.response_change(ctx, target)
 
 
 async def _inline(ctx: AdminContext) -> HTMLResponse | RedirectResponse:
     admin = _require_admin(ctx)
+    admin.check_permission(ctx, "change")
+    admin.check_permission(ctx, "view")
     request = ctx.request
     specs = admin.get_inline_specs()
     if not specs:
@@ -651,6 +688,8 @@ async def _inline(ctx: AdminContext) -> HTMLResponse | RedirectResponse:
         return _bad_request(ctx, "Invalid row id in the inline edit submission.")
     stmt = admin.get_queryset(ctx).where(admin.pk_column().in_(pks))
     objects = (await ctx.db.execute(stmt)).scalars().unique().all()
+    if {admin.get_pk(obj) for obj in objects} != set(pks):
+        return _not_found(ctx, "One or more records are unavailable.")
     schema = admin.get_inline_schema()
     values: dict[tuple[str, str], str] = {
         (pk_key, name): raw for pk_key, row in posted.items() for name, raw in row.items()
@@ -659,6 +698,9 @@ async def _inline(ctx: AdminContext) -> HTMLResponse | RedirectResponse:
     banner = ""
     pending: list[tuple[Any, BoundForm]] = []
     for obj in objects:
+        ctx.obj = obj
+        admin.check_permission(ctx, "view", obj)
+        admin.check_permission(ctx, "change", obj)
         pk_key = str(admin.get_pk(obj))
         row_data = posted.get(pk_key)
         if row_data is None:
@@ -678,16 +720,18 @@ async def _inline(ctx: AdminContext) -> HTMLResponse | RedirectResponse:
             banner = "Nothing was saved — fix the highlighted values and try again."
         return await _list(ctx, inline_values=values, inline_errors=errors, banner=banner)
     changed = 0
-    for obj, bound in pending:
-        if any(
-            spec.type.to_input(getattr(obj, spec.name, None), spec)
-            != spec.type.to_input(bound.cleaned.get(spec.name), spec)
-            for spec in specs
-        ):
-            bound.apply_to(obj)
-            changed += 1
     try:
         async with ctx.db.begin_nested():
+            for obj, bound in pending:
+                if not any(
+                    getattr(obj, name, None) != value for name, value in bound.cleaned.items()
+                ):
+                    continue
+                ctx.obj = obj
+                bound.apply_to(obj)
+                await admin.save_model(ctx, obj, bound, change=True)
+                await admin.save_related(ctx, obj, bound, change=True)
+                changed += 1
             await ctx.db.flush()
     except IntegrityError as exc:
         for obj, _bound in pending:
@@ -703,6 +747,7 @@ async def _inline(ctx: AdminContext) -> HTMLResponse | RedirectResponse:
 
 async def _actions(ctx: AdminContext) -> Response:
     admin = _require_admin(ctx)
+    admin.check_permission(ctx, "view")
     request = ctx.request
     form = await request.form()
     token = form.get("csrf_token")
@@ -716,6 +761,8 @@ async def _actions(ctx: AdminContext) -> Response:
     raw_action = form.get("action")
     spec = specs.get(raw_action if isinstance(raw_action, str) else "")
     if spec is None:
+        if raw_action:
+            raise PermissionDenied("You do not have permission to perform this action.")
         await flash(request, "No action selected.", "warning")
         return RedirectResponse(destination, status_code=303)
     select_across = form.get("select_across") == "1"
@@ -740,13 +787,23 @@ async def _actions(ctx: AdminContext) -> Response:
         return _bad_request(ctx, str(exc))
     except LookupError as exc:
         return _not_found(ctx, str(exc))
+    pks: list[Any] = []
     if not select_across:
         try:
             pks = [admin.parse_pk(value) for value in selected]
         except LookupError:
             return _bad_request(ctx, "Invalid row id in the action submission.")
         stmt = stmt.where(admin.pk_column().in_(pks))
-    result = await spec.func(ctx, stmt)
+    objects = (await ctx.db.scalars(stmt)).unique().all()
+    if not select_across and {admin.get_pk(obj) for obj in objects} != set(pks):
+        return _not_found(ctx, "One or more records are unavailable.")
+    for obj in objects:
+        row_ctx = replace(ctx, obj=obj)
+        admin.check_permission(row_ctx, "view", obj)
+        if not admin._action_allowed(spec, row_ctx, obj):
+            raise PermissionDenied("You do not have permission to perform this action.")
+    async with ctx.db.begin_nested():
+        result = await spec.func(ctx, stmt)
     if isinstance(result, Response):
         return result
     return RedirectResponse(destination, status_code=303)
@@ -797,16 +854,19 @@ def _revert_links(ctx: AdminContext, admin: ModelAdmin, pk: Any) -> RevertLinks 
 # -- delete -----------------------------------------------------------------
 
 
-async def _delete(ctx: AdminContext, target: Any) -> HTMLResponse | RedirectResponse:
+async def _delete(ctx: AdminContext, target: Any) -> Response:
     admin = _require_admin(ctx)
+    admin.check_permission(ctx, "delete", target)
+    ctx.obj = target
     request = ctx.request
     form = await request.form()
     token = form.get("csrf_token")
     await ensure_csrf(request, token if isinstance(token, str) else None)
     label = _object_label(admin, target)
+    object_id = admin.get_pk(target)
     try:
         async with ctx.db.begin_nested():
-            await ctx.db.delete(target)
+            await admin.delete_model(ctx, target)
             await ctx.db.flush()
     except IntegrityError as exc:
         await ctx.db.refresh(target)
@@ -815,7 +875,7 @@ async def _delete(ctx: AdminContext, target: Any) -> HTMLResponse | RedirectResp
         )
         return render(request, "admin/model/delete.html", context, status_code=409)
     await flash(request, f"{admin.name} {label!r} was deleted.")
-    return RedirectResponse(admin.list_path(), status_code=303)
+    return await admin.response_delete(ctx, object_id)
 
 
 # -- helpers ----------------------------------------------------------------
@@ -825,14 +885,6 @@ def _require_admin(ctx: AdminContext) -> ModelAdmin:
     if ctx.admin is None:  # pragma: no cover - model routes always set it
         raise RuntimeError("AdminContext without a ModelAdmin on a model route.")
     return ctx.admin
-
-
-def _redirect_after_save(admin: ModelAdmin, action: str, target: Any) -> str:
-    if action == "add_another":
-        return admin.add_path()
-    if action == "continue":
-        return admin.change_path(admin.get_pk(target))
-    return admin.list_path()
 
 
 async def _submitted_data(request: Request) -> dict[str, Any]:
@@ -873,17 +925,22 @@ async def _link_choices(ctx: AdminContext, spec: FieldSpec) -> list[tuple[str, s
     if target is None:
         return []
     pk_column = sa.inspect(target).primary_key[0]
-    stmt = sa.select(target).order_by(pk_column).limit(LINK_CHOICE_LIMIT)
-    rows = (await ctx.db.execute(stmt)).scalars().all()
-    return [(str(getattr(row, pk_column.key)), _object_label_for(target, row)) for row in rows]
+    rows = await related_objects(ctx, spec, limit=LINK_CHOICE_LIMIT)
+    choices = [(str(getattr(row, pk_column.key)), _object_label_for(target, row)) for row in rows]
+    current = (
+        getattr(ctx.obj, spec.column.key or spec.name, None) if spec.column is not None else None
+    )
+    if current is not None and str(current) not in {value for value, _label in choices}:
+        selected = await related_objects(ctx, spec, pks=[current])
+        label = _object_label_for(target, selected[0]) if selected else "Unavailable selection"
+        choices.append((str(current), label))
+    return choices
 
 
 async def _get_object(ctx: AdminContext, pk: str) -> Any:
     admin = _require_admin(ctx)
-    value = admin.parse_pk(pk)
-    obj = await ctx.db.get(admin.model, value)
-    if obj is None:
-        raise LookupError(f"{admin.name} with id {pk!r} does not exist.")
+    obj = await admin.get_object(ctx, pk)
+    ctx.obj = obj
     return obj
 
 

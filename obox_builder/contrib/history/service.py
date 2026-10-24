@@ -75,9 +75,10 @@ class FeedFilters:
     op: str = ""
     since: datetime | None = None
     until: datetime | None = None
+    extra_conditions: tuple[ColumnElement[bool], ...] = ()
 
     def conditions(self) -> list[ColumnElement[bool]]:
-        clauses: list[ColumnElement[bool]] = []
+        clauses: list[ColumnElement[bool]] = list(self.extra_conditions)
         if self.model_labels is not None:
             if not self.model_labels:
                 return [false()]

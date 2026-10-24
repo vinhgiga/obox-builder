@@ -92,15 +92,12 @@ async def global_search(
                     ),
                     label,
                 )
-                row_filter = urlencode({"f": f"{admin.pk_column().key}:eq:{pk}"})
-                url = (
-                    admin.change_path(pk)
-                    if user.has_perm(admin.permission_name("change"))
-                    and admin.has_change_permission(ctx, obj)
-                    else f"{admin.list_path()}?{row_filter}"
-                )
                 results.append(
-                    {"label": label[:160], "segments": _highlight(excerpt, query.q), "url": url}
+                    {
+                        "label": label[:160],
+                        "segments": _highlight(excerpt, query.q),
+                        "url": admin.change_path(pk),
+                    }
                 )
             if results:
                 matches.append(

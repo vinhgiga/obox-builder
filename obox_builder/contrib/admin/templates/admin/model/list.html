@@ -104,10 +104,8 @@
           <td class="text-end text-secondary" data-row-number>{{ start_index + loop.index0 }}</td>
           <td>
             <div class="btn-list flex-nowrap">
-            {% if admin.permission_name('change') in perms %}
-            <a href="{{ admin.change_path(row.pk) }}" class="btn btn-sm">Edit</a>
-            {% endif %}
-            {% if admin.permission_name('delete') in perms %}
+            <a href="{{ admin.change_path(row.pk) }}" class="btn btn-sm">{{ 'Edit' if row.can_change else 'View' }}</a>
+            {% if row.can_delete %}
             <form method="post" action="{{ delete_href(row.pk) }}" class="d-inline"
                   data-confirm="Delete {{ row.label }}? This cannot be undone.">
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}"/>
@@ -146,7 +144,7 @@
             {% if edit.error %}<div class="text-danger small mt-1">{{ edit.error }}</div>{% endif %}
           </td>
           {% else %}
-          <td>{% if loop.first and admin.permission_name('change') in perms %}
+          <td>{% if loop.first %}
                 <a href="{{ admin.change_path(row.pk) }}">{{ cell_text(cell) }}</a>
               {% else %}{{ cell_text(cell) }}{% endif %}</td>
           {% endif %}

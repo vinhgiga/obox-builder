@@ -53,7 +53,8 @@ for (const [engine, browserType] of Object.entries({chromium, firefox, webkit}))
     const browser = await browserType.launch();
     let page;
     try {
-      page = await browser.newPage({reducedMotion: "reduce"});
+      const context = await browser.newContext({reducedMotion: "reduce"});
+      page = await context.newPage();
       page.setDefaultTimeout(10000);
       await page.clock.install();
       const errors = [];

@@ -252,3 +252,52 @@ async def test_change_set_detail_unknown_id_is_404(client: httpx.AsyncClient) ->
         f"{FEED_URL}/00000000-0000-0000-0000-000000000000", headers={"accept": "text/html"}
     )
     assert missing.status_code == 404
+
+
+@pytest.mark.parametrize("restriction", ["queryset", "object"])
+async def test_row_visibility_covers_timeline_feed_change_set_export_and_revert(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+    restriction: str,
+) -> None:
+    from obox_builder.contrib.admin.site import site
+
+    await make_user("root", is_superuser=True)
+    await login_session(client, "root")
+    token = await csrf_for("root")
+    hidden = await make_item("Restricted item")
+    change_set = await latest_change_set()
+    async with session_scope() as db:
+        entry = await db.scalar(
+            sa.select(RowChange).where(
+                RowChange.model_label == "warehouse.item",
+                RowChange.object_pk == str(hidden),
+            )
+        )
+        assert entry is not None
+        entry_id = entry.id
+    admin = site.get_model_admin_for(Item)
+    assert admin is not None
+    if restriction == "queryset":
+        monkeypatch.setattr(
+            admin,
+            "get_queryset",
+            lambda ctx: ModelAdmin.get_queryset(admin, ctx).where(Item.id != hidden),
+        )
+    else:
+        monkeypatch.setattr(
+            admin, "has_view_permission", lambda ctx, obj=None: obj is None or obj.id != hidden
+        )
+    timeline = await client.get(f"{LIST_URL}/{hidden}/history")
+    assert timeline.status_code == (404 if restriction == "queryset" else 403)
+    for url in (FEED_URL, "/admin/history/export?format=ndjson"):
+        response = await client.get(url)
+        assert response.status_code == 200
+        assert "Restricted item" not in response.text
+    assert (await client.get(f"{FEED_URL}/{change_set}")).status_code == 404
+    response = await client.post(
+        f"{LIST_URL}/{hidden}/history/{entry_id}/revert", data={"csrf_token": token}
+    )
+    assert response.status_code == (404 if restriction == "queryset" else 403)
+    async with session_scope() as db:
+        assert await db.get(Item, hidden) is not None

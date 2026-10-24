@@ -250,7 +250,7 @@ async def test_saved_view_permissions_rechecked_after_saving(client: httpx.Async
 async def test_global_search_vietnamese_and_permission_filter(
     client: httpx.AsyncClient, query: str
 ) -> None:
-    await make_product("Điện thoại tốt")
+    pk = await make_product("Điện thoại tốt")
     async with session_scope() as db:
         db.add(Order(reference="Điện thoại restricted"))
     await make_user("viewer")
@@ -261,7 +261,7 @@ async def test_global_search_vietnamese_and_permission_filter(
     assert "Điện thoại tốt" in response.text
     assert "Điện thoại restricted" not in response.text
     assert "<mark>Điện thoại</mark>" in response.text
-    assert "?f=id%3Aeq%3A" in response.text
+    assert f'href="{URL}/{pk}"' in response.text
 
 
 async def test_global_search_scopes_rows_and_checks_object_permission(

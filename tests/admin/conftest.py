@@ -43,7 +43,7 @@ def build_app() -> Any:
 
 @pytest.fixture
 async def client(admin_env: None) -> AsyncIterator[httpx.AsyncClient]:
-    from obox_builder.db import get_engine
+    from obox_builder.db import dispose, get_engine
 
     async with get_engine().begin() as connection:
         await connection.run_sync(ModelBase.metadata.drop_all)
@@ -52,6 +52,7 @@ async def client(admin_env: None) -> AsyncIterator[httpx.AsyncClient]:
     transport = httpx.ASGITransport(app=build_app())
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as http:
         yield http
+    await dispose()
 
 
 async def ensure_permissions() -> None:

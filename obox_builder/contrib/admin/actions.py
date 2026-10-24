@@ -66,18 +66,11 @@ async def delete_selected(admin: ModelAdmin, ctx: AdminContext, queryset: sa.Sel
     if not pks:
         await add_message(ctx.request, "No matching records to delete.", "warning")
         return
-    objects: list[Any] = []
     try:
         async with ctx.db.begin_nested():
-            for pk in pks:
-                obj = await ctx.db.get(admin.model, pk)
-                if obj is not None:
-                    objects.append(obj)
-                    await ctx.db.delete(obj)
+            await admin.delete_queryset(ctx, queryset)
             await ctx.db.flush()
     except IntegrityError as exc:
-        for obj in objects:
-            ctx.db.expunge(obj)
         await add_message(
             ctx.request,
             f"Could not delete: the database rejected the change ({exc.orig}).",

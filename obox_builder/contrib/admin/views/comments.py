@@ -412,9 +412,17 @@ async def _load_target(
     obj = await ctx.db.get(admin.model, value)
     target = CommentTarget(admin.model_label, str(value))
     if obj is not None:
+        try:
+            obj = await admin.get_object(ctx, pk)
+        except LookupError as exc:
+            raise CommentNotFound(str(exc)) from None
+        ctx.obj = obj
+        admin.check_permission(ctx, "view", obj)
+        admin.check_permission(ctx, "comment_view" if allow_deleted else "comment_add", obj)
         return obj, target.with_repr(_object_label(admin, obj))
     if not allow_deleted:
         raise CommentNotFound(f"{admin.name} with id {pk!r} does not exist.")
+    admin.check_permission(ctx, "comment_view")
     snapshot = await latest_object_repr(ctx.db, target)
     if not snapshot:
         raise CommentNotFound(f"{admin.name} with id {pk!r} does not exist.")

@@ -180,9 +180,13 @@ async def plan_from_row(
     *,
     mask: DiffMask | None = None,
 ) -> RevertPlan:
+    ctx = replace(ctx, admin=admin, obj=None)
     specs = {spec.name: spec for spec in admin.get_form_specs()}
     plan = RevertPlan(admin=admin, entry=entry, pk_value=pk_value)
     plan.target = await ctx.db.get(admin.model, pk_value)
+    if plan.target is not None:
+        plan.target = await admin.get_object(ctx, str(pk_value))
+    admin.check_permission(ctx, "view", plan.target)
     if entry.op == "create":
         # Reverting a create is a confirmed delete; no values are restored.
         if plan.target is None:
@@ -413,7 +417,11 @@ async def revert_entry(
     except LookupError as exc:
         return _not_found(ctx.request, str(exc))
     action = OP_PERMISSION.get(plan.entry.op, "change")
-    if not getattr(admin, f"has_{action}_permission")(ctx):
+    if not (
+        admin.has_add_permission(ctx)
+        if action == "add"
+        else getattr(admin, f"has_{action}_permission")(ctx, plan.target)
+    ):
         return _forbidden(
             ctx.request,
             f"Reverting this change requires the '{admin.permission_name(action)}' permission.",
@@ -460,8 +468,6 @@ async def revert_change_set(
     allowed: frozenset[str] | None,
 ) -> Any:
     """``POST /admin/history/{change_set_id}/revert`` (reverse order, one flush)."""
-    from obox_builder.contrib.admin.site import site
-
     if not ctx.user.has_perm(HISTORY_RESTORE_PERMISSION):
         return _forbidden(ctx.request, "You do not have permission to restore changes.")
     rows = list(
@@ -476,7 +482,7 @@ async def revert_change_set(
     plans: list[RevertPlan] = []
     for row in rows:
         entry = to_entry(row)
-        plan = await _plan_for_change_set(ctx, site, entry, allowed=allowed)
+        plan = await _plan_for_change_set(ctx, ctx.site, entry, allowed=allowed)
         plan.blocked = [
             replace(item, model_label=entry.model_label, object_repr=entry.object_repr)
             for item in plan.blocked
@@ -539,6 +545,7 @@ async def _plan_for_change_set(
     admin = site.get_model_admin_for(model) if model is not None else None
     if admin is None:
         return _entry_blocked(entry, "the model is no longer registered in the admin.")
+    ctx = replace(ctx, admin=admin, obj=None)
     try:
         pk_value = admin.parse_pk(entry.object_pk)
     except LookupError:
@@ -554,7 +561,11 @@ async def _plan_for_change_set(
             blocked=[BlockedField(name="", label=entry.object_repr, reason="could not evaluate.")],
         )
     action = OP_PERMISSION.get(entry.op, "change")
-    if not getattr(admin, f"has_{action}_permission")(ctx):
+    if not (
+        admin.has_add_permission(ctx)
+        if action == "add"
+        else getattr(admin, f"has_{action}_permission")(ctx, plan.target)
+    ):
         plan.blocked.append(
             BlockedField(
                 name="",

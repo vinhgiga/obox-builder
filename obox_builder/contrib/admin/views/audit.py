@@ -6,16 +6,18 @@ import csv
 import io
 import json
 import logging
+from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from typing import Annotated, Any
 from uuid import UUID
 
+import sqlalchemy as sa
 from fastapi import Depends, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from obox_builder.contrib.admin.context import AdminContext
 from obox_builder.contrib.admin.rendering import render
-from obox_builder.contrib.admin.views.common import page_context
+from obox_builder.contrib.admin.views.common import current_site, page_context
 from obox_builder.contrib.admin.views.history import (
     DiffMask,
     before_cursor,
@@ -32,10 +34,10 @@ from obox_builder.contrib.history import (
     HISTORY_VIEW_PERMISSION,
 )
 from obox_builder.contrib.history.export import export_entries, guard_cell
-from obox_builder.contrib.history.models import OPS, SOURCES
+from obox_builder.contrib.history.models import OPS, SOURCES, RowChange
 from obox_builder.contrib.history.service import (
     FeedFilters,
-    change_set_entries,
+    RowChangeEntry,
     feed_count,
     feed_entries,
     to_entry,
@@ -116,15 +118,62 @@ def _feed_filters(request: Request, allowed: frozenset[str] | None) -> FeedFilte
     )
 
 
-def _rows(entries: list[Any], admins: dict[str, Any], *, user: User) -> list[dict[str, Any]]:
+def _scoped_filters(ctx: AdminContext, filters: FeedFilters, admins: dict[str, Any]) -> FeedFilters:
+    clauses: list[sa.ColumnElement[bool]] = []
+    if ctx.user.is_superuser:
+        clauses.append(RowChange.model_label.not_in(admins))
+    for label, admin in admins.items():
+        model_ctx = replace(ctx, admin=admin, obj=None)
+        if not admin.has_view_permission(model_ctx):
+            continue
+        key = sa.cast(admin.pk_column(), sa.String)
+        visible = admin.get_queryset(model_ctx).with_only_columns(key).order_by(None)
+        existing = sa.select(key)
+        clauses.append(
+            sa.and_(
+                RowChange.model_label == label,
+                sa.or_(RowChange.object_pk.in_(visible), RowChange.object_pk.not_in(existing)),
+            )
+        )
+    return replace(
+        filters, extra_conditions=(*filters.extra_conditions, sa.or_(sa.false(), *clauses))
+    )
+
+
+async def _rows(
+    ctx: AdminContext, entries: list[Any], admins: dict[str, Any]
+) -> list[dict[str, Any]]:
+    objects: dict[tuple[str, str], Any] = {}
+    for label in {entry.model_label for entry in entries}:
+        admin = admins.get(label)
+        if admin is None:
+            continue
+        pks = []
+        for entry in entries:
+            if entry.model_label == label:
+                try:
+                    pks.append(admin.parse_pk(entry.object_pk))
+                except LookupError:
+                    continue
+        model_ctx = replace(ctx, admin=admin, obj=None)
+        found = (
+            await ctx.db.scalars(admin.get_queryset(model_ctx).where(admin.pk_column().in_(pks)))
+        ).unique()
+        objects.update({(label, str(admin.get_pk(obj))): obj for obj in found})
     masks: dict[str, DiffMask] = {}
     rows: list[dict[str, Any]] = []
     for entry in entries:
+        admin = admins.get(entry.model_label)
+        if admin is not None:
+            obj = objects.get((entry.model_label, entry.object_pk))
+            model_ctx = replace(ctx, admin=admin, obj=obj)
+            if not admin.has_view_permission(model_ctx, obj):
+                continue
         mask = masks.get(entry.model_label)
         if mask is None:
             admin = admins.get(entry.model_label)
             mask = (
-                diff_mask(admin.model, admin=admin, user=user)
+                diff_mask(admin.model, admin=admin, user=ctx.user)
                 if admin is not None
                 else _ORPHAN_MASK
             )
@@ -143,7 +192,8 @@ async def history_feed(
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     allowed, admins = _scope(user)
-    filters = _feed_filters(request, allowed)
+    ctx = AdminContext(request=request, user=user, db=db, site=current_site(request))
+    filters = _scoped_filters(ctx, _feed_filters(request, allowed), admins)
     before = before_cursor(request)
     entries = await feed_entries(db, filters=filters, before=before, limit=FEED_PAGE_SIZE)
     count = await feed_count(db, filters=filters)
@@ -161,7 +211,7 @@ async def history_feed(
         heading="Audit log",
         subtitle="Change feed",
         count=count,
-        entries=_rows(entries, admins, user=user),
+        entries=await _rows(ctx, entries, admins),
         older=older,
         before=before,
         filters={
@@ -187,17 +237,30 @@ async def history_change_set(
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     allowed, admins = _scope(user)
-    entries = await change_set_entries(
-        db, change_set_id, model_labels=allowed, limit=CHANGE_SET_LIMIT
+    ctx = AdminContext(request=request, user=user, db=db, site=current_site(request))
+    filters = _scoped_filters(
+        ctx,
+        FeedFilters(
+            model_labels=allowed, extra_conditions=(RowChange.change_set_id == change_set_id,)
+        ),
+        admins,
     )
-    if not entries:
+    stmt = (
+        sa.select(RowChange)
+        .where(*filters.conditions())
+        .order_by(RowChange.id)
+        .limit(CHANGE_SET_LIMIT)
+    )
+    entries = [to_entry(row) for row in await db.scalars(stmt)]
+    rows = await _rows(ctx, entries, admins)
+    if not rows:
         return render(request, "admin/errors/404.html", {}, status_code=404)
     context = await page_context(
         request,
         heading="Change set",
         subtitle=entries[0].actor_label,
-        count=len(entries),
-        entries=_rows(entries, admins, user=user),
+        count=len(rows),
+        entries=rows,
         older=None,
         before=None,
         back_url="/admin/history",
@@ -245,40 +308,38 @@ def _change_text(view: dict[str, Any]) -> str:
 
 
 async def _export_records(
-    db: AsyncSession,
+    ctx: AdminContext,
     filters: FeedFilters,
     admins: dict[str, Any],
-    *,
-    user: User,
 ) -> list[dict[str, str]]:
     """Masked feed rows in chronological order (permission-aware, ADR §8)."""
-    masks: dict[str, DiffMask] = {}
     records: list[dict[str, str]] = []
-    async for row in export_entries(db, filters, batch_size=EXPORT_LIMIT):
-        mask = masks.get(row.model_label)
-        if mask is None:
-            admin = admins.get(row.model_label)
-            mask = (
-                diff_mask(admin.model, admin=admin, user=user)
-                if admin is not None
-                else _ORPHAN_MASK
+    batch: list[RowChangeEntry] = []
+
+    async def append_records() -> None:
+        for view in await _rows(ctx, batch, admins):
+            records.append(
+                {
+                    "id": str(view["id"]),
+                    "change_set_id": str(view["change_set_id"]),
+                    "occurred_at": view["occurred_at"].isoformat(),
+                    "op": view["op"],
+                    "source": view["source"],
+                    "actor": view["actor_label"],
+                    "model": view["model_label"],
+                    "object_pk": view["object_pk"],
+                    "object_repr": view["object_repr"],
+                    "changes": _change_text(view),
+                }
             )
-            masks[row.model_label] = mask
-        view = entry_view(to_entry(row), mask=mask)
-        records.append(
-            {
-                "id": str(view["id"]),
-                "change_set_id": str(view["change_set_id"]),
-                "occurred_at": view["occurred_at"].isoformat(),
-                "op": view["op"],
-                "source": view["source"],
-                "actor": view["actor_label"],
-                "model": view["model_label"],
-                "object_pk": view["object_pk"],
-                "object_repr": view["object_repr"],
-                "changes": _change_text(view),
-            }
-        )
+        batch.clear()
+
+    async for row in export_entries(ctx.db, filters, batch_size=EXPORT_LIMIT):
+        batch.append(to_entry(row))
+        if len(batch) == EXPORT_LIMIT:
+            await append_records()
+    if batch:
+        await append_records()
     return records
 
 
@@ -297,8 +358,9 @@ async def history_export(
             status_code=400,
         )
     allowed, admins = _scope(user)
-    filters = _feed_filters(request, allowed)
-    records = await _export_records(db, filters, admins, user=user)
+    ctx = AdminContext(request=request, user=user, db=db, site=current_site(request))
+    filters = _scoped_filters(ctx, _feed_filters(request, allowed), admins)
+    records = await _export_records(ctx, filters, admins)
     stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     if fmt == "ndjson":
         body = "".join(json.dumps(record, ensure_ascii=False) + "\n" for record in records)

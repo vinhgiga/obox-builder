@@ -64,6 +64,30 @@ async def logged_in_superuser(client: httpx.AsyncClient) -> str:
     return await csrf_for("alice")
 
 
+async def test_comments_cannot_bypass_model_queryset(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from obox_builder.contrib.admin import ModelAdmin
+    from obox_builder.contrib.admin.site import site
+
+    pk = await make_ticket("Scoped ticket")
+    token = await logged_in_superuser(client)
+    assert (await post_comment(client, pk, token, "Private body")).status_code == 303
+    admin = site.get_model_admin_for(Ticket)
+    assert admin is not None
+    monkeypatch.setattr(
+        admin,
+        "get_queryset",
+        lambda ctx: ModelAdmin.get_queryset(admin, ctx).where(Ticket.id != pk),
+    )
+    response = await client.get(f"{BASE}/{pk}/comments")
+    assert response.status_code == 404
+    assert "Private body" not in response.text
+    assert (await post_comment(client, pk, token, "Forged")).status_code == 404
+    assert len(await comments_of(pk)) == 1
+
+
 async def test_comments_page_and_composer_render(client: httpx.AsyncClient) -> None:
     ticket_id = await make_ticket()
     await logged_in_superuser(client)

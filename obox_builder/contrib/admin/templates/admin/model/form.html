@@ -1,6 +1,7 @@
 {% extends "admin/base.html" %}
 {% from "admin/macros/forms.html" import csrf %}
 {% from "admin/macros/widgets.html" import widget %}
+{% from "admin/macros/cells.html" import cell_text %}
 {% from "admin/macros/history.html" import entry_item %}
 {% from "admin/macros/comments.html" import card as comment_card %}
 {% block title %}{{ title }}{% endblock %}
@@ -29,15 +30,23 @@
       <div class="card">
         <div class="card-body">
           {% for spec in specs %}
+            {% if readonly or spec.readonly %}
+            <div class="mb-3">
+              <div class="form-label">{{ spec.label }}</div>
+              <div class="form-control-plaintext">{{ cell_text(readonly_cells[spec.name]) }}</div>
+              {% if spec.help_text %}<small class="form-hint">{{ spec.help_text }}</small>{% endif %}
+            </div>
+            {% else %}
             {{ widget(spec, values.get(spec.name, ''), errors.get(spec.name), choices.get(spec.name, []), readonly or spec.readonly) }}
+            {% endif %}
           {% endfor %}
         </div>
       </div>
       {% if not readonly %}
       <div class="btn-list mt-3">
         <button type="submit" name="_action" value="save" class="btn btn-primary">Save</button>
-        <button type="submit" name="_action" value="add_another" class="btn">Save and add another</button>
-        <button type="submit" name="_action" value="continue" class="btn">Save and continue editing</button>
+        {% if can_add %}<button type="submit" name="_action" value="add_another" class="btn">Save and add another</button>{% endif %}
+        {% if can_continue %}<button type="submit" name="_action" value="continue" class="btn">Save and continue editing</button>{% endif %}
       </div>
       {% endif %}
     </div>

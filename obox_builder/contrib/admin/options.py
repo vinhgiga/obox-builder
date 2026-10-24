@@ -10,12 +10,14 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import sqlalchemy as sa
+from fastapi.responses import RedirectResponse, Response
 from pydantic import BaseModel
 
 from obox_builder.contrib.admin.actions import delete_selected
 from obox_builder.core.checks.messages import CheckMessage, Error, Warning
+from obox_builder.core.exceptions import PermissionDenied
 from obox_builder.fields import Cell, FieldSpec, introspect_model
-from obox_builder.forms import build_schema
+from obox_builder.forms import BoundForm, build_schema
 from obox_builder.utils.strings import camel_to_snake, humanize
 
 if TYPE_CHECKING:
@@ -181,6 +183,14 @@ class ModelAdmin:
     def has_delete_permission(self, ctx: AdminContext, obj: Any = None) -> bool:
         return bool(ctx.user.has_perm(self.permission_name("delete")))
 
+    def check_permission(self, ctx: AdminContext, action: str, obj: Any = None) -> None:
+        checker = getattr(self, f"has_{action}_permission")
+        allowed = checker(ctx) if action == "add" else checker(ctx, obj)
+        if not allowed:
+            raise PermissionDenied(
+                f"You do not have permission to {action} this {self.name.lower()}."
+            )
+
     def has_history_permission(self, ctx: AdminContext, obj: Any = None) -> bool:
         """Reading the audit trail requires the row-history permission *and* view."""
         from obox_builder.contrib.history import HISTORY_VIEW_PERMISSION
@@ -233,6 +243,15 @@ class ModelAdmin:
         if self.ordering:
             return tuple(self.ordering)
         return (self.pk_column().key or "id",)
+
+    async def get_object(self, ctx: AdminContext, pk: str) -> Any:
+        """Resolve a row within this request's queryset, including eager loads."""
+        value = self.parse_pk(pk)
+        result = await ctx.db.scalars(self.get_queryset(ctx).where(self.pk_column() == value))
+        obj = result.unique().one_or_none()
+        if obj is None:
+            raise LookupError(f"{self.name} with id {pk!r} does not exist.")
+        return obj
 
     # -- field specs --------------------------------------------------------
     def get_field_specs(self) -> list[FieldSpec]:
@@ -342,12 +361,12 @@ class ModelAdmin:
             func=func,
         )
 
-    def _action_allowed(self, spec: ActionSpec, ctx: AdminContext) -> bool:
+    def _action_allowed(self, spec: ActionSpec, ctx: AdminContext, obj: Any = None) -> bool:
         if not spec.permissions:
             return True
         for perm in spec.permissions:
             checker = getattr(self, f"has_{perm}_permission", None)
-            if checker is not None and checker(ctx):
+            if checker is not None and (checker(ctx) if perm == "add" else checker(ctx, obj)):
                 return True
         return False
 
@@ -381,6 +400,62 @@ class ModelAdmin:
             )
             self._schema_mode = mode
         return self._schema
+
+    def get_form_fields(self, ctx: AdminContext) -> list[FieldSpec]:
+        """Request-specific fields; ``ctx.obj`` is the existing row on change."""
+        return self.get_form_specs()
+
+    def get_form(self, ctx: AdminContext, *, change: bool = False) -> type[BaseModel]:
+        """Override to provide custom validation without sharing request state."""
+        return build_schema(
+            self.get_form_fields(ctx),
+            name=f"{self.app_label}_{self.model_name}",
+            mode="change" if change else "add",
+        )
+
+    async def save_model(
+        self, ctx: AdminContext, obj: Any, form: BoundForm, *, change: bool
+    ) -> None:
+        """Save the validated row inside the caller's transaction; do not commit."""
+        ctx.db.add(obj)
+        await ctx.db.flush()
+
+    async def save_related(
+        self, ctx: AdminContext, obj: Any, form: BoundForm, *, change: bool
+    ) -> None:
+        """Save related data after ``save_model``, in the same transaction."""
+
+    async def delete_model(self, ctx: AdminContext, obj: Any) -> None:
+        await ctx.db.delete(obj)
+
+    async def delete_queryset(self, ctx: AdminContext, queryset: sa.Select[Any]) -> None:
+        objects = (
+            (await ctx.db.scalars(queryset.order_by(None).order_by(self.pk_column())))
+            .unique()
+            .all()
+        )
+        for obj in objects:
+            ctx.obj = obj
+            await self.delete_model(ctx, obj)
+
+    async def response_add(self, ctx: AdminContext, obj: Any) -> Response:
+        return await self._response_save(ctx, obj)
+
+    async def response_change(self, ctx: AdminContext, obj: Any) -> Response:
+        return await self._response_save(ctx, obj)
+
+    async def response_delete(self, ctx: AdminContext, object_id: Any) -> Response:
+        return RedirectResponse(self.list_path(), status_code=303)
+
+    async def _response_save(self, ctx: AdminContext, obj: Any) -> Response:
+        data = await ctx.request.form()
+        action = data.get("_action")
+        destination = self.list_path()
+        if action == "add_another" and self.has_add_permission(ctx):
+            destination = self.add_path()
+        elif action == "continue" and self.has_view_permission(ctx, obj):
+            destination = self.change_path(self.get_pk(obj))
+        return RedirectResponse(destination, status_code=303)
 
     # -- cells --------------------------------------------------------------
     def build_cell(self, spec: FieldSpec, obj: Any) -> Cell:
