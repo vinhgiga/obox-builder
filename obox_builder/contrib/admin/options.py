@@ -15,13 +15,14 @@ from pydantic import BaseModel
 
 from obox_builder.contrib.admin.actions import delete_selected
 from obox_builder.core.checks.messages import CheckMessage, Error, Warning
-from obox_builder.core.exceptions import PermissionDenied
+from obox_builder.core.exceptions import ImproperlyConfigured, PermissionDenied
 from obox_builder.fields import Cell, FieldSpec, introspect_model
 from obox_builder.forms import BoundForm, build_schema
 from obox_builder.utils.strings import camel_to_snake, humanize
 
 if TYPE_CHECKING:
     from obox_builder.contrib.admin.context import AdminContext
+    from obox_builder.contrib.admin.inlines import InlineModelAdmin
     from obox_builder.contrib.admin.site import AdminSite
 
 logger = logging.getLogger(__name__)
@@ -53,7 +54,7 @@ class ModelAdmin:
     so the mental model carries over.
     """
 
-    _model: type[Any]
+    model: type[Any]
 
     list_display: ClassVar[Sequence[str]] = ()
     list_editable: ClassVar[Sequence[str]] = ()
@@ -74,6 +75,8 @@ class ModelAdmin:
     base_path: ClassVar[str | None] = None
     import_enabled: ClassVar[bool] = False
     import_keys: ClassVar[Sequence[str]] = ()
+    autocomplete_fields: ClassVar[Sequence[str]] = ()
+    inlines: ClassVar[Sequence[type[InlineModelAdmin]]] = ()
 
     def imports_available(self) -> bool:
         from obox_builder.apps import apps
@@ -92,17 +95,13 @@ class ModelAdmin:
         return f"{self.list_path()}/import"
 
     def __init__(self, model: type[Any], site: AdminSite | None = None) -> None:
-        self._model = model
+        self.model = model
         self.site = site
         self._specs: list[FieldSpec] | None = None
         self._schema: type[BaseModel] | None = None
         self._schema_mode: str = ""
         self._inline_schema: type[BaseModel] | None = None
         self._inline_specs: list[FieldSpec] | None = None
-
-    @property
-    def model(self) -> type[Any]:
-        return self._model
 
     # -- identity -----------------------------------------------------------
     @property
@@ -235,7 +234,7 @@ class ModelAdmin:
         stmt: sa.Select[Any] = sa.select(self.model)
         for spec in self.get_field_specs():
             relationship = spec.options.get("relationship")
-            if spec.type.name == "link" and relationship:
+            if spec.type.name in {"link", "multi_link"} and relationship:
                 stmt = stmt.options(selectinload(getattr(self.model, str(relationship))))
         return stmt
 
@@ -244,10 +243,13 @@ class ModelAdmin:
             return tuple(self.ordering)
         return (self.pk_column().key or "id",)
 
-    async def get_object(self, ctx: AdminContext, pk: str) -> Any:
+    async def get_object(self, ctx: AdminContext, pk: str, *, for_update: bool = False) -> Any:
         """Resolve a row within this request's queryset, including eager loads."""
         value = self.parse_pk(pk)
-        result = await ctx.db.scalars(self.get_queryset(ctx).where(self.pk_column() == value))
+        stmt = self.get_queryset(ctx).where(self.pk_column() == value)
+        if for_update:
+            stmt = stmt.with_for_update(of=self.model).execution_options(populate_existing=True)
+        result = await ctx.db.scalars(stmt)
         obj = result.unique().one_or_none()
         if obj is None:
             raise LookupError(f"{self.name} with id {pk!r} does not exist.")
@@ -424,6 +426,12 @@ class ModelAdmin:
         self, ctx: AdminContext, obj: Any, form: BoundForm, *, change: bool
     ) -> None:
         """Save related data after ``save_model``, in the same transaction."""
+        from obox_builder.contrib.admin.relations import save_relations
+
+        await save_relations(ctx, obj, form)
+
+    def get_inline_instances(self, ctx: AdminContext) -> list[InlineModelAdmin]:
+        return [inline(self.model, self.site) for inline in self.inlines]
 
     async def delete_model(self, ctx: AdminContext, obj: Any) -> None:
         await ctx.db.delete(obj)
@@ -498,6 +506,40 @@ class ModelAdmin:
     def validate(self) -> list[CheckMessage]:
         messages: list[CheckMessage] = []
         specs = self.spec_map()
+        for name in self.autocomplete_fields:
+            spec = specs.get(name)
+            target = spec.options.get("target") if spec is not None else None
+            target_admin = (
+                self.site.get_model_admin_for(target)
+                if self.site is not None and target is not None
+                else None
+            )
+            if (
+                spec is None
+                or spec.type.name not in {"link", "multi_link"}
+                or not spec.is_editable()
+                or target_admin is None
+                or not target_admin.get_search_specs()
+            ):
+                messages.append(
+                    Error(
+                        f"{self.model_label}: autocomplete field {name!r} requires "
+                        "an editable relation "
+                        "and a registered target admin with search_fields.",
+                        id="obox.admin.E109",
+                    )
+                )
+        from obox_builder.contrib.admin.inlines import InlineModelAdmin
+
+        for inline_class in self.inlines:
+            try:
+                if not isinstance(inline_class, type) or not issubclass(
+                    inline_class, InlineModelAdmin
+                ):
+                    raise ImproperlyConfigured("inlines must contain InlineModelAdmin subclasses.")
+                messages.extend(inline_class(self.model, self.site).validate())
+            except ImproperlyConfigured as exc:
+                messages.append(Error(f"{self.model_label}: {exc}", id="obox.admin.E110"))
         if self.base_path is not None and not BASE_PATH_RE.match(self.base_path.strip("/")):
             messages.append(
                 Error(

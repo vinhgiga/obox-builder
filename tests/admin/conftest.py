@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -22,6 +23,22 @@ _obox_builder.setup()
 _settings.reset()
 _obox_builder._reset()
 _post_migrate.clear()
+
+
+def deletion_confirmation(response: httpx.Response) -> str:
+    match = re.search(r'name="_delete_confirmation" value="([^"]+)"', response.text)
+    assert match is not None
+    return match[1]
+
+
+async def confirmed_delete(
+    client: httpx.AsyncClient, url: str, data: dict[str, Any]
+) -> httpx.Response:
+    preview = await client.post(url, data=data)
+    assert preview.status_code == 200, preview.text
+    return await client.post(
+        url, data={**data, "_delete_confirmation": deletion_confirmation(preview)}
+    )
 
 
 @pytest.fixture
@@ -53,6 +70,59 @@ async def client(admin_env: None) -> AsyncIterator[httpx.AsyncClient]:
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as http:
         yield http
     await dispose()
+
+
+@pytest.fixture
+async def relation_client(client: httpx.AsyncClient) -> AsyncIterator[httpx.AsyncClient]:
+    from obox_builder.contrib.admin import ModelAdmin, TabularInline, site
+
+    from tests.support.apps.shop.models import (
+        Asset,
+        Invoice,
+        Label,
+        Order,
+        OrderLine,
+        Shipment,
+        Tracking,
+    )
+
+    class LineInline(TabularInline):
+        model = OrderLine
+        fields = ("sku", "quantity", "product_id", "asset_id")
+        autocomplete_fields = ("product_id", "asset_id")
+
+    class OrderAdmin(ModelAdmin):
+        fields = ("reference", "labels")
+        autocomplete_fields = ("labels",)
+        inlines = (LineInline,)
+
+    models = (Asset, Label, OrderLine, Shipment, Tracking, Invoice, Order)
+    previous = {model: site.get_model_admin_for(model) for model in models}
+    for model in models:
+        search = (
+            "title"
+            if model is Label
+            else "sku"
+            if model is OrderLine
+            else "name"
+            if model is not Order
+            else "reference"
+        )
+        site.register(
+            model,
+            OrderAdmin
+            if model is Order
+            else type(f"{model.__name__}Admin", (ModelAdmin,), {"search_fields": (search,)}),
+        )
+    try:
+        transport = httpx.ASGITransport(app=build_app())
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as http:
+            yield http
+    finally:
+        for model, admin in previous.items():
+            site.unregister(model)
+            if admin is not None:
+                site.register(model, type(admin))
 
 
 async def ensure_permissions() -> None:

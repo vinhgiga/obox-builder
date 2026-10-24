@@ -1,0 +1,41 @@
+{% from "admin/macros/widgets.html" import widget %}
+{% from "admin/macros/cells.html" import cell_text %}
+{% macro inline_row(group, row) %}
+{% if group.inline.layout == 'tabular' %}<tr data-inline-row>{% else %}<div class="card card-body mb-3" data-inline-row>{% endif %}
+  {% for spec in row.specs %}
+  {% if group.inline.layout == 'tabular' %}<td class="align-top" style="min-width: 160px">{% endif %}
+    {% if row.readonly or spec.readonly %}
+      <div class="form-label">{{ spec.label }}</div>
+      <div class="form-control-plaintext">{% if row.cells.get(spec.name) %}{{ cell_text(row.cells[spec.name]) }}{% else %}&mdash;{% endif %}</div>
+    {% else %}
+      {{ widget(spec, row['values'].get(spec.name, ''), row.errors.get(spec.name), row.choices.get(spec.name, []), false, prefix=row.prefix, autocomplete_url=row.autocomplete_urls.get(spec.name, ''), html_required=false) }}
+    {% endif %}
+  {% if group.inline.layout == 'tabular' %}</td>{% endif %}
+  {% endfor %}
+  {% if group.inline.layout == 'tabular' %}<td class="align-top">{% endif %}
+    <input type="hidden" name="{{ row.prefix }}_pk" value="{{ row.pk }}"/>
+    {% if row.errors.get('__all__') %}<div class="text-danger">{{ row.errors['__all__'] | join('; ') }}</div>{% endif %}
+    {% if row.can_delete %}
+    <label class="form-check"><input type="checkbox" class="form-check-input" name="{{ row.prefix }}_delete" value="1" {{ 'checked' if row.delete }}/><span class="form-check-label">Delete</span></label>
+    {% elif not row.obj and group.can_add %}
+    <input type="hidden" name="{{ row.prefix }}_delete" value="{{ '1' if row.delete else '0' }}"/>
+    <button type="button" class="btn btn-sm" data-inline-remove>Remove</button>
+    {% endif %}
+  {% if group.inline.layout == 'tabular' %}</td></tr>{% else %}</div>{% endif %}
+{% endmacro %}
+{% for group in inline_formsets %}
+<section class="card mt-3" data-inline-formset data-prefix="{{ group.prefix }}" data-max="{{ group.max_num }}">
+  <div class="card-header"><h3 class="card-title">{{ group.inline.plural_name }}</h3></div>
+  <div class="card-body">
+    {% for error in group.errors %}<div class="alert alert-danger">{{ error }}</div>{% endfor %}
+    <input type="hidden" name="{{ group.prefix }}_total" value="{{ group.rows | length }}" data-inline-total/>
+    {% if group.inline.layout == 'tabular' %}<div class="table-responsive"><table class="table"><tbody data-inline-rows>{% else %}<div data-inline-rows>{% endif %}
+    {% for row in group.rows %}{{ inline_row(group, row) }}{% endfor %}
+    {% if group.inline.layout == 'tabular' %}</tbody></table></div>{% else %}</div>{% endif %}
+    {% if group.can_add %}
+    <template data-inline-empty>{{ inline_row(group, group.empty) }}</template>
+    <button type="button" class="btn btn-sm" data-inline-add>Add {{ group.inline.name | lower }}</button>
+    {% endif %}
+  </div>
+</section>
+{% endfor %}

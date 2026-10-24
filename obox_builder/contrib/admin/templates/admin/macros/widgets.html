@@ -1,33 +1,38 @@
-{% macro widget(spec, value, errors, choices, readonly) %}
+{% macro widget(spec, value, errors, choices, readonly, prefix="", autocomplete_url="", html_required=true) %}
+{% set name = prefix ~ spec.name %}
 <div class="mb-3">
-  <label class="form-label {{ 'required' if spec.required and not readonly }}" for="id_{{ spec.name }}">{{ spec.label }}</label>
+  <label class="form-label {{ 'required' if spec.required and not readonly }}" for="id_{{ name }}">{{ spec.label }}</label>
   {% if spec.type.widget == 'checkbox' %}
     <label class="form-check form-switch">
-      <input class="form-check-input" type="checkbox" name="{{ spec.name }}" id="id_{{ spec.name }}"
+      <input class="form-check-input" type="checkbox" name="{{ name }}" id="id_{{ name }}"
              value="true" {{ 'checked' if value in ('true', 'True', 'on', '1', true) }}
              {% if readonly %}disabled{% endif %}/>
     </label>
-  {% elif spec.type.widget == 'select' %}
-    <select class="form-select {{ 'is-invalid' if errors }}" name="{{ spec.name }}" id="id_{{ spec.name }}"
-            {% if readonly %}disabled{% endif %}>
-      {% if not spec.required %}<option value=""></option>{% endif %}
+  {% elif spec.type.widget in ('select', 'multiselect') %}
+    {% set multiple = spec.type.widget == 'multiselect' %}
+    <div{% if autocomplete_url %} data-relation-picker data-url="{{ autocomplete_url }}"{% endif %}>
+    {% if multiple %}<input type="hidden" name="{{ name }}" value=""/>{% endif %}
+    <select class="form-select {{ 'is-invalid' if errors }}" name="{{ name }}" id="id_{{ name }}"
+            {% if readonly %}disabled{% endif %} {% if multiple %}multiple{% endif %} {% if spec.required and html_required %}required{% endif %}>
+      {% if not spec.required and not multiple %}<option value=""></option>{% endif %}
       {% for option_value, option_label in choices or [] %}
-        <option value="{{ option_value }}" {{ 'selected' if value|string == option_value|string }}>{{ option_label }}</option>
+        <option value="{{ option_value }}" {{ 'selected' if (option_value|string in value if multiple else value|string == option_value|string) }}>{{ option_label }}</option>
       {% endfor %}
     </select>
+    </div>
   {% elif spec.type.widget == 'textarea' or spec.type.widget == 'json' %}
-    <textarea class="form-control {{ 'is-invalid' if errors }}" name="{{ spec.name }}" id="id_{{ spec.name }}"
+    <textarea class="form-control {{ 'is-invalid' if errors }}" name="{{ name }}" id="id_{{ name }}"
               rows="4" {% if readonly %}disabled{% endif %}>{{ value or '' }}</textarea>
   {% elif spec.type.widget == 'number' %}
     <input type="number" step="{{ 'any' if spec.type.name == 'decimal' else '1' }}"
-           name="{{ spec.name }}" id="id_{{ spec.name }}" value="{{ value or '' }}"
+           name="{{ name }}" id="id_{{ name }}" value="{{ value or '' }}"
            class="form-control {{ 'is-invalid' if errors }}"
-           {% if spec.required %}required{% endif %} {% if readonly %}disabled{% endif %}/>
+           {% if spec.required and html_required %}required{% endif %} {% if readonly %}disabled{% endif %}/>
   {% else %}
     <input type="{{ spec.type.widget if spec.type.widget in ('text', 'email', 'url', 'date', 'datetime', 'time') else 'text' }}"
-           name="{{ spec.name }}" id="id_{{ spec.name }}" value="{{ value or '' }}"
+           name="{{ name }}" id="id_{{ name }}" value="{{ value or '' }}"
            class="form-control {{ 'is-invalid' if errors }}"
-           {% if spec.required %}required{% endif %} {% if readonly %}disabled{% endif %}/>
+           {% if spec.required and html_required %}required{% endif %} {% if readonly %}disabled{% endif %}/>
   {% endif %}
   {% if spec.help_text %}<small class="form-hint">{{ spec.help_text }}</small>{% endif %}
   {% for error in errors or [] %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}

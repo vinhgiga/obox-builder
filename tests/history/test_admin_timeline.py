@@ -14,6 +14,7 @@ from obox_builder.db.session import session_scope
 
 from tests.admin.conftest import (
     build_app,
+    confirmed_delete,
     csrf_for,
     ensure_permissions,
     grant_permissions,
@@ -260,7 +261,8 @@ async def test_bulk_delete_records_one_entry_per_row(client: httpx.AsyncClient) 
     first = await make_item("Anvil")
     second = await make_item("Bolt")
 
-    response = await client.post(
+    response = await confirmed_delete(
+        client,
         f"{LIST_URL}/actions",
         data={
             "csrf_token": token,
@@ -268,7 +270,6 @@ async def test_bulk_delete_records_one_entry_per_row(client: httpx.AsyncClient) 
             "select_across": "0",
             "_selected_action": [str(first), str(second)],
         },
-        follow_redirects=False,
     )
     assert response.status_code == 303
 

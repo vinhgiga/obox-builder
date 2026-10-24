@@ -8,6 +8,7 @@ from obox_builder.conf import SETTINGS_MODULE_ENV
 from obox_builder.contrib.auth import sessions
 from obox_builder.contrib.auth.models import Session as AuthSession
 from obox_builder.contrib.auth.models import User
+from obox_builder.contrib.auth.permissions import collect_permissions
 from obox_builder.core.management.cli import create_typer_app
 from obox_builder.db.base import ModelBase
 from obox_builder.db.engine import run_async
@@ -135,7 +136,7 @@ def test_sync_permissions_command(env: None) -> None:
     runner = CliRunner()
     result = runner.invoke(create_typer_app(), ["sync_permissions"])
     assert result.exit_code == 0, result.output
-    assert "Created 29 permission(s)." in result.output
+    assert f"Created {len(collect_permissions())} permission(s)." in result.output
 
     again = runner.invoke(create_typer_app(), ["sync_permissions", "--dry-run"])
     assert again.exit_code == 0, again.output

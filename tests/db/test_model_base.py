@@ -38,14 +38,24 @@ def test_models_are_registered_in_the_app_registry(populated: None) -> None:
     from obox_builder.apps import apps
 
     models = {model.__name__: model for model in apps.get_models()}
-    assert set(models) == {"Category", "Order", "Product"}
+    assert set(models) == {
+        "Category",
+        "Order",
+        "Product",
+        "Label",
+        "Asset",
+        "OrderLine",
+        "Shipment",
+        "Tracking",
+        "Invoice",
+    }
     assert models["Product"] is not None
 
 
 def test_bare_tables_are_registered(populated: None) -> None:
     from obox_builder.apps import apps
 
-    assert {table.name for table in apps.get_tables()} == {"shop_order_items"}
+    assert {table.name for table in apps.get_tables()} == {"shop_order_items", "shop_order_labels"}
 
 
 def test_relationship_defaults_to_lazy_raise(populated: None) -> None:

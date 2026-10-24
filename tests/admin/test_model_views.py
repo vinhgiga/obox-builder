@@ -10,6 +10,7 @@ from obox_builder.db.session import session_scope
 from tests.admin.conftest import (
     build_app,
     csrf_for,
+    deletion_confirmation,
     grant_permissions,
     login_session,
     make_user,
@@ -233,7 +234,9 @@ async def test_delete_requires_confirmation_then_removes(client: httpx.AsyncClie
     assert confirm.status_code == 200
     assert "Are you sure" in confirm.text
     deleted = await client.post(
-        f"{LIST_URL}/{product_id}/delete", data={"csrf_token": token}, follow_redirects=False
+        f"{LIST_URL}/{product_id}/delete",
+        data={"csrf_token": token, "_delete_confirmation": deletion_confirmation(confirm)},
+        follow_redirects=False,
     )
     assert deleted.status_code == 303
     assert await get_product(product_id) is None
@@ -253,7 +256,7 @@ async def test_delete_is_blocked_by_foreign_key(client: httpx.AsyncClient) -> No
         follow_redirects=False,
     )
     assert response.status_code == 409
-    assert "Could not save" in response.text
+    assert "prevents deletion" in response.text
 
     async with session_scope() as db:
         category = await db.get(Category, category_id)

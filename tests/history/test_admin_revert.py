@@ -15,6 +15,7 @@ from obox_builder.db.session import session_scope
 
 from tests.admin.conftest import (
     build_app,
+    confirmed_delete,
     csrf_for,
     ensure_permissions,
     grant_permissions,
@@ -255,10 +256,10 @@ async def test_revert_delete_restores_the_same_primary_key(client: httpx.AsyncCl
     await login_session(client, "alice")
     item_id = await make_item("Anvil", quantity=7)
     token = await csrf_for("alice")
-    deleted = await client.post(
+    deleted = await confirmed_delete(
+        client,
         f"{LIST_URL}/{item_id}/delete",
         data={"csrf_token": token},
-        follow_redirects=False,
     )
     assert deleted.status_code == 303
     delete_id = await last_entry_id(Item, item_id, "delete")
@@ -282,7 +283,7 @@ async def test_revert_delete_is_blocked_when_the_pk_is_in_use(client: httpx.Asyn
     await login_session(client, "alice")
     item_id = await make_item("Anvil")
     token = await csrf_for("alice")
-    await client.post(f"{LIST_URL}/{item_id}/delete", data={"csrf_token": token})
+    await confirmed_delete(client, f"{LIST_URL}/{item_id}/delete", data={"csrf_token": token})
     delete_id = await last_entry_id(Item, item_id, "delete")
     # Reuse the primary key for a different row.
     async with session_scope() as db:
@@ -310,9 +311,9 @@ async def test_revert_is_blocked_for_masked_and_secret_and_m2m_changes(
         contact_id = contact.id
 
     async with session_scope() as db:
-        contact = await db.get(Contact, contact_id)
-        assert contact is not None
-        contact.email = "ada.lovelace@example.com"
+        refreshed = await db.get(Contact, contact_id)
+        assert refreshed is not None
+        refreshed.email = "ada.lovelace@example.com"
     masked_entry = await last_entry_id(Contact, contact_id, "update")
     token = await csrf_for("alice")
     blocked = await client.post(

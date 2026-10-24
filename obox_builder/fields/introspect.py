@@ -22,7 +22,7 @@ from obox_builder.fields.types.boolean import Checkbox
 from obox_builder.fields.types.choice import SingleSelect
 from obox_builder.fields.types.json import Json
 from obox_builder.fields.types.number import Decimal, Integer
-from obox_builder.fields.types.relation import Link
+from obox_builder.fields.types.relation import Link, MultiLink
 from obox_builder.fields.types.temporal import Date, DateTime, Time
 from obox_builder.fields.types.text import LongText, Text
 from obox_builder.utils.strings import humanize
@@ -61,7 +61,16 @@ def introspect_model(
         relationship = relationship_by_column.get(column.key)
         if relationship is not None:
             rel_key, target = relationship
-            field_type = Link(**{**type_options, "relationship": rel_key, "target": target})
+            rel = mapper.relationships[rel_key]
+            remote = next(remote for local, remote in rel.local_remote_pairs if local is column)
+            field_type = Link(
+                **{
+                    **type_options,
+                    "relationship": rel_key,
+                    "target": target,
+                    "target_field": remote.key,
+                }
+            )
             type_options = dict(field_type.options)
         secret = bool(info.get("secret")) or attr.key.endswith(SECRET_SUFFIXES)
         options: dict[str, Any] = dict(type_options)
@@ -102,6 +111,35 @@ def introspect_model(
         if relationship is not None:
             spec = replace(spec, options={**spec.options, "value_attr": relationship[0]})
         specs.append(spec)
+    for rel in mapper.relationships:
+        if rel.secondary is None or not rel.uselist:
+            continue
+        info = dict(rel.info.get("admin", {}))
+        if info.get("ignore"):
+            continue
+        secondary_columns = set(rel.secondary.c)
+        link_columns = {column for column in secondary_columns if column.foreign_keys}
+        readonly = rel.viewonly or secondary_columns != link_columns or bool(info.get("readonly"))
+        field_type = _coerce_override(overrides[rel.key]) if rel.key in overrides else MultiLink()
+        specs.append(
+            FieldSpec(
+                name=rel.key,
+                label=str(info.get("label") or humanize(rel.key)),
+                type=field_type,
+                readonly=readonly,
+                editable=not readonly,
+                required=bool(info.get("required")),
+                help_text=str(info.get("help_text", "")),
+                history=False,
+                options={
+                    **field_type.options,
+                    "target": rel.mapper.class_,
+                    "relationship": rel.key,
+                    "value_attr": rel.key,
+                    "secret": bool(info.get("secret")),
+                },
+            )
+        )
     return specs
 
 

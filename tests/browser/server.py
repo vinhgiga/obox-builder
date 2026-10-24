@@ -20,6 +20,7 @@ def main() -> None:
         import obox_builder
 
         obox_builder.setup()
+        from obox_builder.contrib.admin import ModelAdmin, TabularInline
         from obox_builder.contrib.admin.site import site
         from obox_builder.contrib.auth.permissions import sync_permissions
         from obox_builder.contrib.auth.services import create_user
@@ -30,7 +31,22 @@ def main() -> None:
         from obox_builder.db.session import session_scope
 
         from tests.support.apps.commentsdemo.models import Ticket
-        from tests.support.apps.shop.models import Product
+        from tests.support.apps.shop.models import Label, Order, OrderLine, Product
+
+        class LineInline(TabularInline):
+            model = OrderLine
+            fields = ("sku", "quantity", "product_id")
+            autocomplete_fields = ("product_id",)
+
+        class OrderAdmin(ModelAdmin):
+            fields = ("reference", "labels")
+            list_display = ("id", "reference", "labels")
+            autocomplete_fields = ("labels",)
+            inlines = (LineInline,)
+
+        site.register(Label, type("LabelAdmin", (ModelAdmin,), {"search_fields": ("title",)}))
+        site.register(OrderLine)
+        site.register(Order, OrderAdmin)
 
         async def seed() -> None:
             async with get_engine().begin() as connection:
@@ -40,6 +56,9 @@ def main() -> None:
                 user = await create_user(db, "browser-user", "Browser-test-password-2026!")
                 user.is_superuser = True
                 db.add_all([Product(name=f"Product {i}") for i in range(70)])
+                db.add_all(
+                    [Label(id=f"label-{i:02}", title=f"Browser label {i:02}") for i in range(25)]
+                )
                 db.add(Ticket(title="Browser discussion"))
 
         run_async(seed())

@@ -1,26 +1,35 @@
 {% extends "admin/base.html" %}
 {% from "admin/macros/forms.html" import csrf %}
-{% block title %}Delete {{ admin.name | lower }}{% endblock %}
+{% block title %}Review deletion{% endblock %}
 {% block content %}
 <div class="page-header d-print-none">
-  <div class="row g-2 align-items-center">
-    <div class="col">
-      <h2 class="page-title">Delete {{ admin.name | lower }}</h2>
-    </div>
-    <div class="col-auto ms-auto d-print-none">
-      <a href="{{ admin.list_path() }}" class="btn">Back to {{ admin.plural_name | lower }}</a>
-    </div>
-  </div>
+  <h2 class="page-title">Review deletion</h2>
 </div>
-{% if error %}
-<div class="alert alert-danger">{{ error }}</div>
-{% endif %}
+{% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
 <div class="card">
   <div class="card-body">
-    <p>Are you sure you want to delete <strong>{{ target }}</strong>? This cannot be undone.</p>
-    <form method="post" action="{{ admin.delete_path(admin.get_pk(target)) }}" class="d-flex">
+    <p>Are you sure you want to delete {{ plan.roots | length }} {{ admin.plural_name | lower if bulk else admin.name | lower }}? Review all affected records below.</p>
+    <ul>{% for model, count in plan.counts.items() %}<li>{{ model }}: {{ count }}</li>{% endfor %}</ul>
+    <ul class="list-group list-group-flush mb-3">
+    {% for effect in plan.effects.values() %}
+      <li class="list-group-item" data-delete-effect="{{ effect.action }}">
+        <span class="badge {{ 'bg-red-lt' if effect.action == 'delete' else 'bg-yellow-lt' }} me-2">{{ {'delete': 'Delete', 'update': 'Clear link', 'unlink': 'Remove link', 'blocked': 'Protected'}[effect.action] }}</span>
+        <strong>{{ effect.model }}</strong>: {{ effect.label }}
+      </li>
+    {% endfor %}
+    </ul>
+    {% for blocker in plan.blockers %}<div class="alert alert-danger">{{ blocker }}</div>{% endfor %}
+    {% if plan.permissions %}<div class="alert alert-danger">Additional permissions required: {{ plan.permissions | sort | join(', ') }}.</div>{% endif %}
+    <p class="text-secondary">Deleted records cannot be recovered through this form.</p>
+    <form method="post" action="{{ action }}">
       {{ csrf(csrf_token) }}
-      <button type="submit" class="btn btn-danger me-2">Delete</button>
+      <input type="hidden" name="_delete_confirmation" value="{{ confirmation }}"/>
+      {% if bulk %}
+      <input type="hidden" name="action" value="delete_selected"/>
+      <input type="hidden" name="select_across" value="0"/>
+      {% for pk in selected %}<input type="hidden" name="_selected_action" value="{{ pk }}"/>{% endfor %}
+      {% endif %}
+      <button type="submit" class="btn btn-danger me-2" {% if not plan.allowed %}disabled{% endif %}>Confirm deletion</button>
       <a href="{{ admin.list_path() }}" class="btn">Cancel</a>
     </form>
   </div>

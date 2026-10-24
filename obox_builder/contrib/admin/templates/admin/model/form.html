@@ -37,11 +37,12 @@
               {% if spec.help_text %}<small class="form-hint">{{ spec.help_text }}</small>{% endif %}
             </div>
             {% else %}
-            {{ widget(spec, values.get(spec.name, ''), errors.get(spec.name), choices.get(spec.name, []), readonly or spec.readonly) }}
+            {{ widget(spec, values.get(spec.name, ''), errors.get(spec.name), choices.get(spec.name, []), readonly or spec.readonly, autocomplete_url=autocomplete_urls.get(spec.name, '')) }}
             {% endif %}
           {% endfor %}
         </div>
       </div>
+      {% include "admin/model/inlines.html" %}
       {% if not readonly %}
       <div class="btn-list mt-3">
         <button type="submit" name="_action" value="save" class="btn btn-primary">Save</button>

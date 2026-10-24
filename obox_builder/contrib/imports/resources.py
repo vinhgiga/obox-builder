@@ -37,8 +37,11 @@ class ImportResource:
         self.specs = [
             replace(spec, readonly=False, editable=True) if spec.primary_key else spec
             for spec in source
-            if (spec.is_editable() and not spec.primary_key)
-            or (spec.primary_key and spec.name in self.keys and not spec.secret)
+            if spec.type.name != "multi_link"
+            and (
+                (spec.is_editable() and not spec.primary_key)
+                or (spec.primary_key and spec.name in self.keys and not spec.secret)
+            )
         ]
         self.label = f"{model._model_label}.{camel_to_snake(model.__name__)}"
         self.columns = {spec.name: spec for spec in self.specs}

@@ -10,6 +10,7 @@ from obox_builder.contrib.admin import ModelAdmin
 from obox_builder.db.session import session_scope
 from pydantic import create_model, model_validator
 
+from tests.admin.conftest import confirmed_delete
 from tests.admin.test_model_views import LIST_URL, get_product, make_product, product_form
 from tests.admin.test_permissions import signed_in
 from tests.support.apps.shop.admin import ProductAdmin
@@ -206,7 +207,8 @@ async def test_delete_hooks_cover_single_and_bulk_deletion(
     monkeypatch.setattr(ProductAdmin, "delete_queryset", delete_many)
     monkeypatch.setattr(ProductAdmin, "response_delete", response)
     suffix = "/actions" if bulk else f"/{pk}/delete"
-    result = await client.post(
+    result = await confirmed_delete(
+        client,
         LIST_URL + suffix,
         data={
             "csrf_token": token,

@@ -7,7 +7,7 @@ from obox_builder.fields.types.boolean import Checkbox
 from obox_builder.fields.types.choice import SingleSelect
 from obox_builder.fields.types.json import Json
 from obox_builder.fields.types.number import Decimal, Integer
-from obox_builder.fields.types.relation import Link
+from obox_builder.fields.types.relation import Link, MultiLink
 from obox_builder.fields.types.temporal import Date, DateTime, Time
 from obox_builder.fields.types.text import URL, Email, LongText, Phone, Text
 
@@ -25,6 +25,7 @@ BUILTIN_TYPES: tuple[type, ...] = (
     Time,
     SingleSelect,
     Link,
+    MultiLink,
     Json,
 )
 
@@ -41,6 +42,7 @@ __all__ = [
     "Integer",
     "Json",
     "Link",
+    "MultiLink",
     "LongText",
     "Phone",
     "SingleSelect",

@@ -79,7 +79,7 @@ for (const [engine, browserType] of Object.entries({chromium, firefox, webkit}))
       await ready(page, "Users");
       await page.goBack();
       await ready(page, "Products");
-      assert.ok(await page.evaluate(() => window.scrollY >= 350));
+      await page.waitForFunction(() => window.scrollY >= 350);
       await page.goForward();
       await ready(page, "Users");
       await page.goBack();
@@ -124,8 +124,10 @@ for (const [engine, browserType] of Object.entries({chromium, firefox, webkit}))
       await page.locator("[data-confirm-cancel]").click();
       await page.locator('form[data-confirm] button').first().click();
       await page.locator("[data-confirm-ok]").click();
+      await ready(page, "Review deletion");
+      await page.getByRole("button", {name: "Confirm deletion"}).click();
       await page.getByRole("alert").filter({hasText: "deleted"}).waitFor();
-      assert.equal(requests.filter((request) => request.method() === "POST").length, beforeDelete + 1);
+      assert.equal(requests.filter((request) => request.method() === "POST").length, beforeDelete + 2);
 
       // Composers and polling must work after navigation and stop on departure.
       await page.locator('#admin-sidebar-shell a[href="/admin/commentsdemo/ticket"]').click();
@@ -175,7 +177,7 @@ for (const [engine, browserType] of Object.entries({chromium, firefox, webkit}))
   });
 }
 
-test("navigation still works with JavaScript disabled", async () => {
+test("navigation, child forms and deletion work with JavaScript disabled", async () => {
   const browser = await chromium.launch();
   try {
     const page = await browser.newPage({javaScriptEnabled: false});
@@ -186,5 +188,86 @@ test("navigation still works with JavaScript disabled", async () => {
     await page.locator('#admin-sidebar-shell a[href="/admin/shop/product"]').click();
     assert.match(await page.title(), /^Products/);
     assert.equal(await page.locator("#admin-main").count(), 1);
+    await page.goto(`${origin}/admin/shop/order/add`);
+    await page.locator('[name="reference"]').fill("Browser order without scripts");
+    await page.locator('[name="inline:0:0:sku"]').fill("Line without scripts");
+    await page.getByRole("button", {name: "Save", exact: true}).click();
+    await page.waitForURL(`${origin}/admin/shop/order`);
+    await page.getByRole("row").filter({hasText: "Browser order without scripts"})
+      .getByRole("link", {name: "Edit", exact: true}).click();
+    assert.equal(await page.locator('[name="inline:0:0:sku"]').inputValue(), "Line without scripts");
+    const detail = page.url();
+    await page.getByRole("button", {name: "Save and continue editing", exact: true}).click();
+    await page.getByRole("alert").filter({hasText: "updated"}).waitFor();
+    await page.goto(detail + "/delete");
+    assert.match(await page.locator("#admin-main").textContent(), /Line without scripts/);
+    await page.getByRole("button", {name: "Confirm deletion"}).click();
+    await page.waitForURL(`${origin}/admin/shop/order`);
+    assert.equal(await page.getByRole("row").filter({hasText: "Browser order without scripts"}).count(), 0);
   } finally { await browser.close(); }
 });
+
+for (const [engine, browserType] of Object.entries({chromium, firefox, webkit})) {
+  test(`${engine}: relation search, multiple selections, child forms and deletion preview`, {timeout: 90000}, async () => {
+    const browser = await browserType.launch();
+    let page;
+    const errors = [];
+    try {
+      page = await browser.newPage({reducedMotion: "reduce"});
+      page.on("pageerror", (error) => errors.push(error.message));
+      page.setDefaultTimeout(10000);
+      await login(page);
+      await page.goto(`${origin}/admin/shop/order/add`);
+      const reference = `Browser order ${engine}`;
+      await page.locator('[name="reference"]').fill(reference);
+      const labels = page.locator('[data-relation-picker]').filter({has: page.locator('select[name="labels"]')});
+      await labels.getByRole("combobox").fill("Browser label");
+      await labels.getByRole("option", {name: "Browser label 00", exact: true}).waitFor();
+      await labels.getByRole("button", {name: "Load more"}).click();
+      await labels.getByRole("option", {name: "Browser label 24", exact: true}).click();
+      await labels.getByRole("combobox").fill("Browser label 01");
+      await labels.getByRole("option", {name: "Browser label 01", exact: true}).waitFor();
+      await labels.getByRole("combobox").press("ArrowDown");
+      await labels.getByRole("combobox").press("Enter");
+      assert.equal(await labels.locator('select option:checked').count(), 2);
+      await page.locator('[name="inline:0:0:sku"]').fill(`Line A ${engine}`);
+      const product = page.locator('[data-relation-picker]').filter({has: page.locator('select[name="inline:0:0:product_id"]')});
+      await product.getByRole("combobox").fill("Product 0");
+      await product.getByRole("option", {name: "Product 0", exact: true}).click();
+      await page.locator("[data-inline-add]").click();
+      await page.locator('[name="inline:0:1:sku"]').fill(`Line B ${engine}`);
+      await page.locator("[data-inline-add]").click();
+      await page.locator('[name="inline:0:2:sku"]').fill("Discard this line");
+      await page.locator("[data-inline-row]").nth(2).locator("[data-inline-remove]").click();
+      await page.getByRole("button", {name: "Save", exact: true}).click();
+      await page.waitForURL(`${origin}/admin/shop/order`);
+      const row = page.getByRole("row").filter({hasText: reference});
+      await row.getByRole("link", {name: "Edit", exact: true}).click();
+      assert.equal(await page.locator('[name="inline:0:0:sku"]').inputValue(), `Line A ${engine}`);
+      assert.equal(await page.locator('[name="inline:0:1:sku"]').inputValue(), `Line B ${engine}`);
+      assert.equal(await page.locator('select[name="labels"] option:checked').count(), 2);
+      const detail = page.url();
+      await page.locator('#admin-sidebar-shell a[href="/admin/users"]').click();
+      await page.waitForFunction(() => document.title.startsWith("Users"));
+      await page.goBack();
+      await page.waitForURL(detail);
+      await page.waitForFunction(() => document.title.startsWith("Edit order"));
+      const restored = page.locator('[data-relation-picker]').filter({has: page.locator('select[name="labels"]')});
+      await restored.getByRole("combobox").fill("Browser label 02");
+      await restored.getByRole("option", {name: "Browser label 02", exact: true}).click();
+      assert.equal(await restored.locator('select option:checked').count(), 3);
+      await page.getByRole("button", {name: "Save and continue editing", exact: true}).click();
+      await page.getByRole("alert").filter({hasText: "updated"}).waitFor();
+      await page.goto(detail + "/delete");
+      assert.match(await page.locator("#admin-main").textContent(), new RegExp(`Line A ${engine}`));
+      assert.match(await page.locator("#admin-main").textContent(), /Remove link/);
+      await page.getByRole("button", {name: "Confirm deletion"}).click();
+      await page.waitForURL(`${origin}/admin/shop/order`);
+      assert.equal(await page.getByRole("row").filter({hasText: reference}).count(), 0);
+      assert.deepEqual(errors, []);
+    } catch (error) {
+      console.error(engine, page?.url(), error.message);
+      throw error;
+    } finally { await browser.close(); }
+  });
+}

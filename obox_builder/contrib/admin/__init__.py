@@ -6,6 +6,7 @@ from typing import Any
 
 from obox_builder.contrib.admin.actions import action, delete_selected
 from obox_builder.contrib.admin.context import AdminContext
+from obox_builder.contrib.admin.inlines import InlineModelAdmin, StackedInline, TabularInline
 from obox_builder.contrib.admin.navigation import NavGroup, NavItem, build_navigation
 from obox_builder.contrib.admin.options import ModelAdmin
 from obox_builder.contrib.admin.site import AdminSite, site
@@ -14,6 +15,9 @@ __all__ = [
     "AdminContext",
     "AdminSite",
     "ModelAdmin",
+    "InlineModelAdmin",
+    "StackedInline",
+    "TabularInline",
     "NavGroup",
     "NavItem",
     "action",

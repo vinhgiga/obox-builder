@@ -19,6 +19,7 @@ from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Any
 
 import sqlalchemy as sa
+from fastapi.responses import Response
 from sqlalchemy.exc import IntegrityError
 
 from obox_builder.http.messages import add_message
@@ -53,19 +54,38 @@ def action(
 
 
 @action(description="Delete selected %(verbose_name_plural)s", permissions=("delete",))
-async def delete_selected(admin: ModelAdmin, ctx: AdminContext, queryset: sa.Select[Any]) -> None:
+async def delete_selected(
+    admin: ModelAdmin, ctx: AdminContext, queryset: sa.Select[Any]
+) -> Response | None:
     """Delete every row matched by ``queryset`` (built-in, all-or-nothing).
 
     Rows are deleted through the ORM one at a time so per-row side effects
     (row history, signals) observe each change individually.
     """
-    pk_column = admin.pk_column()
-    pks = (
-        (await ctx.db.execute(queryset.with_only_columns(pk_column).order_by(None))).scalars().all()
-    )
+    from obox_builder.contrib.admin.deletion import collect_deletion, confirmed, deletion_page
+
+    objects = list((await ctx.db.scalars(queryset)).unique())
+    pks = [admin.get_pk(obj) for obj in objects]
     if not pks:
         await add_message(ctx.request, "No matching records to delete.", "warning")
-        return
+        return None
+    plan = await collect_deletion(ctx, objects, lock=True)
+    if not plan.allowed:
+        return await deletion_page(
+            ctx, plan, bulk=True, status_code=403 if plan.permissions else 409
+        )
+    data = await ctx.request.form()
+    token = data.get("_delete_confirmation")
+    if not confirmed(ctx, plan, token):
+        return await deletion_page(
+            ctx,
+            plan,
+            bulk=True,
+            error="Related records changed or confirmation expired. Review the deletion again."
+            if token
+            else "",
+            status_code=409 if token else 200,
+        )
     try:
         async with ctx.db.begin_nested():
             await admin.delete_queryset(ctx, queryset)
@@ -76,6 +96,7 @@ async def delete_selected(admin: ModelAdmin, ctx: AdminContext, queryset: sa.Sel
             f"Could not delete: the database rejected the change ({exc.orig}).",
             "error",
         )
-        return
+        return None
     noun = admin.name.lower() if len(pks) == 1 else admin.plural_name.lower()
     await add_message(ctx.request, f"Successfully deleted {len(pks)} {noun}.", "success")
+    return None

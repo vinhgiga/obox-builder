@@ -277,6 +277,8 @@ def _select_relations(model: type[Any], options: HistoryOptions) -> tuple[Tracke
         if rel is None or rel.secondary is None:
             continue  # flagged by obox.history.E202 at check time
         spec = specs.get(name)
+        if spec is not None and spec.secret:
+            continue
         label = spec.label if spec is not None else name.replace("_", " ").capitalize()
         relations.append(TrackedRelation(name=name, label=label))
     return tuple(relations)
@@ -287,6 +289,8 @@ def _select_fields(model: type[Any], options: HistoryOptions) -> list[TrackedFie
     versioned = sa.inspect(model).version_id_col is not None
     fields: list[TrackedField] = []
     for spec in introspect_model(model):
+        if spec.type.name == "multi_link":
+            continue
         if spec.primary_key:
             continue
         if is_timestamped and spec.name in TIMESTAMP_FIELDS:

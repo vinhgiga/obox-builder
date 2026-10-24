@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import pytest
 import sqlalchemy as sa
+from obox_builder.contrib.history import track
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -26,6 +28,22 @@ async def test_create_with_relations_records_added_ids(db: AsyncSession) -> None
 
     [row] = await changes_for(db, item, "create")
     assert row.changes["m2m"] == {"tags": {"add": [str(first.id)], "remove": []}}
+
+
+async def test_secret_relation_never_records_related_ids(
+    db: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    relationship = sa.inspect(Item).relationships["tags"]
+    monkeypatch.setitem(relationship.info, "admin", {"secret": True})
+    track(Item, relations=("tags",))
+    item, _first, second = await make_item_with_tags(db)
+    [created] = await changes_for(db, item, "create")
+    assert created.changes["m2m"] == {}
+    item.tags.append(second)
+    item.quantity = 2
+    await db.commit()
+    [updated] = await changes_for(db, item, "update")
+    assert updated.changes["m2m"] == {}
 
 
 async def test_update_records_add_and_remove(db: AsyncSession) -> None:

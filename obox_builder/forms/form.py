@@ -6,6 +6,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
+import sqlalchemy as sa
 from pydantic import BaseModel, ValidationError
 
 from obox_builder.fields.base import FieldSpec, RecordContext
@@ -48,13 +49,20 @@ class BoundForm:
         for spec in specs:
             if not spec.is_editable():
                 continue
+            if (
+                spec.type.name == "multi_link"
+                and spec.name not in data
+                and not spec.required
+                and spec.required_if is None
+            ):
+                continue
             if spec.editable_if is not None and not spec.editable_if(ctx):
                 continue
             value = spec.type.from_input(data.get(spec.name), spec)
             required = spec.required or (
                 spec.required_if is not None and bool(spec.required_if(ctx))
             )
-            if required and value in (None, ""):
+            if required and (value in (None, "") or value == []):
                 bound.errors.setdefault(spec.name, []).append("This field is required.")
                 continue
             message = spec.type.validate(value, spec)
@@ -86,7 +94,9 @@ class BoundForm:
         by_name = {spec.name: spec for spec in self.specs}
         editable = {spec.name for spec in self.specs if spec.is_editable()}
         for name, value in self.cleaned.items():
-            if name not in editable or not hasattr(obj, name):
+            if name not in editable or by_name[name].type.name == "multi_link":
+                continue
+            if not hasattr(obj, name):
                 continue
             if value is None and _uses_column_default(by_name[name]):
                 continue
@@ -111,11 +121,15 @@ def _collect_pydantic_errors(bound: BoundForm, exc: ValidationError) -> None:
         bound.errors.setdefault(field_name, []).append(str(error.get("msg", "Invalid value.")))
 
 
-def render_values(obj: Any, specs: Sequence[FieldSpec]) -> dict[str, str]:
+def render_values(obj: Any, specs: Sequence[FieldSpec]) -> dict[str, Any]:
     """Values for rendering a form: link specs read the foreign key column."""
-    values: dict[str, str] = {}
+    values: dict[str, Any] = {}
     for spec in specs:
         if not spec.is_editable():
+            continue
+        if spec.type.name == "multi_link":
+            target_pk = sa.inspect(spec.options["target"]).primary_key[0].key
+            values[spec.name] = [str(getattr(item, target_pk)) for item in getattr(obj, spec.name)]
             continue
         if spec.type.name == "link" and spec.column is not None:
             attr = str(spec.column.key)
