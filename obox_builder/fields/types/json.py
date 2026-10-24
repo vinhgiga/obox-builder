@@ -15,6 +15,7 @@ JSON_OPERATORS = {op.name: op for op in (ISNULL,)}
 @dataclass(frozen=True)
 class _InvalidJson:
     raw: str
+    message: str = "Enter valid JSON."
 
 
 def compact_json(value: Any, limit: int = 80) -> str:
@@ -42,8 +43,9 @@ class Json(FieldType):
             return None
         if not isinstance(raw, str):
             return raw
-        if len(raw.encode("utf-8")) > int(spec.options.get("max_bytes", 65_536)):
-            return _InvalidJson(raw)
+        limit = int(spec.options.get("max_bytes", 65_536))
+        if len(raw.encode("utf-8")) > limit:
+            return _InvalidJson(raw, f"JSON must be {limit} bytes or smaller.")
         try:
             return json.loads(raw)
         except (ValueError, RecursionError):
@@ -53,7 +55,7 @@ class Json(FieldType):
         if value is None:
             return None
         if isinstance(value, _InvalidJson):
-            return "Enter valid JSON."
+            return value.message
         try:
             encoded = json.dumps(value, ensure_ascii=False, allow_nan=False)
         except (TypeError, ValueError, RecursionError):

@@ -368,7 +368,11 @@ def _scalar_value(spec: FieldSpec, value: Any, *, partial: bool = False) -> Any:
     }:
         raise QuerySpecError(f"Filter {spec.name!r}: expected a boolean.")
     try:
-        parsed = spec.type.from_input(value, spec)
+        parsed = (
+            spec.type.from_partial_input(value, spec)
+            if partial
+            else spec.type.from_input(value, spec)
+        )
         parsed = TypeAdapter(spec.type.annotation(spec)).validate_python(parsed)
         if parsed is None or parsed == "":
             raise QuerySpecError(f"Filter {spec.name!r}: a value is required.")

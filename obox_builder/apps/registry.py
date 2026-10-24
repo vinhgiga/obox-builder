@@ -31,13 +31,19 @@ class Apps:
             self._populate_ready()
 
     def _populate_app_configs(self, app_configs: list[AppConfig]) -> None:
+        names = {config.name for config in self.app_configs.values()}
         for app_config in app_configs:
+            if app_config.name in names:
+                raise ImproperlyConfigured(
+                    f"Application name {app_config.name!r} is used more than once."
+                )
             if app_config.label in self.app_configs:
                 raise ImproperlyConfigured(
                     f"App label {app_config.label!r} is used by more than one installed app "
                     f"({self.app_configs[app_config.label].name!r} and {app_config.name!r})."
                 )
             self.app_configs[app_config.label] = app_config
+            names.add(app_config.name)
         self.apps_ready = True
 
     def _populate_models(self) -> None:

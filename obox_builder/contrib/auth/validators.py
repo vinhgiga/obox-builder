@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from obox_builder.conf import settings
-from obox_builder.contrib.auth.hashers import is_usable_password
 
 COMMON_PASSWORDS = frozenset(
     {
@@ -39,7 +38,7 @@ def validate_password(
     errors: list[str] = []
     if min_length is None:
         min_length = int(settings.PASSWORD_MIN_LENGTH)
-    if not is_usable_password(password):
+    if not password:
         return ["Password must not be empty."]
     if len(password) < min_length:
         errors.append(f"Password must be at least {min_length} characters long.")

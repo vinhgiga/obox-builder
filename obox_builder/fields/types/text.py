@@ -6,6 +6,7 @@ import re
 from typing import Annotated, Any
 
 from pydantic import Field as PydField
+from pydantic import HttpUrl, TypeAdapter, ValidationError
 
 from obox_builder.fields.base import Cell, FieldSpec, FieldType, Operator
 
@@ -26,6 +27,7 @@ PROSE_OPERATORS = {op.name: op for op in (EQ, NE, CONTAINS, ISNULL)}
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _PHONE_RE = re.compile(r"^[0-9+\-().\s]{6,25}$")
+_HTTP_URL_ADAPTER = TypeAdapter(HttpUrl)
 
 
 class Text(FieldType):
@@ -89,9 +91,44 @@ class URL(Text):
     name = "url"
     widget = "url"
 
+    def from_partial_input(self, raw: Any, spec: FieldSpec) -> Any:
+        return super().from_input(raw, spec)
+
+    def from_input(self, raw: Any, spec: FieldSpec) -> Any:
+        value = super().from_input(raw, spec)
+        if not isinstance(value, str) or not value:
+            return value
+        scheme, separator, _ = value.partition(":")
+        if (
+            not separator
+            or not scheme
+            or not scheme[0].isascii()
+            or not scheme[0].isalpha()
+            or "/" in scheme
+        ):
+            assume_scheme = str(self.options.get("assume_scheme", "https"))
+            if value.startswith("//"):
+                return f"{assume_scheme}:{value}"
+            return f"{assume_scheme}://{value}"
+        return value
+
     def validate(self, value: Any, spec: FieldSpec) -> str | None:
-        if value and not str(value).startswith(("http://", "https://")):
+        if value in (None, ""):
+            return None
+        try:
+            parsed = _HTTP_URL_ADAPTER.validate_python(value)
+        except ValidationError:
             return "Enter a valid URL (http:// or https://)."
+        host = parsed.host or ""
+        if not host.startswith("["):
+            normalized_host = host.rstrip(".")
+            labels = normalized_host.split(".")
+            if (
+                len(host) > 253
+                or any(not label or len(label) > 63 for label in labels)
+                or (len(labels) == 1 and normalized_host.lower() != "localhost")
+            ):
+                return "Enter a valid URL (http:// or https://)."
         return None
 
 

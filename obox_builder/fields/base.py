@@ -129,6 +129,10 @@ class FieldType(ABC):
         """Normalise a raw form value before validation."""
         return raw
 
+    def from_partial_input(self, raw: Any, spec: FieldSpec) -> Any:
+        """Normalise a partial filter value without changing its meaning."""
+        return self.from_input(raw, spec)
+
     def validate(self, value: Any, spec: FieldSpec) -> str | None:
         """Type-level validation that runs before Pydantic; return an error."""
         return None

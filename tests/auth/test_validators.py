@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+# Password validation edges are adapted from Django's auth_tests/test_validators.py.
 from obox_builder.contrib.auth.validators import PasswordValidationError, validate_password
 
 
@@ -33,6 +34,10 @@ def test_simple_repeated_password_is_rejected() -> None:
 
 def test_empty_password_is_rejected() -> None:
     assert validate_password("") == ["Password must not be empty."]
+
+
+def test_usable_password_may_start_with_unusable_hash_marker() -> None:
+    assert validate_password("!aA1bcde", min_length=8) == []
 
 
 def test_password_validation_error_carries_errors() -> None:

@@ -50,6 +50,15 @@ async def test_login_ignores_external_next(client: httpx.AsyncClient) -> None:
     assert response.headers["location"] == "/admin/"
 
 
+async def test_login_ignores_backslash_normalized_external_next(client: httpx.AsyncClient) -> None:
+    await make_user("alice")
+    response = await form_login(
+        client, "alice", "s3cure-password", next=r"/\evil.example.com/phish"
+    )
+    assert response.status_code == 303
+    assert response.headers["location"] == "/admin/"
+
+
 async def test_login_rejects_cross_origin(client: httpx.AsyncClient) -> None:
     await make_user("alice")
     response = await client.post(

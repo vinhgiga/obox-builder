@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
+import pytest
 from obox_builder.conf import settings
 from obox_builder.contrib.auth import sessions
 from obox_builder.contrib.auth.models import Session as AuthSession
@@ -91,3 +92,28 @@ async def test_cookie_helpers_set_and_clear(auth_env: None) -> None:
         "Max-Age=0" in cleared.headers["set-cookie"]
         or "max-age=0" in cleared.headers["set-cookie"].lower()
     )
+
+
+def test_session_cookie_security_flags_follow_settings(
+    auth_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from fastapi import Response
+
+    configured_settings = settings.load()
+    monkeypatch.setattr(configured_settings, "SESSION_COOKIE_SECURE", True)
+    secure = Response()
+    sessions.set_session_cookie(secure, "token-value")
+    assert "secure" in secure.headers["set-cookie"].lower()
+
+    monkeypatch.setattr(configured_settings, "DEBUG", True)
+    development = Response()
+    sessions.set_session_cookie(development, "token-value")
+    assert "secure" not in development.headers["set-cookie"].lower()
+
+
+def test_session_cookie_uses_configured_lifetime(auth_env: None) -> None:
+    from fastapi import Response
+
+    response = Response()
+    sessions.set_session_cookie(response, "token-value")
+    assert f"max-age={settings.SESSION_COOKIE_AGE}" in response.headers["set-cookie"].lower()

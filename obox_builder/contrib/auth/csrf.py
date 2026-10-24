@@ -25,14 +25,46 @@ def get_csrf_token(auth_session: AuthSession) -> str:
 
 
 def check_origin(request: Request) -> bool:
-    """Reject unsafe requests whose Origin/Referer belongs to another host."""
+    """Check unsafe request origins and require a secure Referer without Origin."""
     if request.method in SAFE_METHODS:
         return True
-    source = request.headers.get("origin") or request.headers.get("referer")
-    if not source:
+    origin = request.headers.get("origin")
+    if origin is not None:
+        return _is_same_origin(origin, str(request.url), require_bare_origin=True)
+    if request.url.scheme.lower() != "https":
         return True
-    host = urlsplit(source).netloc
-    return host == request.url.netloc
+    referer = request.headers.get("referer")
+    if referer is None:
+        return False
+    return _is_same_origin(referer, str(request.url))
+
+
+def _is_same_origin(source: str, target: str, *, require_bare_origin: bool = False) -> bool:
+    source_origin = _origin_tuple(source, require_bare_origin=require_bare_origin)
+    return source_origin is not None and source_origin == _origin_tuple(target)
+
+
+def _origin_tuple(url: str, *, require_bare_origin: bool = False) -> tuple[str, str, int] | None:
+    if any(ord(char) < 32 or ord(char) == 127 for char in url):
+        return None
+    try:
+        parsed = urlsplit(url)
+        port = parsed.port
+    except ValueError:
+        return None
+    scheme = parsed.scheme.lower()
+    hostname = parsed.hostname
+    if (
+        scheme not in {"http", "https"}
+        or hostname is None
+        or parsed.username is not None
+        or parsed.password is not None
+        or (require_bare_origin and (parsed.path or parsed.query or parsed.fragment))
+    ):
+        return None
+    if port is None:
+        port = 443 if scheme == "https" else 80
+    return scheme, hostname.lower(), port
 
 
 def validate_csrf(request: Request, auth_session: AuthSession, provided: str | None) -> None:

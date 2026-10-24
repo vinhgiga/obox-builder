@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+# Registry lifecycle cases are adapted from Django's tests/apps/tests.py.
 from pathlib import Path
 
 import pytest
@@ -52,6 +53,12 @@ def test_class_path_entry() -> None:
 def test_duplicate_labels() -> None:
     with pytest.raises(ImproperlyConfigured, match="dup"):
         apps.populate([DUP_A, DUP_B])
+
+
+def test_duplicate_app_names_are_rejected_even_with_distinct_labels() -> None:
+    alias = f"{BLOG}.apps.BlogAliasConfig"
+    with pytest.raises(ImproperlyConfigured, match="name.*used more than once"):
+        apps.populate([BLOG, alias])
 
 
 def test_unimportable_app() -> None:

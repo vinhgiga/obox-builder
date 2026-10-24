@@ -11,3 +11,8 @@ class BlogConfig(AppConfig):
 
     def ready(self) -> None:
         events.RECORDS.append("blog.ready")
+
+
+class BlogAliasConfig(AppConfig):
+    label = "blog_alias"
+    default = False
