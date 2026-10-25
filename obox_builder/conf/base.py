@@ -3,8 +3,9 @@ from __future__ import annotations
 import re
 from pathlib import Path
 from typing import Any, Literal
+from urllib.parse import urlsplit
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings as PydanticBaseSettings
 from pydantic_settings import SettingsConfigDict
 
@@ -62,6 +63,18 @@ class BaseSettings(PydanticBaseSettings):
     AUTHENTICATION_BACKENDS: list[str] = Field(
         default_factory=lambda: ["obox_builder.contrib.auth.backends.ModelBackend"]
     )
+    EMAIL_BACKEND: str = "obox_builder.contrib.email.backends.SMTPBackend"
+    EMAIL_HOST: str = "localhost"
+    EMAIL_PORT: int = Field(default=25, ge=1, le=65535)
+    EMAIL_HOST_USER: str = ""
+    EMAIL_HOST_PASSWORD: SecretStr = SecretStr("")
+    EMAIL_USE_TLS: bool = False
+    EMAIL_USE_SSL: bool = False
+    EMAIL_TIMEOUT: float = Field(default=10.0, gt=0)
+    DEFAULT_FROM_EMAIL: str = "webmaster@localhost"
+    PASSWORD_RESET_BASE_URL: str = "http://localhost:8000"  # noqa: S105
+    PASSWORD_RESET_TIMEOUT: int = Field(default=3600, ge=60)
+    PASSWORD_RESET_COOLDOWN: int = Field(default=60, ge=0)
     LOGIN_MAX_ATTEMPTS: int = 5
     LOGIN_LOCKOUT_SECONDS: int = 900
     PASSWORD_MIN_LENGTH: int = 8
@@ -175,6 +188,35 @@ class BaseSettings(PydanticBaseSettings):
         if not value or any(not path.strip() for path in value):
             raise ValueError("AUTHENTICATION_BACKENDS must contain non-blank dotted paths")
         return list(dict.fromkeys(path.strip() for path in value))
+
+    @field_validator("EMAIL_BACKEND")
+    @classmethod
+    def validate_email_backend(cls, value: str) -> str:
+        if not value.strip() or "." not in value.strip():
+            raise ValueError("EMAIL_BACKEND must be a dotted path")
+        return value.strip()
+
+    @field_validator("PASSWORD_RESET_BASE_URL")
+    @classmethod
+    def validate_password_reset_base_url(cls, value: str) -> str:
+        value = value.strip().rstrip("/")
+        parsed = urlsplit(value)
+        if (
+            parsed.scheme not in {"http", "https"}
+            or parsed.hostname is None
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ValueError("PASSWORD_RESET_BASE_URL must be an absolute HTTP(S) URL")
+        return value
+
+    @model_validator(mode="after")
+    def validate_email_tls(self) -> BaseSettings:
+        if self.EMAIL_USE_TLS and self.EMAIL_USE_SSL:
+            raise ValueError("EMAIL_USE_TLS and EMAIL_USE_SSL cannot both be enabled")
+        return self
 
     @field_validator("ALLOWED_HOSTS")
     @classmethod

@@ -19,6 +19,10 @@ from obox_builder.contrib.admin.views import (
     logout_view,
     password_change_submit,
     password_change_view,
+    password_reset_confirm_submit,
+    password_reset_confirm_view,
+    password_reset_request_submit,
+    password_reset_request_view,
     role_create,
     role_create_submit,
     role_delete,
@@ -52,6 +56,30 @@ def build_router(site: AdminSite) -> APIRouter:
     router.add_api_route("/", dashboard, methods=["GET"], name="admin:dashboard")
     router.add_api_route("/login", login_view, methods=["GET"], name="admin:login")
     router.add_api_route("/login", login_submit, methods=["POST"], name="admin:login_submit")
+    router.add_api_route(
+        "/password_reset",
+        password_reset_request_view,
+        methods=["GET"],
+        name="admin:password_reset",
+    )
+    router.add_api_route(
+        "/password_reset",
+        password_reset_request_submit,
+        methods=["POST"],
+        name="admin:password_reset_submit",
+    )
+    router.add_api_route(
+        "/password_reset/confirm",
+        password_reset_confirm_view,
+        methods=["GET"],
+        name="admin:password_reset_confirm",
+    )
+    router.add_api_route(
+        "/password_reset/confirm",
+        password_reset_confirm_submit,
+        methods=["POST"],
+        name="admin:password_reset_confirm_submit",
+    )
     router.add_api_route("/logout", logout_view, methods=["POST"], name="admin:logout")
     router.add_api_route(
         "/password_change", password_change_view, methods=["GET"], name="admin:password_change"

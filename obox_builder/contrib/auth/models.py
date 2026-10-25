@@ -154,6 +154,18 @@ class Session(Model, TimestampMixin):
         return f"<Session user_id={self.user_id!r}>"
 
 
+class PasswordResetToken(Model, TimestampMixin):
+    """A hashed, expiring, one-use password reset credential."""
+
+    id: Mapped[int] = mapped_column(BigIntIdentity, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        sa.ForeignKey(f"{User.__tablename__}.id", ondelete="CASCADE"), index=True
+    )
+    token_hash: Mapped[str] = mapped_column(sa.String(64), unique=True)
+    expires_at: Mapped[datetime] = mapped_column(TZDateTime, index=True)
+    used_at: Mapped[datetime | None] = mapped_column(TZDateTime, default=None)
+
+
 class AnonymousUser:
     """Stand-in used by templates and dependency defaults for anonymous requests."""
 

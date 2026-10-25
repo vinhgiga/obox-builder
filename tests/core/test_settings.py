@@ -180,6 +180,30 @@ def test_authentication_settings_validate_and_deduplicate() -> None:
         )
 
 
+def test_email_settings_validate_tls_and_reset_url() -> None:
+    valid = BaseSettings(
+        SECRET_KEY=SecretStr(SECRET),
+        DATABASE_URL=DATABASE,
+        EMAIL_USE_TLS=True,
+        PASSWORD_RESET_BASE_URL="https://admin.example.org/",
+    )
+    assert valid.PASSWORD_RESET_BASE_URL == "https://admin.example.org"
+
+    with pytest.raises(ValueError, match="cannot both"):
+        BaseSettings(
+            SECRET_KEY=SecretStr(SECRET),
+            DATABASE_URL=DATABASE,
+            EMAIL_USE_TLS=True,
+            EMAIL_USE_SSL=True,
+        )
+    with pytest.raises(ValueError, match=r"absolute HTTP\(S\)"):
+        BaseSettings(
+            SECRET_KEY=SecretStr(SECRET),
+            DATABASE_URL=DATABASE,
+            PASSWORD_RESET_BASE_URL="//admin.example.org",
+        )
+
+
 def test_hsts_preload_requires_long_lived_subdomain_policy() -> None:
     with pytest.raises(ValueError, match="SECURE_HSTS_INCLUDE_SUBDOMAINS"):
         BaseSettings(

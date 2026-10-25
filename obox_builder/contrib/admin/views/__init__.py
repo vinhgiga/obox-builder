@@ -12,6 +12,12 @@ from obox_builder.contrib.admin.views.auth import (
     password_change_view,
 )
 from obox_builder.contrib.admin.views.dashboard import dashboard
+from obox_builder.contrib.admin.views.password_reset import (
+    password_reset_confirm_submit,
+    password_reset_confirm_view,
+    password_reset_request_submit,
+    password_reset_request_view,
+)
 from obox_builder.contrib.admin.views.roles import (
     role_create,
     role_create_submit,
@@ -41,6 +47,10 @@ __all__ = [
     "logout_view",
     "password_change_submit",
     "password_change_view",
+    "password_reset_confirm_submit",
+    "password_reset_confirm_view",
+    "password_reset_request_submit",
+    "password_reset_request_view",
     "role_create",
     "role_create_submit",
     "role_delete",

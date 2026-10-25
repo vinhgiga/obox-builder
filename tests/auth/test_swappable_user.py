@@ -31,6 +31,7 @@ assert user_item.required_perm == USER_VIEW_PERMISSION
 configure_mappers()
 for table_name in (
     "auth_session",
+    "auth_password_reset_token",
     "auth_user_roles",
     "admin_saved_view",
     "comments_row_comment",
