@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable, MutableMapping
 from typing import Any
 
+from obox_builder.conf import settings
+
 Scope = MutableMapping[str, Any]
 Message = MutableMapping[str, Any]
 Receive = Callable[[], Awaitable[Message]]
@@ -40,6 +42,20 @@ class SecurityHeadersMiddleware:
                 headers.extend(
                     (name, value) for name, value in self.headers if name not in existing
                 )
+                config = settings.load()
+                if scope.get("scheme") == "https" and config.SECURE_HSTS_SECONDS:
+                    value = f"max-age={config.SECURE_HSTS_SECONDS}"
+                    if config.SECURE_HSTS_INCLUDE_SUBDOMAINS:
+                        value += "; includeSubDomains"
+                    if config.SECURE_HSTS_PRELOAD:
+                        value += "; preload"
+                    if b"strict-transport-security" not in existing:
+                        headers.append(
+                            (
+                                b"strict-transport-security",
+                                value.encode("latin-1"),
+                            )
+                        )
             await send(message)
 
         await self.app(scope, receive, send_with_headers)

@@ -154,6 +154,34 @@ def test_session_cookie_secure_warns_on_deploy_only() -> None:
     assert "obox.W003" in ids(run_checks(deploy=True))
 
 
+def test_deploy_checks_flag_unrestricted_or_local_only_hosts() -> None:
+    configure_settings(ALLOWED_HOSTS=["*"])
+    assert "obox.E006" not in ids(run_checks())
+    assert "obox.E006" in ids(run_checks(deploy=True))
+
+    configure_settings(ALLOWED_HOSTS=["localhost", "127.0.0.1"])
+    assert "obox.W004" in ids(run_checks(deploy=True))
+
+    configure_settings(ALLOWED_HOSTS=["admin.example.com"])
+    assert "obox.E006" not in ids(run_checks(deploy=True))
+    assert "obox.W004" not in ids(run_checks(deploy=True))
+
+
+def test_deploy_checks_report_https_settings() -> None:
+    configure_settings()
+    deploy_ids = ids(run_checks(deploy=True))
+    assert {"obox.W005", "obox.W006"} <= deploy_ids
+    assert "obox.W007" not in deploy_ids
+
+    configure_settings(MIDDLEWARE=[])
+    assert "obox.W007" in ids(run_checks(deploy=True))
+
+    configure_settings(SECURE_SSL_REDIRECT=True, SECURE_HSTS_SECONDS=31_536_000)
+    deploy_ids = ids(run_checks(deploy=True))
+    assert "obox.W005" not in deploy_ids
+    assert "obox.W006" not in deploy_ids
+
+
 def test_run_checks_never_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     configure_settings()
     assert isinstance(run_checks(), list)

@@ -14,6 +14,8 @@ DEFAULT_MIDDLEWARE = [
     "obox_builder.core.middleware.security_headers.SecurityHeadersMiddleware",
 ]
 
+_LOCAL_ALLOWED_HOSTS = ("localhost", "127.0.0.1", "[::1]", "testserver")
+
 
 class BaseSettings(PydanticBaseSettings):
     model_config = SettingsConfigDict(
@@ -25,6 +27,11 @@ class BaseSettings(PydanticBaseSettings):
     SECRET_KEY: SecretStr
     DEBUG: bool = False
     DATABASE_URL: str
+    ALLOWED_HOSTS: list[str] = Field(default_factory=lambda: list(_LOCAL_ALLOWED_HOSTS))
+    SECURE_SSL_REDIRECT: bool = False
+    SECURE_HSTS_SECONDS: int = Field(default=0, ge=0)
+    SECURE_HSTS_INCLUDE_SUBDOMAINS: bool = False
+    SECURE_HSTS_PRELOAD: bool = False
     #: Additional database aliases, each mapped to a SQLAlchemy URL. ``DATABASE_URL``
     #: remains the URL for ``default`` unless ``DATABASES["default"]`` overrides it.
     DATABASES: dict[str, str] = Field(default_factory=dict)
@@ -148,6 +155,28 @@ class BaseSettings(PydanticBaseSettings):
         for entry in value:
             if not entry.strip():
                 raise ValueError("DATABASE_ROUTERS entries must not be blank")
+        return value
+
+    @field_validator("ALLOWED_HOSTS")
+    @classmethod
+    def validate_allowed_hosts(cls, value: list[str]) -> list[str]:
+        hosts = [host.strip() for host in value]
+        if any(not host for host in hosts):
+            raise ValueError("ALLOWED_HOSTS entries must not be blank")
+        return list(dict.fromkeys(hosts))
+
+    @field_validator("SECURE_HSTS_INCLUDE_SUBDOMAINS", "SECURE_HSTS_PRELOAD")
+    @classmethod
+    def require_hsts_when_enabled(cls, value: bool, info: Any) -> bool:
+        if value:
+            hsts_seconds = info.data.get("SECURE_HSTS_SECONDS", 0)
+            include_subdomains = info.data.get("SECURE_HSTS_INCLUDE_SUBDOMAINS", False)
+            if not hsts_seconds:
+                raise ValueError("HSTS options require SECURE_HSTS_SECONDS to be greater than 0")
+            if info.field_name == "SECURE_HSTS_PRELOAD" and not include_subdomains:
+                raise ValueError("SECURE_HSTS_PRELOAD requires SECURE_HSTS_INCLUDE_SUBDOMAINS")
+            if info.field_name == "SECURE_HSTS_PRELOAD" and hsts_seconds < 31_536_000:
+                raise ValueError("SECURE_HSTS_PRELOAD requires at least one year of HSTS")
         return value
 
     @field_validator("INSTALLED_APPS")

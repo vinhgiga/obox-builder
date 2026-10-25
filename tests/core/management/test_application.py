@@ -44,6 +44,38 @@ def test_create_app_without_root_urlconf() -> None:
     assert application.routes
 
 
+def test_create_app_rejects_untrusted_hosts() -> None:
+    _configure(ROOT_URLCONF="", ALLOWED_HOSTS=["example.com"], MIDDLEWARE=[])
+    response = TestClient(create_app()).get("/", headers={"host": "attacker.example"})
+    assert response.status_code == 400
+
+
+def test_create_app_redirects_to_https_when_enabled() -> None:
+    _configure(ROOT_URLCONF="", MIDDLEWARE=[], SECURE_SSL_REDIRECT=True)
+    client = TestClient(create_app(), follow_redirects=False)
+    response = client.get("/", headers={"host": "testserver"})
+    assert response.status_code == 307
+    assert response.headers["location"] == "https://testserver/"
+
+
+def test_security_headers_add_hsts_only_for_https() -> None:
+    _configure(
+        ROOT_URLCONF="",
+        MIDDLEWARE=["obox_builder.core.middleware.security_headers.SecurityHeadersMiddleware"],
+        SECURE_HSTS_SECONDS=31_536_000,
+        SECURE_HSTS_INCLUDE_SUBDOMAINS=True,
+    )
+    application = create_app()
+    http_client = TestClient(application, base_url="http://testserver")
+    https_client = TestClient(application, base_url="https://testserver")
+
+    assert "strict-transport-security" not in http_client.get("/").headers
+    assert (
+        https_client.get("/").headers["strict-transport-security"]
+        == "max-age=31536000; includeSubDomains"
+    )
+
+
 def test_create_app_rejects_missing_root_urlconf_module() -> None:
     _configure(ROOT_URLCONF="tests.support.does_not_exist")
     with pytest.raises(ImproperlyConfigured, match="Could not import ROOT_URLCONF"):

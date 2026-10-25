@@ -160,3 +160,22 @@ def test_switching_configure_replaces_settings() -> None:
 def test_blank_database_url_rejected() -> None:
     with pytest.raises(ValueError, match="DATABASE_URL"):
         BaseSettings(SECRET_KEY=SecretStr(SECRET), DATABASE_URL="  ")
+
+
+def test_hsts_preload_requires_long_lived_subdomain_policy() -> None:
+    with pytest.raises(ValueError, match="SECURE_HSTS_INCLUDE_SUBDOMAINS"):
+        BaseSettings(
+            SECRET_KEY=SecretStr(SECRET),
+            DATABASE_URL=DATABASE,
+            SECURE_HSTS_SECONDS=31_536_000,
+            SECURE_HSTS_PRELOAD=True,
+        )
+
+    settings = BaseSettings(
+        SECRET_KEY=SecretStr(SECRET),
+        DATABASE_URL=DATABASE,
+        SECURE_HSTS_SECONDS=31_536_000,
+        SECURE_HSTS_INCLUDE_SUBDOMAINS=True,
+        SECURE_HSTS_PRELOAD=True,
+    )
+    assert settings.SECURE_HSTS_PRELOAD

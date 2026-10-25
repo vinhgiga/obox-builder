@@ -10,6 +10,7 @@ SECURITY = "security"
 CONFIG = "config"
 INSECURE_SECRET_MARKERS = ("django-insecure", "changeme", "insecure", "dev-")
 MINIMUM_SECRET_KEY_LENGTH = 32
+LOCAL_ALLOWED_HOSTS = {"localhost", "127.0.0.1", "[::1]", "testserver"}
 
 
 @register(tags=(SECURITY,))
@@ -90,6 +91,71 @@ def check_session_cookie_secure() -> list[CheckMessage]:
                 "SESSION_COOKIE_SECURE is disabled.",
                 hint="Set OBOX_SESSION_COOKIE_SECURE=true when serving over HTTPS.",
                 id="obox.W003",
+            )
+        ]
+    return []
+
+
+@register(tags=(SECURITY,), deploy=True)
+def check_allowed_hosts_deploy() -> list[CheckMessage]:
+    hosts = set(settings.ALLOWED_HOSTS)
+    if not hosts or "*" in hosts:
+        return [
+            Error(
+                "ALLOWED_HOSTS does not restrict incoming Host headers.",
+                hint="Set OBOX_ALLOWED_HOSTS to the exact hostnames served by this project.",
+                id="obox.E006",
+            )
+        ]
+    if hosts <= LOCAL_ALLOWED_HOSTS:
+        return [
+            Warning(
+                "ALLOWED_HOSTS contains only local and test hostnames.",
+                hint="Set OBOX_ALLOWED_HOSTS to the production hostnames served by this project.",
+                id="obox.W004",
+            )
+        ]
+    return []
+
+
+@register(tags=(SECURITY,), deploy=True)
+def check_https_deploy() -> list[CheckMessage]:
+    messages: list[CheckMessage] = []
+    if not settings.SECURE_SSL_REDIRECT:
+        messages.append(
+            Warning(
+                "Application-level HTTP to HTTPS redirection is disabled.",
+                hint=(
+                    "Enable OBOX_SECURE_SSL_REDIRECT or confirm the trusted edge proxy "
+                    "redirects HTTP."
+                ),
+                id="obox.W005",
+            )
+        )
+    if not settings.SECURE_HSTS_SECONDS:
+        messages.append(
+            Warning(
+                "HTTP Strict Transport Security is not configured in the application.",
+                hint="Configure HSTS in OBox or at the trusted edge proxy after HTTPS is working.",
+                id="obox.W006",
+            )
+        )
+    return messages
+
+
+@register(tags=(SECURITY,), deploy=True)
+def check_security_headers_deploy() -> list[CheckMessage]:
+    middleware_paths = settings.MIDDLEWARE
+    has_security_headers = any(
+        path.endswith(".security_headers.SecurityHeadersMiddleware") for path in middleware_paths
+    )
+    if not has_security_headers:
+        return [
+            Warning(
+                "The default security headers middleware is not configured.",
+                hint="Add obox_builder.core.middleware.security_headers.SecurityHeadersMiddleware "
+                "to MIDDLEWARE or configure equivalent headers at the trusted edge proxy.",
+                id="obox.W007",
             )
         ]
     return []

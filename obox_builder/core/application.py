@@ -11,6 +11,8 @@ from urllib.parse import quote
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from sqlalchemy.exc import IntegrityError
+from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.responses import Response
 
 from obox_builder import __version__
@@ -174,11 +176,18 @@ def create_app() -> FastAPI:
     application.add_exception_handler(NotAuthenticated, not_authenticated_handler)
     application.add_exception_handler(PermissionDenied, permission_denied_handler)
     application.add_exception_handler(IntegrityError, integrity_error_handler)
+    if config.SECURE_SSL_REDIRECT:
+        application.add_middleware(HTTPSRedirectMiddleware)
     for entry in config.MIDDLEWARE:
         middleware = import_string(entry)
         if not inspect.isclass(middleware):
             raise ImproperlyConfigured(f"MIDDLEWARE entry {entry!r} must point to a class.")
         application.add_middleware(cast("Any", middleware))
+    application.add_middleware(
+        TrustedHostMiddleware,
+        allowed_hosts=config.ALLOWED_HOSTS,
+        www_redirect=False,
+    )
     for router, prefix in _iter_routers(config.ROOT_URLCONF):
         application.include_router(router, prefix=prefix)
     _mount_static(application)

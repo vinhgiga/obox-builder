@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     SECRET_KEY: SecretStr = SecretStr("$secret_key")
 
     DATABASE_URL: str = f"sqlite+aiosqlite:///{BASE_DIR / 'db.sqlite3'}"
+    ALLOWED_HOSTS: list[str] = ["localhost", "127.0.0.1", "[::1]", "testserver"]
 
     INSTALLED_APPS: list[str] = [
         "obox_builder.contrib.auth",
@@ -20,6 +21,7 @@ class Settings(BaseSettings):
     ]
     MIDDLEWARE: list[str] = [
         "obox_builder.core.middleware.request_id.RequestIDMiddleware",
+        "obox_builder.core.middleware.security_headers.SecurityHeadersMiddleware",
     ]
     ROOT_URLCONF: str = "config.urls"
     ASGI_APPLICATION: str = "config.asgi.application"
