@@ -40,6 +40,7 @@ class BaseSettings(PydanticBaseSettings):
     DATABASE_ROUTERS: list[str] = Field(default_factory=list)
     LANGUAGE_CODE: Literal["en", "vi"] = "en"
     MEDIA_ROOT: Path = Path("media")
+    STORAGE_BACKEND: str = "obox_builder.core.storage.FileSystemStorage"
     ADMIN_MAX_UPLOAD_BYTES: int = Field(default=10 * 1024 * 1024, ge=1, le=50 * 1024 * 1024)
     ADMIN_SMOOTH_NAVIGATION: bool = True
     #: Use ICU Vietnamese ordering for admin text sort/group; None uses the database default.
@@ -194,6 +195,13 @@ class BaseSettings(PydanticBaseSettings):
     def validate_email_backend(cls, value: str) -> str:
         if not value.strip() or "." not in value.strip():
             raise ValueError("EMAIL_BACKEND must be a dotted path")
+        return value.strip()
+
+    @field_validator("STORAGE_BACKEND")
+    @classmethod
+    def validate_storage_backend(cls, value: str) -> str:
+        if not value.strip() or "." not in value.strip():
+            raise ValueError("STORAGE_BACKEND must be a dotted path")
         return value.strip()
 
     @field_validator("PASSWORD_RESET_BASE_URL")

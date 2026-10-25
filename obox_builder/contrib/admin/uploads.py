@@ -2,17 +2,16 @@
 
 from __future__ import annotations
 
-import os
 import re
 from collections.abc import Sequence
-from pathlib import Path
-from typing import Any
+from pathlib import PurePosixPath
+from typing import Any, BinaryIO
 from uuid import uuid4
 
 from starlette.datastructures import UploadFile
 
 from obox_builder.conf import settings
-from obox_builder.core.exceptions import ImproperlyConfigured
+from obox_builder.core.storage import default_storage
 from obox_builder.fields import FieldSpec
 from obox_builder.fields.types.file import File
 
@@ -35,10 +34,10 @@ _FORMATS = {
 
 async def stage_uploads(
     data: dict[str, Any], specs: Sequence[FieldSpec], target: Any = None
-) -> tuple[dict[str, Any], list[tuple[Path, bytes]], dict[str, list[str]]]:
+) -> tuple[dict[str, Any], list[tuple[str, bytes]], dict[str, list[str]]]:
     """Replace file inputs by random relative paths and return bytes to persist."""
     prepared = dict(data)
-    staged: list[tuple[Path, bytes]] = []
+    staged: list[tuple[str, bytes]] = []
     errors: dict[str, list[str]] = {}
     total_bytes = 0
     for spec in specs:
@@ -70,46 +69,33 @@ async def stage_uploads(
             errors[spec.name] = ["Choose a supported image, PDF, or text file."]
             continue
         extension = _FORMATS[detected][0]
-        relative = Path("admin") / "uploads" / f"{uuid4().hex}{extension}"
-        prepared[spec.name] = relative.as_posix()
-        staged.append((Path(settings.MEDIA_ROOT) / relative, content))
+        relative = PurePosixPath("admin") / "uploads" / f"{uuid4().hex}{extension}"
+        name = relative.as_posix()
+        prepared[spec.name] = name
+        staged.append((name, content))
     return prepared, staged, errors
 
 
-def persist_uploads(staged: Sequence[tuple[Path, bytes]]) -> None:
-    if staged:
-        _ensure_private_media_root()
-    created = []
+def persist_uploads(staged: Sequence[tuple[str, bytes]]) -> None:
+    created: list[str] = []
     try:
-        for path, content in staged:
-            path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-            descriptor = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-            created.append(path)
-            with os.fdopen(descriptor, "wb") as upload:
-                upload.write(content)
-    except OSError:
-        for path in created:
-            path.unlink(missing_ok=True)
+        for name, content in staged:
+            created.append(default_storage.save(name, content))
+    except BaseException:
+        for name in created:
+            default_storage.delete(name)
         raise
 
 
-def discard_uploads(staged: Sequence[tuple[Path, bytes]]) -> None:
-    for path, _content in staged:
-        path.unlink(missing_ok=True)
+def discard_uploads(staged: Sequence[tuple[str, bytes]]) -> None:
+    for name, _content in staged:
+        default_storage.delete(name)
 
 
-def resolve_upload(relative: str) -> Path | None:
+def open_upload(relative: str) -> BinaryIO | None:
     if not re.fullmatch(r"admin/uploads/[0-9a-f]{32}\.(?:jpg|png|webp|pdf|txt)", relative):
         return None
-    root = Path(settings.MEDIA_ROOT).resolve()
-    _ensure_private_media_root(root)
-    path = (root / relative).resolve()
-    return path if path.is_relative_to(root) and path.is_file() else None
-
-
-def _ensure_private_media_root(root: Path | None = None) -> None:
-    media_root = root or Path(settings.MEDIA_ROOT).resolve()
-    public_roots = [settings.STATIC_ROOT, *settings.STATICFILES_DIRS]
-    for public_root in public_roots:
-        if public_root is not None and media_root.is_relative_to(Path(public_root).resolve()):
-            raise ImproperlyConfigured("MEDIA_ROOT must not be inside a public static directory.")
+    try:
+        return default_storage.open(relative)
+    except FileNotFoundError:
+        return None

@@ -10,14 +10,15 @@ from __future__ import annotations
 import inspect
 import json
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import replace
+from pathlib import PurePosixPath
 from typing import Any, cast, get_type_hints
 from urllib.parse import urlencode
 
 import sqlalchemy as sa
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, RedirectResponse, Response, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from obox_builder.conf import settings
@@ -33,8 +34,8 @@ from obox_builder.contrib.admin.site import AdminSite
 from obox_builder.contrib.admin.uniqueness import validate_model_uniqueness
 from obox_builder.contrib.admin.uploads import (
     discard_uploads,
+    open_upload,
     persist_uploads,
-    resolve_upload,
     stage_uploads,
 )
 from obox_builder.contrib.admin.views.common import (
@@ -155,18 +156,25 @@ def _register_one(router: APIRouter, site: AdminSite, admin: ModelAdmin) -> None
         spec = next(
             (field for field in admin.get_form_fields(ctx) if field.name == field_name), None
         )
-        path = (
-            resolve_upload(str(getattr(target, field_name, "")))
-            if spec is not None and spec.type.name == "file"
-            else None
-        )
-        if path is None:
+        relative = str(getattr(target, field_name, ""))
+        file_obj = open_upload(relative) if spec is not None and spec.type.name == "file" else None
+        if file_obj is None:
             return _not_found(ctx, "File not found.")
-        return FileResponse(
-            path,
+
+        def chunks() -> Iterator[bytes]:
+            try:
+                while chunk := file_obj.read(64 * 1024):
+                    yield chunk
+            finally:
+                file_obj.close()
+
+        return StreamingResponse(
+            chunks(),
             media_type="application/octet-stream",
-            filename=path.name,
-            headers={"X-Content-Type-Options": "nosniff"},
+            headers={
+                "Content-Disposition": f'attachment; filename="{PurePosixPath(relative).name}"',
+                "X-Content-Type-Options": "nosniff",
+            },
         )
 
     async def delete_view(

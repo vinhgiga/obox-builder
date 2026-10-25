@@ -10,8 +10,8 @@ from obox_builder.conf import settings
 from obox_builder.contrib.admin import ModelAdmin, site
 from obox_builder.contrib.admin.uploads import (
     discard_uploads,
+    open_upload,
     persist_uploads,
-    resolve_upload,
     stage_uploads,
 )
 from obox_builder.core.exceptions import ImproperlyConfigured
@@ -43,12 +43,14 @@ async def test_private_upload_is_stored_with_random_name_and_mode(
     assert relative.startswith("admin/uploads/")
     assert "avatar" not in relative
     persist_uploads(staged)
-    path = resolve_upload(relative)
-    assert path is not None
-    assert path.read_bytes().endswith(b"image")
+    stored = open_upload(relative)
+    assert stored is not None
+    assert stored.read().endswith(b"image")
+    stored.close()
+    path = tmp_path / relative
     assert path.stat().st_mode & 0o777 == 0o600
     discard_uploads(staged)
-    assert resolve_upload(relative) is None
+    assert open_upload(relative) is None
 
 
 async def test_upload_rejects_content_that_does_not_match_supported_types() -> None:
@@ -75,7 +77,7 @@ def test_upload_storage_cannot_be_nested_in_static_root(
     monkeypatch.setattr(settings.load(), "STATIC_ROOT", tmp_path)
 
     with pytest.raises(ImproperlyConfigured, match="public static directory"):
-        persist_uploads([(tmp_path / "uploads/file.png", b"image")])
+        persist_uploads([("admin/uploads/00000000000000000000000000000000.png", b"image")])
 
 
 async def test_file_upload_and_download_require_record_view_permission(

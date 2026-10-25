@@ -204,6 +204,15 @@ def test_email_settings_validate_tls_and_reset_url() -> None:
         )
 
 
+def test_storage_backend_requires_dotted_path() -> None:
+    with pytest.raises(ValueError, match="STORAGE_BACKEND"):
+        BaseSettings(
+            SECRET_KEY=SecretStr(SECRET),
+            DATABASE_URL=DATABASE,
+            STORAGE_BACKEND="local",
+        )
+
+
 def test_hsts_preload_requires_long_lived_subdomain_policy() -> None:
     with pytest.raises(ValueError, match="SECURE_HSTS_INCLUDE_SUBDOMAINS"):
         BaseSettings(
