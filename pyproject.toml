@@ -139,6 +139,7 @@ layers = [
     "obox_builder.core",
     "obox_builder.http",
     "obox_builder.templating",
+    "obox_builder.contrib.i18n",
     "obox_builder.forms",
     "obox_builder.fields",
     "obox_builder.staticfiles",

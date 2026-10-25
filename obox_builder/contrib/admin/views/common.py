@@ -10,6 +10,7 @@ from obox_builder.conf import settings
 from obox_builder.contrib.admin.navigation import build_navigation
 from obox_builder.contrib.auth.csrf import get_csrf_token, validate_csrf
 from obox_builder.contrib.auth.models import AnonymousUser, User
+from obox_builder.contrib.i18n import get_language_choices
 from obox_builder.core.exceptions import ImproperlyConfigured
 from obox_builder.http.messages import add_message, get_and_clear_messages
 
@@ -62,7 +63,8 @@ async def page_context(request: Request, **extra: Any) -> dict[str, Any]:
         "site_header": admin_site.site_header,
         "site_title": admin_site.site_title,
         "index_title": admin_site.index_title,
-        "language_code": settings.LANGUAGE_CODE,
+        "language_code": getattr(request.state, "language_code", settings.LANGUAGE_CODE),
+        "available_languages": get_language_choices(),
         "current_path": request.url.path,
         "csrf_token": csrf_token_for(request),
         "messages": (

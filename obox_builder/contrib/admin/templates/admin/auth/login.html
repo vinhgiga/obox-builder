@@ -1,22 +1,23 @@
 {% extends "admin/base_auth.html" %}
 {% block title %}Log in{% endblock %}
 {% block content %}
-<h2 class="h3 text-center mb-3">Log in to your account</h2>
+<div class="d-flex justify-content-end mb-3">{% include "admin/includes/language_selector.html" %}</div>
+<h2 class="h3 text-center mb-3">{{ _("Log in to your account") }}</h2>
 {% if error %}
 <div class="alert alert-danger">{{ error }}</div>
 {% endif %}
 <form method="post" action="/admin/login">
   <input type="hidden" name="next" value="{{ next }}"/>
   <div class="mb-3">
-    <label class="form-label" for="id_username">Username</label>
+    <label class="form-label" for="id_username">{{ _("Username") }}</label>
     <input type="text" name="username" id="id_username" class="form-control" value="{{ username or '' }}" autocomplete="username" required autofocus/>
   </div>
   <div class="mb-3">
-    <label class="form-label" for="id_password">Password</label>
+    <label class="form-label" for="id_password">{{ _("Password") }}</label>
     <input type="password" name="password" id="id_password" class="form-control" autocomplete="current-password" required/>
   </div>
   <div class="form-footer">
-    <button type="submit" class="btn btn-primary w-100">Log in</button>
+    <button type="submit" class="btn btn-primary w-100">{{ _("Log in") }}</button>
   </div>
 </form>
 {% endblock %}

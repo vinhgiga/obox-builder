@@ -1,0 +1,82 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: obox-builder 0.3\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Language: vi\n"
+"Language-Team: Vietnamese\n"
+"Last-Translator: obox-builder\n"
+"PO-Revision-Date: 2026-10-25 00:00+0000\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+msgid "Language"
+msgstr "Ngôn ngữ"
+
+msgid "Set language"
+msgstr "Đổi ngôn ngữ"
+
+msgid "Search all models"
+msgstr "Tìm kiếm tất cả mô hình"
+
+msgid "Search"
+msgstr "Tìm kiếm"
+
+msgid "Switch to dark theme"
+msgstr "Chuyển sang giao diện tối"
+
+msgid "Dark mode"
+msgstr "Giao diện tối"
+
+msgid "Account menu"
+msgstr "Trình đơn tài khoản"
+
+msgid "Change password"
+msgstr "Đổi mật khẩu"
+
+msgid "Log out"
+msgstr "Đăng xuất"
+
+msgid "Log in to your account"
+msgstr "Đăng nhập vào tài khoản của bạn"
+
+msgid "Username"
+msgstr "Tên đăng nhập"
+
+msgid "Password"
+msgstr "Mật khẩu"
+
+msgid "Log in"
+msgstr "Đăng nhập"
+
+msgid "Connection failed. Please try again."
+msgstr "Kết nối thất bại. Vui lòng thử lại."
+
+msgid "Overview"
+msgstr "Tổng quan"
+
+msgid "Dashboard"
+msgstr "Bảng điều khiển"
+
+msgid "Access"
+msgstr "Quản lý truy cập"
+
+msgid "Users"
+msgstr "Người dùng"
+
+msgid "Roles"
+msgstr "Vai trò"
+
+msgid "Audit"
+msgstr "Nhật ký kiểm toán"
+
+msgid "History"
+msgstr "Lịch sử"
+
+msgctxt "navigation"
+msgid "Home"
+msgstr "Trang chủ"
+
+msgid "%(num)d item"
+msgid_plural "%(num)d items"
+msgstr[0] "%(num)d mục"
