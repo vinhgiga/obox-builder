@@ -110,18 +110,48 @@ def test_valid_if_hook_reports_business_errors() -> None:
 
 
 def test_context_exposes_the_target_object() -> None:
+    from obox_builder.fields import RecordContext
+
     target = Thing()
     seen: list[object] = []
+
+    def remember(value: object, ctx: RecordContext) -> None:
+        seen.append(ctx.obj)
+
     specs = [
         replace(
             spec("name", "text"),
-            valid_if=lambda value, ctx: seen.append(ctx.obj) or None,
+            valid_if=remember,
         )
     ]
-    from obox_builder.fields import RecordContext
-
     bind(specs, {"name": "x"}, base=RecordContext(obj=target))
     assert seen == [target]
+
+
+def test_partial_bind_preserves_omitted_required_values_and_conditions() -> None:
+    from obox_builder.fields import RecordContext
+
+    target = Thing()
+    target.name, target.age = "person", 35
+    specs = [
+        spec("name", "text", required=True),
+        replace(spec("age", "integer"), editable_if=lambda ctx: ctx.values.get("name") == "person"),
+    ]
+    bound = BoundForm.bind(
+        specs, build_schema(specs), {"age": 36}, base=RecordContext(obj=target), partial=True
+    )
+    assert bound.is_valid
+    assert bound.cleaned == {"age": 36}
+    bound.apply_to(target)
+    assert (target.name, target.age) == ("person", 36)
+
+
+def test_partial_bind_without_object_only_requires_submitted_fields() -> None:
+    specs = [spec("name", "text", required=True), spec("age", "integer")]
+    assert BoundForm.bind(specs, build_schema(specs), {"age": 1}, partial=True).is_valid
+    invalid = BoundForm.bind(specs, build_schema(specs), {"name": ""}, partial=True)
+    assert not invalid.is_valid
+    assert "name" in invalid.errors
 
 
 def test_apply_to_skips_attributes_the_model_lacks() -> None:

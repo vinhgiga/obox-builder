@@ -18,7 +18,8 @@ from obox_builder.forms import BoundForm
 def related_admin(ctx: AdminContext, spec: FieldSpec) -> tuple[ModelAdmin, AdminContext]:
     target = spec.options["target"]
     admin = ctx.site.get_model_admin_for(target) or ModelAdmin(target, ctx.site)
-    return admin, replace(ctx, admin=admin, obj=None)
+    extra = {**ctx.extra, "api_labels": True} if ctx.extra.get("api") else ctx.extra
+    return admin, replace(ctx, admin=admin, obj=None, extra=extra)
 
 
 def related_key(spec: FieldSpec) -> Any:

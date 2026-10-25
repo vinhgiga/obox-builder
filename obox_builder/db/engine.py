@@ -75,11 +75,10 @@ def _enable_sqlite_foreign_keys(engine: AsyncEngine) -> None:
         cursor.execute("PRAGMA foreign_keys=ON")
         cursor.close()
 
-    if durable_transactions:
-
-        @event.listens_for(engine.sync_engine, "begin")
-        def _begin(connection: Any) -> None:
-            immediate = connection.get_execution_options().get("sqlite_begin_immediate", False)
+    @event.listens_for(engine.sync_engine, "begin")
+    def _begin(connection: Any) -> None:
+        immediate = connection.get_execution_options().get("sqlite_begin_immediate", False)
+        if durable_transactions or immediate:
             connection.exec_driver_sql("BEGIN IMMEDIATE" if immediate else "BEGIN")
 
 

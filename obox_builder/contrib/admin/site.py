@@ -14,6 +14,7 @@ from obox_builder.core.exceptions import ImproperlyConfigured
 from obox_builder.utils.strings import camel_to_snake
 
 if TYPE_CHECKING:
+    from obox_builder.contrib.admin.api.ratelimit import RateLimiter
     from obox_builder.contrib.admin.options import ModelAdmin
 
 logger = logging.getLogger(__name__)
@@ -180,6 +181,12 @@ class AdminSite:
 
         self.autodiscover()
         return build_router(self)
+
+    def get_api_router(self, *, rate_limiter: RateLimiter | None = None) -> APIRouter:
+        from obox_builder.contrib.admin.api.router import build_api_router
+
+        self.autodiscover()
+        return build_api_router(self, rate_limiter=rate_limiter)
 
     # -- tests --------------------------------------------------------------
     def _reset(self) -> None:

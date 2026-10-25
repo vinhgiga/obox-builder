@@ -119,6 +119,7 @@ class ModelAdmin:
     so the mental model carries over.
     """
 
+    api_enabled: bool = False
     model: type[Any]
 
     list_display: ClassVar[Sequence[str | Callable[..., Any]]] = ()
@@ -308,7 +309,12 @@ class ModelAdmin:
         stmt: sa.Select[Any] = sa.select(self.model)
         for spec in self.get_field_specs():
             relationship = spec.options.get("relationship")
-            if spec.type.name in {"link", "multi_link"} and relationship:
+            if (
+                spec.type.name in {"link", "multi_link"}
+                and relationship
+                and (spec.type.name == "multi_link" or not (ctx and ctx.extra.get("api")))
+                and not (ctx and ctx.extra.get("api_labels"))
+            ):
                 stmt = stmt.options(selectinload(getattr(self.model, str(relationship))))
         return stmt
 
