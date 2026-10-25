@@ -68,8 +68,8 @@ def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return root
 
 
-def _table_names(project: Path) -> set[str]:
-    engine = sa.create_engine(f"sqlite:///{project / 'db.sqlite3'}")
+def _table_names(project: Path, database: str = "db.sqlite3") -> set[str]:
+    engine = sa.create_engine(f"sqlite:///{project / database}")
     try:
         return set(sa.inspect(engine).get_table_names())
     finally:
@@ -144,6 +144,70 @@ def test_makemigrations_ignores_tables_of_uninstalled_apps(project: Path) -> Non
         assert "stray_table" not in path.read_text()
     finally:
         ModelBase.metadata.remove(stray)
+
+
+def test_shared_migration_graph_filters_operations_per_database_alias(
+    project: Path,
+) -> None:
+    settings_file = project / "config" / "settings.py"
+    analytics_url = f"sqlite+aiosqlite:///{project / 'analytics.sqlite3'}"
+    extra_settings = (
+        f"\n    DATABASES: dict[str, str] = {{'analytics': {analytics_url!r}}}"
+        "\n    DATABASE_ROUTERS: list[str] = "
+        "['tests.support.database_routers.ShopRouter']\n"
+    )
+    settings_file.write_text(settings_file.read_text() + extra_settings)
+
+    from obox_builder.db.migrations import (
+        current_revision,
+        make_migration,
+        migration_history,
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        create_typer_app(), ["makemigrations", "--database", "analytics", "-m", "analytics init"]
+    )
+    assert result.exit_code == 0, result.output
+    path = next((project / "migrations" / "versions").glob("*.py"))
+    source = path.read_text()
+    assert path.parent == project / "migrations" / "versions"
+    assert "upgrade_db_" in source
+    assert "shop_product" in source
+    assert migration_history("default") == [(path.stem.split("_")[0], False)]
+    assert migration_history("analytics") == [(path.stem.split("_")[0], False)]
+
+    result = runner.invoke(create_typer_app(), ["migrate", "--database", "analytics"])
+    assert result.exit_code == 0, result.output
+    assert current_revision("analytics") is not None
+    assert current_revision("default") is None
+    assert migration_history("analytics")[-1][1] is True
+    assert "shop_product" in _table_names(project, "analytics.sqlite3")
+
+    result = runner.invoke(create_typer_app(), ["showmigrations", "--database", "analytics"])
+    assert result.exit_code == 0, result.output
+    assert "[X]" in result.output
+
+    result = runner.invoke(create_typer_app(), ["migrate"])
+    assert result.exit_code == 0, result.output
+    assert current_revision("default") == current_revision("analytics")
+    assert "shop_product" not in _table_names(project)
+    assert make_migration("again") is None
+
+
+def test_migration_refuses_an_alias_missing_from_existing_revisions(
+    project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from obox_builder.conf import settings
+    from obox_builder.db.migrations import make_migration, upgrade
+
+    assert make_migration("default init") is not None
+    upgrade(database="default")
+    analytics_url = f"sqlite+aiosqlite:///{project / 'analytics.sqlite3'}"
+    monkeypatch.setitem(settings.DATABASES, "analytics", analytics_url)
+
+    with pytest.raises(RuntimeError, match="has no operations for database 'db_analytics_"):
+        upgrade(database="analytics")
 
 
 def test_cli_makemigrations_migrate_showmigrations(project: Path) -> None:

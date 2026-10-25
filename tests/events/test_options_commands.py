@@ -134,6 +134,20 @@ def test_timeout_lease_check(events_env: None) -> None:
         Worker()
 
 
+def test_database_router_check_keeps_event_capture_with_model(
+    events_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from obox_builder.contrib.events.checks import check_event_database
+
+    monkeypatch.setitem(settings.DATABASES, "analytics", "sqlite+aiosqlite:///analytics.sqlite3")
+    monkeypatch.setattr(
+        settings.load(),
+        "DATABASE_ROUTERS",
+        ["tests.support.database_routers.WarehouseRouter"],
+    )
+    assert "obox.E007" in {message.id for message in check_event_database()}
+
+
 def test_checks_before_app_setup(events_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
     from obox_builder.apps import apps
 

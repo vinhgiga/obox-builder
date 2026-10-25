@@ -116,6 +116,109 @@ async def test_user_with_crud_permissions_can_manage_products(client: httpx.Asyn
     assert product.status == "draft"
 
 
+async def test_admin_list_reads_models_from_their_routed_database(
+    client: httpx.AsyncClient, tmp_path: Any
+) -> None:
+    from obox_builder.conf import settings
+    from obox_builder.db import get_engine, get_sessionmaker
+    from obox_builder.db.base import ModelBase
+
+    from tests.admin.conftest import login_session, make_user
+
+    settings.DATABASES["analytics"] = f"sqlite+aiosqlite:///{tmp_path / 'analytics.sqlite3'}"
+    settings.DATABASE_ROUTERS[:] = ["tests.support.database_routers.ShopRouter"]
+    async with get_engine("analytics").begin() as connection:
+        await connection.run_sync(ModelBase.metadata.create_all)
+
+    await make_product("Analytics product")
+    await make_user("admin", is_superuser=True)
+    await login_session(client, "admin")
+    response = await client.get(LIST_URL)
+
+    assert response.status_code == 200
+    assert "Analytics product" in response.text
+    async with get_sessionmaker("default")() as session:
+        assert await session.scalar(sa.select(Product.id)) is None
+
+
+async def test_admin_crud_writes_models_to_their_routed_database(
+    client: httpx.AsyncClient, tmp_path: Any
+) -> None:
+    from obox_builder.conf import settings
+    from obox_builder.db import get_engine, get_sessionmaker
+    from obox_builder.db.base import ModelBase
+
+    settings.DATABASES["analytics"] = f"sqlite+aiosqlite:///{tmp_path / 'analytics.sqlite3'}"
+    settings.DATABASE_ROUTERS[:] = ["tests.support.database_routers.ShopRouter"]
+    async with get_engine("analytics").begin() as connection:
+        await connection.run_sync(ModelBase.metadata.create_all)
+
+    await make_user("admin", is_superuser=True)
+    token = await login_session(client, "admin")
+    csrf_token = await csrf_for("admin", token)
+    created = await client.post(
+        ADD_URL,
+        data={"csrf_token": csrf_token, **product_form(name="Routed product")},
+        follow_redirects=False,
+    )
+    assert created.status_code == 303
+
+    async with get_sessionmaker("analytics")() as session:
+        product = await session.scalar(sa.select(Product).where(Product.name == "Routed product"))
+        assert product is not None
+        product_id = product.id
+    async with get_sessionmaker("default")() as session:
+        assert await session.scalar(sa.select(Product.id)) is None
+
+    updated = await client.post(
+        f"{LIST_URL}/{product_id}",
+        data={"csrf_token": csrf_token, **product_form(name="Updated product")},
+        follow_redirects=False,
+    )
+    assert updated.status_code == 303
+    async with get_sessionmaker("analytics")() as session:
+        assert (
+            await session.scalar(sa.select(Product.id).where(Product.name == "Updated product"))
+            == product_id
+        )
+
+    confirm = await client.get(f"{LIST_URL}/{product_id}/delete")
+    deleted = await client.post(
+        f"{LIST_URL}/{product_id}/delete",
+        data={"csrf_token": csrf_token, "_delete_confirmation": deletion_confirmation(confirm)},
+        follow_redirects=False,
+    )
+    assert deleted.status_code == 303
+    async with get_sessionmaker("analytics")() as session:
+        assert await session.get(Product, product_id) is None
+
+
+async def test_admin_authentication_uses_the_routed_auth_database(
+    client: httpx.AsyncClient, tmp_path: Any
+) -> None:
+    from obox_builder.conf import settings
+    from obox_builder.contrib.auth.models import User
+    from obox_builder.db import get_engine, get_sessionmaker
+    from obox_builder.db.base import ModelBase
+
+    settings.DATABASES["analytics"] = f"sqlite+aiosqlite:///{tmp_path / 'analytics.sqlite3'}"
+    settings.DATABASE_ROUTERS[:] = ["tests.support.database_routers.AuthRouter"]
+    async with get_engine("analytics").begin() as connection:
+        await connection.run_sync(ModelBase.metadata.create_all)
+
+    await make_product("Default database product")
+    await make_user("admin", is_superuser=True)
+    await login_session(client, "admin")
+    response = await client.get(LIST_URL)
+
+    assert response.status_code == 200
+    assert "Default database product" in response.text
+    async with get_sessionmaker("analytics")() as session:
+        assert await session.scalar(sa.select(User.username)) == "admin"
+    async with get_sessionmaker("default")() as session:
+        assert await session.scalar(sa.select(User.id)) is None
+
+
 # -- create / update / delete ----------------------------------------------
 
 

@@ -41,3 +41,15 @@ def test_failure_mode_open_warns_w202(
 ) -> None:
     override_settings(HISTORY_FAILURE_MODE="open")
     assert "obox.history.W202" in history_check_ids()
+
+
+def test_database_check_rejects_history_models_split_from_history_store(
+    history_env: None,
+) -> None:
+    from obox_builder.conf import settings
+    from obox_builder.contrib.history.checks import check_history_database
+
+    settings.DATABASES["analytics"] = "sqlite+aiosqlite:///analytics.sqlite3"
+    settings.DATABASE_ROUTERS[:] = ["tests.support.database_routers.WarehouseRouter"]
+    messages = check_history_database()
+    assert any(message.id == "obox.E006" for message in messages)

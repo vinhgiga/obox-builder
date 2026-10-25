@@ -119,3 +119,20 @@ def check_root_urlconf() -> list[CheckMessage]:
             )
         ]
     return []
+
+
+@register(tags=(CONFIG,))
+def check_database_routers() -> list[CheckMessage]:
+    from obox_builder.db.router import router
+
+    try:
+        router.validate()
+    except ImproperlyConfigured as exc:
+        return [
+            Error(
+                f"Database router configuration is invalid: {exc}",
+                hint="Check DATABASE_ROUTERS and the aliases in DATABASES.",
+                id="obox.E005",
+            )
+        ]
+    return []

@@ -171,9 +171,14 @@ async def get_users_permissions(
 
 async def sync_permissions_receiver(sender: object, **kwargs: object) -> None:
     """``post_migrate`` receiver: keep permissions in sync after migrations."""
+    from obox_builder.contrib.auth.models import Permission
+    from obox_builder.db.router import router
     from obox_builder.db.session import session_scope
 
-    async with session_scope() as db:
+    database = str(kwargs.get("database", "default"))
+    if not router.allow_migrate_model(database, Permission):
+        return
+    async with session_scope(database) as db:
         result = await sync_permissions(db)
     if result.created:
         logger.info("Created %d permission(s): %s", len(result.created), ", ".join(result.created))

@@ -10,9 +10,10 @@ from alembic.script import Script, ScriptDirectory
 from sqlalchemy import create_engine
 
 from obox_builder.conf import settings
+from obox_builder.core.exceptions import ImproperlyConfigured
 from obox_builder.db.base import ModelBase
 from obox_builder.db.engine import to_sync_url
-from obox_builder.db.migrations.config import build_config, make_include_object
+from obox_builder.db.migrations.config import build_config, make_include_object, version_dir
 
 
 def _prepare() -> None:
@@ -21,13 +22,23 @@ def _prepare() -> None:
     obox_builder.setup()
 
 
-def _has_changes() -> bool:
-    engine = create_engine(to_sync_url(settings.DATABASE_URL))
+def _database_url(database: str) -> str:
+    try:
+        return settings.database_urls[database]
+    except KeyError:
+        configured = ", ".join(sorted(settings.database_urls))
+        raise ImproperlyConfigured(
+            f"Unknown database alias {database!r}. Configured aliases: {configured}."
+        ) from None
+
+
+def _has_changes(database: str) -> bool:
+    engine = create_engine(to_sync_url(_database_url(database)))
     try:
         with engine.connect() as connection:
             context = MigrationContext.configure(
                 connection,
-                opts={"compare_type": True, "include_object": make_include_object()},
+                opts={"compare_type": True, "include_object": make_include_object(database)},
             )
             diff = compare_metadata(context, ModelBase.metadata)
     finally:
@@ -35,12 +46,17 @@ def _has_changes() -> bool:
     return bool(diff)
 
 
-def make_migration(message: str | None = None, *, empty: bool = False) -> Path | None:
+def make_migration(
+    message: str | None = None, *, empty: bool = False, database: str = "default"
+) -> Path | None:
     """Autogenerate a revision; returns the file path, or None when unchanged."""
     _prepare()
-    config = build_config()
-    if not empty and not _has_changes():
+    _database_url(database)
+    databases = tuple(settings.database_urls)
+    if not empty and not any(_has_changes(alias) for alias in databases):
         return None
+    config = build_config(database, create_version_dir=True)
+    config.attributes["autogenerate_multi_db"] = True
     script = cast(
         "Script | None", command.revision(config, message=message or "", autogenerate=not empty)
     )
@@ -49,16 +65,19 @@ def make_migration(message: str | None = None, *, empty: bool = False) -> Path |
     return Path(script.path)
 
 
-def upgrade(revision: str = "head", *, sql: bool = False) -> None:
+def upgrade(revision: str = "head", *, sql: bool = False, database: str = "default") -> None:
     _prepare()
-    config = build_config()
-    config.attributes["connection_url"] = to_sync_url(settings.DATABASE_URL)
+    _database_url(database)
+    if database != "default" and not version_dir(database).exists():
+        return
+    config = build_config(database)
+    config.attributes["connection_url"] = to_sync_url(_database_url(database))
     command.upgrade(config, revision, sql=sql)
 
 
-def current_revision() -> str | None:
+def current_revision(database: str = "default") -> str | None:
     _prepare()
-    engine = create_engine(to_sync_url(settings.DATABASE_URL))
+    engine = create_engine(to_sync_url(_database_url(database)))
     try:
         with engine.connect() as connection:
             context = MigrationContext.configure(connection)
@@ -67,12 +86,14 @@ def current_revision() -> str | None:
         engine.dispose()
 
 
-def migration_history() -> list[tuple[str, bool]]:
+def migration_history(database: str = "default") -> list[tuple[str, bool]]:
     """Return ``(revision, is_applied)`` pairs, oldest first."""
     _prepare()
-    config = build_config()
+    if database != "default" and not version_dir(database).exists():
+        return []
+    config = build_config(database)
     scripts = ScriptDirectory.from_config(config)
-    current = current_revision()
+    current = current_revision(database)
     applied: set[str] = set()
     if current is not None:
         applied = {rev.revision for rev in scripts.iterate_revisions(current, "base")}

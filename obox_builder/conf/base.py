@@ -25,6 +25,10 @@ class BaseSettings(PydanticBaseSettings):
     SECRET_KEY: SecretStr
     DEBUG: bool = False
     DATABASE_URL: str
+    #: Additional database aliases, each mapped to a SQLAlchemy URL. ``DATABASE_URL``
+    #: remains the URL for ``default`` unless ``DATABASES["default"]`` overrides it.
+    DATABASES: dict[str, str] = Field(default_factory=dict)
+    DATABASE_ROUTERS: list[str] = Field(default_factory=list)
     LANGUAGE_CODE: Literal["en", "vi"] = "en"
     MEDIA_ROOT: Path = Path("media")
     ADMIN_MAX_UPLOAD_BYTES: int = Field(default=10 * 1024 * 1024, ge=1, le=50 * 1024 * 1024)
@@ -128,6 +132,24 @@ class BaseSettings(PydanticBaseSettings):
             raise ValueError("DATABASE_URL must not be blank")
         return value
 
+    @field_validator("DATABASES")
+    @classmethod
+    def validate_databases(cls, value: dict[str, str]) -> dict[str, str]:
+        for alias, url in value.items():
+            if not alias.strip():
+                raise ValueError("DATABASES aliases must not be blank")
+            if not url.strip():
+                raise ValueError(f"DATABASES[{alias!r}] must not be blank")
+        return value
+
+    @field_validator("DATABASE_ROUTERS")
+    @classmethod
+    def validate_database_routers(cls, value: list[str]) -> list[str]:
+        for entry in value:
+            if not entry.strip():
+                raise ValueError("DATABASE_ROUTERS entries must not be blank")
+        return value
+
     @field_validator("INSTALLED_APPS")
     @classmethod
     def validate_installed_apps(cls, value: list[str]) -> list[str]:
@@ -139,3 +161,8 @@ class BaseSettings(PydanticBaseSettings):
     @property
     def logging_config(self) -> dict[str, Any]:
         return self.LOGGING or default_logging_config(debug=self.DEBUG)
+
+    @property
+    def database_urls(self) -> dict[str, str]:
+        """Return configured aliases while retaining ``DATABASE_URL`` compatibility."""
+        return {"default": self.DATABASE_URL, **self.DATABASES}

@@ -9,6 +9,7 @@ from obox_builder.db.engine import (
     to_sync_url,
 )
 from obox_builder.db.mixins import TimestampMixin, VersionedMixin
+from obox_builder.db.router import ConnectionRouter, router
 from obox_builder.db.session import get_db, session_scope
 from obox_builder.db.types import JSONB, JsonDict, TZDateTime
 
@@ -20,12 +21,14 @@ __all__ = [
     "ModelBase",
     "TimestampMixin",
     "VersionedMixin",
+    "ConnectionRouter",
     "camel_to_snake",
     "dispose",
     "get_db",
     "get_engine",
     "get_sessionmaker",
     "relationship",
+    "router",
     "run_async",
     "session_scope",
     "to_sync_url",

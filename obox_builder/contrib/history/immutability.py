@@ -98,8 +98,13 @@ async def end_maintenance(db: AsyncSession, mode: str | None) -> None:
 
 async def install_trigger_receiver(sender: object, **kwargs: object) -> None:
     """``post_migrate`` receiver: install the append-only triggers."""
+    from obox_builder.contrib.history.models import RowChange
+    from obox_builder.db.router import router
     from obox_builder.db.session import session_scope
 
-    async with session_scope() as db:
+    database = str(kwargs.get("database", "default"))
+    if not router.allow_migrate_model(database, RowChange):
+        return
+    async with session_scope(database) as db:
         if await install(db):
             logger.info("Installed append-only trigger on %s.", TABLE)

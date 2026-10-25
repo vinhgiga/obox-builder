@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
+import re
 from collections.abc import Callable
 from importlib import import_module
 from pathlib import Path
@@ -9,7 +11,7 @@ from typing import Any, Literal
 
 from alembic.config import Config
 
-from obox_builder.conf import SETTINGS_MODULE_ENV
+from obox_builder.conf import SETTINGS_MODULE_ENV, settings
 from obox_builder.core.exceptions import ImproperlyConfigured
 
 MIGRATIONS_DIR_NAME = "migrations"
@@ -42,12 +44,37 @@ def migrations_dir() -> Path:
     return project_root() / MIGRATIONS_DIR_NAME
 
 
-def build_config() -> Config:
-    """Build an Alembic ``Config`` in code (no ``alembic.ini`` needed)."""
+def version_dir(database: str = "default") -> Path:
+    """Return the shared Alembic version folder used by all database aliases."""
+    del database
+    return migrations_dir() / "versions"
+
+
+def database_key(database: str) -> str:
+    """Return a stable, Python-safe engine name for Alembic's multidb template."""
+    slug = re.sub(r"[^A-Za-z0-9_]+", "_", database).strip("_")[:32] or "alias"
+    if slug[0].isdigit():
+        slug = f"_{slug}"
+    suffix = hashlib.sha256(database.encode()).hexdigest()[:8]
+    return f"db_{slug}_{suffix}"
+
+
+def build_config(database: str = "default", *, create_version_dir: bool = False) -> Config:
+    """Build an Alembic ``Config`` with one shared revision graph."""
     config = Config()
     root = project_root()
     config.set_main_option("script_location", str(root / MIGRATIONS_DIR_NAME))
+    config.set_main_option("path_separator", "os")
+    versions = version_dir(database)
+    if create_version_dir:
+        versions.mkdir(parents=True, exist_ok=True)
+    aliases = tuple(settings.database_urls)
+    keys = {alias: database_key(alias) for alias in aliases}
+    config.set_main_option("databases", ",".join(keys.values()))
     config.attributes["project_root"] = str(root)
+    config.attributes["database_alias"] = database
+    config.attributes["database_aliases"] = aliases
+    config.attributes["database_keys"] = keys
     return config
 
 
@@ -60,9 +87,29 @@ def installed_table_names() -> set[str]:
     return names
 
 
-def make_include_object() -> Callable[[Any, str | None, str, bool, Any], bool]:
+def make_include_object(
+    database: str = "default",
+) -> Callable[[Any, str | None, str, bool, Any], bool]:
     """Alembic ``include_object``: only tables of installed apps are managed."""
-    installed_tables = installed_table_names()
+    from obox_builder.apps import apps
+    from obox_builder.db.router import router
+
+    table_owners: dict[str, tuple[str, type[Any] | None]] = {}
+    for model in apps.get_models():
+        if hasattr(model, "__table__"):
+            table_owners[model.__table__.name] = (model._model_label, model)
+    for app_label, tables in apps.all_tables.items():
+        for table in tables.values():
+            table_owners[table.name] = (app_label, None)
+
+    def allowed(table_name: str) -> bool:
+        owner = table_owners.get(table_name)
+        if owner is None:
+            return False
+        app_label, model = owner
+        if model is not None:
+            return router.allow_migrate_model(database, model)
+        return router.allow_migrate(database, app_label)
 
     def include_object(
         object_: Any, name: str | None, type_: str, reflected: bool, compare_to: Any
@@ -70,10 +117,10 @@ def make_include_object() -> Callable[[Any, str | None, str, bool, Any], bool]:
         if type_ == "table":
             if reflected:
                 return False
-            return name in installed_tables
+            return name is not None and allowed(name)
         table = getattr(object_, "table", None)
         if table is not None:
-            return table.name in installed_tables
+            return allowed(table.name)
         return True
 
     return include_object

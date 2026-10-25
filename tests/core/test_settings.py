@@ -92,6 +92,27 @@ def test_configure_with_instance() -> None:
     assert lazy.SECRET_KEY.get_secret_value() == SECRET
 
 
+def test_database_aliases_preserve_legacy_database_url() -> None:
+    settings = BaseSettings(
+        SECRET_KEY=SecretStr(SECRET),
+        DATABASE_URL=DATABASE,
+        DATABASES={"analytics": "sqlite+aiosqlite:///analytics.sqlite3"},
+    )
+    assert settings.database_urls == {
+        "default": DATABASE,
+        "analytics": "sqlite+aiosqlite:///analytics.sqlite3",
+    }
+
+
+def test_database_alias_can_override_legacy_default_url() -> None:
+    settings = BaseSettings(
+        SECRET_KEY=SecretStr(SECRET),
+        DATABASE_URL=DATABASE,
+        DATABASES={"default": "sqlite+aiosqlite:///new-default.sqlite3"},
+    )
+    assert settings.database_urls["default"] == "sqlite+aiosqlite:///new-default.sqlite3"
+
+
 def test_configure_with_class() -> None:
     class TestSettings(BaseSettings):
         SECRET_KEY: SecretStr = SecretStr(SECRET)

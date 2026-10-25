@@ -17,9 +17,29 @@ branch_labels: str | Sequence[str] | None = $${repr(branch_labels)}
 depends_on: str | Sequence[str] | None = $${repr(depends_on)}
 
 
-def upgrade() -> None:
-    $${upgrades if upgrades else "pass"}
+def upgrade(engine_name: str) -> None:
+    operation = globals().get(f"upgrade_{engine_name}")
+    if operation is None:
+        raise RuntimeError(f"Revision {revision} has no operations for database {engine_name!r}.")
+    operation()
 
 
-def downgrade() -> None:
-    $${downgrades if downgrades else "pass"}
+def downgrade(engine_name: str) -> None:
+    operation = globals().get(f"downgrade_{engine_name}")
+    if operation is None:
+        raise RuntimeError(f"Revision {revision} has no operations for database {engine_name!r}.")
+    operation()
+
+<%
+database_names = config.get_main_option("databases", "").split(",")
+%>
+% for database_name in database_names:
+def upgrade_$${database_name}() -> None:
+    $${context.get(f"{database_name}_upgrades", "pass")}
+
+
+def downgrade_$${database_name}() -> None:
+    $${context.get(f"{database_name}_downgrades", "pass")}
+
+
+% endfor

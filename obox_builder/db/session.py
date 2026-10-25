@@ -9,9 +9,9 @@ from obox_builder.db.engine import get_sessionmaker
 
 
 @asynccontextmanager
-async def session_scope() -> AsyncIterator[AsyncSession]:
-    """Open a session, commit on success and roll back on error."""
-    async with get_sessionmaker()() as session:
+async def session_scope(using: str | None = None) -> AsyncIterator[AsyncSession]:
+    """Commit each database transaction used on success; cross-database commits aren't atomic."""
+    async with get_sessionmaker(using)() as session:
         try:
             yield session
             await session.commit()
@@ -21,7 +21,7 @@ async def session_scope() -> AsyncIterator[AsyncSession]:
 
 
 async def get_db() -> AsyncIterator[AsyncSession]:
-    """FastAPI dependency: one transaction per request (commit on success)."""
+    """FastAPI routed session; commits each used database on success, without cross-db atomicity."""
     async with get_sessionmaker()() as session:
         try:
             if session.get_bind().dialect.name == "sqlite":

@@ -9,6 +9,7 @@ from obox_builder.core.checks import register
 from obox_builder.core.checks.messages import CheckMessage, Error, Warning
 from obox_builder.core.events import subscriptions
 from obox_builder.core.exceptions import ImproperlyConfigured
+from obox_builder.db.router import router
 
 
 @register(tags=("events",))
@@ -55,4 +56,42 @@ def check_events() -> list[CheckMessage]:
                 id="obox.events.W401",
             )
         )
+    return messages
+
+
+@register(tags=("config",))
+def check_event_database() -> list[CheckMessage]:
+    if not (
+        settings.EVENTS_ENABLED
+        and apps.models_ready
+        and apps.is_installed("obox_builder.contrib.events")
+    ):
+        return []
+
+    from obox_builder.contrib.events.models import Delivery, Event
+
+    event_database = "default"
+    messages: list[CheckMessage] = []
+    if any(router.db_for_write(model) != event_database for model in (Event, Delivery)):
+        messages.append(
+            Error(
+                "Event and Delivery tables must use the default database because event capture "
+                "writes through the session's default connection.",
+                id="obox.E007",
+            )
+        )
+    for model in apps.get_models():
+        if (
+            getattr(model, "__events__", None) not in (None, False)
+            and router.db_for_write(model) != event_database
+        ):
+            messages.append(
+                Error(
+                    f"Event capture for {model._model_label}.{model.__name__} requires the "
+                    "default database.",
+                    hint="Route event-enabled models to default so their outbox rows commit "
+                    "with the model changes.",
+                    id="obox.E007",
+                )
+            )
     return messages

@@ -11,11 +11,12 @@ from obox_builder.core.signals import post_migrate
 async def handle(
     target: str = typer.Argument("head", help="Revision to upgrade to (default: head)."),
     sql: bool = typer.Option(False, "--sql", help="Print the SQL instead of applying it."),
+    database: str = typer.Option("default", "--database", help="Database alias to migrate."),
 ) -> None:
     from obox_builder.db.migrations import configure_alembic_logging, upgrade
 
     configure_alembic_logging(utils.get_verbosity())
-    upgrade(target, sql=sql)
+    upgrade(target, sql=sql, database=database)
     if not sql:
-        await post_migrate.send_async(sender="migrate")
-    utils.echo(f"Applied migrations up to {target!r}.")
+        await post_migrate.send_async(sender="migrate", database=database)
+    utils.echo(f"Applied migrations up to {target!r} on {database!r}.")

@@ -12,11 +12,14 @@ def handle(
         "", "-m", "--message", help="Migration message (for example 'add post table')."
     ),
     empty: bool = typer.Option(False, "--empty", help="Create an empty migration."),
+    database: str = typer.Option(
+        "default", "--database", help="Database alias to validate; revisions are shared."
+    ),
 ) -> None:
     from obox_builder.db.migrations import configure_alembic_logging, make_migration
 
     configure_alembic_logging(utils.get_verbosity())
-    path = make_migration(message or None, empty=empty)
+    path = make_migration(message or None, empty=empty, database=database)
     if path is None:
         utils.echo("No changes detected.")
     else:
