@@ -10,6 +10,7 @@ import sqlalchemy as sa
 
 from obox_builder.contrib.admin.context import AdminContext
 from obox_builder.contrib.admin.options import ModelAdmin
+from obox_builder.contrib.auth.tokens import scope_allows
 from obox_builder.core.exceptions import PermissionDenied
 from obox_builder.fields import Cell, FieldSpec
 from obox_builder.forms import BoundForm
@@ -38,6 +39,9 @@ async def related_objects(
     if spec.options.get("target") is None:
         return []
     admin, related_ctx = related_admin(ctx, spec)
+    scopes = ctx.extra.get("api_scopes")
+    if scopes is not None and not scope_allows(scopes, admin.model_label, "read"):
+        return []
     if not admin.has_view_permission(related_ctx):
         return []
     stmt = admin.get_queryset(related_ctx).order_by(None).order_by(admin.pk_column())

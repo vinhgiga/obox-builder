@@ -35,6 +35,7 @@ def action(
     *,
     description: str = "",
     permissions: Sequence[str] = (),
+    api: bool = False,
 ) -> Any:
     """Mark a method/function as a bulk action.
 
@@ -45,6 +46,7 @@ def action(
     def decorate(target: Callable[..., Any]) -> Callable[..., Any]:
         target.description = description  # type: ignore[attr-defined]
         target.allowed_permissions = tuple(permissions)  # type: ignore[attr-defined]
+        target.api_enabled = api  # type: ignore[attr-defined]
         return target
 
     if func is not None:

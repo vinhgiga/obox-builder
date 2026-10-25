@@ -18,6 +18,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm.exc import StaleDataError
 from starlette.exceptions import HTTPException
 
+from obox_builder.contrib.admin.uploads import discard_uploads
 from obox_builder.contrib.auth.sessions import set_session_cookie
 from obox_builder.core.exceptions import NotAuthenticated, PermissionDenied
 from obox_builder.db.session import get_db
@@ -45,6 +46,8 @@ class Problem(Exception):
 
 def problem_response(request: Request, exc: Problem) -> JSONResponse:
     headers = {"WWW-Authenticate": "Session"} if exc.status == 401 else {}
+    if exc.status == 401 and request.headers.get("authorization"):
+        headers["WWW-Authenticate"] = 'Bearer realm="admin-api", error="invalid_token"'
     if exc.status == 429:
         headers["Retry-After"] = str(exc.extra.get("retry_after", 1))
         headers["RateLimit"] = f'"default";r=0;t={headers["Retry-After"]}'
@@ -71,6 +74,8 @@ class ProblemRoute(APIRoute):
 
         async def handle(request: Request) -> Response:
             started = time.perf_counter()
+            request.state.api_uploads = []
+            request.state.api_upload_bytes = 0
             try:
                 async with asynccontextmanager(get_db)() as db:
                     request.state.api_db = db
@@ -115,6 +120,11 @@ class ProblemRoute(APIRoute):
                 response = problem_response(
                     request, Problem(500, "internal_error", "An unexpected error occurred.")
                 )
+            except BaseException:
+                discard_uploads(request.state.api_uploads)
+                raise
+            if response.status_code >= 400:
+                discard_uploads(request.state.api_uploads)
             response.headers.update(getattr(request.state, "api_rate_headers", {}))
             renewal = getattr(request.state, "api_renew_token", None)
             if renewal and response.status_code < 400 and "set-cookie" not in response.headers:

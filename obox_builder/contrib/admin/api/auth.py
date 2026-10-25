@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from obox_builder.conf import settings
-from obox_builder.contrib.admin.api.deps import DB, USER, check_origin, json_body
+from obox_builder.contrib.admin.api.deps import DB, USER, check_origin, json_body, session_only
 from obox_builder.contrib.admin.api.problems import Problem, problem_response
 from obox_builder.contrib.auth import csrf, services, sessions
 from obox_builder.contrib.auth.permissions import get_user_permissions
@@ -32,6 +32,7 @@ class Identity(BaseModel):
     user: dict[str, Any]
     csrf_token: str
     permissions: list[str]
+    scopes: list[str] = Field(default_factory=list)
 
 
 def identity(user: Any, auth_session: Any) -> dict[str, Any]:
@@ -96,10 +97,24 @@ def register_auth(router: APIRouter) -> None:
 
     @router.get("/auth/me", response_model=Identity)
     async def me(request: Request, user: USER) -> Any:
+        if getattr(request.state, "api_token", None) is not None:
+            token = request.state.api_token
+            return {
+                "user": {
+                    "id": str(user.id),
+                    "username": user.username,
+                    "full_name": user.full_name,
+                    "is_superuser": user.is_superuser,
+                },
+                "csrf_token": "",
+                "permissions": [],
+                "scopes": token.scopes,
+            }
         return identity(user, request.state.auth_session)
 
     @router.post("/auth/logout", status_code=204)
     async def logout(request: Request, user: USER, db: DB) -> Response:
+        session_only(request)
         await sessions.delete_session(db, request.state.auth_session)
         response = Response(status_code=204)
         sessions.clear_session_cookie(response)
@@ -116,6 +131,7 @@ def register_auth(router: APIRouter) -> None:
         },
     )
     async def password(request: Request, user: USER, db: DB) -> Any:
+        session_only(request)
         payload = parse_body(PasswordChange, await json_body(request))
         try:
             await services.change_password(db, user, payload.current_password, payload.new_password)

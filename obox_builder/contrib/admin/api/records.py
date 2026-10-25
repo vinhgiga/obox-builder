@@ -12,12 +12,17 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from obox_builder.conf import settings
 from obox_builder.contrib.admin.api import idempotency
-from obox_builder.contrib.admin.api.deps import DB, USER, json_body
+from obox_builder.contrib.admin.api.deps import DB, USER, json_body, principal
 from obox_builder.contrib.admin.api.etag import check_if_match
 from obox_builder.contrib.admin.api.meta import model_context, register_meta
 from obox_builder.contrib.admin.api.problems import Problem
 from obox_builder.contrib.admin.api.queries import QueryRequest, list_records
-from obox_builder.contrib.admin.api.serializers import api_specs, field_value, serialize_records
+from obox_builder.contrib.admin.api.serializers import (
+    api_specs,
+    field_value,
+    record_values,
+    serialize_records,
+)
 from obox_builder.contrib.admin.context import AdminContext
 from obox_builder.contrib.admin.deletion import DeletionPlan, confirmation_token, confirmed
 from obox_builder.contrib.admin.relations import related_admin, related_key, related_objects
@@ -115,13 +120,13 @@ def merge_patch(target: Any, patch: Any) -> Any:
 
 
 async def save_record(ctx: AdminContext, fields: Any, target: Any = None) -> Any:
+    from obox_builder.contrib.admin.api.uploads import prepare_files
+
     if not isinstance(fields, dict):
         raise Problem(422, "validation_error", "fields must be an object.")
     ctx.obj = target
     specs = api_specs(ctx)
-    writable = {
-        spec.name: spec for spec in specs if spec.is_editable() and spec.type.name != "file"
-    }
+    writable = {spec.name: spec for spec in specs if spec.is_editable()}
     errors: dict[str, list[str]] = {}
     data = dict(fields)
     for name, value in data.items():
@@ -134,6 +139,7 @@ async def save_record(ctx: AdminContext, fields: Any, target: Any = None) -> Any
             data[name] = merge_patch(field_value(target, spec), value)
     if errors:
         raise Problem(422, "validation_error", "Invalid record fields.", errors=errors)
+    data, uploads = await prepare_files(ctx, data, specs)
     service = RecordService(ctx)
     bound = await service.bind(
         data, target=target, specs=specs, partial=target is not None, api=True
@@ -145,7 +151,8 @@ async def save_record(ctx: AdminContext, fields: Any, target: Any = None) -> Any
     }
     if denied:
         raise Problem(422, "validation_error", "Invalid record fields.", errors=denied)
-    obj = await service.save(bound, target=target)
+    obj = await service.save(bound, target=target, uploads=uploads)
+    ctx.request.state.api_uploads.extend((path, b"") for path, _content in uploads)
     # Reload server-generated columns and relationship state before encoding JSON.
     await ctx.db.refresh(obj)
     return await service.get(str(RecordService(ctx).admin.get_pk(obj)), for_update=True)
@@ -182,9 +189,8 @@ def plan_data(ctx: AdminContext, plan: DeletionPlan) -> dict[str, Any]:
 
 
 async def delete_records(ctx: AdminContext, targets: list[Any], token: str | None) -> None:
-    admin = RecordService(ctx).admin
     for target in targets:
-        admin.check_permission(replace(ctx, obj=target), "delete", target)
+        RecordService(replace(ctx, obj=target)).check_permission("delete", target)
     service = RecordService(ctx)
     plan = await service.plan_delete(targets, lock=True)
     if plan.permissions:
@@ -263,7 +269,7 @@ def register_records(router: APIRouter) -> None:
     )
     async def create(request: Request, label: str, user: USER, db: DB) -> Response:
         ctx = model_context(request, user, db, label)
-        RecordService(ctx).admin.check_permission(ctx, "add")
+        RecordService(ctx).check_permission("add")
         body = await json_body(request)
 
         async def operation() -> Response:
@@ -321,7 +327,7 @@ def register_records(router: APIRouter) -> None:
         return await idempotency.execute(
             request,
             db,
-            f"{ctx.site.name}:user:{user.id}",
+            principal(request),
             body,
             operation,
             authorize_replay=authorize_replay,
@@ -335,7 +341,7 @@ def register_records(router: APIRouter) -> None:
     async def update(request: Request, label: str, pk: str, user: USER, db: DB) -> Response:
         ctx = model_context(request, user, db, label)
         obj = await get_record(ctx, pk, lock=True)
-        RecordService(ctx).admin.check_permission(ctx, "change", obj)
+        RecordService(ctx).check_permission("change", obj)
         current = await representation(ctx, obj)
         check_if_match(current["meta"]["etag"], request.headers.get("if-match"))
         body = await json_body(request)
@@ -366,7 +372,7 @@ def register_records(router: APIRouter) -> None:
             for index, item in enumerate(items):
                 obj = targets[item["id"]]
                 ctx.obj = obj
-                RecordService(ctx).admin.check_permission(ctx, "change", obj)
+                RecordService(ctx).check_permission("change", obj)
                 current = await representation(ctx, obj)
                 check_if_match(current["meta"]["etag"], item.get("etag"))
                 try:
@@ -387,14 +393,14 @@ def register_records(router: APIRouter) -> None:
     async def preview(request: Request, label: str, pk: str, user: USER, db: DB) -> Any:
         ctx = model_context(request, user, db, label)
         obj = await get_record(ctx, pk)
-        RecordService(ctx).admin.check_permission(ctx, "delete", obj)
+        RecordService(ctx).check_permission("delete", obj)
         return plan_data(ctx, await RecordService(ctx).plan_delete([obj]))
 
     @router.delete("/models/{label}/records/{pk}", status_code=204)
     async def delete(request: Request, label: str, pk: str, user: USER, db: DB) -> Response:
         ctx = model_context(request, user, db, label)
         obj = await get_record(ctx, pk, lock=True)
-        RecordService(ctx).admin.check_permission(ctx, "delete", obj)
+        RecordService(ctx).check_permission("delete", obj)
         data = await representation(ctx, obj)
         check_if_match(data["meta"]["etag"], request.headers.get("if-match"))
         await delete_records(ctx, [obj], request.headers.get("x-delete-confirmation"))
@@ -405,7 +411,7 @@ def register_records(router: APIRouter) -> None:
     )
     async def batch_delete(request: Request, label: str, user: USER, db: DB) -> Response:
         ctx = model_context(request, user, db, label)
-        RecordService(ctx).admin.check_permission(ctx, "delete")
+        RecordService(ctx).check_permission("delete")
         body = await json_body(request)
         validate_keys(body, {"ids"}, {"etags"})
         ids = body["ids"]
@@ -433,9 +439,7 @@ def register_records(router: APIRouter) -> None:
             await delete_records(ctx, targets, request.headers.get("x-delete-confirmation"))
             return Response(status_code=204)
 
-        return await idempotency.execute(
-            request, db, f"{ctx.site.name}:user:{user.id}", body, operation
-        )
+        return await idempotency.execute(request, db, principal(request), body, operation)
 
     @router.get("/models/{label}/options/{field}")
     async def options(
@@ -465,7 +469,7 @@ def register_records(router: APIRouter) -> None:
                 "has_next": len(choices) > offset + 50,
             }
         admin, related_ctx = related_admin(ctx, spec)
-        if not admin.has_view_permission(related_ctx):
+        if not RecordService(related_ctx).allowed("view"):
             return {"options": [], "has_next": False}
         from obox_builder.fields import QuerySpec
 
@@ -501,6 +505,12 @@ def register_records(router: APIRouter) -> None:
             (spec for spec in api_specs(ctx) if spec.name == field and spec.type.name == "file"),
             None,
         )
+        if (
+            spec is not None
+            and spec.show_if is not None
+            and not spec.show_if(ctx.record_context(record_values(obj, api_specs(ctx))))
+        ):
+            raise Problem(404, "not_found", "File is unavailable.")
         path = resolve_upload(str(field_value(obj, spec))) if spec is not None else None
         if path is None:
             raise Problem(404, "not_found", "File is unavailable.")

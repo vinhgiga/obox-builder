@@ -107,6 +107,9 @@ def from_request(request: Any, *, source: str = "admin_ui") -> HistoryContext:
     if user is not None and getattr(user, "id", None) is not None:
         actor_id = int(user.id)
         actor_label = str(getattr(user, "username", "") or user)
+        api_token = getattr(request.state, "api_token", None)
+        if api_token is not None:
+            actor_label = f"{actor_label[:120]} via {api_token.token_prefix}"
     auth_session = getattr(request.state, "auth_session", None)
     return HistoryContext(
         actor_id=actor_id,

@@ -54,6 +54,7 @@ class ActionSpec:
     description: str
     permissions: tuple[str, ...]
     func: Callable[[AdminContext, sa.Select[Any]], Awaitable[Any]]
+    api: bool = False
 
 
 @dataclass(frozen=True)
@@ -696,6 +697,7 @@ class ModelAdmin:
             description=description,
             permissions=permissions,
             func=func,
+            api=bool(getattr(method, "api_enabled", False)),
         )
 
     def _action_allowed(self, spec: ActionSpec, ctx: AdminContext, obj: Any = None) -> bool:

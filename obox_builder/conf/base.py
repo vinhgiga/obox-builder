@@ -41,6 +41,8 @@ class BaseSettings(PydanticBaseSettings):
     ADMIN_API_TRUSTED_ORIGINS: list[str] = Field(default_factory=list)
     ADMIN_API_QUERY_TIMEOUT_MS: int = Field(default=5000, ge=1)
     ADMIN_API_IDEMPOTENCY_TTL_SECONDS: int = Field(default=86400, ge=1)
+    ADMIN_API_TOKEN_MAX_AGE_DAYS: int = Field(default=90, ge=1)
+    ADMIN_API_UPLOAD_TTL_SECONDS: int = Field(default=3600, ge=60)
     #: Use ICU Vietnamese ordering for admin text sort/group; None uses the database default.
     ADMIN_TEXT_COLLATION: Literal["vi"] | None = None
     INSTALLED_APPS: list[str] = Field(default_factory=list)

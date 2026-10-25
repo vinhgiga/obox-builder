@@ -29,3 +29,6 @@ async def handle(batch_size: int = typer.Option(1000, "--batch-size", min=1, max
             )
         ).all()
     echo(f"Purged {len(removed)} API idempotency keys.")
+    from obox_builder.contrib.admin.api.uploads import purge_staged
+
+    echo(f"Purged {purge_staged(limit=batch_size)} expired staged uploads.")

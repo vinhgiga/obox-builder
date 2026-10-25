@@ -7,7 +7,7 @@ import math
 from typing import Annotated, Any
 
 from fastapi import Depends, Request, Response, Security
-from fastapi.security import APIKeyCookie
+from fastapi.security import APIKeyCookie, HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from obox_builder.conf import settings
@@ -15,6 +15,8 @@ from obox_builder.contrib.admin.api.problems import Problem
 from obox_builder.contrib.auth import csrf, sessions
 from obox_builder.contrib.auth.models import User
 from obox_builder.contrib.auth.permissions import get_user_permissions
+from obox_builder.contrib.auth.tokens import verify_token
+from obox_builder.core.utils.time import ensure_aware, utcnow
 
 
 async def api_db(request: Request) -> AsyncSession:
@@ -23,6 +25,7 @@ async def api_db(request: Request) -> AsyncSession:
 
 DB = Annotated[AsyncSession, Depends(api_db)]
 _cookie = APIKeyCookie(name=settings.SESSION_COOKIE_NAME, auto_error=False)
+_bearer = HTTPBearer(auto_error=False)
 
 
 def check_origin(request: Request) -> None:
@@ -39,9 +42,36 @@ async def current_user(
     response: Response,
     db: DB,
     token: str | None = Security(_cookie),
+    bearer: HTTPAuthorizationCredentials | None = Security(_bearer),
 ) -> User:
     if request.headers.get("authorization"):
-        raise Problem(401, "not_authenticated", "Bearer authentication is not enabled.")
+        raw = bearer.credentials if bearer is not None else ""
+        credential = await verify_token(db, raw)
+        user = await db.get(User, credential.user_id) if credential is not None else None
+        if credential is None or user is None or not user.is_active:
+            raise Problem(401, "not_authenticated", "Invalid or expired access token.")
+        request.state.api_token = credential
+        request.state.auth_session = None
+        request.state.api_principal = f"token:{credential.id}"
+        request.state.user = user
+        user.permissions = await get_user_permissions(db, user.id)
+        request.state.api_rate_headers = await request.state.api_limiter.check(
+            request.state.api_principal, settings.ADMIN_API_RATE_LIMIT
+        )
+        if (
+            credential.last_used_at is None
+            or (utcnow() - ensure_aware(credential.last_used_at)).total_seconds() >= 60
+        ):
+            credential = await verify_token(db, raw, for_update=True)
+            if credential is None:
+                raise Problem(401, "not_authenticated", "Invalid or expired access token.")
+            if (
+                credential.last_used_at is None
+                or (utcnow() - ensure_aware(credential.last_used_at)).total_seconds() >= 60
+            ):
+                credential.last_used_at = utcnow()
+                credential.last_used_ip = request.client.host[:45] if request.client else None
+        return user
     row = await sessions.get_session(db, token) if token else None
     user = await db.get(User, row.user_id) if row else None
     if row is None or user is None or not user.is_active:
@@ -70,6 +100,15 @@ async def current_user(
 
 
 USER = Annotated[User, Depends(current_user)]
+
+
+def session_only(request: Request) -> None:
+    if getattr(request.state, "api_token", None) is not None:
+        raise Problem(403, "permission_denied", "A session is required for this operation.")
+
+
+def principal(request: Request) -> str:
+    return f"{request.state.admin_site.name}:{request.state.api_principal}"
 
 
 async def json_body(request: Request) -> dict[str, Any]:

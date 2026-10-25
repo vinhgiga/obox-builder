@@ -208,6 +208,14 @@ async def test_schema_metadata_and_openapi_contract(api: httpx.AsyncClient) -> N
     }
     assert api_paths == {
         f"{BASE}/auth/login": {"post"},
+        f"{BASE}/tokens": {"get", "post"},
+        f"{BASE}/tokens/{{pk}}": {"delete"},
+        f"{BASE}/uploads": {"post"},
+        f"{BASE}/models/{{label}}/records:upsert": {"patch"},
+        f"{BASE}/models/{{label}}/records/_form-state": {"post"},
+        f"{BASE}/models/{{label}}/actions/{{name}}": {"post"},
+        f"{BASE}/models/{{label}}/views": {"get", "post"},
+        f"{BASE}/models/{{label}}/views/{{pk}}": {"delete"},
         f"{BASE}/auth/logout": {"post"},
         f"{BASE}/auth/me": {"get"},
         f"{BASE}/auth/password": {"post"},

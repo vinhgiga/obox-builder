@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
 from typing import Any
 
 from fastapi import APIRouter, Request
@@ -11,14 +10,17 @@ from obox_builder.contrib.admin.api.deps import DB, USER
 from obox_builder.contrib.admin.api.problems import Problem
 from obox_builder.contrib.admin.api.serializers import api_specs
 from obox_builder.contrib.admin.context import AdminContext
+from obox_builder.contrib.admin.services import RecordService
 from obox_builder.fields.types.choice import normalize_choices
 
 
 def model_context(request: Request, user: Any, db: Any, label: str) -> AdminContext:
     site = request.state.admin_site
     admin = site.get_registry().get(label)
-    ctx = AdminContext(request, user, db, site, admin, extra={"api": True})
-    if admin is None or not admin.api_enabled or not admin.has_view_permission(ctx):
+    token = getattr(request.state, "api_token", None)
+    extra = {"api": True, **({"api_scopes": token.scopes} if token is not None else {})}
+    ctx = AdminContext(request, user, db, site, admin, extra=extra)
+    if admin is None or not admin.api_enabled or not RecordService(ctx).allowed("view"):
         raise Problem(404, "not_found", "Model is unavailable.")
     return ctx
 
@@ -27,17 +29,19 @@ def register_meta(router: APIRouter) -> None:
     @router.get("/meta")
     async def meta(request: Request, user: USER, db: DB) -> dict[str, Any]:
         site = request.state.admin_site
-        ctx = AdminContext(request, user, db, site)
         models = []
         for admin in site.get_registry().values():
-            model_ctx = replace(ctx, admin=admin)
-            if admin.api_enabled and admin.has_view_permission(model_ctx):
+            try:
+                model_ctx = model_context(request, user, db, admin.model_label)
+            except Problem:
+                continue
+            if admin.api_enabled:
                 models.append(
                     {
                         "label": admin.model_label,
                         "name": admin.name,
                         "plural_name": admin.plural_name,
-                        "can_add": admin.has_add_permission(model_ctx),
+                        "can_add": RecordService(model_ctx).allowed("add"),
                     }
                 )
         return {
@@ -56,6 +60,8 @@ def register_meta(router: APIRouter) -> None:
 
     @router.get("/models/{label}/schema")
     async def schema(request: Request, label: str, user: USER, db: DB) -> dict[str, Any]:
+        from obox_builder.contrib.admin.api.actions import api_actions
+
         ctx = model_context(request, user, db, label)
         admin = ctx.admin
         assert admin is not None  # noqa: S101
@@ -95,6 +101,8 @@ def register_meta(router: APIRouter) -> None:
             ],
             "list_display": [spec.name for spec in admin.get_list_specs(ctx) if not spec.secret],
             "ordering": list(admin.get_ordering(ctx)),
-            "can_add": admin.has_add_permission(ctx),
-            "actions": [],
+            "can_add": RecordService(ctx).allowed("add"),
+            "actions": [
+                {"name": spec.name, "description": spec.description} for spec in api_actions(ctx)
+            ],
         }

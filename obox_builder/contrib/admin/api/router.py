@@ -10,11 +10,17 @@ from fastapi.responses import Response
 
 from obox_builder.apps import apps
 from obox_builder.conf import settings
+from obox_builder.contrib.admin.api.actions import register_actions
 from obox_builder.contrib.admin.api.auth import register_auth
 from obox_builder.contrib.admin.api.deps import DB
+from obox_builder.contrib.admin.api.forms import register_forms
 from obox_builder.contrib.admin.api.problems import Problem, ProblemDocument, ProblemRoute
 from obox_builder.contrib.admin.api.ratelimit import MemoryRateLimiter, RateLimiter
 from obox_builder.contrib.admin.api.records import register_records
+from obox_builder.contrib.admin.api.tokens import register_tokens
+from obox_builder.contrib.admin.api.uploads import register_uploads
+from obox_builder.contrib.admin.api.upsert import register_upsert
+from obox_builder.contrib.admin.api.views import register_views
 
 if TYPE_CHECKING:
     from obox_builder.contrib.admin.site import AdminSite
@@ -49,7 +55,13 @@ def build_api_router(site: AdminSite, *, rate_limiter: RateLimiter | None = None
         },
     )
     register_auth(router)
+    register_tokens(router)
     register_records(router)
+    register_upsert(router)
+    register_actions(router)
+    register_forms(router)
+    register_views(router)
+    register_uploads(router)
 
     @router.options("/{path:path}", include_in_schema=False)
     async def preflight(request: Request, path: str) -> Response:
@@ -62,7 +74,8 @@ def build_api_router(site: AdminSite, *, rate_limiter: RateLimiter | None = None
             headers={
                 "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
                 "Access-Control-Allow-Headers": (
-                    "Content-Type, X-CSRF-Token, If-Match, Idempotency-Key, X-Delete-Confirmation"
+                    "Authorization, Content-Type, X-CSRF-Token, If-Match, Idempotency-Key, "
+                    "X-Delete-Confirmation"
                 ),
                 "Access-Control-Max-Age": "600",
             },

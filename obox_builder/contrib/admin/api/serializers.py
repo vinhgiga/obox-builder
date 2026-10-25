@@ -14,6 +14,7 @@ from obox_builder.contrib.admin.api.etag import etag
 from obox_builder.contrib.admin.api.problems import Problem
 from obox_builder.contrib.admin.context import AdminContext
 from obox_builder.contrib.admin.relations import related_key, related_objects
+from obox_builder.contrib.admin.services import RecordService
 from obox_builder.fields import FieldSpec
 
 
@@ -26,10 +27,7 @@ def api_specs(ctx: AdminContext) -> list[FieldSpec]:
         protected.add(mapper.get_property_by_column(mapper.version_id_col).key)
     return [
         replace(spec, readonly=True, editable=False)
-        if spec.primary_key
-        or spec.name in protected
-        or spec.options.get("computed")
-        or spec.type.name == "file"
+        if spec.primary_key or spec.name in protected or spec.options.get("computed")
         else spec
         for spec in ctx.admin.get_form_fields(ctx)
         if not spec.secret
@@ -43,6 +41,17 @@ def field_value(obj: Any, spec: FieldSpec) -> Any:
     return getattr(obj, attr, None)
 
 
+def record_values(obj: Any, specs: Sequence[FieldSpec]) -> dict[str, Any]:
+    values = {}
+    for spec in specs:
+        value = field_value(obj, spec)
+        if spec.type.name == "multi_link":
+            key = related_key(spec)
+            value = [getattr(item, key.key) for item in value or []]
+        values[spec.name] = value
+    return values
+
+
 async def serialize_records(
     ctx: AdminContext, objects: Sequence[Any], selected: Sequence[str] | None = None
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -50,6 +59,10 @@ async def serialize_records(
     if admin is None:
         raise ValueError("A model admin is required.")
     row_specs = [api_specs(replace(ctx, obj=obj)) for obj in objects]
+    row_contexts = [
+        replace(ctx, obj=obj).record_context(record_values(obj, specs))
+        for obj, specs in zip(objects, row_specs, strict=True)
+    ]
     specs = list({spec.name: spec for row in row_specs for spec in row}.values())
     if not objects:
         specs = api_specs(ctx)
@@ -62,10 +75,9 @@ async def serialize_records(
             continue
         key = related_key(spec)
         ids: set[Any] = set()
-        for obj, allowed_specs in zip(objects, row_specs, strict=True):
+        for obj, allowed_specs, record_ctx in zip(objects, row_specs, row_contexts, strict=True):
             if spec not in allowed_specs or (
-                spec.show_if is not None
-                and not spec.show_if(replace(ctx, obj=obj).record_context())
+                spec.show_if is not None and not spec.show_if(record_ctx)
             ):
                 continue
             value = field_value(obj, spec)
@@ -81,11 +93,11 @@ async def serialize_records(
                 for pk, row in visible[spec.name].items()
             }
     result = []
-    for obj, allowed_specs in zip(objects, row_specs, strict=True):
+    for obj, allowed_specs, record_ctx in zip(objects, row_specs, row_contexts, strict=True):
         row_ctx = replace(ctx, obj=obj)
         fields: dict[str, Any] = {}
         for spec in allowed_specs:
-            if spec.show_if is not None and not spec.show_if(row_ctx.record_context()):
+            if spec.show_if is not None and not spec.show_if(record_ctx):
                 continue
             value = field_value(obj, spec)
             if spec.type.name == "multi_link":
@@ -115,8 +127,8 @@ async def serialize_records(
             else None
         )
         label = _label(obj, admin.get_pk(obj))
-        can_change = admin.has_change_permission(row_ctx, obj)
-        can_delete = admin.has_delete_permission(row_ctx, obj)
+        can_change = RecordService(row_ctx).allowed("change", obj)
+        can_delete = RecordService(row_ctx).allowed("delete", obj)
         state = {
             "fields": fields,
             "label": label,

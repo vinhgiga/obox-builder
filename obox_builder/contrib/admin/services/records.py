@@ -16,6 +16,8 @@ from obox_builder.contrib.admin.pagination import AdminPage
 from obox_builder.contrib.admin.relations import validate_relations
 from obox_builder.contrib.admin.uniqueness import validate_model_uniqueness
 from obox_builder.contrib.admin.uploads import discard_uploads, persist_uploads
+from obox_builder.contrib.auth.tokens import scope_allows
+from obox_builder.core.exceptions import PermissionDenied
 from obox_builder.fields import FieldSpec, QuerySpec
 from obox_builder.forms import BoundForm
 
@@ -27,6 +29,21 @@ class RecordService:
         self.ctx = ctx
         self.admin = ctx.admin
 
+    def allowed(self, action: str, obj: Any = None) -> bool:
+        scopes = self.ctx.extra.get("api_scopes")
+        operation = {"view": "read", "add": "write", "change": "write", "delete": "delete"}[action]
+        if scopes is not None and not scope_allows(scopes, self.admin.model_label, operation):
+            return False
+        checker = getattr(self.admin, f"has_{action}_permission")
+        return bool(checker(self.ctx) if action == "add" else checker(self.ctx, obj))
+
+    def check_permission(self, action: str, obj: Any = None) -> None:
+        scopes = self.ctx.extra.get("api_scopes")
+        operation = {"view": "read", "add": "write", "change": "write", "delete": "delete"}[action]
+        if scopes is not None and not scope_allows(scopes, self.admin.model_label, operation):
+            raise PermissionDenied(f"You do not have permission to {action} this record.")
+        self.admin.check_permission(self.ctx, action, obj)
+
     async def get(self, pk: str, *, for_update: bool = False) -> Any:
         return await self.admin.get_object(self.ctx, pk, for_update=for_update)
 
@@ -34,7 +51,7 @@ class RecordService:
         self, query: QuerySpec, *, queryset: Any = None, total: str | None = None
     ) -> AdminPage:
         ctx, admin = self.ctx, self.admin
-        admin.check_permission(ctx, "view")
+        self.check_permission("view")
         stmt = (
             queryset
             if queryset is not None
@@ -90,7 +107,7 @@ class RecordService:
     ) -> BoundForm:
         ctx, admin = self.ctx, self.admin
         ctx.obj = target
-        admin.check_permission(ctx, "add" if target is None else "change", target)
+        self.check_permission("add" if target is None else "change", target)
         bound = BoundForm.bind(
             specs if specs is not None else admin.get_form_fields(ctx),
             schema if schema is not None else admin.get_form(ctx, change=target is not None),
@@ -117,7 +134,7 @@ class RecordService:
         if not bound.is_valid or not all(formset.is_valid for formset in formsets):
             raise ValueError("Cannot save an invalid form.")
         ctx, admin = self.ctx, self.admin
-        admin.check_permission(ctx, "add" if target is None else "change", target)
+        self.check_permission("add" if target is None else "change", target)
         obj = target if target is not None else admin.model()
         ctx.obj = obj
         try:
@@ -139,7 +156,7 @@ class RecordService:
 
     async def delete(self, target: Any) -> None:
         self.ctx.obj = target
-        self.admin.check_permission(self.ctx, "delete", target)
+        self.check_permission("delete", target)
         async with self.ctx.db.begin_nested():
             await self.admin.delete_model(self.ctx, target)
             await self.ctx.db.flush()

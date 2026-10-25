@@ -117,7 +117,7 @@ class Role(Model, TimestampMixin, VersionedMixin):
 
 class Permission(Model, TimestampMixin):
     id: Mapped[int] = mapped_column(BigIntIdentity, primary_key=True)
-    app_label: Mapped[str] = mapped_column(sa.String(100))  # pyright: ignore[reportIncompatibleVariableOverride]
+    app_label: Mapped[str] = mapped_column(sa.String(100))  # type: ignore[misc]  # pyright: ignore[reportIncompatibleVariableOverride]
     codename: Mapped[str] = mapped_column(sa.String(100))
     name: Mapped[str] = mapped_column(sa.String(255))
     model: Mapped[str | None] = mapped_column(sa.String(100))
@@ -155,6 +155,32 @@ class Session(Model, TimestampMixin):
 
     def __repr__(self) -> str:
         return f"<Session user_id={self.user_id!r}>"
+
+
+class ApiToken(Model, TimestampMixin, VersionedMixin):
+    __history__ = {"exclude": ["token_hash"]}
+
+    id: Mapped[int] = mapped_column(BigIntIdentity, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        sa.ForeignKey("auth_user.id", ondelete="CASCADE"), index=True
+    )
+    name: Mapped[str] = mapped_column(sa.String(100), index=True)
+    token_prefix: Mapped[str] = mapped_column(sa.String(16), index=True)
+    token_hash: Mapped[str] = mapped_column(sa.String(64), unique=True)
+    scopes: Mapped[list[str]] = mapped_column(JSONB, default=list)
+    expires_at: Mapped[datetime | None] = mapped_column(TZDateTime, index=True)
+    last_used_at: Mapped[datetime | None] = mapped_column(
+        TZDateTime, info={"admin": {"history": False}}
+    )
+    last_used_ip: Mapped[str | None] = mapped_column(
+        sa.String(45), info={"admin": {"history": False}}
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(TZDateTime)
+
+    __table_args__ = (sa.CheckConstraint("length(name) BETWEEN 1 AND 100", name="name_length"),)
+
+    def __str__(self) -> str:
+        return self.name
 
 
 class AnonymousUser:
