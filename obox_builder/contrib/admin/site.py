@@ -36,6 +36,7 @@ class AdminSite:
     site_header: str = "obox admin"
     site_title: str = "obox admin"
     index_title: str = "Dashboard"
+    api_auth_enabled: bool = False
 
     def __init__(
         self,

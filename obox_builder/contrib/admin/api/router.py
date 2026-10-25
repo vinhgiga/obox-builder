@@ -10,10 +10,14 @@ from fastapi.responses import Response
 
 from obox_builder.apps import apps
 from obox_builder.conf import settings
+from obox_builder.contrib.admin.api.accounts import register_accounts
 from obox_builder.contrib.admin.api.actions import register_actions
 from obox_builder.contrib.admin.api.auth import register_auth
+from obox_builder.contrib.admin.api.comments import register_comments
 from obox_builder.contrib.admin.api.deps import DB
 from obox_builder.contrib.admin.api.forms import register_forms
+from obox_builder.contrib.admin.api.history import register_history
+from obox_builder.contrib.admin.api.inlines import register_inlines
 from obox_builder.contrib.admin.api.problems import Problem, ProblemDocument, ProblemRoute
 from obox_builder.contrib.admin.api.ratelimit import MemoryRateLimiter, RateLimiter
 from obox_builder.contrib.admin.api.records import register_records
@@ -62,6 +66,15 @@ def build_api_router(site: AdminSite, *, rate_limiter: RateLimiter | None = None
     register_forms(router)
     register_views(router)
     register_uploads(router)
+    register_accounts(router)
+    register_history(router)
+    register_comments(router)
+    register_inlines(router)
+    from obox_builder.contrib.admin.views.model import _register_custom_routes
+
+    for admin in site.get_registry().values():
+        if admin.api_enabled:
+            _register_custom_routes(router, site, admin, f"/models/{admin.model_label}", api=True)
 
     @router.options("/{path:path}", include_in_schema=False)
     async def preflight(request: Request, path: str) -> Response:

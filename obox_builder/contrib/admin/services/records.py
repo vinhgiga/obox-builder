@@ -130,12 +130,15 @@ class RecordService:
         target: Any = None,
         formsets: Sequence[Any] = (),
         uploads: Sequence[Any] = (),
+        primary_key: Any = None,
     ) -> Any:
         if not bound.is_valid or not all(formset.is_valid for formset in formsets):
             raise ValueError("Cannot save an invalid form.")
         ctx, admin = self.ctx, self.admin
         self.check_permission("add" if target is None else "change", target)
         obj = target if target is not None else admin.model()
+        if target is None and primary_key is not None:
+            setattr(obj, admin.pk_column().key, primary_key)
         ctx.obj = obj
         try:
             persist_uploads(uploads)

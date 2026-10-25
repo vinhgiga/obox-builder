@@ -66,6 +66,19 @@ def register_tokens(router: APIRouter) -> None:
             for admin in request.state.admin_site.get_registry().values()
             if admin.api_enabled
         ]
+        from obox_builder.contrib.admin.context import AdminContext
+
+        site = request.state.admin_site
+        for admin in site.get_registry().values():
+            if admin.api_enabled:
+                ctx = AdminContext(request, user, db, site, admin)
+                labels.extend(
+                    inline.model_label
+                    for inline in admin.get_inline_instances(ctx)
+                    if inline.api_enabled
+                )
+        if request.state.admin_site.api_auth_enabled:
+            labels.extend(("auth.user", "auth.role"))
         if any(
             not SCOPE.fullmatch(scope)
             or not any(

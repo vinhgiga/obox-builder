@@ -15,6 +15,8 @@ from obox_builder.fields.types.choice import normalize_choices
 
 
 def model_context(request: Request, user: Any, db: Any, label: str) -> AdminContext:
+    if label in {"auth.user", "auth.role", "auth.permission"}:
+        raise Problem(404, "not_found", "Use the dedicated account API for this resource.")
     site = request.state.admin_site
     admin = site.get_registry().get(label)
     token = getattr(request.state, "api_token", None)
@@ -61,6 +63,7 @@ def register_meta(router: APIRouter) -> None:
     @router.get("/models/{label}/schema")
     async def schema(request: Request, label: str, user: USER, db: DB) -> dict[str, Any]:
         from obox_builder.contrib.admin.api.actions import api_actions
+        from obox_builder.contrib.admin.api.inlines import inline_schema
 
         ctx = model_context(request, user, db, label)
         admin = ctx.admin
@@ -102,6 +105,7 @@ def register_meta(router: APIRouter) -> None:
             "list_display": [spec.name for spec in admin.get_list_specs(ctx) if not spec.secret],
             "ordering": list(admin.get_ordering(ctx)),
             "can_add": RecordService(ctx).allowed("add"),
+            "inlines": inline_schema(ctx),
             "actions": [
                 {"name": spec.name, "description": spec.description} for spec in api_actions(ctx)
             ],

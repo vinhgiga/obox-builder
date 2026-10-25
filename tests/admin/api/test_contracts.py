@@ -117,15 +117,16 @@ async def test_real_user_version_is_readonly_and_password_is_secret(api: httpx.A
 
     headers = await sign_in(api)
     site_for(api).register(User, type("ApiUserAdmin", (ModelAdmin,), {"api_enabled": True}))
-    url = f"{BASE}/models/auth.user/records"
-    response = await api.get(url)
+    assert (await api.get(f"{BASE}/models/auth.user/records")).status_code == 404
+    site_for(api).api_auth_enabled = True
+    response = await api.get(f"{BASE}/users")
     assert response.status_code == 200, response.text
-    record = response.json()["records"][0]
-    assert "password_hash" not in record["fields"]
+    record = response.json()["users"][0]
+    assert "password_hash" not in record
     invalid = await api.patch(
-        f"{url}/{record['id']}",
-        headers={**headers, "If-Match": record["meta"]["etag"]},
-        json={"fields": {"version": 0}},
+        f"{BASE}/users/{record['id']}",
+        headers={**headers, "If-Match": record["etag"]},
+        json={"version": 0},
     )
     assert invalid.status_code == 422
 

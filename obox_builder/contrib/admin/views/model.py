@@ -293,9 +293,9 @@ def _register_one(router: APIRouter, site: AdminSite, admin: ModelAdmin) -> None
 
 
 def _register_custom_routes(
-    router: APIRouter, site: AdminSite, admin: ModelAdmin, base: str
+    router: APIRouter, site: AdminSite, admin: ModelAdmin, base: str, *, api: bool = False
 ) -> None:
-    routes = admin.get_urls()
+    routes = admin.get_api_urls() if api else admin.get_urls()
     names: set[str] = set()
     paths: set[str] = set()
     for custom in routes:
@@ -312,6 +312,17 @@ def _register_custom_routes(
         ):
             raise ImproperlyConfigured("Admin routes need a safe relative path and a valid name.")
         path = custom.path.strip("/")
+        if api and path.split("/", 1)[0] in {
+            "schema",
+            "records",
+            "records:query",
+            "records:delete",
+            "records:upsert",
+            "options",
+            "actions",
+            "views",
+        }:
+            raise ImproperlyConfigured("Custom API routes cannot replace built-in resources.")
         if any(not part for part in path.split("/")):
             raise ImproperlyConfigured("Admin route paths cannot contain empty segments.")
         if path in paths or custom.name in names:
@@ -329,14 +340,19 @@ def _register_custom_routes(
             raise ImproperlyConfigured("Admin route permissions must be strings or None.")
         route = custom
 
-        admin_context = _admin_route_context(site, admin, route.permission)
+        if api:
+            from obox_builder.contrib.admin.api.custom import api_route_context
+
+            admin_context = api_route_context(admin, route.permission)
+        else:
+            admin_context = _admin_route_context(site, admin, route.permission)
 
         endpoint = _inject_admin_context(custom.endpoint, admin_context)
         router.add_api_route(
             f"{base}/{path}",
             endpoint,
             methods=list(methods),
-            name=f"{admin.route_prefix}_{custom.name}",
+            name=f"{'api_' if api else ''}{admin.route_prefix}_{custom.name}",
             dependencies=[Depends(admin_context)],
         )
 

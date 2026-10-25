@@ -19,10 +19,12 @@ from obox_builder.contrib.admin.views.history import (
     model_timeline_available,
     timeline_context,
 )
+from obox_builder.contrib.auth import administration
 from obox_builder.contrib.auth.dependencies import permission_required
 from obox_builder.contrib.auth.models import Permission, Role, User, user_roles
 from obox_builder.contrib.auth.permissions import collect_permissions
 from obox_builder.contrib.history import HISTORY_VIEW_PERMISSION
+from obox_builder.core.exceptions import PermissionDenied
 from obox_builder.db.session import get_db
 from obox_builder.http.shortcuts import redirect
 
@@ -207,10 +209,20 @@ async def role_edit_submit(
 ) -> Response:
     await ensure_csrf(request, csrf_token)
     role = await db.scalar(
-        select(Role).where(Role.id == role_id).options(selectinload(Role.permissions))
+        select(Role)
+        .where(Role.id == role_id)
+        .options(selectinload(Role.permissions))
+        .with_for_update()
     )
     if role is None:
         return render(request, "admin/errors/404.html", {}, status_code=404)
+    administration.check_role(user, role)
+    permissions = list(
+        await db.scalars(select(Permission).where(Permission.id.in_(permission_ids)))
+    )
+    if {perm.id for perm in permissions} != set(permission_ids):
+        raise PermissionDenied("Unknown permission.")
+    administration.check_permissions(user, permissions)
     errors: list[str] = []
     cleaned = name.strip()
     if not cleaned:
@@ -222,9 +234,7 @@ async def role_edit_submit(
     if not errors:
         role.name = cleaned
         role.description = description.strip()
-        selected = set(permission_ids)
-        permissions = list(await db.scalars(select(Permission)))
-        role.permissions = [perm for perm in permissions if perm.id in selected]
+        role.permissions = permissions
         logger.info(
             "Admin %r updated role %r (%d permissions)",
             user.username,
@@ -254,9 +264,15 @@ async def role_delete(
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     await ensure_csrf(request, csrf_token)
-    role = await db.get(Role, role_id)
+    role = await db.scalar(
+        select(Role)
+        .where(Role.id == role_id)
+        .options(selectinload(Role.permissions))
+        .with_for_update()
+    )
     if role is None:
         return render(request, "admin/errors/404.html", {}, status_code=404)
+    administration.check_role(user, role)
     if role.is_system:
         await flash(request, f"Role {role.name!r} is a system role and cannot be deleted.", "error")
         return redirect("/admin/roles", status_code=303)

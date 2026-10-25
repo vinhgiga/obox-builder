@@ -157,6 +157,14 @@ async def _conversion_scenario(
     appended = await ensure(db, months=2, now=now)
     assert appended.created == [partition_name(now), partition_name(add_months(cutoff, 1))]
 
+    repeated = await ensure(db, months=2, now=now)
+    assert repeated.created == []
+    assert set(repeated.kept) == {
+        DEFAULT_PARTITION,
+        partition_name(now),
+        partition_name(add_months(cutoff, 1)),
+    }
+
     db.add_all(
         [
             _entry("2"),
