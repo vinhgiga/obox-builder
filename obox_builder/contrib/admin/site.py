@@ -24,14 +24,37 @@ M = TypeVar("M", bound=type[Any])
 class AdminSite:
     """Central admin configuration: a registry of ModelAdmins plus navigation.
 
+    Branding is configurable per site through ``site_header``, ``site_title``,
+    and ``index_title`` constructor arguments or attributes.
+
     ``AdminConfig.ready()`` calls :meth:`autodiscover`, which imports each
     installed app's ``admin.py``. Registration is replace-on-conflict so test
     re-setups and module reloads are idempotent.
     """
 
-    def __init__(self, name: str = "admin", *, import_path: str | None = None) -> None:
+    site_header: str = "obox admin"
+    site_title: str = "obox admin"
+    index_title: str = "Dashboard"
+
+    def __init__(
+        self,
+        name: str = "admin",
+        *,
+        import_path: str | None = None,
+        site_header: str | None = None,
+        site_title: str | None = None,
+        index_title: str | None = None,
+    ) -> None:
         self.name = name
         self.import_path = import_path
+        self.site_header = site_header if site_header is not None else type(self).site_header
+        if site_title is not None:
+            self.site_title = site_title
+        elif site_header is not None:
+            self.site_title = site_header
+        else:
+            self.site_title = type(self).site_title
+        self.index_title = index_title if index_title is not None else type(self).index_title
         self.navigation: list[NavGroup] = default_navigation()
         self._registry: dict[str, ModelAdmin] = {}
         self._discovered = False

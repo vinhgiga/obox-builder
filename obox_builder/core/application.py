@@ -62,10 +62,17 @@ async def permission_denied_handler(request: Request, exc: Exception) -> Respons
             from obox_builder.templating import render
 
             try:
+                admin_site = getattr(request.state, "admin_site", None)
+                site_header = getattr(admin_site, "site_header", "obox admin")
                 return render(
                     request,
                     "admin/errors/403.html",
-                    {"site_name": "obox admin", "reason": str(exc)},
+                    {
+                        "site_name": site_header,
+                        "site_header": site_header,
+                        "site_title": getattr(admin_site, "site_title", site_header),
+                        "reason": str(exc),
+                    },
                     status_code=403,
                 )
             except TemplateNotFound:

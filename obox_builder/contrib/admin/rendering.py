@@ -18,7 +18,10 @@ def render(
     *,
     status_code: int = 200,
 ) -> HTMLResponse:
+    from obox_builder.contrib.admin.views.common import current_site
+
     headers = request.headers
+    admin_site = current_site(request)
     fragment = (
         settings.ADMIN_SMOOTH_NAVIGATION
         and headers.get("hx-request") == "true"
@@ -31,6 +34,10 @@ def render(
         name,
         {
             **(context or {}),
+            "site_name": admin_site.site_header,
+            "site_header": admin_site.site_header,
+            "site_title": admin_site.site_title,
+            "index_title": admin_site.index_title,
             "admin_fragment": fragment,
             "smooth_navigation": settings.ADMIN_SMOOTH_NAVIGATION,
         },

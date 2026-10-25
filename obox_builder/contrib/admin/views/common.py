@@ -58,7 +58,10 @@ async def page_context(request: Request, **extra: Any) -> dict[str, Any]:
     user = current_user(request)
     context: dict[str, Any] = {
         "nav_groups": build_navigation(user, admin_site.get_nav_groups()),
-        "site_name": "obox admin",
+        "site_name": admin_site.site_header,
+        "site_header": admin_site.site_header,
+        "site_title": admin_site.site_title,
+        "index_title": admin_site.index_title,
         "language_code": settings.LANGUAGE_CODE,
         "current_path": request.url.path,
         "csrf_token": csrf_token_for(request),
