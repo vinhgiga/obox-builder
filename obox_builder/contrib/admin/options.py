@@ -6,7 +6,8 @@ import functools
 import logging
 import re
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from enum import Enum
 from typing import TYPE_CHECKING, Any, ClassVar, Protocol, cast
 
 import sqlalchemy as sa
@@ -17,6 +18,7 @@ from obox_builder.contrib.admin.actions import delete_selected
 from obox_builder.core.checks.messages import CheckMessage, Error, Warning
 from obox_builder.core.exceptions import ImproperlyConfigured, PermissionDenied
 from obox_builder.fields import Cell, FieldSpec, introspect_model
+from obox_builder.fields.introspect import ADMIN_WIDGETS, FieldConfig
 from obox_builder.fields.types.text import Text
 from obox_builder.forms import BoundForm, build_schema
 from obox_builder.utils.strings import camel_to_snake, humanize
@@ -30,6 +32,13 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_PER_PAGE = 50
 BASE_PATH_RE = re.compile(r"^[a-z0-9][a-z0-9/_-]*$")
+
+
+class _ListDisplayLinksDefault(Enum):
+    AUTO = "auto"
+
+
+_AUTO_LIST_DISPLAY_LINKS = _ListDisplayLinksDefault.AUTO
 
 #: Field types an inline cell can render as a simple input/select.
 INLINE_TYPES = frozenset(
@@ -102,6 +111,9 @@ class ModelAdmin:
     model: type[Any]
 
     list_display: ClassVar[Sequence[str | Callable[..., Any]]] = ()
+    list_display_links: ClassVar[Sequence[str] | None | _ListDisplayLinksDefault] = (
+        _AUTO_LIST_DISPLAY_LINKS
+    )
     list_editable: ClassVar[Sequence[str]] = ()
     list_filter: ClassVar[Sequence[str | type[SimpleListFilter]]] = ()
     #: Bulk actions on the list page; strings name ModelAdmin methods,
@@ -113,7 +125,7 @@ class ModelAdmin:
     fieldsets: ClassVar[Sequence[tuple[str | None, Mapping[str, Any]]] | None] = None
     readonly_fields: ClassVar[Sequence[str | Callable[..., Any]]] = ()
     exclude: ClassVar[Sequence[str]] = ()
-    fields_config: ClassVar[Mapping[str, Any]] = {}
+    fields_config: ClassVar[Mapping[str, FieldConfig]] = {}
     verbose_name: ClassVar[str] = ""
     verbose_name_plural: ClassVar[str] = ""
     per_page: ClassVar[int] = DEFAULT_PER_PAGE
@@ -374,6 +386,29 @@ class ModelAdmin:
                 if isinstance(entry, str) and entry in by_name:
                     columns.append(by_name[entry])
                     continue
+                if isinstance(entry, str):
+                    related = self._query_field(entry)
+                    path = related.options.get("relationship_path") if related else None
+                    if (
+                        related is not None
+                        and path
+                        and not any(relationship.property.uselist for relationship in path)
+                    ):
+                        target_name = entry.rsplit("__", 1)[-1]
+                        columns.append(
+                            replace(
+                                related,
+                                label=humanize(entry.replace("__", "_")),
+                                readonly=True,
+                                editable=False,
+                                options={
+                                    **related.options,
+                                    "display_relationship": True,
+                                    "display_attribute": target_name,
+                                },
+                            )
+                        )
+                        continue
                 method = (
                     entry
                     if callable(entry)
@@ -408,6 +443,17 @@ class ModelAdmin:
         primary = [spec for spec in visible if spec.primary_key]
         rest = [spec for spec in visible if not spec.primary_key][:5]
         return primary + rest
+
+    def get_list_display_links(self) -> tuple[str, ...]:
+        """Return linked list columns; an omitted setting links the first column."""
+        if self.list_display_links is _AUTO_LIST_DISPLAY_LINKS:
+            specs = self.get_list_specs()
+            return (specs[0].name,) if specs else ()
+        if self.list_display_links is None:
+            return ()
+        if isinstance(self.list_display_links, str):
+            return (self.list_display_links,)
+        return tuple(self.list_display_links)
 
     def get_inline_specs(self) -> list[FieldSpec]:
         if self._inline_specs is None:
@@ -737,7 +783,15 @@ class ModelAdmin:
                 if isinstance(entry, str)
                 else entry
             )
-            if isinstance(entry, str) and name not in specs and not callable(method):
+            display_column = next(
+                (column for column in self.get_list_specs() if column.name == name), None
+            )
+            if (
+                isinstance(entry, str)
+                and name not in specs
+                and not callable(method)
+                and display_column is None
+            ):
                 messages.append(
                     Error(
                         f"{self.model_label}: list_display field {name!r} is unknown.",
@@ -760,6 +814,49 @@ class ModelAdmin:
                     Error(
                         f"{self.model_label}: file field {spec.name!r} must use a text column.",
                         id="obox.admin.E114",
+                    )
+                )
+            widget = spec.options.get("widget")
+            if widget is not None and (not isinstance(widget, str) or widget not in ADMIN_WIDGETS):
+                messages.append(
+                    Error(
+                        f"{self.model_label}: field {spec.name!r} uses unknown widget {widget!r}.",
+                        id="obox.admin.E115",
+                    )
+                )
+            elif isinstance(widget, str):
+                compatible_types = {
+                    "checkbox": {"checkbox"},
+                    "date": {"date"},
+                    "datetime": {"datetime"},
+                    "email": {"email", "text"},
+                    "file": {"file"},
+                    "json": {"json"},
+                    "multiselect": {"multi_link"},
+                    "number": {"integer", "decimal"},
+                    "select": {"link", "single_select"},
+                    "textarea": {"json", "long_text", "text"},
+                    "time": {"time"},
+                    "url": {"text", "url"},
+                }
+                expected_types = compatible_types.get(widget)
+                if expected_types is not None and spec.type.name not in expected_types:
+                    messages.append(
+                        Error(
+                            f"{self.model_label}: widget {widget!r} is incompatible with "
+                            f"field {spec.name!r} of type {spec.type.name!r}.",
+                            id="obox.admin.E115",
+                        )
+                    )
+            rows = spec.options.get("rows")
+            if rows is not None and (
+                not isinstance(rows, int) or isinstance(rows, bool) or not 1 <= rows <= 40
+            ):
+                messages.append(
+                    Error(
+                        f"{self.model_label}: field {spec.name!r} widget rows must be between "
+                        "1 and 40.",
+                        id="obox.admin.E115",
                     )
                 )
         if self.fieldsets is not None:
@@ -813,7 +910,7 @@ class ModelAdmin:
                         id="obox.admin.E109",
                     )
                 )
-        from obox_builder.contrib.admin.inlines import InlineModelAdmin
+        from obox_builder.contrib.admin.inlines import InlineFormSet, InlineModelAdmin
 
         for inline_class in self.inlines:
             try:
@@ -821,7 +918,27 @@ class ModelAdmin:
                     inline_class, InlineModelAdmin
                 ):
                     raise ImproperlyConfigured("inlines must contain InlineModelAdmin subclasses.")
-                messages.extend(inline_class(self.model, self.site).validate())
+                inline = inline_class(self.model, self.site)
+                messages.extend(inline.validate())
+                formset_class = inline.formset_class
+                if formset_class is not None and (
+                    not isinstance(formset_class, type)
+                    or not issubclass(formset_class, InlineFormSet)
+                ):
+                    messages.append(
+                        Error(
+                            f"{self.model_label}: inline formset_class must subclass "
+                            "InlineFormSet.",
+                            id="obox.admin.E117",
+                        )
+                    )
+                if not isinstance(inline.show_change_link, bool):
+                    messages.append(
+                        Error(
+                            f"{self.model_label}: inline show_change_link must be a boolean.",
+                            id="obox.admin.E117",
+                        )
+                    )
             except ImproperlyConfigured as exc:
                 messages.append(Error(f"{self.model_label}: {exc}", id="obox.admin.E110"))
         if self.base_path is not None and not BASE_PATH_RE.match(self.base_path.strip("/")):
@@ -832,10 +949,17 @@ class ModelAdmin:
                     id="obox.admin.E106",
                 )
             )
+        related_display_names = {
+            spec.name for spec in self.get_list_specs() if spec.options.get("display_relationship")
+        }
         for entry in self.list_display:
             field_name = entry if isinstance(entry, str) else entry.__name__
             method = getattr(type(self), field_name, None) or getattr(self.model, field_name, None)
-            if field_name not in specs and not callable(method):
+            if (
+                field_name not in specs
+                and field_name not in related_display_names
+                and not callable(method)
+            ):
                 messages.append(
                     Error(
                         f"{self.model_label}: list_display references unknown field "
@@ -936,7 +1060,56 @@ class ModelAdmin:
                         id="obox.admin.E113",
                     )
                 )
-        first_list_field = self.get_list_specs()[0].name if self.get_list_specs() else None
+        list_specs = self.get_list_specs()
+        display_names = {spec.name for spec in list_specs}
+        link_config = self.list_display_links
+        if isinstance(link_config, str):
+            messages.append(
+                Error(
+                    f"{self.model_label}: list_display_links must be a sequence of field names, "
+                    "None, or omitted.",
+                    id="obox.admin.E116",
+                )
+            )
+            link_names: tuple[str, ...] = ()
+        elif link_config is None or link_config is _AUTO_LIST_DISPLAY_LINKS:
+            link_names = self.get_list_display_links()
+        elif isinstance(link_config, Sequence):
+            link_names = tuple(link_config)
+        else:
+            messages.append(
+                Error(
+                    f"{self.model_label}: list_display_links must be a sequence of field names, "
+                    "None, or omitted.",
+                    id="obox.admin.E116",
+                )
+            )
+            link_names = ()
+        if any(not isinstance(name, str) for name in link_names):
+            messages.append(
+                Error(
+                    f"{self.model_label}: list_display_links values must be field names.",
+                    id="obox.admin.E116",
+                )
+            )
+            link_names = tuple(name for name in link_names if isinstance(name, str))
+        if len(link_names) != len(set(link_names)):
+            messages.append(
+                Error(
+                    f"{self.model_label}: list_display_links contains duplicate fields.",
+                    id="obox.admin.E116",
+                )
+            )
+        for name in link_names:
+            if name not in display_names:
+                messages.append(
+                    Error(
+                        f"{self.model_label}: list_display_links field {name!r} is not in "
+                        "list_display.",
+                        id="obox.admin.E116",
+                    )
+                )
+        linked_names = set(link_names)
         for name in self.list_editable:
             field_spec = specs.get(name)
             if field_spec is None:
@@ -953,12 +1126,11 @@ class ModelAdmin:
                         id="obox.admin.E107",
                     )
                 )
-            elif name == first_list_field:
+            elif name in linked_names:
                 messages.append(
                     Error(
-                        f"{self.model_label}: list_editable field {name!r} is the first "
-                        "list_display column; inline editing it would clash with the "
-                        "row link.",
+                        f"{self.model_label}: list_editable field {name!r} cannot also be a "
+                        "list_display_links field.",
                         id="obox.admin.E107",
                     )
                 )

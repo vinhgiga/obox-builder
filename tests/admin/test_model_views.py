@@ -315,6 +315,79 @@ async def test_relation_search_and_filter_follow_related_visibility(
     assert "Controller" not in filtered.text
 
 
+async def test_related_list_column_honors_related_scope_and_configured_link(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    category_id = await make_category("Private category")
+    product_id = await make_product("Novel", category_id=category_id)
+    await make_user("alice", is_superuser=True)
+    await login_session(client, "alice")
+    product_admin = site.get_model_admin_for(Product)
+    category_admin = site.get_model_admin_for(Category)
+    assert product_admin is not None
+    assert category_admin is not None
+    monkeypatch.setattr(type(product_admin), "list_display", ("id", "category__name", "name"))
+    monkeypatch.setattr(type(product_admin), "list_display_links", ("category__name",))
+    original_queryset = type(category_admin).get_queryset
+    monkeypatch.setattr(
+        type(category_admin),
+        "get_queryset",
+        lambda self, ctx: original_queryset(self, ctx).where(Category.name != "Private category"),
+    )
+
+    response = await client.get(LIST_URL)
+
+    assert response.status_code == 200
+    assert "Novel" in response.text
+    assert "Private category" not in response.text
+    assert (
+        f'<a href="{LIST_URL}/{product_id}"><span class="text-secondary">&mdash;</span></a>'
+        in response.text
+    )
+    assert f'href="{LIST_URL}/{product_id}">Novel</a>' not in response.text
+
+
+async def test_selected_list_display_link_overrides_a_relation_cell_link(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    category_id = await make_category("Books")
+    product_id = await make_product("Novel", category_id=category_id)
+    await make_user("alice", is_superuser=True)
+    await login_session(client, "alice")
+    admin = site.get_model_admin_for(Product)
+    assert admin is not None
+    monkeypatch.setattr(type(admin), "list_display", ("category_id", "name"))
+    monkeypatch.setattr(type(admin), "list_display_links", ("category_id",))
+
+    response = await client.get(LIST_URL)
+
+    assert response.status_code == 200
+    assert f'<a href="{LIST_URL}/{product_id}">Books</a>' in response.text
+    assert f'href="/admin/shop/category/{category_id}">Books</a>' not in response.text
+
+
+async def test_fields_config_widget_settings_render_on_the_form(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await make_user("alice", is_superuser=True)
+    await login_session(client, "alice")
+    admin = site.get_model_admin_for(Product)
+    assert admin is not None
+    monkeypatch.setattr(
+        type(admin),
+        "fields_config",
+        {"name": {"widget": "textarea", "rows": 8, "placeholder": "Public name"}},
+    )
+    admin._specs = None
+    admin._schema = None
+
+    response = await client.get(ADD_URL)
+
+    assert response.status_code == 200
+    assert 'rows="8"' in response.text
+    assert 'placeholder="Public name"' in response.text
+
+
 async def test_delete_requires_confirmation_then_removes(client: httpx.AsyncClient) -> None:
     product_id = await make_product("Widget")
     await make_user("alice", is_superuser=True)

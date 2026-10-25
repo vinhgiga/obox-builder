@@ -111,7 +111,11 @@ async def build_cells(
     ctx: AdminContext, admin: ModelAdmin, specs: Sequence[FieldSpec], objects: Sequence[Any]
 ) -> list[list[Cell]]:
     allowed: dict[str, set[Any]] = {}
+    related_display: dict[str, dict[Any, Cell]] = {}
     for spec in specs:
+        if spec.options.get("display_relationship"):
+            related_display[spec.name] = await _related_display_cells(ctx, admin, spec, objects)
+            continue
         if spec.type.name not in {"link", "multi_link"} or spec.options.get("target") is None:
             continue
         pks: set[Any] = set()
@@ -129,6 +133,8 @@ async def build_cells(
         for spec in specs:
             if spec.secret:
                 row.append(Cell())
+            elif spec.options.get("display_relationship"):
+                row.append(related_display[spec.name].get(admin.get_pk(obj), Cell()))
             elif spec.type.name == "multi_link":
                 visible = [
                     item
@@ -145,4 +151,61 @@ async def build_cells(
             else:
                 row.append(admin.build_cell(spec, obj))
         cells.append(row)
+    return cells
+
+
+async def _related_display_cells(
+    ctx: AdminContext,
+    admin: ModelAdmin,
+    spec: FieldSpec,
+    objects: Sequence[Any],
+) -> dict[Any, Cell]:
+    """Load scalar related display values in one scoped query per column."""
+    relationships = spec.options.get("relationship_path", ())
+    if not relationships or any(relationship.property.uselist for relationship in relationships):
+        return {}
+    parent_pks = [admin.get_pk(obj) for obj in objects]
+    if not parent_pks:
+        return {}
+
+    statement = sa.select(admin.pk_column()).select_from(admin.model)
+    related_admins: list[tuple[ModelAdmin, AdminContext]] = []
+    for relationship in relationships:
+        model = relationship.property.mapper.class_
+        related_admin = ctx.site.get_model_admin_for(model) or ModelAdmin(model, ctx.site)
+        related_ctx = replace(ctx, admin=related_admin, obj=None)
+        if not related_admin.has_view_permission(related_ctx):
+            return {}
+        primary_key = related_admin.pk_column()
+        scope = (
+            related_admin.get_queryset(related_ctx).with_only_columns(primary_key).order_by(None)
+        )
+        statement = statement.outerjoin(relationship.and_(primary_key.in_(scope)))
+        statement = statement.add_columns(model)
+        related_admins.append((related_admin, related_ctx))
+
+    statement = statement.where(admin.pk_column().in_(parent_pks))
+    rows = (await ctx.db.execute(statement)).unique().all()
+    cells: dict[Any, Cell] = {}
+    permission_cache: dict[tuple[type[Any], Any], bool] = {}
+    for row in rows:
+        parent_pk, related_objects = row[0], row[1:]
+        visible = True
+        for obj, (related_admin, related_ctx) in zip(related_objects, related_admins, strict=True):
+            if obj is None:
+                visible = False
+                break
+            key = (related_admin.model, related_admin.get_pk(obj))
+            if key not in permission_cache:
+                permission_cache[key] = related_admin.has_view_permission(
+                    replace(related_ctx, obj=obj), obj
+                )
+            if not permission_cache[key]:
+                visible = False
+                break
+        if not visible:
+            continue
+        target = related_objects[-1]
+        value = getattr(target, spec.options["display_attribute"], None)
+        cells[parent_pk] = spec.type.cell(value, spec)
     return cells

@@ -1,15 +1,17 @@
 {% macro widget(spec, value, errors, choices, readonly, prefix="", autocomplete_url="", file_url="", html_required=true) %}
 {% set name = prefix ~ spec.name %}
+{% set widget_type = spec.options.get('widget', spec.type.widget) %}
+{% set placeholder = spec.options.get('placeholder') %}
 <div class="mb-3">
   <label class="form-label {{ 'required' if spec.required and not readonly }}" for="id_{{ name }}">{{ spec.label }}</label>
-  {% if spec.type.widget == 'checkbox' %}
+  {% if widget_type == 'checkbox' %}
     <label class="form-check form-switch">
       <input class="form-check-input" type="checkbox" name="{{ name }}" id="id_{{ name }}"
              value="true" {{ 'checked' if value in ('true', 'True', 'on', '1', true) }}
              {% if readonly %}disabled{% endif %}/>
     </label>
-  {% elif spec.type.widget in ('select', 'multiselect') %}
-    {% set multiple = spec.type.widget == 'multiselect' %}
+  {% elif widget_type in ('select', 'multiselect') %}
+    {% set multiple = widget_type == 'multiselect' %}
     <div{% if autocomplete_url %} data-relation-picker data-url="{{ autocomplete_url }}"{% endif %}>
     {% if multiple %}<input type="hidden" name="{{ name }}" value=""/>{% endif %}
     <select class="form-select {{ 'is-invalid' if errors }}" name="{{ name }}" id="id_{{ name }}"
@@ -20,22 +22,26 @@
       {% endfor %}
     </select>
     </div>
-  {% elif spec.type.widget == 'textarea' or spec.type.widget == 'json' %}
+  {% elif widget_type == 'textarea' or widget_type == 'json' %}
     <textarea class="form-control {{ 'is-invalid' if errors }}" name="{{ name }}" id="id_{{ name }}"
-              rows="{{ 12 if spec.type.widget == 'json' else 4 }}" {% if spec.type.widget == 'json' %}spellcheck="false"{% endif %} {% if readonly %}disabled{% endif %}>{{ value or '' }}</textarea>
-  {% elif spec.type.widget == 'file' %}
+              rows="{{ spec.options.get('rows', 12 if widget_type == 'json' else 4) }}"
+              {% if placeholder %}placeholder="{{ placeholder }}"{% endif %}
+              {% if widget_type == 'json' %}spellcheck="false"{% endif %} {% if readonly %}disabled{% endif %}>{{ value or '' }}</textarea>
+  {% elif widget_type == 'file' %}
     {% if value and file_url %}<a class="d-block mb-2" href="{{ file_url }}">Current file: {{ value.split('/')[-1] }}</a>{% endif %}
     <input type="file" name="{{ name }}" id="id_{{ name }}" class="form-control {{ 'is-invalid' if errors }}"
            accept="{{ spec.type.accept | join(',') }}" {% if readonly %}disabled{% endif %}/>
-  {% elif spec.type.widget == 'number' %}
+  {% elif widget_type == 'number' %}
     <input type="number" step="{{ 'any' if spec.type.name == 'decimal' else '1' }}"
            name="{{ name }}" id="id_{{ name }}" value="{{ value or '' }}"
            class="form-control {{ 'is-invalid' if errors }}"
+           {% if placeholder %}placeholder="{{ placeholder }}"{% endif %}
            {% if spec.required and html_required %}required{% endif %} {% if readonly %}disabled{% endif %}/>
   {% else %}
-    <input type="{{ spec.type.widget if spec.type.widget in ('text', 'email', 'url', 'date', 'datetime', 'time') else 'text' }}"
+    <input type="{{ widget_type if widget_type in ('text', 'email', 'url', 'date', 'datetime', 'time') else 'text' }}"
            name="{{ name }}" id="id_{{ name }}" value="{{ value or '' }}"
            class="form-control {{ 'is-invalid' if errors }}"
+           {% if placeholder %}placeholder="{{ placeholder }}"{% endif %}
            {% if spec.required and html_required %}required{% endif %} {% if readonly %}disabled{% endif %}/>
   {% endif %}
   {% if spec.help_text %}<small class="form-hint">{{ spec.help_text }}</small>{% endif %}

@@ -21,6 +21,8 @@ class InlineModelAdmin(ModelAdmin):
     min_num: ClassVar[int] = 0
     max_num: ClassVar[int] = 100
     can_delete: ClassVar[bool] = True
+    show_change_link: ClassVar[bool] = False
+    formset_class: ClassVar[type[InlineFormSet] | None] = None
     layout: ClassVar[str] = "tabular"
 
     def __init__(self, parent_model: type[Any], site: Any = None) -> None:
@@ -48,6 +50,13 @@ class InlineModelAdmin(ModelAdmin):
 
     def get_form_fields(self, ctx: AdminContext) -> list[FieldSpec]:
         return [spec for spec in super().get_form_fields(ctx) if spec.name != self.fk_column.key]
+
+    def get_formset(self, ctx: AdminContext, index: int) -> InlineFormSet:
+        """Build the inline formset; override or set ``formset_class`` to customize it."""
+        formset_class = self.formset_class or InlineFormSet
+        if not isinstance(formset_class, type) or not issubclass(formset_class, InlineFormSet):
+            raise ImproperlyConfigured("formset_class must be an InlineFormSet subclass.")
+        return formset_class(ctx, self, index)
 
     def get_queryset(self, ctx: AdminContext) -> sa.Select[Any]:
         registered = ctx.site.get_model_admin_for(self.model)
@@ -110,6 +119,9 @@ class InlineFormSet:
     @property
     def is_valid(self) -> bool:
         return not self.errors and all(row.bound is None or row.bound.is_valid for row in self.rows)
+
+    async def clean(self) -> None:
+        """Validate constraints shared by multiple child rows after binding."""
 
     async def save(self, parent: Any) -> None:
         from obox_builder.contrib.admin.deletion import collect_deletion
@@ -235,6 +247,17 @@ class InlineFormSet:
                     urls[spec.name] = (
                         f"{parent_admin.list_path()}/autocomplete/{spec.name}?{urlencode(params)}"
                     )
+        change_url = None
+        change_label = None
+        if row.obj is not None and self.inline.show_change_link:
+            child_admin = ctx.site.get_model_admin_for(self.inline.model)
+            if child_admin is not None:
+                child_ctx = replace(ctx, admin=child_admin, obj=row.obj)
+                can_view = child_admin.has_view_permission(child_ctx, row.obj)
+                can_change_child = child_admin.has_change_permission(child_ctx, row.obj)
+                if can_view or can_change_child:
+                    change_url = child_admin.change_path(self.inline.get_pk(row.obj))
+                    change_label = "Edit details" if can_change_child else "View details"
         return {
             "obj": row.obj,
             "pk": self.inline.get_pk(row.obj) if row.obj is not None else "",
@@ -247,6 +270,8 @@ class InlineFormSet:
             "can_delete": not readonly
             and row.obj is not None
             and self.inline.has_delete_permission(ctx, row.obj),
+            "change_url": change_url,
+            "change_label": change_label,
             "choices": choices,
             "cells": dict(zip((spec.name for spec in specs), cells, strict=row.obj is not None)),
             "autocomplete_urls": urls,
@@ -263,7 +288,7 @@ async def load_inlines(
     formsets = []
     for index, inline in enumerate(ctx.admin.get_inline_instances(ctx)):
         inline_ctx = replace(ctx, admin=inline, obj=None, extra={**ctx.extra, "parent": parent})
-        formset = InlineFormSet(inline_ctx, inline, index)
+        formset = inline.get_formset(inline_ctx, index)
         can_add = inline.has_add_permission(inline_ctx)
         can_view = inline.has_view_permission(inline_ctx) or inline.has_change_permission(
             inline_ctx
@@ -369,5 +394,6 @@ async def load_inlines(
                 formset.errors.append(
                     f"Keep between {inline.min_num} and {inline.max_num} related records."
                 )
+            await formset.clean()
         formsets.append(formset)
     return formsets

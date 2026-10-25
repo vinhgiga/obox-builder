@@ -5,7 +5,7 @@ from typing import Any
 import httpx
 import pytest
 import sqlalchemy as sa
-from obox_builder.contrib.admin import ModelAdmin, StackedInline, site
+from obox_builder.contrib.admin import InlineFormSet, ModelAdmin, StackedInline, site
 from obox_builder.db.session import session_scope
 
 from tests.admin.test_permissions import signed_in
@@ -167,6 +167,69 @@ async def test_inline_limits_and_stacked_layout(
     assert "Keep between 1 and 1" in response.text
     async with session_scope() as db:
         assert await db.scalar(sa.select(sa.func.count()).select_from(Order)) == 0
+
+
+async def test_custom_formset_validation_checks_all_child_rows(
+    relation_client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = relation_client
+    token = await signed_in(client)
+    parent = site.get_model_admin_for(Order)
+    assert parent is not None
+    base = parent.inlines[0]
+
+    class UniqueSkuFormSet(InlineFormSet):
+        async def clean(self) -> None:
+            skus = [
+                row.bound.cleaned["sku"]
+                for row in self.rows
+                if not row.delete and row.bound is not None and row.bound.is_valid
+            ]
+            if len(skus) != len(set(skus)):
+                self.errors.append("Each order line must have a unique SKU.")
+
+    unique_inline = type(
+        "UniqueSkuInline",
+        (base,),
+        {"formset_class": UniqueSkuFormSet},
+    )
+    monkeypatch.setattr(parent, "inlines", (unique_inline,))
+
+    response = await client.post(
+        f"{URL}/add",
+        data=payload(
+            token,
+            "Duplicate lines",
+            {"sku": "A", "quantity": "1"},
+            {"sku": "A", "quantity": "2"},
+        ),
+    )
+
+    assert response.status_code == 200
+    assert "Each order line must have a unique SKU." in response.text
+    async with session_scope() as db:
+        assert await db.scalar(sa.select(sa.func.count()).select_from(Order)) == 0
+
+
+async def test_inline_can_link_to_the_registered_child_admin(
+    relation_client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = relation_client
+    order_id = await create_order("Detailed", "A")
+    line = (await lines_of(order_id))[0]
+    parent = site.get_model_admin_for(Order)
+    child = site.get_model_admin_for(OrderLine)
+    assert parent is not None
+    assert child is not None
+    base = parent.inlines[0]
+    linked_inline = type("LinkedInline", (base,), {"show_change_link": True})
+    monkeypatch.setattr(parent, "inlines", (linked_inline,))
+    await signed_in(client)
+
+    response = await client.get(f"{URL}/{order_id}")
+
+    assert response.status_code == 200
+    assert f'href="{child.change_path(line.id)}">Edit details</a>' in response.text
 
 
 async def test_inline_failure_rolls_back_entire_batch(relation_client: httpx.AsyncClient) -> None:

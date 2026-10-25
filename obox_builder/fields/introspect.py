@@ -11,6 +11,7 @@ Priority (highest first):
 from __future__ import annotations
 
 from collections.abc import Mapping
+from copy import copy
 from dataclasses import replace
 from typing import Any
 
@@ -31,12 +32,47 @@ RESERVED_INFO_KEYS = {"type", "label", "required", "readonly", "history", "ignor
 SECRET_SUFFIXES = ("_hash",)
 
 AdminFieldConfig = Mapping[str, Any]
+FieldConfig = FieldType | type[FieldType] | str | AdminFieldConfig
+
+_FIELD_SPEC_KEYS = frozenset(
+    {
+        "label",
+        "help_text",
+        "required",
+        "readonly",
+        "editable",
+        "history",
+        "show_if",
+        "editable_if",
+        "required_if",
+        "valid_if",
+        "initial",
+    }
+)
+_WIDGET_CONFIG_KEYS = frozenset({"widget", "rows", "placeholder"})
+ADMIN_WIDGETS = frozenset(
+    {
+        "text",
+        "email",
+        "url",
+        "date",
+        "datetime",
+        "time",
+        "number",
+        "checkbox",
+        "select",
+        "multiselect",
+        "textarea",
+        "json",
+        "file",
+    }
+)
 
 
 def introspect_model(
     model: type[Any],
     *,
-    overrides: Mapping[str, FieldType | type[FieldType] | str] | None = None,
+    overrides: Mapping[str, FieldConfig] | None = None,
 ) -> list[FieldSpec]:
     """Build the field specs for ``model`` in table order."""
     mapper = sa.inspect(model)
@@ -56,8 +92,10 @@ def introspect_model(
         info = _admin_info(column)
         if info.get("ignore"):
             continue
-        override = overrides.get(attr.key)
-        field_type, type_options = _resolve_type(column, info, override)
+        field_type, config, widget_options = _resolve_field_config(
+            column, info, overrides.get(attr.key)
+        )
+        type_options = field_type.options
         relationship = relationship_by_column.get(column.key)
         if relationship is not None:
             rel_key, target = relationship
@@ -80,15 +118,21 @@ def introspect_model(
             options["unmapped"] = True
             options["column_type"] = type(column.type).__name__
         label = str(
-            info.get("label") or _override_label(override) or _label(attr.key, relationship)
+            config.get("label")
+            or field_type.options.get("label")
+            or info.get("label")
+            or _label(attr.key, relationship)
         )
         nullable = bool(column.nullable) if column.nullable is not None else True
         has_default = column.default is not None or column.server_default is not None
         auto_managed = isinstance(getattr(column.server_default, "arg", None), sa.Function)
         readonly = bool(info.get("readonly", False)) or bool(column.primary_key) or auto_managed
-        required = (
-            bool(info.get("required", False)) or (not nullable and not has_default)
-        ) and not readonly
+        if "readonly" in config:
+            readonly = readonly or bool(config["readonly"])
+        required = bool(info.get("required", False)) or (not nullable and not has_default)
+        if "required" in config:
+            required = bool(config["required"])
+        required = required and not readonly
         spec = FieldSpec(
             name=attr.key,
             label=label,
@@ -97,11 +141,16 @@ def introspect_model(
             nullable=nullable,
             required=required,
             readonly=readonly,
-            editable=not readonly,
-            history=bool(info.get("history", True)) and not secret,
+            editable=bool(config.get("editable", not readonly)) and not readonly,
+            history=bool(config.get("history", info.get("history", True))) and not secret,
             primary_key=bool(column.primary_key),
-            help_text=str(info.get("help_text", "")),
-            options=options,
+            help_text=str(config.get("help_text", info.get("help_text", ""))),
+            options={**options, **widget_options},
+            show_if=config.get("show_if"),
+            editable_if=config.get("editable_if"),
+            required_if=config.get("required_if"),
+            valid_if=config.get("valid_if"),
+            initial=config.get("initial"),
         )
         if relationship is not None:
             spec = replace(spec, options={**spec.options, "value_attr": relationship[0]})
@@ -112,27 +161,38 @@ def introspect_model(
         info = dict(rel.info.get("admin", {}))
         if info.get("ignore"):
             continue
+        field_type, config, widget_options = _resolve_relation_config(overrides.get(rel.key))
         secondary_columns = set(rel.secondary.c)
         link_columns = {column for column in secondary_columns if column.foreign_keys}
-        readonly = rel.viewonly or secondary_columns != link_columns or bool(info.get("readonly"))
-        field_type = _coerce_override(overrides[rel.key]) if rel.key in overrides else MultiLink()
+        readonly = (
+            rel.viewonly
+            or secondary_columns != link_columns
+            or bool(info.get("readonly"))
+            or bool(config.get("readonly", False))
+        )
         specs.append(
             FieldSpec(
                 name=rel.key,
-                label=str(info.get("label") or humanize(rel.key)),
+                label=str(config.get("label") or info.get("label") or humanize(rel.key)),
                 type=field_type,
                 readonly=readonly,
-                editable=not readonly,
-                required=bool(info.get("required")),
-                help_text=str(info.get("help_text", "")),
+                editable=bool(config.get("editable", not readonly)) and not readonly,
+                required=bool(config.get("required", info.get("required", False))) and not readonly,
+                help_text=str(config.get("help_text", info.get("help_text", ""))),
                 history=False,
                 options={
                     **field_type.options,
+                    **widget_options,
                     "target": rel.mapper.class_,
                     "relationship": rel.key,
                     "value_attr": rel.key,
                     "secret": bool(info.get("secret")),
                 },
+                show_if=config.get("show_if"),
+                editable_if=config.get("editable_if"),
+                required_if=config.get("required_if"),
+                valid_if=config.get("valid_if"),
+                initial=config.get("initial"),
             )
         )
     return specs
@@ -144,11 +204,43 @@ def _label(key: str, relationship: tuple[str, type[Any]] | None) -> str:
     return humanize(key)
 
 
-def _override_label(override: FieldType | type[FieldType] | str | None) -> str | None:
-    if isinstance(override, FieldType):
-        label = override.options.get("label")
-        return str(label) if label else None
-    return None
+def _resolve_field_config(
+    column: sa.Column[Any], info: Mapping[str, Any], override: FieldConfig | None
+) -> tuple[FieldType, dict[str, Any], dict[str, Any]]:
+    if not isinstance(override, Mapping):
+        field_type, type_options = _resolve_type(column, info, override)
+        if type_options != field_type.options:
+            field_type = copy(field_type)
+            field_type.options = {**field_type.options, **type_options}
+        return field_type, {}, {}
+
+    config = dict(override)
+    type_override = config.pop("type", None)
+    field_type, type_options = _resolve_type(column, info, type_override)
+    metadata = {key: config.pop(key) for key in tuple(config) if key in _FIELD_SPEC_KEYS}
+    widget_options = {key: config.pop(key) for key in tuple(config) if key in _WIDGET_CONFIG_KEYS}
+    field_type = copy(field_type)
+    field_type.options = {**field_type.options, **type_options, **config}
+    return field_type, metadata, widget_options
+
+
+def _resolve_relation_config(
+    override: FieldConfig | None,
+) -> tuple[FieldType, dict[str, Any], dict[str, Any]]:
+    if not isinstance(override, Mapping):
+        return (_coerce_override(override) if override is not None else MultiLink()), {}, {}
+
+    config = dict(override)
+    type_override = config.pop("type", None)
+    field_type = _coerce_override(type_override) if type_override is not None else MultiLink()
+    if field_type.name != "multi_link":
+        raise ValueError("Many-to-many admin fields must use the 'multi_link' field type.")
+    metadata = {key: config.pop(key) for key in tuple(config) if key in _FIELD_SPEC_KEYS}
+    widget_options = {key: config.pop(key) for key in tuple(config) if key in _WIDGET_CONFIG_KEYS}
+    if config:
+        field_type = copy(field_type)
+        field_type.options = {**field_type.options, **config}
+    return field_type, metadata, widget_options
 
 
 def _admin_info(column: sa.Column[Any]) -> dict[str, Any]:

@@ -1,7 +1,5 @@
-{% macro cell_text(cell) %}
-{%- if cell.url -%}
-<a href="{{ cell.url }}">{{ cell.text if cell.text else cell.value }}</a>
-{%- elif cell.kind == 'boolean' -%}
+{% macro cell_content(cell) %}
+{%- if cell.kind == 'boolean' -%}
 {% if cell.value %}<span class="badge bg-green-lt">Yes</span>{% else %}<span class="badge bg-secondary-lt">No</span>{% endif %}
 {%- elif cell.kind == 'badge' -%}
 {% if cell.text %}<span class="badge bg-azure-lt">{{ cell.text }}</span>{% endif %}
@@ -9,5 +7,12 @@
 <span class="text-secondary">&mdash;</span>
 {%- else -%}
 {{ cell.text }}
+{%- endif -%}
+{% endmacro %}
+{% macro cell_text(cell) %}
+{%- if cell.url -%}
+<a href="{{ cell.url }}">{{ cell_content(cell) }}</a>
+{%- else -%}
+{{ cell_content(cell) }}
 {%- endif -%}
 {% endmacro %}

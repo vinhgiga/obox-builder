@@ -1,5 +1,5 @@
 {% extends "admin/base.html" %}
-{% from "admin/macros/cells.html" import cell_text %}
+{% from "admin/macros/cells.html" import cell_content, cell_text %}
 {% block title %}{{ admin.plural_name }}{% endblock %}
 {% block content %}
 <div class="page-header d-print-none">
@@ -71,7 +71,7 @@
           <th class="w-1">Actions</th>
           {% for column in columns %}
           <th>
-            {% if column.type.sortable %}
+            {% if column.type.sortable and not column.options.get('relationship_path') %}
             <a href="{{ sort_href(column.name) }}" class="text-body">
               {{ column.label }}
               {% if sort_state(column.name) == 'asc' %}&uarr;{% elif sort_state(column.name) == 'desc' %}&darr;{% endif %}
@@ -121,6 +121,7 @@
             </div>
           </td>
           {% for cell in row.cells %}
+          {% set column = columns[loop.index0] %}
           {% set edit = row.edits[loop.index0] %}
           {% if edit %}
           <td{% if edit.modified %} class="cell-modified"{% endif %}>
@@ -144,8 +145,8 @@
             {% if edit.error %}<div class="text-danger small mt-1">{{ edit.error }}</div>{% endif %}
           </td>
           {% else %}
-          <td>{% if loop.first %}
-                <a href="{{ admin.change_path(row.pk) }}">{{ cell_text(cell) }}</a>
+          <td>{% if column.name in list_display_links %}
+                <a href="{{ admin.change_path(row.pk) }}">{{ cell_content(cell) }}</a>
               {% else %}{{ cell_text(cell) }}{% endif %}</td>
           {% endif %}
           {% endfor %}

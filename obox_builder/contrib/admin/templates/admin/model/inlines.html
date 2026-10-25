@@ -21,6 +21,7 @@
     <input type="hidden" name="{{ row.prefix }}_delete" value="{{ '1' if row.delete else '0' }}"/>
     <button type="button" class="btn btn-sm" data-inline-remove>Remove</button>
     {% endif %}
+  {% if row.change_url %}<a class="btn btn-sm" href="{{ row.change_url }}">{{ row.change_label }}</a>{% endif %}
   {% if group.inline.layout == 'tabular' %}</td></tr>{% else %}</div>{% endif %}
 {% endmacro %}
 {% for group in inline_formsets %}

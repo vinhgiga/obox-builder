@@ -441,6 +441,7 @@ async def _list(
         selected_view=selected_view,
         admin=admin,
         columns=columns,
+        list_display_links=admin.get_list_display_links(),
         rows=rows,
         q=query.q,
         page=query.page,

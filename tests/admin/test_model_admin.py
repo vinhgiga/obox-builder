@@ -7,6 +7,7 @@ import sqlalchemy as sa
 from obox_builder.contrib.admin import AdminContext, ModelAdmin, SimpleListFilter, display, site
 from obox_builder.contrib.admin.options import pk_value
 from obox_builder.fields import QuerySpec
+from obox_builder.fields.types.choice import SingleSelect
 
 from tests.support.apps.shop.admin import ProductAdmin
 from tests.support.apps.shop.models import Category, Order, Product
@@ -108,6 +109,63 @@ def test_list_specs_follow_list_display() -> None:
         "category_id",
         "is_active",
     ]
+
+
+def test_related_fields_can_be_list_columns_and_links_are_configurable() -> None:
+    class RelatedAdmin(ModelAdmin):
+        list_display = ("id", "category__name")
+        list_display_links = ("category__name",)
+
+    admin = RelatedAdmin(Product, site)
+    columns = admin.get_list_specs()
+    assert [spec.name for spec in columns] == ["id", "category__name"]
+    assert columns[1].label == "Category name"
+    assert columns[1].options["display_relationship"] is True
+    assert len(columns[1].options["relationship_path"]) == 1
+    assert admin.get_list_display_links() == ("category__name",)
+    assert not {message.id for message in admin.validate()} & {"obox.admin.E102", "obox.admin.E111"}
+
+
+def test_list_display_links_default_to_first_column_and_none_disables_links() -> None:
+    class DefaultLinksAdmin(ModelAdmin):
+        list_display = ("id", "name")
+
+    class NoLinksAdmin(ModelAdmin):
+        list_display = ("id", "name")
+        list_display_links = None
+
+    assert DefaultLinksAdmin(Product, site).get_list_display_links() == ("id",)
+    assert NoLinksAdmin(Product, site).get_list_display_links() == ()
+
+
+def test_fields_config_accepts_type_and_widget_options() -> None:
+    class ConfiguredAdmin(ModelAdmin):
+        fields_config = {
+            "name": {
+                "widget": "textarea",
+                "rows": 8,
+                "placeholder": "Customer-facing name",
+                "label": "Public name",
+                "help_text": "Shown to customers.",
+            },
+            "status": {
+                "type": "single_select",
+                "choices": [("hidden", "Hidden"), ("live", "Live")],
+            },
+        }
+
+    admin = ConfiguredAdmin(Product, site)
+    name = admin.get_spec("name")
+    status = admin.get_spec("status")
+    assert name is not None
+    assert status is not None
+    assert (name.label, name.help_text) == ("Public name", "Shown to customers.")
+    assert name.options["widget"] == "textarea"
+    assert name.options["rows"] == 8
+    assert name.options["placeholder"] == "Customer-facing name"
+    assert status.type.name == "single_select"
+    assert isinstance(status.type, SingleSelect)
+    assert status.type.choices(status) == [("hidden", "Hidden"), ("live", "Live")]
 
 
 def test_computed_display_columns_can_be_sorted_and_rendered() -> None:
