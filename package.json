@@ -2,11 +2,15 @@
   "name": "obox-builder-ui-tests",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@11.5.2",
   "scripts": {
+    "commitlint": "commitlint",
     "lint": "node scripts/lint-js.mjs",
-    "test": "node --test tests/browser/navigation.test.mjs"
+    "test": "node --test tests/browser/navigation.test.mjs",
+    "test:commitlint": "node --test tests/tooling/commitlint.test.mjs"
   },
   "devDependencies": {
+    "@commitlint/cli": "21.2.4",
     "playwright": "1.62.1"
   }
 }

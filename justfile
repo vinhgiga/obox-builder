@@ -5,6 +5,7 @@ default:
 # Install dev environment (deps + git hooks).
 dev:
     uv sync --all-extras
+    pnpm install --frozen-lockfile
     uv run pre-commit install
 
 # Run the test suite.
