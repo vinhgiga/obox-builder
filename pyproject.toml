@@ -24,6 +24,7 @@ dependencies = [
 postgres = ["psycopg[binary,pool]>=3.3,<4", "asyncpg>=0.32,<1"]
 sqlite = ["aiosqlite>=0.22,<1"]
 tailwind = ["pytailwindcss>=0.4.2,<1"]
+redis-cache = ["redis>=6.4,<9"]
 vietnamese = [
     "pyicu>=2.16,<3",
 ]

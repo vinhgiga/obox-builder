@@ -41,6 +41,10 @@ class BaseSettings(PydanticBaseSettings):
     LANGUAGE_CODE: Literal["en", "vi"] = "en"
     MEDIA_ROOT: Path = Path("media")
     STORAGE_BACKEND: str = "obox_builder.core.storage.FileSystemStorage"
+    CACHE_BACKEND: str = "obox_builder.core.cache.MemoryCache"
+    CACHE_URL: str = "redis://localhost:6379/0"
+    CACHE_KEY_PREFIX: str = "obox"
+    CACHE_DEFAULT_TIMEOUT: int = Field(default=300, ge=0)
     ADMIN_MAX_UPLOAD_BYTES: int = Field(default=10 * 1024 * 1024, ge=1, le=50 * 1024 * 1024)
     ADMIN_SMOOTH_NAVIGATION: bool = True
     #: Use ICU Vietnamese ordering for admin text sort/group; None uses the database default.
@@ -203,6 +207,21 @@ class BaseSettings(PydanticBaseSettings):
         if not value.strip() or "." not in value.strip():
             raise ValueError("STORAGE_BACKEND must be a dotted path")
         return value.strip()
+
+    @field_validator("CACHE_BACKEND")
+    @classmethod
+    def validate_cache_backend(cls, value: str) -> str:
+        if not value.strip() or "." not in value.strip():
+            raise ValueError("CACHE_BACKEND must be a dotted path")
+        return value.strip()
+
+    @field_validator("CACHE_KEY_PREFIX")
+    @classmethod
+    def validate_cache_key_prefix(cls, value: str) -> str:
+        value = value.strip()
+        if not value or not re.fullmatch(r"[A-Za-z0-9_.-]+", value):
+            raise ValueError("CACHE_KEY_PREFIX must contain only letters, digits, '.', '_' or '-'")
+        return value
 
     @field_validator("PASSWORD_RESET_BASE_URL")
     @classmethod

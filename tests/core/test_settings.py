@@ -213,6 +213,24 @@ def test_storage_backend_requires_dotted_path() -> None:
         )
 
 
+def test_cache_settings_validate_backend_and_prefix() -> None:
+    settings = BaseSettings(
+        SECRET_KEY=SecretStr(SECRET),
+        DATABASE_URL=DATABASE,
+        CACHE_BACKEND="project.cache.Backend",
+        CACHE_KEY_PREFIX="tenant-1",
+        CACHE_DEFAULT_TIMEOUT=45,
+    )
+    assert settings.CACHE_BACKEND == "project.cache.Backend"
+    assert settings.CACHE_KEY_PREFIX == "tenant-1"
+    assert settings.CACHE_DEFAULT_TIMEOUT == 45
+
+    with pytest.raises(ValueError, match="CACHE_BACKEND"):
+        BaseSettings(SECRET_KEY=SecretStr(SECRET), DATABASE_URL=DATABASE, CACHE_BACKEND="memory")
+    with pytest.raises(ValueError, match="CACHE_KEY_PREFIX"):
+        BaseSettings(SECRET_KEY=SecretStr(SECRET), DATABASE_URL=DATABASE, CACHE_KEY_PREFIX="a:b")
+
+
 def test_hsts_preload_requires_long_lived_subdomain_policy() -> None:
     with pytest.raises(ValueError, match="SECURE_HSTS_INCLUDE_SUBDOMAINS"):
         BaseSettings(
