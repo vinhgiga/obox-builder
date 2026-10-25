@@ -21,7 +21,14 @@ from obox_builder.contrib.admin.views.history import (
 )
 from obox_builder.contrib.auth import services
 from obox_builder.contrib.auth.dependencies import permission_required
-from obox_builder.contrib.auth.models import Role, User, user_roles
+from obox_builder.contrib.auth.models import (
+    USER_ADD_PERMISSION,
+    USER_CHANGE_PERMISSION,
+    USER_VIEW_PERMISSION,
+    Role,
+    User,
+    user_roles,
+)
 from obox_builder.contrib.auth.validators import PasswordValidationError
 from obox_builder.contrib.history import HISTORY_VIEW_PERMISSION
 from obox_builder.db.session import get_db
@@ -29,16 +36,16 @@ from obox_builder.http.shortcuts import redirect
 
 logger = logging.getLogger(__name__)
 
-ViewUsers = Annotated[User, Depends(permission_required("auth.view_user"))]
-AddUsers = Annotated[User, Depends(permission_required("auth.add_user"))]
-ChangeUsers = Annotated[User, Depends(permission_required("auth.change_user"))]
+ViewUsers = Annotated[User, Depends(permission_required(USER_VIEW_PERMISSION))]
+AddUsers = Annotated[User, Depends(permission_required(USER_ADD_PERMISSION))]
+ChangeUsers = Annotated[User, Depends(permission_required(USER_CHANGE_PERMISSION))]
 HistoryUsers = Annotated[User, Depends(permission_required(HISTORY_VIEW_PERMISSION))]
 
 
 def _history_visible(user: User) -> bool:
     return (
         model_timeline_available(User)
-        and user.has_perm("auth.view_user")
+        and user.has_perm(USER_VIEW_PERMISSION)
         and user.has_perm(HISTORY_VIEW_PERMISSION)
     )
 

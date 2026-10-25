@@ -49,8 +49,27 @@ class Apps:
     def _populate_models(self) -> None:
         for app_config in self.app_configs.values():
             self.all_models.setdefault(app_config.label, {})
+            self.all_tables.setdefault(app_config.label, {})
+        self._import_configured_user_model()
+        for app_config in self.app_configs.values():
             app_config.import_models()
         self.models_ready = True
+
+    def _import_configured_user_model(self) -> None:
+        from obox_builder.conf import settings
+
+        if not settings.configured:
+            return
+        app_label, _, model_name = settings.AUTH_USER_MODEL.partition(".")
+        if (app_label, model_name) == ("auth", "User"):
+            return
+        try:
+            app_config = self.app_configs[app_label]
+        except KeyError:
+            raise ImproperlyConfigured(
+                f"AUTH_USER_MODEL refers to app {app_label!r}, which is not installed."
+            ) from None
+        app_config.import_models()
 
     def _populate_ready(self) -> None:
         for app_config in self.app_configs.values():

@@ -28,6 +28,7 @@ class AppConfig:
             module = self._import_app_module(name)
         self.name = name
         self.module = module
+        self._models_imported = False
         self.path = self._resolve_path(module, name)
         if not self.label:
             self.label = name.rpartition(".")[2]
@@ -111,12 +112,15 @@ class AppConfig:
         raise ImproperlyConfigured(f"App module {name!r} has no filesystem path.")
 
     def import_models(self) -> None:
+        if self._models_imported:
+            return
         models_path = f"{self.name}.models"
         try:
             spec = find_spec(models_path)
         except (ImportError, ValueError):
             spec = None
         if spec is None:
+            self._models_imported = True
             return
         try:
             module = import_module(models_path)
@@ -125,6 +129,7 @@ class AppConfig:
                 f"Error importing models for app {self.label!r}: {exc}"
             ) from exc
         self._register_module_models(module)
+        self._models_imported = True
 
     def _register_module_models(self, module: ModuleType) -> None:
         """Register SQLAlchemy models and bare tables declared in ``models.py``."""
@@ -136,6 +141,7 @@ class AppConfig:
                 isinstance(value, type)
                 and issubclass(value, ModelBase)
                 and value is not ModelBase
+                and value.__module__ == module.__name__
                 and not value.__dict__.get("__abstract__", False)
             ):
                 apps.register_model(self.label, value)

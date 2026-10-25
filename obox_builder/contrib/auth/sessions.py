@@ -41,6 +41,7 @@ async def create_session(
     db: AsyncSession,
     user_id: int,
     *,
+    backend: str | None = None,
     ip: str | None = None,
     user_agent: str | None = None,
 ) -> tuple[str, AuthSession]:
@@ -50,7 +51,7 @@ async def create_session(
     row = AuthSession(
         token_hash=hash_token(token),
         user_id=user_id,
-        data={},
+        data={"backend": backend or settings.AUTHENTICATION_BACKENDS[0]},
         expires_at=session_expiry(),
         last_seen_at=now,
         ip=ip,

@@ -44,7 +44,9 @@ async def login_submit(
         )
         return render(request, "admin/auth/login.html", context, status_code=403)
 
-    user = await services.authenticate(db, username, password)
+    user, backend = await services.authenticate_with_backend(
+        db, username, password, request=request
+    )
     if user is None:
         context = await page_context(
             request, next=next, username=username, error="Invalid username or password."
@@ -57,6 +59,7 @@ async def login_submit(
     token, _ = await sessions.create_session(
         db,
         user.id,
+        backend=backend,
         ip=request.client.host if request.client else None,
         user_agent=request.headers.get("user-agent"),
     )

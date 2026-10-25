@@ -9,7 +9,7 @@ from fastapi import Depends, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from obox_builder.conf import settings
-from obox_builder.contrib.auth import sessions
+from obox_builder.contrib.auth import services, sessions
 from obox_builder.contrib.auth.models import Session as AuthSession
 from obox_builder.contrib.auth.models import User
 from obox_builder.contrib.auth.permissions import get_user_permissions
@@ -44,7 +44,12 @@ async def get_current_user(
     """Require an authenticated, active user; load effective permissions."""
     if auth_session is None:
         raise NotAuthenticated("Authentication required.")
-    user = await db.get(User, auth_session.user_id)
+    backend = auth_session.data.get("backend", settings.AUTHENTICATION_BACKENDS[0])
+    user = (
+        await services.get_user_for_session(db, auth_session.user_id, backend)
+        if isinstance(backend, str)
+        else None
+    )
     if user is None or not user.is_active:
         await sessions.delete_session(db, auth_session)
         await db.commit()

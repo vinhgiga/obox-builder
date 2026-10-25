@@ -6,7 +6,11 @@ from typing import Any
 
 from fastapi import Request
 
-from obox_builder.contrib.auth.models import AnonymousUser, User
+from obox_builder.contrib.auth.models import (
+    USER_MODEL_NAME,
+    AnonymousUser,
+    User,
+)
 
 
 class PermLookup:
@@ -22,6 +26,9 @@ class PermLookup:
         return self._user.has_perm(f"{self._app_label}.{name}")
 
     def __contains__(self, name: str) -> bool:
+        return self._user.has_perm(f"{self._app_label}.{name}")
+
+    def __getitem__(self, name: str) -> bool:
         return self._user.has_perm(f"{self._app_label}.{name}")
 
 
@@ -51,4 +58,9 @@ def get_request_user(request: Request) -> User | AnonymousUser:
 def auth(request: Request) -> dict[str, Any]:
     """Context processor exposing ``user`` and ``perms`` to templates."""
     user = get_request_user(request)
-    return {"user": user, "perms": PermWrapper(user)}
+    return {
+        "user": user,
+        "perms": PermWrapper(user),
+        "user_model_name": USER_MODEL_NAME,
+        "user_admin_permissions": PermLookup(user, User._model_label),
+    }

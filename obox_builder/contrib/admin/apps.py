@@ -8,8 +8,10 @@ class AdminConfig(AppConfig):
 
     def ready(self) -> None:
         from obox_builder.contrib.admin import checks  # noqa: F401  (register checks)
+        from obox_builder.contrib.admin.navigation import default_navigation
         from obox_builder.contrib.admin.site import site
 
+        site.navigation = default_navigation()
         site.autodiscover()
         if not apps.is_installed("obox_builder.contrib.history"):
             return

@@ -5,11 +5,13 @@ from __future__ import annotations
 import logging
 from datetime import timedelta
 
+from fastapi import Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from obox_builder.conf import settings
 from obox_builder.contrib.auth import sessions
+from obox_builder.contrib.auth.backends import load_backend
 from obox_builder.contrib.auth.hashers import (
     hash_password,
     is_usable_password,
@@ -78,7 +80,7 @@ async def set_password(db: AsyncSession, user: User, raw_password: str) -> int:
     return await sessions.revoke_user_sessions(db, user.id)
 
 
-async def authenticate(db: AsyncSession, username: str, password: str) -> User | None:
+async def _authenticate_model(db: AsyncSession, username: str, password: str) -> User | None:
     """Return the user on success; throttle and constant-time behaviour on failure."""
     user = await get_user_by_username(db, username)
     now = utcnow()
@@ -106,6 +108,32 @@ async def authenticate(db: AsyncSession, username: str, password: str) -> User |
     user.last_login_at = now
     await db.flush()
     return user
+
+
+async def authenticate_with_backend(
+    db: AsyncSession, username: str, password: str, *, request: Request | None = None
+) -> tuple[User | None, str | None]:
+    """Try configured backends in order and return the successful backend path."""
+    for path in settings.AUTHENTICATION_BACKENDS:
+        backend = load_backend(path)
+        user = await backend.authenticate(db, request=request, username=username, password=password)
+        if user is not None:
+            return user, path
+    return None, None
+
+
+async def authenticate(db: AsyncSession, username: str, password: str) -> User | None:
+    """Compatibility wrapper returning only the authenticated user."""
+    user, _ = await authenticate_with_backend(db, username, password)
+    return user
+
+
+async def get_user_for_session(db: AsyncSession, user_id: int, backend_path: str) -> User | None:
+    """Resolve a session user with its configured backend, as recorded at login."""
+    if backend_path not in settings.AUTHENTICATION_BACKENDS:
+        return None
+    user = await load_backend(backend_path).get_user(db, user_id)
+    return user if user is not None and user.is_active else None
 
 
 async def change_password(

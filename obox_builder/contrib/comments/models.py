@@ -15,6 +15,7 @@ from typing import Any, ClassVar
 import sqlalchemy as sa
 from sqlalchemy.orm import Mapped, mapped_column
 
+from obox_builder.contrib.auth.models import User
 from obox_builder.core.utils.time import utcnow
 from obox_builder.db import Model, VersionedMixin
 from obox_builder.db.types import BigIntIdentity, TZDateTime
@@ -45,7 +46,7 @@ class RowComment(Model, VersionedMixin):
     )
     author_id: Mapped[int | None] = mapped_column(
         sa.BigInteger().with_variant(sa.Integer(), "sqlite"),
-        sa.ForeignKey("auth_user.id", ondelete="SET NULL"),
+        sa.ForeignKey(f"{User.__tablename__}.id", ondelete="SET NULL"),
         default=None,
     )
     author_label: Mapped[str] = mapped_column(sa.String(150), nullable=False)
@@ -59,14 +60,14 @@ class RowComment(Model, VersionedMixin):
     resolved_at: Mapped[datetime | None] = mapped_column(TZDateTime, default=None)
     resolved_by_id: Mapped[int | None] = mapped_column(
         sa.BigInteger().with_variant(sa.Integer(), "sqlite"),
-        sa.ForeignKey("auth_user.id", ondelete="SET NULL"),
+        sa.ForeignKey(f"{User.__tablename__}.id", ondelete="SET NULL"),
         default=None,
     )
     resolved_by_label: Mapped[str | None] = mapped_column(sa.String(150), default=None)
     deleted_at: Mapped[datetime | None] = mapped_column(TZDateTime, default=None)
     deleted_by_id: Mapped[int | None] = mapped_column(
         sa.BigInteger().with_variant(sa.Integer(), "sqlite"),
-        sa.ForeignKey("auth_user.id", ondelete="SET NULL"),
+        sa.ForeignKey(f"{User.__tablename__}.id", ondelete="SET NULL"),
         default=None,
     )
     deleted_by_label: Mapped[str | None] = mapped_column(sa.String(150), default=None)
@@ -137,7 +138,7 @@ class CommentMention(Model):
     )
     user_id: Mapped[int] = mapped_column(
         BigIntIdentity,
-        sa.ForeignKey("auth_user.id", ondelete="CASCADE"),
+        sa.ForeignKey(f"{User.__tablename__}.id", ondelete="CASCADE"),
         primary_key=True,
     )
 

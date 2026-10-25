@@ -2,23 +2,67 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from datetime import datetime
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 import sqlalchemy as sa
 from sqlalchemy.orm import Mapped, mapped_column
 
+from obox_builder.apps import apps
+from obox_builder.conf import settings
+from obox_builder.contrib.auth.base_user import AbstractUser
+from obox_builder.core.exceptions import ImproperlyConfigured
 from obox_builder.db import Model, TimestampMixin, VersionedMixin, relationship
 from obox_builder.db.base import ModelBase
 from obox_builder.db.types import JSONB, BigIntIdentity, JsonDict, TZDateTime
+from obox_builder.utils.strings import camel_to_snake
+
+USER_MODEL = settings.AUTH_USER_MODEL if settings.configured else "auth.User"
+
+
+def _resolve_user_model() -> type[AbstractUser]:
+    app_label, _, model_name = USER_MODEL.partition(".")
+    try:
+        app_config = apps.get_app_config(app_label)
+    except LookupError as exc:
+        raise ImproperlyConfigured(
+            f"AUTH_USER_MODEL refers to app {app_label!r}, which is not installed."
+        ) from exc
+    app_config.import_models()
+    model = apps.all_models.get(app_label, {}).get(camel_to_snake(model_name))
+    if model is None:
+        raise ImproperlyConfigured(f"AUTH_USER_MODEL refers to missing model {USER_MODEL!r}.")
+    if not issubclass(model, AbstractUser):
+        raise ImproperlyConfigured(f"AUTH_USER_MODEL {USER_MODEL!r} must subclass AbstractUser.")
+    return model
+
+
+def _build_builtin_user() -> type[AbstractUser]:
+    """Define the default model only when selected by settings."""
+
+    class User(AbstractUser):
+        """Built-in user model, used unless AUTH_USER_MODEL selects another model."""
+
+    return User
+
+
+if TYPE_CHECKING:
+    User = AbstractUser
+else:
+    User = _build_builtin_user() if USER_MODEL == "auth.User" else _resolve_user_model()
+
+USER_MODEL_NAME = camel_to_snake(User.__name__)
+USER_VIEW_PERMISSION = f"{User._model_label}.view_{USER_MODEL_NAME}"
+USER_ADD_PERMISSION = f"{User._model_label}.add_{USER_MODEL_NAME}"
+USER_CHANGE_PERMISSION = f"{User._model_label}.change_{USER_MODEL_NAME}"
+
 
 user_roles = sa.Table(
     "auth_user_roles",
     ModelBase.metadata,
     sa.Column(
         "user_id",
-        sa.ForeignKey("auth_user.id", ondelete="CASCADE"),
+        sa.ForeignKey(f"{User.__tablename__}.id", ondelete="CASCADE"),
         primary_key=True,
     ),
     sa.Column(
@@ -44,55 +88,6 @@ role_permissions = sa.Table(
 )
 
 
-class User(Model, TimestampMixin, VersionedMixin):
-    """Accounts are part of the audit trail: identity changes are recorded."""
-
-    __history__: ClassVar[bool | Mapping[str, Any] | None] = {
-        "exclude": ["meta"],
-        "relations": ["roles"],
-    }
-
-    # Effective permissions loaded per request (deny-by-default when not loaded).
-    permissions: frozenset[str] = frozenset()
-
-    id: Mapped[int] = mapped_column(BigIntIdentity, primary_key=True)
-    username: Mapped[str] = mapped_column(sa.String(150), unique=True)
-    email: Mapped[str] = mapped_column(sa.String(254), default="")
-    password_hash: Mapped[str] = mapped_column(sa.String(255), default="")
-    full_name: Mapped[str] = mapped_column(sa.String(255), default="")
-    is_active: Mapped[bool] = mapped_column(default=True)
-    is_superuser: Mapped[bool] = mapped_column(default=False)
-    # Login bookkeeping: noise for the audit trail (the sessions table and logs
-    # already cover authentication events).
-    last_login_at: Mapped[datetime | None] = mapped_column(
-        TZDateTime, info={"admin": {"history": False}}
-    )
-    password_changed_at: Mapped[datetime | None] = mapped_column(
-        TZDateTime, info={"admin": {"history": False}}
-    )
-    failed_login_count: Mapped[int] = mapped_column(default=0, info={"admin": {"history": False}})
-    locked_until: Mapped[datetime | None] = mapped_column(
-        TZDateTime, info={"admin": {"history": False}}
-    )
-    meta: Mapped[JsonDict] = mapped_column(JSONB, default=dict)
-
-    roles: Mapped[list[Role]] = relationship(secondary=user_roles, back_populates="users")
-
-    def has_perm(self, perm: str) -> bool:
-        """Check an ``app_label.codename`` permission against the loaded set."""
-        return self.is_superuser or perm in self.permissions
-
-    @property
-    def is_locked(self) -> bool:
-        return self.locked_until is not None
-
-    def __str__(self) -> str:
-        return self.username
-
-    def __repr__(self) -> str:
-        return f"<User {self.username!r}>"
-
-
 class Role(Model, TimestampMixin, VersionedMixin):
     """Roles are assignable identities, so they are tracked as well."""
 
@@ -103,7 +98,9 @@ class Role(Model, TimestampMixin, VersionedMixin):
     description: Mapped[str] = mapped_column(sa.Text, default="")
     is_system: Mapped[bool] = mapped_column(default=False)
 
-    users: Mapped[list[User]] = relationship(secondary=user_roles, back_populates="roles")
+    users: Mapped[list[AbstractUser]] = relationship(
+        User, secondary=user_roles, back_populates="roles"
+    )
     permissions: Mapped[list[Permission]] = relationship(
         secondary=role_permissions, back_populates="roles"
     )
@@ -117,7 +114,7 @@ class Role(Model, TimestampMixin, VersionedMixin):
 
 class Permission(Model, TimestampMixin):
     id: Mapped[int] = mapped_column(BigIntIdentity, primary_key=True)
-    app_label: Mapped[str] = mapped_column(sa.String(100))  # pyright: ignore[reportIncompatibleVariableOverride]
+    app_label: Mapped[str] = mapped_column(sa.String(100))  # type: ignore[misc]
     codename: Mapped[str] = mapped_column(sa.String(100))
     name: Mapped[str] = mapped_column(sa.String(255))
     model: Mapped[str | None] = mapped_column(sa.String(100))
@@ -143,7 +140,7 @@ class Session(Model, TimestampMixin):
     id: Mapped[int] = mapped_column(BigIntIdentity, primary_key=True)
     token_hash: Mapped[str] = mapped_column(sa.String(64), unique=True)
     user_id: Mapped[int] = mapped_column(
-        sa.ForeignKey("auth_user.id", ondelete="CASCADE"), index=True
+        sa.ForeignKey(f"{User.__tablename__}.id", ondelete="CASCADE"), index=True
     )
     data: Mapped[JsonDict] = mapped_column(JSONB, default=dict)
     expires_at: Mapped[datetime] = mapped_column(TZDateTime, index=True)
@@ -151,7 +148,7 @@ class Session(Model, TimestampMixin):
     ip: Mapped[str | None] = mapped_column(sa.String(45))
     user_agent: Mapped[str | None] = mapped_column(sa.String(255))
 
-    user: Mapped[User] = relationship()
+    user: Mapped[AbstractUser] = relationship(User)
 
     def __repr__(self) -> str:
         return f"<Session user_id={self.user_id!r}>"

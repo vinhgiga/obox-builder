@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Protocol
 
+from obox_builder.apps import apps
+
 
 class PermissionHolder(Protocol):
     """Anything able to check ``app_label.codename`` permissions."""
@@ -37,6 +39,12 @@ class NavGroup:
 
 
 def default_navigation() -> list[NavGroup]:
+    user_view_permission = "auth.view_user"
+    if apps.models_ready:
+        from obox_builder.contrib.auth.models import USER_VIEW_PERMISSION
+
+        user_view_permission = USER_VIEW_PERMISSION
+
     return [
         NavGroup(
             label="Overview", items=[NavItem("Dashboard", "/admin/", icon="ti-layout-dashboard")]
@@ -44,7 +52,9 @@ def default_navigation() -> list[NavGroup]:
         NavGroup(
             label="Access",
             items=[
-                NavItem("Users", "/admin/users", icon="ti-users", required_perm="auth.view_user"),
+                NavItem(
+                    "Users", "/admin/users", icon="ti-users", required_perm=user_view_permission
+                ),
                 NavItem(
                     "Roles", "/admin/roles", icon="ti-shield-lock", required_perm="auth.view_role"
                 ),

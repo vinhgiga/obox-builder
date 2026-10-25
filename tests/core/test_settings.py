@@ -162,6 +162,24 @@ def test_blank_database_url_rejected() -> None:
         BaseSettings(SECRET_KEY=SecretStr(SECRET), DATABASE_URL="  ")
 
 
+def test_authentication_settings_validate_and_deduplicate() -> None:
+    settings = BaseSettings(
+        SECRET_KEY=SecretStr(SECRET),
+        DATABASE_URL=DATABASE,
+        AUTH_USER_MODEL="accounts.Account",
+        AUTHENTICATION_BACKENDS=["project.auth.Backend", "project.auth.Backend"],
+    )
+    assert settings.AUTH_USER_MODEL == "accounts.Account"
+    assert settings.AUTHENTICATION_BACKENDS == ["project.auth.Backend"]
+
+    with pytest.raises(ValueError, match="app_label.ModelName"):
+        BaseSettings(SECRET_KEY=SecretStr(SECRET), DATABASE_URL=DATABASE, AUTH_USER_MODEL="Account")
+    with pytest.raises(ValueError, match="non-blank"):
+        BaseSettings(
+            SECRET_KEY=SecretStr(SECRET), DATABASE_URL=DATABASE, AUTHENTICATION_BACKENDS=[]
+        )
+
+
 def test_hsts_preload_requires_long_lived_subdomain_policy() -> None:
     with pytest.raises(ValueError, match="SECURE_HSTS_INCLUDE_SUBDOMAINS"):
         BaseSettings(

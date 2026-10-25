@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any, Literal
 
@@ -57,6 +58,10 @@ class BaseSettings(PydanticBaseSettings):
     SESSION_COOKIE_AGE: int = 12 * 3600
     SESSION_COOKIE_SECURE: bool = True
     SESSION_ABSOLUTE_AGE: int = 7 * 24 * 3600
+    AUTH_USER_MODEL: str = "auth.User"
+    AUTHENTICATION_BACKENDS: list[str] = Field(
+        default_factory=lambda: ["obox_builder.contrib.auth.backends.ModelBackend"]
+    )
     LOGIN_MAX_ATTEMPTS: int = 5
     LOGIN_LOCKOUT_SECONDS: int = 900
     PASSWORD_MIN_LENGTH: int = 8
@@ -156,6 +161,20 @@ class BaseSettings(PydanticBaseSettings):
             if not entry.strip():
                 raise ValueError("DATABASE_ROUTERS entries must not be blank")
         return value
+
+    @field_validator("AUTH_USER_MODEL")
+    @classmethod
+    def validate_auth_user_model(cls, value: str) -> str:
+        if not re.fullmatch(r"[a-z][a-z0-9_]*\.[A-Za-z][A-Za-z0-9_]*", value.strip()):
+            raise ValueError("AUTH_USER_MODEL must use the 'app_label.ModelName' form")
+        return value.strip()
+
+    @field_validator("AUTHENTICATION_BACKENDS")
+    @classmethod
+    def validate_authentication_backends(cls, value: list[str]) -> list[str]:
+        if not value or any(not path.strip() for path in value):
+            raise ValueError("AUTHENTICATION_BACKENDS must contain non-blank dotted paths")
+        return list(dict.fromkeys(path.strip() for path in value))
 
     @field_validator("ALLOWED_HOSTS")
     @classmethod
