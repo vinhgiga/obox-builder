@@ -51,7 +51,10 @@ async def load_query(ctx: AdminContext) -> tuple[QuerySpec, SavedView | None]:
             )
     specs = ctx.admin.get_query_specs(ctx)
     query = QuerySpec.parse(
-        params, specs, default_sort=ctx.admin.get_ordering(ctx), default_size=ctx.admin.per_page
+        params,
+        specs,
+        default_sort=ctx.admin.get_ordering(ctx),
+        default_size=ctx.admin.get_list_per_page(ctx),
     )
     return query, selected
 

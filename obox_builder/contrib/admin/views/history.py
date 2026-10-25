@@ -53,7 +53,7 @@ class RevertLinks:
         return f"{self.base_url}/{entry.id}/revert"
 
 
-def diff_mask(model: type[Any], *, user: Any, admin: Any = None) -> DiffMask:
+def diff_mask(model: type[Any], *, user: Any, admin: Any = None, ctx: Any = None) -> DiffMask:
     """Build the entry filter for ``user`` viewing ``model`` (admin optional).
 
     With an ``admin`` the visible set is the non-secret form/list specs, so a
@@ -71,7 +71,7 @@ def diff_mask(model: type[Any], *, user: Any, admin: Any = None) -> DiffMask:
         known |= {relation.name for relation in tracker.relations}
         visible |= {relation.name for relation in tracker.relations}
     if admin is not None:
-        specs = [*admin.get_form_specs(), *admin.get_list_specs()]
+        specs = [*admin.get_form_specs(ctx), *admin.get_list_specs(ctx)]
         known |= {spec.name for spec in specs}
         visible |= {spec.name for spec in specs if not spec.secret}
     elif tracker is not None:

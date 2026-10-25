@@ -249,7 +249,7 @@ class InlineFormSet:
                     [(str(v), str(label)) for v, label in getter(spec)] if getter else []
                 )
             elif spec.type.name in {"link", "multi_link"}:
-                autocomplete = spec.name in self.inline.autocomplete_fields
+                autocomplete = spec.name in self.inline.get_autocomplete_fields(ctx)
                 choices[spec.name] = await relation_choices(
                     ctx, spec, values.get(spec.name), autocomplete=autocomplete
                 )

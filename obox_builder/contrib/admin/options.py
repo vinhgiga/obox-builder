@@ -56,6 +56,17 @@ class ActionSpec:
     func: Callable[[AdminContext, sa.Select[Any]], Awaitable[Any]]
 
 
+@dataclass(frozen=True)
+class AdminRoute:
+    """A protected custom route below one model's admin URL."""
+
+    path: str
+    endpoint: Callable[..., Any]
+    name: str
+    methods: tuple[str, ...] = ("GET",)
+    permission: str | None = "view"
+
+
 class _DisplayMethod(Protocol):
     __name__: str
     admin_description: str
@@ -129,6 +140,8 @@ class ModelAdmin:
     verbose_name: ClassVar[str] = ""
     verbose_name_plural: ClassVar[str] = ""
     per_page: ClassVar[int] = DEFAULT_PER_PAGE
+    show_full_result_count: ClassVar[bool] = True
+    extra_form_fields: ClassVar[Sequence[FieldSpec]] = ()
     #: URL segment(s) under ``/admin``; defaults to ``<app_label>/<model_name>``.
     base_path: ClassVar[str | None] = None
     import_enabled: ClassVar[bool] = False
@@ -304,6 +317,83 @@ class ModelAdmin:
             return tuple(self.ordering)
         return (self.pk_column().key or "id",)
 
+    def get_list_display(
+        self, ctx: AdminContext | None = None
+    ) -> Sequence[str | Callable[..., Any]]:
+        return self.list_display
+
+    def get_list_display_links(self, ctx: AdminContext | None = None) -> tuple[str, ...]:
+        """Return linked columns; the first is linked when the option is omitted."""
+        if self.list_display_links is _AUTO_LIST_DISPLAY_LINKS:
+            specs = self.get_list_specs(ctx)
+            return (specs[0].name,) if specs else ()
+        if self.list_display_links is None:
+            return ()
+        if isinstance(self.list_display_links, str):
+            return (self.list_display_links,)
+        return tuple(self.list_display_links)
+
+    def get_list_filter(
+        self, ctx: AdminContext | None = None
+    ) -> Sequence[str | type[SimpleListFilter]]:
+        return self.list_filter
+
+    def get_search_fields(self, ctx: AdminContext | None = None) -> Sequence[str]:
+        return self.search_fields
+
+    def get_fields(self, ctx: AdminContext | None = None) -> Sequence[str] | None:
+        return self.fields
+
+    def get_exclude(self, ctx: AdminContext | None = None) -> Sequence[str]:
+        return self.exclude
+
+    def get_fieldsets(
+        self, ctx: AdminContext | None = None
+    ) -> Sequence[tuple[str | None, Mapping[str, Any]]] | None:
+        return self.fieldsets
+
+    def get_readonly_fields(
+        self, ctx: AdminContext | None = None
+    ) -> Sequence[str | Callable[..., Any]]:
+        return self.readonly_fields
+
+    def get_list_editable(self, ctx: AdminContext | None = None) -> Sequence[str]:
+        return self.list_editable
+
+    def get_autocomplete_fields(self, ctx: AdminContext | None = None) -> Sequence[str]:
+        return self.autocomplete_fields
+
+    def get_prepopulated_fields(
+        self, ctx: AdminContext | None = None
+    ) -> Mapping[str, Sequence[str]]:
+        return self.prepopulated_fields
+
+    def get_list_per_page(self, ctx: AdminContext | None = None) -> int:
+        return self.per_page
+
+    def get_extra_form_fields(self, ctx: AdminContext) -> Sequence[FieldSpec]:
+        """Return validated form-only fields; override for request-specific fields."""
+        return self.extra_form_fields
+
+    def get_urls(self) -> Sequence[AdminRoute]:
+        """Return extra FastAPI routes under this model's admin URL.
+
+        A route endpoint may accept ``ctx: AdminContext`` plus normal FastAPI
+        parameters. AdminContext injection, authentication, permission checks,
+        and CSRF validation are supplied by the admin site.
+        """
+        return ()
+
+    def get_paginator(self, ctx: AdminContext, queryset: sa.Select[Any]) -> Any:
+        """Return a paginator for this request; override for custom count/page behavior."""
+        from obox_builder.contrib.admin.pagination import AdminPaginator
+
+        return AdminPaginator(
+            ctx,
+            queryset,
+            show_full_result_count=self.show_full_result_count,
+        )
+
     async def get_object(self, ctx: AdminContext, pk: str, *, for_update: bool = False) -> Any:
         """Resolve a row within this request's queryset, including eager loads."""
         value = self.parse_pk(pk)
@@ -343,23 +433,35 @@ class ModelAdmin:
     def spec_map(self) -> dict[str, FieldSpec]:
         return {spec.name: spec for spec in self.get_field_specs()}
 
-    def get_form_specs(self) -> list[FieldSpec]:
+    def get_form_specs(self, ctx: AdminContext | None = None) -> list[FieldSpec]:
         specs = self.get_field_specs()
         by_name = {spec.name: spec for spec in specs}
-        if self.fields is not None:
+        fields = self.fields if ctx is None else self.get_fields(ctx)
+        excluded = set(self.exclude if ctx is None else self.get_exclude(ctx))
+        if fields is not None:
             return [
                 by_name[name]
-                for name in self.fields
-                if name in by_name and not by_name[name].options.get("through_payload")
+                for name in fields
+                if name in by_name
+                and name not in excluded
+                and not by_name[name].options.get("through_payload")
             ]
         return [
-            spec for spec in specs if not spec.secret and not spec.options.get("through_payload")
+            spec
+            for spec in specs
+            if spec.name not in excluded
+            and not spec.secret
+            and not spec.options.get("through_payload")
         ]
 
-    def get_form_layout(self, specs: Sequence[FieldSpec]) -> list[dict[str, Any]]:
+    def get_form_layout(
+        self, specs: Sequence[FieldSpec], ctx: AdminContext | None = None
+    ) -> list[dict[str, Any]]:
         """Resolve fieldsets to safe, ordered rows of declared fields."""
         by_name = {spec.name: spec for spec in specs}
-        fieldsets = self.fieldsets or [(None, {"fields": self.fields or tuple(by_name)})]
+        configured = self.fieldsets if ctx is None else self.get_fieldsets(ctx)
+        fields = self.fields if ctx is None else self.get_fields(ctx)
+        fieldsets = configured or [(None, {"fields": fields or tuple(by_name)})]
         layout = []
         for title, options in fieldsets:
             rows = []
@@ -383,17 +485,18 @@ class ModelAdmin:
             )
         return layout
 
-    def get_list_specs(self) -> list[FieldSpec]:
+    def get_list_specs(self, ctx: AdminContext | None = None) -> list[FieldSpec]:
         specs = self.get_field_specs()
-        if self.list_display:
+        display = self.list_display if ctx is None else self.get_list_display(ctx)
+        if display:
             by_name = {spec.name: spec for spec in specs}
             columns = []
-            for entry in self.list_display:
+            for entry in display:
                 if isinstance(entry, str) and entry in by_name:
                     columns.append(by_name[entry])
                     continue
                 if isinstance(entry, str):
-                    related = self._query_field(entry)
+                    related = self._query_field(entry, ctx)
                     path = related.options.get("relationship_path") if related else None
                     if (
                         related is not None
@@ -450,29 +553,23 @@ class ModelAdmin:
         rest = [spec for spec in visible if not spec.primary_key][:5]
         return primary + rest
 
-    def get_list_display_links(self) -> tuple[str, ...]:
-        """Return linked list columns; an omitted setting links the first column."""
-        if self.list_display_links is _AUTO_LIST_DISPLAY_LINKS:
-            specs = self.get_list_specs()
-            return (specs[0].name,) if specs else ()
-        if self.list_display_links is None:
-            return ()
-        if isinstance(self.list_display_links, str):
-            return (self.list_display_links,)
-        return tuple(self.list_display_links)
-
-    def get_inline_specs(self) -> list[FieldSpec]:
-        if self._inline_specs is None:
+    def get_inline_specs(self, ctx: AdminContext | None = None) -> list[FieldSpec]:
+        if ctx is None and self._inline_specs is not None:
+            return self._inline_specs
+        if ctx is not None or self._inline_specs is None:
             specs = self.spec_map()
             inline: list[FieldSpec] = []
-            for name in self.list_editable:
+            editable = self.list_editable if ctx is None else self.get_list_editable(ctx)
+            for name in editable:
                 spec = specs.get(name)
                 if spec is None or spec.primary_key or not spec.is_editable():
                     continue
                 if spec.column is None or spec.type.name not in INLINE_TYPES:
                     continue
                 inline.append(spec)
-            self._inline_specs = inline
+            if ctx is None:
+                self._inline_specs = inline
+            return inline
         return self._inline_specs
 
     def _query_field(self, name: str, ctx: AdminContext | None = None) -> FieldSpec | None:
@@ -525,11 +622,13 @@ class ModelAdmin:
     def get_query_specs(self, ctx: AdminContext | None = None) -> dict[str, FieldSpec]:
         specs = self.spec_map()
         specs.update(
-            {spec.name: spec for spec in self.get_list_specs() if spec.options.get("computed")}
+            {spec.name: spec for spec in self.get_list_specs(ctx) if spec.options.get("computed")}
         )
-        names = [name for name in self.list_filter if isinstance(name, str)]
+        filters = self.list_filter if ctx is None else self.get_list_filter(ctx)
+        search_fields = self.search_fields if ctx is None else self.get_search_fields(ctx)
+        names = [name for name in filters if isinstance(name, str)]
         names.extend(
-            entry[1:] if entry[:1] in {"^", "=", "@"} else entry for entry in self.search_fields
+            entry[1:] if entry[:1] in {"^", "=", "@"} else entry for entry in search_fields
         )
         for name in names:
             spec = self._query_field(name, ctx)
@@ -537,7 +636,13 @@ class ModelAdmin:
                 specs[name] = spec
         return specs
 
-    def get_inline_schema(self) -> type[BaseModel]:
+    def get_inline_schema(self, ctx: AdminContext | None = None) -> type[BaseModel]:
+        if ctx is not None:
+            return build_schema(
+                self.get_inline_specs(ctx),
+                name=f"{self.app_label}_{self.model_name}",
+                mode="inline",
+            )
         if self._inline_schema is None:
             self._inline_schema = build_schema(
                 self.get_inline_specs(),
@@ -599,7 +704,8 @@ class ModelAdmin:
     def get_search_specs(self, ctx: AdminContext | None = None) -> list[FieldSpec]:
         specs = self.spec_map()
         result = []
-        for entry in self.search_fields:
+        search_fields = self.search_fields if ctx is None else self.get_search_fields(ctx)
+        for entry in search_fields:
             mode = "contains"
             name = entry
             if name[:1] in {"^", "=", "@"}:
@@ -619,12 +725,13 @@ class ModelAdmin:
                 result.append(replace(spec, options={**spec.options, "search_mode": mode}))
         return result
 
-    def get_filter_specs(self) -> list[FieldSpec]:
+    def get_filter_specs(self, ctx: AdminContext | None = None) -> list[FieldSpec]:
+        filters = self.list_filter if ctx is None else self.get_list_filter(ctx)
         return [
             spec
-            for name in self.list_filter
+            for name in filters
             if isinstance(name, str)
-            and (spec := self._query_field(name)) is not None
+            and (spec := self._query_field(name, ctx)) is not None
             and spec.column is not None
         ]
 
@@ -638,9 +745,35 @@ class ModelAdmin:
 
     def get_form_fields(self, ctx: AdminContext) -> list[FieldSpec]:
         """Request-specific fields; ``ctx.obj`` is the existing row on change."""
-        specs = self.get_form_specs()
+        specs = self.get_form_specs(ctx)
+        extra_fields = list(self.get_extra_form_fields(ctx))
+        names = set(sa.inspect(self.model).attrs.keys())
+        names.update(spec.name for spec in specs)
+        for spec in extra_fields:
+            if not isinstance(spec, FieldSpec):
+                raise ImproperlyConfigured("Extra form fields must be FieldSpec instances.")
+            if spec.name in names:
+                raise ImproperlyConfigured(
+                    f"Extra form field {spec.name!r} duplicates a field on {self.model_label}."
+                )
+            names.add(spec.name)
+        specs.extend(extra_fields)
+        fields = self.get_fields(ctx)
+        if fields is not None:
+            by_name = {spec.name: spec for spec in specs}
+            specs = [by_name[name] for name in fields if name in by_name]
+        readonly_fields = self.get_readonly_fields(ctx)
+        readonly_names = {
+            entry if isinstance(entry, str) else entry.__name__ for entry in readonly_fields
+        }
+        specs = [
+            replace(spec, readonly=True, editable=False)
+            if spec.name in readonly_names and not spec.readonly
+            else spec
+            for spec in specs
+        ]
         names = {spec.name for spec in specs}
-        for entry in self.readonly_fields:
+        for entry in readonly_fields:
             method = (
                 entry
                 if callable(entry)

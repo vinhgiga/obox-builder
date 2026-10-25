@@ -181,12 +181,13 @@ async def plan_from_row(
     mask: DiffMask | None = None,
 ) -> RevertPlan:
     ctx = replace(ctx, admin=admin, obj=None)
-    specs = {spec.name: spec for spec in admin.get_form_specs()}
     plan = RevertPlan(admin=admin, entry=entry, pk_value=pk_value)
     plan.target = await ctx.db.get(admin.model, pk_value)
     if plan.target is not None:
         plan.target = await admin.get_object(ctx, str(pk_value))
+        ctx.obj = plan.target
     admin.check_permission(ctx, "view", plan.target)
+    specs = {spec.name: spec for spec in admin.get_form_specs(ctx)}
     if entry.op == "create":
         # Reverting a create is a confirmed delete; no values are restored.
         if plan.target is None:
@@ -240,20 +241,21 @@ async def plan_from_row(
 
 def _bind_values(plan: RevertPlan, ctx: AdminContext, values: dict[str, Any]) -> BoundForm:
     admin = _admin_of(plan)
-    specs = [spec for spec in admin.get_form_specs() if spec.name in values]
+    ctx.obj = plan.target
+    specs = [spec for spec in admin.get_form_specs(ctx) if spec.name in values]
     schema = build_schema(
         specs,
         name=f"revert_{admin.app_label}_{admin.model_name}",
         mode="revert",
     )
-    ctx.obj = plan.target
     return BoundForm.bind(specs, schema, values, base=ctx.record_context(values))
 
 
 def _apply_values(ctx: AdminContext, plan: RevertPlan, obj: Any) -> None:
     """Restore recorded values: editable ones via the form, rest via setattr."""
     admin = _admin_of(plan)
-    by_name = {spec.name: spec for spec in admin.get_form_specs()}
+    ctx.obj = obj
+    by_name = {spec.name: spec for spec in admin.get_form_specs(ctx)}
     editable = {name for name, spec in by_name.items() if spec.is_editable()}
     values = {name: value for name, value in plan.values.items() if name in by_name}
     form_values = {name: value for name, value in values.items() if name in editable}

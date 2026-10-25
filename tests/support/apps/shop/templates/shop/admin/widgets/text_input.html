@@ -1,0 +1,4 @@
+<input type="text" id="id_{{ name }}" name="{{ name }}" value="{{ value or '' }}"
+       data-custom-widget="{{ spec.name }}"
+       class="form-control{{ ' is-invalid' if errors }}"
+       {% if readonly %}disabled{% endif %}/>

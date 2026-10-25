@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import unicodedata
 from typing import Any
 from urllib.parse import urlencode
@@ -57,9 +58,16 @@ async def global_search(
     if query.q:
         for admin in sorted(site.get_registry().values(), key=lambda item: item.model_label):
             ctx = AdminContext(request=request, user=user, db=db, site=site, admin=admin)
+            search_hook = admin.get_search_specs
+            try:
+                inspect.signature(search_hook).bind(ctx)
+            except TypeError:
+                search_specs_for_request = search_hook()
+            else:
+                search_specs_for_request = search_hook(ctx)
             search_specs = [
                 spec
-                for spec in admin.get_search_specs()
+                for spec in search_specs_for_request
                 if not spec.secret and spec.type.searchable and spec.column is not None
             ]
             if (
@@ -68,7 +76,7 @@ async def global_search(
                 or not search_specs
             ):
                 continue
-            specs = admin.spec_map()
+            specs = admin.get_query_specs(ctx)
             stmt = QuerySpec(q=query.q).apply(
                 admin.get_queryset(ctx).order_by(None), specs, search_specs=search_specs
             )

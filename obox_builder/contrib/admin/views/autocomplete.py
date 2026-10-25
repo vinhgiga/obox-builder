@@ -61,7 +61,7 @@ def register_autocomplete_routes(
             spec = next((spec for spec in admin.get_form_fields(ctx) if spec.name == field), None)
             if (
                 spec is None
-                or field not in admin.autocomplete_fields
+                or field not in admin.get_autocomplete_fields(ctx)
                 or not spec.is_editable()
                 or spec.type.name not in {"link", "multi_link"}
             ):

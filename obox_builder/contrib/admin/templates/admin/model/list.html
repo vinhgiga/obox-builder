@@ -3,7 +3,7 @@
 {% block title %}{{ admin.plural_name }}{% endblock %}
 {% block content %}
 <div class="page-header d-print-none">
-  <h2 class="page-title">{{ admin.plural_name }} ({{ displayed_total }}{{ '+' if total_capped }})</h2>
+  <h2 class="page-title">{{ admin.plural_name }}{% if total is none %} (page {{ page }}){% else %} ({{ displayed_total }}{{ '+' if total_capped }}){% endif %}</h2>
 </div>
 {% if inline_columns %}
 <form id="inline-edit" method="post" action="{{ inline_action }}" class="d-none">
@@ -44,7 +44,7 @@
       </select>
       <button type="submit" form="bulk-form" class="btn">Run</button>
       <span class="text-secondary small" data-selection-counter>0 of {{ rows | length }} selected</span>
-      {% if displayed_total > rows | length %}
+      {% if displayed_total is not none and displayed_total > rows | length %}
       <a href="#" class="small d-none" data-select-all data-total="{{ displayed_total }}"
          >Select all {{ displayed_total }} {{ admin.plural_name | lower }}</a>
       <a href="#" class="small d-none" data-select-clear>Clear selection</a>

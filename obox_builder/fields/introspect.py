@@ -49,7 +49,7 @@ _FIELD_SPEC_KEYS = frozenset(
         "initial",
     }
 )
-_WIDGET_CONFIG_KEYS = frozenset({"widget", "rows", "placeholder"})
+_WIDGET_CONFIG_KEYS = frozenset({"widget", "widget_template", "rows", "placeholder"})
 ADMIN_WIDGETS = frozenset(
     {
         "text",

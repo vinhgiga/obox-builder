@@ -4,7 +4,9 @@
 {% set placeholder = spec.options.get('placeholder') %}
 <div class="mb-3">
   <label class="form-label {{ 'required' if spec.required and not readonly }}" for="id_{{ name }}">{{ spec.label }}</label>
-  {% if widget_type == 'checkbox' %}
+  {% if spec.options.get('widget_template') %}
+    {% include spec.options.get('widget_template') %}
+  {% elif widget_type == 'checkbox' %}
     <label class="form-check form-switch">
       <input class="form-check-input" type="checkbox" name="{{ name }}" id="id_{{ name }}"
              value="true" {{ 'checked' if value in ('true', 'True', 'on', '1', true) }}

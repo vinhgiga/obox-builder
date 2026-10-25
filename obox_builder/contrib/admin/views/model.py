@@ -7,10 +7,12 @@ the OpenAPI schema (M9) can enumerate them.
 
 from __future__ import annotations
 
+import inspect
 import json
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
-from typing import Any
+from typing import Any, cast, get_type_hints
 from urllib.parse import urlencode
 
 import sqlalchemy as sa
@@ -24,7 +26,7 @@ from obox_builder.contrib.admin.deletion import collect_deletion, confirmed, del
 from obox_builder.contrib.admin.inlines import InlineFormSet, load_inlines
 from obox_builder.contrib.admin.list_query import group_headers, load_query, view_scope
 from obox_builder.contrib.admin.models import SavedView
-from obox_builder.contrib.admin.options import ModelAdmin
+from obox_builder.contrib.admin.options import AdminRoute, ModelAdmin
 from obox_builder.contrib.admin.relations import build_cells, relation_choices, validate_relations
 from obox_builder.contrib.admin.rendering import render
 from obox_builder.contrib.admin.site import AdminSite
@@ -52,7 +54,7 @@ from obox_builder.contrib.admin.views.revert import OP_PERMISSION, revert_entry
 from obox_builder.contrib.auth.dependencies import login_required, permission_required
 from obox_builder.contrib.history import HISTORY_RESTORE_PERMISSION, HISTORY_VIEW_PERMISSION
 from obox_builder.contrib.history.service import RowChangeEntry, entry_count
-from obox_builder.core.exceptions import PermissionDenied
+from obox_builder.core.exceptions import ImproperlyConfigured, PermissionDenied
 from obox_builder.db.session import get_db
 from obox_builder.fields import FieldSpec, QuerySpec, QuerySpecError
 from obox_builder.forms import BoundForm, render_values
@@ -69,12 +71,13 @@ def register_model_routes(router: APIRouter, site: AdminSite) -> None:
 
 
 def _register_one(router: APIRouter, site: AdminSite, admin: ModelAdmin) -> None:
-    from obox_builder.contrib.admin.views.autocomplete import register_autocomplete_routes
-
-    register_autocomplete_routes(router, site, admin)
     # Paths are relative to the mount point (``/admin``); ModelAdmin.list_path()
     # returns the absolute path used in links and redirects.
     base = f"/{admin.path_prefix}"
+    _register_custom_routes(router, site, admin, base)
+    from obox_builder.contrib.admin.views.autocomplete import register_autocomplete_routes
+
+    register_autocomplete_routes(router, site, admin)
     if admin.imports_available():
         from obox_builder.contrib.admin.views.imports import register_import_routes
 
@@ -290,6 +293,136 @@ def _register_one(router: APIRouter, site: AdminSite, admin: ModelAdmin) -> None
     )
 
 
+def _register_custom_routes(
+    router: APIRouter, site: AdminSite, admin: ModelAdmin, base: str
+) -> None:
+    routes = admin.get_urls()
+    names: set[str] = set()
+    paths: set[str] = set()
+    for custom in routes:
+        if (
+            not isinstance(custom, AdminRoute)
+            or not callable(custom.endpoint)
+            or not isinstance(custom.path, str)
+            or not isinstance(custom.name, str)
+            or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*", custom.name)
+            or not custom.path.strip("/")
+            or "?" in custom.path
+            or "#" in custom.path
+            or any(part in {".", ".."} for part in custom.path.split("/"))
+        ):
+            raise ImproperlyConfigured("Admin routes need a safe relative path and a valid name.")
+        path = custom.path.strip("/")
+        if any(not part for part in path.split("/")):
+            raise ImproperlyConfigured("Admin route paths cannot contain empty segments.")
+        if path in paths or custom.name in names:
+            raise ImproperlyConfigured("Admin routes must have unique paths and names per model.")
+        paths.add(path)
+        names.add(custom.name)
+        if isinstance(custom.methods, str) or not isinstance(custom.methods, Sequence):
+            raise ImproperlyConfigured("Admin route methods must be a sequence of HTTP methods.")
+        if any(not isinstance(method, str) for method in custom.methods):
+            raise ImproperlyConfigured("Admin route methods must be strings.")
+        methods = tuple(method.upper() for method in custom.methods)
+        if not methods or any(not re.fullmatch(r"[A-Z]+", method) for method in methods):
+            raise ImproperlyConfigured("Admin route methods must be non-empty HTTP method names.")
+        if custom.permission is not None and not isinstance(custom.permission, str):
+            raise ImproperlyConfigured("Admin route permissions must be strings or None.")
+        route = custom
+
+        admin_context = _admin_route_context(site, admin, route.permission)
+
+        endpoint = _inject_admin_context(custom.endpoint, admin_context)
+        router.add_api_route(
+            f"{base}/{path}",
+            endpoint,
+            methods=list(methods),
+            name=f"{admin.route_prefix}_{custom.name}",
+            dependencies=[Depends(admin_context)],
+        )
+
+
+def _admin_route_context(site: AdminSite, admin: ModelAdmin, permission: str | None) -> Any:
+    from obox_builder.contrib.admin.views.common import ensure_csrf
+
+    async def dependency(
+        request: Request,
+        user: Any = Depends(login_required),
+        db: AsyncSession = Depends(get_db),
+    ) -> AdminContext:
+        ctx = AdminContext(request=request, user=user, db=db, site=site, admin=admin)
+        request.state.admin_context = ctx
+        if permission is not None:
+            admin.check_permission(ctx, permission)
+        if request.method not in {"GET", "HEAD", "OPTIONS", "TRACE"}:
+            provided = request.headers.get("X-CSRF-Token")
+            if request.headers.get("content-type", "").split(";", 1)[0] in {
+                "application/x-www-form-urlencoded",
+                "multipart/form-data",
+            }:
+                form = await request.form()
+                tokens = form.getlist("csrf_token")
+                if len(tokens) > 1:
+                    raise PermissionDenied("CSRF check failed: supply one token.")
+                if tokens:
+                    provided = tokens[0] if isinstance(tokens[0], str) else None
+            await ensure_csrf(request, provided)
+        return ctx
+
+    return dependency
+
+
+def _inject_admin_context(endpoint: Any, dependency: Any) -> Any:
+    """Inject AdminContext into a custom view while preserving its FastAPI signature."""
+    signature = inspect.signature(endpoint)
+    try:
+        annotations = get_type_hints(endpoint, include_extras=True)
+    except (NameError, TypeError):
+        annotations = {}
+    parameter = signature.parameters.get("ctx")
+    if parameter is None:
+        return endpoint
+    if parameter.kind not in {
+        inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        inspect.Parameter.KEYWORD_ONLY,
+    }:
+        raise ImproperlyConfigured(
+            "A custom admin view's ctx parameter must accept a keyword value."
+        )
+    context_parameter = parameter.replace(
+        kind=inspect.Parameter.KEYWORD_ONLY,
+        default=Depends(dependency),
+        annotation=AdminContext,
+    )
+    parameters = [
+        item.replace(annotation=annotations.get(item.name, item.annotation))
+        for item in signature.parameters.values()
+        if item.name != "ctx"
+    ]
+    insert_at = next(
+        (
+            index
+            for index, item in enumerate(parameters)
+            if item.kind == inspect.Parameter.VAR_KEYWORD
+        ),
+        len(parameters),
+    )
+    parameters.insert(insert_at, context_parameter)
+
+    async def contextual_view(**kwargs: Any) -> Any:
+        result = endpoint(**kwargs)
+        return await result if inspect.isawaitable(result) else result
+
+    contextual_view.__name__ = getattr(endpoint, "__name__", "admin_view")
+    contextual_view.__doc__ = getattr(endpoint, "__doc__", None)
+    view_signature = signature.replace(
+        parameters=parameters,
+        return_annotation=annotations.get("return", signature.return_annotation),
+    )
+    cast(Any, contextual_view).__signature__ = view_signature
+    return contextual_view
+
+
 # -- list -------------------------------------------------------------------
 
 
@@ -323,7 +456,7 @@ async def _list(
         return _bad_request(ctx, str(exc))
 
     simple_filters = []
-    for filter_class in admin.list_filter:
+    for filter_class in admin.get_list_filter(ctx):
         if isinstance(filter_class, str):
             continue
         filter_instance = filter_class(ctx)
@@ -343,18 +476,16 @@ async def _list(
             }
         )
 
-    total = await ctx.db.scalar(
-        sa.select(sa.func.count()).select_from(stmt.order_by(None).subquery())
-    )
-    total = int(total or 0)
+    pagination = await admin.get_paginator(ctx, stmt).get_page(query.page, query.size)
+    total = pagination.count
+    pages = pagination.num_pages
     offset = (query.page - 1) * query.size
-    result = await ctx.db.execute(stmt.limit(query.size).offset(offset))
-    objects = result.scalars().unique().all()
+    objects = list(pagination.objects)
     objects = [obj for obj in objects if admin.has_view_permission(replace(ctx, obj=obj), obj)]
 
     headers = await group_headers(ctx, stmt, query, specs, objects)
-    columns = admin.get_list_specs()
-    can_inline = bool(admin.get_inline_specs()) and admin.has_change_permission(ctx)
+    columns = admin.get_list_specs(ctx)
+    can_inline = bool(admin.get_inline_specs(ctx)) and admin.has_change_permission(ctx)
     if can_inline:
         edits = _inline_edits(ctx, admin, columns, objects, inline_values, inline_errors)
     else:
@@ -399,7 +530,6 @@ async def _list(
                 "comments_count": comment_counts.get(str(pk), 0) if comments_url else 0,
             }
         )
-    pages = max(1, -(-total // query.size))
     inline_action = f"{admin.list_path()}/inline"
     if request.url.query:
         inline_action = f"{inline_action}?{request.url.query}"
@@ -438,16 +568,18 @@ async def _list(
         selected_view=selected_view,
         admin=admin,
         columns=columns,
-        list_display_links=admin.get_list_display_links(),
+        list_display_links=admin.get_list_display_links(ctx),
         rows=rows,
         q=query.q,
         page=query.page,
         pages=pages,
+        has_next=pagination.has_next,
+        has_previous=pagination.has_previous,
         size=query.size,
         start_index=offset + 1,
         total=total,
-        total_capped=total > COUNT_CAP,
-        displayed_total=min(total, COUNT_CAP),
+        total_capped=total is not None and total > COUNT_CAP,
+        displayed_total=min(total, COUNT_CAP) if total is not None else None,
         searchable=bool(admin.get_search_specs(ctx)),
         simple_filters=simple_filters,
         can_add=admin.has_add_permission(ctx),
@@ -473,7 +605,7 @@ def _inline_edits(
     values: Mapping[tuple[str, str], str] | None,
     errors: Mapping[tuple[str, str], str] | None,
 ) -> list[list[dict[str, Any] | None]]:
-    inline_names = {spec.name for spec in admin.get_inline_specs()}
+    inline_names = {spec.name for spec in admin.get_inline_specs(ctx)}
     edits: list[list[dict[str, Any] | None]] = []
     for obj in objects:
         row_ctx = replace(ctx, obj=obj)
@@ -608,7 +740,7 @@ async def _render_form(
             admin.model,
             pk,
             url=admin.history_path(pk),
-            mask=diff_mask(admin.model, admin=admin, user=ctx.user),
+            mask=diff_mask(admin.model, admin=admin, user=ctx.user, ctx=ctx),
             revert=_revert_links(ctx, admin, pk),
         )
     comments: Mapping[str, Any] | None = None
@@ -641,7 +773,7 @@ async def _render_form(
         request,
         admin=admin,
         specs=specs,
-        form_layout=admin.get_form_layout(specs),
+        form_layout=admin.get_form_layout(specs, ctx),
         values=dict(values or {}),
         errors=dict(errors or {}),
         choices=await _choice_map(ctx, [] if readonly else specs, values),
@@ -649,7 +781,7 @@ async def _render_form(
             spec.name: f"{admin.list_path()}/autocomplete/{spec.name}"
             + (f"?object={admin.get_pk(target)}" if target is not None else "")
             for spec in specs
-            if spec.name in admin.autocomplete_fields
+            if spec.name in admin.get_autocomplete_fields(ctx)
         },
         file_urls={
             spec.name: f"{admin.list_path()}/{admin.get_pk(target)}/files/{spec.name}"
@@ -658,7 +790,7 @@ async def _render_form(
         },
         prepopulated_fields={
             target_name: list(sources)
-            for target_name, sources in admin.prepopulated_fields.items()
+            for target_name, sources in admin.get_prepopulated_fields(ctx).items()
             if target_name in {spec.name for spec in specs}
         },
         readonly_cells=dict(zip((spec.name for spec in specs), cells, strict=not is_add)),
@@ -835,7 +967,7 @@ async def _inline(ctx: AdminContext) -> HTMLResponse | RedirectResponse:
     admin.check_permission(ctx, "change")
     admin.check_permission(ctx, "view")
     request = ctx.request
-    specs = admin.get_inline_specs()
+    specs = admin.get_inline_specs(ctx)
     if not specs:
         return _bad_request(ctx, f"Inline editing is not enabled for {admin.name}.")
     data = await _submitted_data(request)
@@ -863,7 +995,7 @@ async def _inline(ctx: AdminContext) -> HTMLResponse | RedirectResponse:
     objects = (await ctx.db.execute(stmt)).scalars().unique().all()
     if {admin.get_pk(obj) for obj in objects} != set(pks):
         return _not_found(ctx, "One or more records are unavailable.")
-    schema = admin.get_inline_schema()
+    schema = admin.get_inline_schema(ctx)
     values: dict[tuple[str, str], str] = {
         (pk_key, name): raw for pk_key, row in posted.items() for name, raw in row.items()
     }
@@ -942,7 +1074,7 @@ async def _actions(ctx: AdminContext) -> Response:
             "warning",
         )
         return RedirectResponse(destination, status_code=303)
-    field_specs = {field.name: field for field in admin.get_field_specs()}
+    field_specs = admin.get_query_specs(ctx)
     try:
         query, _selected = await load_query(ctx)
         stmt = query.apply(
@@ -1009,7 +1141,7 @@ async def _history(ctx: AdminContext, target: Any, pk: Any) -> HTMLResponse:
             subtitle=f"#{pk}" if deleted else _object_label(admin, target),
             back_url=admin.list_path() if deleted else admin.change_path(pk),
             timeline_url=request.url.path,
-            mask=diff_mask(admin.model, admin=admin, user=ctx.user),
+            mask=diff_mask(admin.model, admin=admin, user=ctx.user, ctx=ctx),
             revert=_revert_links(ctx, admin, pk),
             deleted=deleted,
         ),
@@ -1028,7 +1160,7 @@ def _revert_links(ctx: AdminContext, admin: ModelAdmin, pk: Any) -> RevertLinks 
 
     return RevertLinks(
         base_url=admin.history_path(pk),
-        specs={spec.name: spec for spec in admin.get_form_specs()},
+        specs={spec.name: spec for spec in admin.get_form_specs(ctx)},
         can_revert=can_revert,
     )
 
@@ -1144,7 +1276,8 @@ async def _choice_map(
                 ctx,
                 spec,
                 (values or {}).get(spec.name),
-                autocomplete=ctx.admin is not None and spec.name in ctx.admin.autocomplete_fields,
+                autocomplete=ctx.admin is not None
+                and spec.name in ctx.admin.get_autocomplete_fields(ctx),
             )
     return choices
 
