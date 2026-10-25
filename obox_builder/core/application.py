@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import logging
 from collections.abc import AsyncIterator, Iterator
 from contextlib import AsyncExitStack, asynccontextmanager
 from importlib import import_module
@@ -9,12 +10,15 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from sqlalchemy.exc import IntegrityError
 from starlette.responses import Response
 
 from obox_builder import __version__
 from obox_builder.conf import settings
 from obox_builder.core.exceptions import ImproperlyConfigured, NotAuthenticated, PermissionDenied
 from obox_builder.utils import import_string
+
+logger = logging.getLogger(__name__)
 
 
 def _wants_html(request: Request) -> bool:
@@ -74,6 +78,25 @@ async def permission_denied_handler(request: Request, exc: Exception) -> Respons
             status_code=403,
         )
     return JSONResponse({"detail": str(exc) or "Permission denied."}, status_code=403)
+
+
+async def integrity_error_handler(request: Request, exc: Exception) -> Response:
+    """Log database details while returning a generic server error to clients."""
+    if not isinstance(exc, IntegrityError):
+        raise exc
+    if settings.DEBUG:
+        raise exc
+    logger.error(
+        "Database rejected a write during %s %s.",
+        request.method,
+        request.url.path,
+        exc_info=(type(exc), exc, exc.__traceback__),
+    )
+    return HTMLResponse(
+        "<!doctype html><html><head><title>Server Error (500)</title></head>"
+        "<body><h1>Server Error (500)</h1></body></html>",
+        status_code=500,
+    )
 
 
 @asynccontextmanager
@@ -143,6 +166,7 @@ def create_app() -> FastAPI:
     config = settings.load()
     application.add_exception_handler(NotAuthenticated, not_authenticated_handler)
     application.add_exception_handler(PermissionDenied, permission_denied_handler)
+    application.add_exception_handler(IntegrityError, integrity_error_handler)
     for entry in config.MIDDLEWARE:
         middleware = import_string(entry)
         if not inspect.isclass(middleware):

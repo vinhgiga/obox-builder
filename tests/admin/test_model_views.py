@@ -440,7 +440,7 @@ async def test_duplicate_unique_value_is_reported(client: httpx.AsyncClient) -> 
         "/admin/shop/order/add", data={"csrf_token": token, "reference": "ORD-1"}
     )
     assert duplicate.status_code == 200
-    assert "Could not save" in duplicate.text
+    assert "This value must be unique." in duplicate.text
     async with session_scope() as db:
         orders = (await db.scalars(sa.select(Order))).all()
     assert len(orders) == 1

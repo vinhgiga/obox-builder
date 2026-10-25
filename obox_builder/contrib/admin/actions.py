@@ -20,7 +20,6 @@ from typing import TYPE_CHECKING, Any
 
 import sqlalchemy as sa
 from fastapi.responses import Response
-from sqlalchemy.exc import IntegrityError
 
 from obox_builder.http.messages import add_message
 
@@ -86,17 +85,9 @@ async def delete_selected(
             else "",
             status_code=409 if token else 200,
         )
-    try:
-        async with ctx.db.begin_nested():
-            await admin.delete_queryset(ctx, queryset)
-            await ctx.db.flush()
-    except IntegrityError as exc:
-        await add_message(
-            ctx.request,
-            f"Could not delete: the database rejected the change ({exc.orig}).",
-            "error",
-        )
-        return None
+    async with ctx.db.begin_nested():
+        await admin.delete_queryset(ctx, queryset)
+        await ctx.db.flush()
     noun = admin.name.lower() if len(pks) == 1 else admin.plural_name.lower()
     await add_message(ctx.request, f"Successfully deleted {len(pks)} {noun}.", "success")
     return None

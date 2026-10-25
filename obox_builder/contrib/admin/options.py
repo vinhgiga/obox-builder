@@ -347,8 +347,14 @@ class ModelAdmin:
         specs = self.get_field_specs()
         by_name = {spec.name: spec for spec in specs}
         if self.fields is not None:
-            return [by_name[name] for name in self.fields if name in by_name]
-        return [spec for spec in specs if not spec.secret]
+            return [
+                by_name[name]
+                for name in self.fields
+                if name in by_name and not by_name[name].options.get("through_payload")
+            ]
+        return [
+            spec for spec in specs if not spec.secret and not spec.options.get("through_payload")
+        ]
 
     def get_form_layout(self, specs: Sequence[FieldSpec]) -> list[dict[str, Any]]:
         """Resolve fieldsets to safe, ordered rows of declared fields."""

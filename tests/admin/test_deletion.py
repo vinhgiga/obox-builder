@@ -12,7 +12,15 @@ from tests.admin.conftest import (
     login_session,
 )
 from tests.admin.test_permissions import signed_in
-from tests.support.apps.shop.models import Invoice, Label, Order, OrderLine, Shipment, Tracking
+from tests.support.apps.shop.models import (
+    Invoice,
+    Label,
+    Order,
+    OrderDetails,
+    OrderLine,
+    Shipment,
+    Tracking,
+)
 
 URL = "/admin/shop/order"
 
@@ -21,7 +29,10 @@ async def graph(*, protected: bool = False) -> tuple[int, int, int]:
     async with session_scope() as db:
         label = Label(id="label", title="Keep this label")
         order = Order(
-            reference="Delete order", labels=[label], lines=[OrderLine(sku="Cascade line")]
+            reference="Delete order",
+            labels=[label],
+            lines=[OrderLine(sku="Cascade line")],
+            details=OrderDetails(recipient="Cascade recipient"),
         )
         db.add(order)
         await db.flush()
@@ -46,6 +57,7 @@ async def test_preview_describes_cascades_unlinks_and_set_null(
     assert preview.status_code == 200
     for text in (
         "Cascade line",
+        "Cascade recipient",
         "Cascade shipment",
         "Keep this tracking",
         "Remove link",
@@ -72,6 +84,9 @@ async def test_preview_describes_cascades_unlinks_and_set_null(
         assert await db.get(Order, order) is None
         assert await db.get(Shipment, shipment) is None
         assert await db.scalar(sa.select(OrderLine).where(OrderLine.order_id == order)) is None
+        assert (
+            await db.scalar(sa.select(OrderDetails).where(OrderDetails.order_id == order)) is None
+        )
         row = await db.get(Tracking, tracking)
         assert row is not None
         assert row.shipment_id is None

@@ -78,9 +78,12 @@ async def relation_client(client: httpx.AsyncClient) -> AsyncIterator[httpx.Asyn
 
     from tests.support.apps.shop.models import (
         Asset,
+        DetailedMultiTableRecord,
         Invoice,
         Label,
+        MultiTableRecord,
         Order,
+        OrderDetails,
         OrderLine,
         Shipment,
         Tracking,
@@ -91,12 +94,33 @@ async def relation_client(client: httpx.AsyncClient) -> AsyncIterator[httpx.Asyn
         fields = ("sku", "quantity", "product_id", "asset_id")
         autocomplete_fields = ("product_id", "asset_id")
 
+    class DetailsInline(TabularInline):
+        model = OrderDetails
+        fields = ("recipient",)
+
     class OrderAdmin(ModelAdmin):
         fields = ("reference", "labels")
         autocomplete_fields = ("labels",)
-        inlines = (LineInline,)
+        inlines = (LineInline, DetailsInline)
 
-    models = (Asset, Label, OrderLine, Shipment, Tracking, Invoice, Order)
+    class MultiTableRecordAdmin(ModelAdmin):
+        fields = ("name",)
+
+    class DetailedMultiTableRecordAdmin(ModelAdmin):
+        fields = ("name", "details")
+
+    models = (
+        Asset,
+        Label,
+        DetailedMultiTableRecord,
+        MultiTableRecord,
+        OrderDetails,
+        OrderLine,
+        Shipment,
+        Tracking,
+        Invoice,
+        Order,
+    )
     previous = {model: site.get_model_admin_for(model) for model in models}
     for model in models:
         search = (
@@ -104,6 +128,8 @@ async def relation_client(client: httpx.AsyncClient) -> AsyncIterator[httpx.Asyn
             if model is Label
             else "sku"
             if model is OrderLine
+            else "recipient"
+            if model is OrderDetails
             else "name"
             if model is not Order
             else "reference"
@@ -112,6 +138,10 @@ async def relation_client(client: httpx.AsyncClient) -> AsyncIterator[httpx.Asyn
             model,
             OrderAdmin
             if model is Order
+            else MultiTableRecordAdmin
+            if model is MultiTableRecord
+            else DetailedMultiTableRecordAdmin
+            if model is DetailedMultiTableRecord
             else type(f"{model.__name__}Admin", (ModelAdmin,), {"search_fields": (search,)}),
         )
     try:

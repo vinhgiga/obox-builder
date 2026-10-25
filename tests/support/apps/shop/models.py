@@ -68,6 +68,9 @@ class Order(Model, TimestampMixin):
     lines: Mapped[list[OrderLine]] = relationship(
         back_populates="order", cascade="all, delete-orphan", passive_deletes=True
     )
+    details: Mapped[OrderDetails | None] = relationship(
+        back_populates="order", cascade="all, delete-orphan", uselist=False
+    )
 
     def __str__(self) -> str:
         return self.reference
@@ -79,6 +82,32 @@ class Label(Model):
 
     def __str__(self) -> str:
         return self.title
+
+
+class OrderDetails(Model):
+    id: Mapped[int] = mapped_column(primary_key=True)
+    order_id: Mapped[int] = mapped_column(
+        sa.ForeignKey("shop_order.id", ondelete="CASCADE"), unique=True
+    )
+    recipient: Mapped[str] = mapped_column(sa.String(80))
+    order: Mapped[Order] = relationship(back_populates="details")
+
+    def __str__(self) -> str:
+        return self.recipient
+
+
+class MultiTableRecord(Model):
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(sa.String(80))
+
+
+class DetailedMultiTableRecord(MultiTableRecord):
+    __tablename__ = "shop_detailed_multi_table_record"
+
+    id: Mapped[int] = mapped_column(
+        sa.ForeignKey("shop_multi_table_record.id", ondelete="CASCADE"), primary_key=True
+    )
+    details: Mapped[str] = mapped_column(sa.String(120))
 
 
 class Asset(Model):

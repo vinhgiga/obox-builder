@@ -17,9 +17,9 @@ from obox_builder.forms import BoundForm, render_values
 
 class InlineModelAdmin(ModelAdmin):
     fk_name: ClassVar[str | None] = None
-    extra: ClassVar[int] = 1
+    extra: ClassVar[int] = 3
     min_num: ClassVar[int] = 0
-    max_num: ClassVar[int] = 100
+    max_num: ClassVar[int | None] = None
     can_delete: ClassVar[bool] = True
     show_change_link: ClassVar[bool] = False
     formset_class: ClassVar[type[InlineFormSet] | None] = None
@@ -43,10 +43,27 @@ class InlineModelAdmin(ModelAdmin):
         if len(candidates) != 1:
             raise ImproperlyConfigured("Set fk_name to one foreign key to the parent primary key.")
         self.fk_column = candidates[0]
-        if not 0 <= self.min_num <= self.max_num <= 1000 or not 0 <= self.extra <= self.max_num:
-            raise ImproperlyConfigured(
-                "Inline limits must satisfy 0 <= min_num <= max_num <= 1000."
-            )
+        max_num = self.get_max_num()
+        if self.min_num < 0 or self.extra < 0 or max_num < 0:
+            raise ImproperlyConfigured("Inline limits must be non-negative.")
+
+    def get_max_num(self) -> int:
+        unique_foreign_key = self.fk_column.unique or any(
+            isinstance(constraint, sa.UniqueConstraint)
+            and tuple(constraint.columns) == (self.fk_column,)
+            for constraint in self.fk_column.table.constraints
+        )
+        unique_foreign_key |= any(
+            index.unique and tuple(index.columns) == (self.fk_column,)
+            for index in self.fk_column.table.indexes
+        )
+        if unique_foreign_key:
+            return 1
+        return self.max_num if self.max_num is not None else 1000
+
+    def get_absolute_max(self) -> int:
+        """Cap forms parsed from a forged POST, as Django formsets do."""
+        return self.get_max_num() + 1000
 
     def get_form_fields(self, ctx: AdminContext) -> list[FieldSpec]:
         return [spec for spec in super().get_form_fields(ctx) if spec.name != self.fk_column.key]
@@ -188,7 +205,7 @@ class InlineFormSet:
             "prefix": self.prefix,
             "errors": self.errors,
             "can_add": not readonly and self.inline.has_add_permission(self.ctx),
-            "max_num": self.inline.max_num,
+            "max_num": self.inline.get_max_num(),
         }
 
     async def _row_context(
@@ -282,6 +299,7 @@ async def load_inlines(
     ctx: AdminContext, parent: Any, data: dict[str, Any] | None = None
 ) -> list[InlineFormSet]:
     from obox_builder.contrib.admin.deletion import collect_deletion
+    from obox_builder.contrib.admin.uniqueness import validate_inline_uniqueness
 
     if ctx.admin is None:
         return []
@@ -328,21 +346,22 @@ async def load_inlines(
         if data is None:
             formset.rows = [InlineRow(obj=obj) for obj in objects]
             if can_add:
-                formset.rows.extend(
-                    InlineRow() for _ in range(min(inline.extra, max(0, inline.max_num - total)))
-                )
+                max_num = inline.get_max_num()
+                initial_forms = max(total, inline.min_num)
+                total_forms = initial_forms + inline.extra
+                total_forms = total if total > max_num else min(total_forms, max_num)
+                formset.rows.extend(InlineRow() for _ in range(max(0, total_forms - total)))
         else:
             try:
                 count = int(data.get(f"{formset.prefix}_total", "0"))
             except (TypeError, ValueError):
                 count = -1
-            if not 0 <= count <= 1000:
+            if not 0 <= count <= inline.get_absolute_max():
                 formset.errors.append("Invalid number of inline forms.")
                 formsets.append(formset)
                 continue
             known = {str(inline.get_pk(obj)): obj for obj in objects}
             seen: set[str] = set()
-            added = deleted = 0
             for position in range(count):
                 prefix = f"{formset.prefix}{position}:"
                 raw = {
@@ -365,7 +384,6 @@ async def load_inlines(
                         plan = await collect_deletion(child_ctx, [obj])
                         if not plan.allowed:
                             formset.errors.append("A related record prevents this inline deletion.")
-                        deleted += 1
                     continue
                 initial = formset.initial(child_ctx)
                 editable = [spec for spec in specs if spec.is_editable()]
@@ -377,7 +395,6 @@ async def load_inlines(
                     continue
                 if obj is None:
                     inline.check_permission(child_ctx, "add")
-                    added += 1
                 elif not inline.has_change_permission(child_ctx, obj):
                     if any(spec.name in raw for spec in editable):
                         raise PermissionDenied("You cannot change this inline record.")
@@ -390,10 +407,7 @@ async def load_inlines(
                 )
                 if row.bound.is_valid:
                     await validate_relations(child_ctx, row.bound)
-            if not inline.min_num <= total + added - deleted <= inline.max_num:
-                formset.errors.append(
-                    f"Keep between {inline.min_num} and {inline.max_num} related records."
-                )
+            await validate_inline_uniqueness(ctx, inline, formset.rows, parent)
             await formset.clean()
         formsets.append(formset)
     return formsets

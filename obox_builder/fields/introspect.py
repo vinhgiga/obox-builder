@@ -163,10 +163,15 @@ def introspect_model(
             continue
         field_type, config, widget_options = _resolve_relation_config(overrides.get(rel.key))
         secondary_columns = set(rel.secondary.c)
-        link_columns = {column for column in secondary_columns if column.foreign_keys}
+        link_columns = {
+            secondary
+            for pairs in (rel.synchronize_pairs, rel.secondary_synchronize_pairs)
+            for _endpoint, secondary in pairs
+        }
+        through_payload = secondary_columns != link_columns
         readonly = (
             rel.viewonly
-            or secondary_columns != link_columns
+            or through_payload
             or bool(info.get("readonly"))
             or bool(config.get("readonly", False))
         )
@@ -186,6 +191,7 @@ def introspect_model(
                     "target": rel.mapper.class_,
                     "relationship": rel.key,
                     "value_attr": rel.key,
+                    "through_payload": through_payload,
                     "secret": bool(info.get("secret")),
                 },
                 show_if=config.get("show_if"),

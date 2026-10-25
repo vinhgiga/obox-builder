@@ -170,8 +170,9 @@ async def test_related_failure_rolls_back_parent_and_entire_inline_batch(
             f"edit:{second}:name": "Changed second",
         }
     response = await client.post(LIST_URL + suffix, data=data)
-    assert response.status_code == 200
-    assert "database rejected" in response.text
+    assert response.status_code == 500
+    assert "Server Error (500)" in response.text
+    assert "UNIQUE constraint failed" not in response.text
     async with session_scope() as db:
         products = (await db.scalars(sa.select(Product).order_by(Product.id))).all()
         assert [product.name for product in products] == ["First", "Second"]

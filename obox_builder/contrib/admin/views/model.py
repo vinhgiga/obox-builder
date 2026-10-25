@@ -8,7 +8,6 @@ the OpenAPI schema (M9) can enumerate them.
 from __future__ import annotations
 
 import json
-import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from typing import Any
@@ -17,7 +16,6 @@ from urllib.parse import urlencode
 import sqlalchemy as sa
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from obox_builder.conf import settings
@@ -30,6 +28,7 @@ from obox_builder.contrib.admin.options import ModelAdmin
 from obox_builder.contrib.admin.relations import build_cells, relation_choices, validate_relations
 from obox_builder.contrib.admin.rendering import render
 from obox_builder.contrib.admin.site import AdminSite
+from obox_builder.contrib.admin.uniqueness import validate_model_uniqueness
 from obox_builder.contrib.admin.uploads import (
     discard_uploads,
     persist_uploads,
@@ -57,8 +56,6 @@ from obox_builder.core.exceptions import PermissionDenied
 from obox_builder.db.session import get_db
 from obox_builder.fields import FieldSpec, QuerySpec, QuerySpecError
 from obox_builder.forms import BoundForm, render_values
-
-logger = logging.getLogger(__name__)
 
 COUNT_CAP = 10_000
 
@@ -694,6 +691,8 @@ async def _create(ctx: AdminContext) -> Response:
     bound.errors.update(upload_errors)
     if bound.is_valid:
         await validate_relations(ctx, bound)
+    if bound.is_valid:
+        await validate_model_uniqueness(ctx, admin.model, bound)
     formsets = await load_inlines(ctx, None, data)
     if not bound.is_valid or not all(formset.is_valid for formset in formsets):
         return await _render_form(
@@ -710,14 +709,6 @@ async def _create(ctx: AdminContext) -> Response:
             for formset in formsets:
                 await formset.save(obj)
             await ctx.db.flush()
-    except IntegrityError as exc:
-        discard_uploads(staged_uploads)
-        return await _render_form(
-            ctx,
-            values=_values_from_data(data, specs),
-            errors={"__all__": [_integrity_message(exc)]},
-            formsets=formsets,
-        )
     except BaseException:
         discard_uploads(staged_uploads)
         raise
@@ -744,6 +735,8 @@ async def _update(ctx: AdminContext, target: Any) -> Response:
     bound.errors.update(upload_errors)
     if bound.is_valid:
         await validate_relations(ctx, bound)
+    if bound.is_valid:
+        await validate_model_uniqueness(ctx, admin.model, bound, target)
     formsets = await load_inlines(ctx, target, data)
     if not bound.is_valid or not all(formset.is_valid for formset in formsets):
         return await _render_form(
@@ -762,16 +755,6 @@ async def _update(ctx: AdminContext, target: Any) -> Response:
             for formset in formsets:
                 await formset.save(target)
             await ctx.db.flush()
-    except IntegrityError as exc:
-        discard_uploads(staged_uploads)
-        await ctx.db.refresh(target)
-        return await _render_form(
-            ctx,
-            target=target,
-            values=_values_from_data(data, specs),
-            errors={"__all__": [_integrity_message(exc)]},
-            formsets=formsets,
-        )
     except BaseException:
         discard_uploads(staged_uploads)
         raise
@@ -790,6 +773,8 @@ async def _save_as_new(ctx: AdminContext, data: dict[str, Any], source: Any) -> 
     bound.errors.update(upload_errors)
     if bound.is_valid:
         await validate_relations(ctx, bound)
+    if bound.is_valid:
+        await validate_model_uniqueness(ctx, admin.model, bound)
     formsets = await load_inlines(ctx, None, data)
     if not bound.is_valid or not all(formset.is_valid for formset in formsets):
         return await _render_form(
@@ -805,14 +790,6 @@ async def _save_as_new(ctx: AdminContext, data: dict[str, Any], source: Any) -> 
             for formset in formsets:
                 await formset.save(obj)
             await ctx.db.flush()
-    except IntegrityError as exc:
-        discard_uploads(staged_uploads)
-        return await _render_form(
-            ctx,
-            values=_values_from_data(data, specs),
-            errors={"__all__": [_integrity_message(exc)]},
-            formsets=formsets,
-        )
     except BaseException:
         discard_uploads(staged_uploads)
         raise
@@ -822,13 +799,15 @@ async def _save_as_new(ctx: AdminContext, data: dict[str, Any], source: Any) -> 
 
 def _copy_inline_submission(admin: ModelAdmin, data: dict[str, Any]) -> dict[str, Any]:
     copied = dict(data)
-    for index, _inline in enumerate(admin.inlines):
+    for index, inline_class in enumerate(admin.inlines):
+        inline = inline_class(admin.model, admin.site)
         prefix = f"inline:{index}:"
         total_key = f"{prefix}_total"
         try:
-            total = min(max(int(data.get(total_key, 0)), 0), 1000)
+            total = int(data.get(total_key, 0))
         except (TypeError, ValueError):
             continue
+        total = min(max(total, 0), inline.get_absolute_max())
         rows = []
         for position in range(total):
             row_prefix = f"{prefix}{position}:"
@@ -902,6 +881,8 @@ async def _inline(ctx: AdminContext) -> HTMLResponse | RedirectResponse:
         ctx.obj = obj
         bound = BoundForm.bind(specs, schema, row_data, base=ctx.record_context())
         if bound.is_valid:
+            await validate_model_uniqueness(ctx, admin.model, bound, obj)
+        if bound.is_valid:
             pending.append((obj, bound))
             continue
         for name, messages in bound.errors.items():
@@ -914,23 +895,16 @@ async def _inline(ctx: AdminContext) -> HTMLResponse | RedirectResponse:
             banner = "Nothing was saved — fix the highlighted values and try again."
         return await _list(ctx, inline_values=values, inline_errors=errors, banner=banner)
     changed = 0
-    try:
-        async with ctx.db.begin_nested():
-            for obj, bound in pending:
-                if not any(
-                    getattr(obj, name, None) != value for name, value in bound.cleaned.items()
-                ):
-                    continue
-                ctx.obj = obj
-                bound.apply_to(obj)
-                await admin.save_model(ctx, obj, bound, change=True)
-                await admin.save_related(ctx, obj, bound, change=True)
-                changed += 1
-            await ctx.db.flush()
-    except IntegrityError as exc:
-        for obj, _bound in pending:
-            await ctx.db.refresh(obj)
-        return await _list(ctx, inline_values=values, banner=_integrity_message(exc))
+    async with ctx.db.begin_nested():
+        for obj, bound in pending:
+            if not any(getattr(obj, name, None) != value for name, value in bound.cleaned.items()):
+                continue
+            ctx.obj = obj
+            bound.apply_to(obj)
+            await admin.save_model(ctx, obj, bound, change=True)
+            await admin.save_related(ctx, obj, bound, change=True)
+            changed += 1
+        await ctx.db.flush()
     if changed:
         noun = admin.name.lower() if changed == 1 else admin.plural_name.lower()
         await flash(request, f"{changed} {noun} updated.")
@@ -1101,14 +1075,9 @@ async def _delete(ctx: AdminContext, target: Any) -> Response:
         )
     label = _object_label(admin, target)
     object_id = admin.get_pk(target)
-    try:
-        async with ctx.db.begin_nested():
-            await admin.delete_model(ctx, target)
-            await ctx.db.flush()
-    except IntegrityError as exc:
-        await ctx.db.refresh(target)
-        plan = await collect_deletion(ctx, [target])
-        return await deletion_page(ctx, plan, error=_integrity_message(exc), status_code=409)
+    async with ctx.db.begin_nested():
+        await admin.delete_model(ctx, target)
+        await ctx.db.flush()
     await flash(request, f"{admin.name} {label!r} was deleted.")
     return await admin.response_delete(ctx, object_id)
 
@@ -1197,10 +1166,6 @@ def _object_label_for(model: type[Any], obj: Any) -> str:
     if text.startswith("<"):
         return f"#{getattr(obj, pk_key, '?')}"
     return text
-
-
-def _integrity_message(exc: IntegrityError) -> str:
-    return f"Could not save: the database rejected the change ({exc.orig})."
 
 
 def _bad_request(ctx: AdminContext, message: str) -> HTMLResponse:

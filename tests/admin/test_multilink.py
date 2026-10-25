@@ -63,6 +63,8 @@ async def test_many_to_many_create_update_clear_and_readonly(
     )
     assert cleared.status_code == 303
     assert await labels_of(pk) == []
+    async with session_scope() as db:
+        assert await db.scalar(sa.select(sa.func.count()).select_from(Label)) == 2
 
 
 @pytest.mark.parametrize("restriction", ["missing", "queryset", "object", "model"])

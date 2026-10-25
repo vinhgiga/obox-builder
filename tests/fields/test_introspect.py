@@ -4,9 +4,10 @@ from typing import Any
 
 import pytest
 import sqlalchemy as sa
+from obox_builder.contrib.admin.options import ModelAdmin
 from obox_builder.db import JSONB, Model
 from obox_builder.fields import introspect_model
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from tests.support.apps.shop.models import Category, Product
 
@@ -22,6 +23,32 @@ class Token(Model):
     )
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
     blob: Mapped[bytes] = mapped_column(sa.LargeBinary)
+
+
+class PayloadBase(DeclarativeBase):
+    pass
+
+
+payload_links = sa.Table(
+    "payload_links",
+    PayloadBase.metadata,
+    sa.Column("item_id", sa.ForeignKey("payload_item.id"), primary_key=True),
+    sa.Column("label_id", sa.ForeignKey("payload_label.id"), primary_key=True),
+    sa.Column("role", sa.String(20), nullable=False),
+)
+
+
+class PayloadItem(PayloadBase):
+    __tablename__ = "payload_item"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    labels: Mapped[list[PayloadLabel]] = relationship(secondary=payload_links)
+
+
+class PayloadLabel(PayloadBase):
+    __tablename__ = "payload_label"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
 
 
 def specs_for(model: type[Any]) -> dict[str, Any]:
@@ -66,6 +93,15 @@ def test_foreign_key_becomes_link_with_relationship_target() -> None:
     assert spec.options["value_attr"] == "category"
     assert spec.options["target"] is Category
     assert spec.label == "Category"
+
+
+def test_many_to_many_with_payload_column_is_read_only() -> None:
+    spec = specs_for(PayloadItem)["labels"]
+    assert spec.type.name == "multi_link"
+    assert spec.readonly is True
+    assert spec.editable is False
+    assert spec.options["through_payload"] is True
+    assert "labels" not in [field.name for field in ModelAdmin(PayloadItem).get_form_specs()]
 
 
 def test_json_columns_are_editable_with_the_json_widget() -> None:
