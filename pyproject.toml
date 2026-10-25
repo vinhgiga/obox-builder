@@ -1,7 +1,7 @@
 [project]
 name = "obox-builder"
 version = "0.3.0"
-description = "Django-flavoured internal admin framework built on FastAPI"
+description = "Django-inspired, batteries-included admin interface for FastAPI."
 readme = "docs/quickstart.md"
 requires-python = ">=3.11"
 dependencies = [
