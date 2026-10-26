@@ -18,11 +18,20 @@ before(async () => {
   });
   await new Promise((resolve, reject) => {
     let output = "";
-    server.stderr.on("data", (chunk) => {
-      output += chunk;
-      if (output.includes("Uvicorn running")) resolve();
-    });
+    const onServerOutput = (chunk) => { output += chunk; };
+    server.stdout.on("data", onServerOutput);
+    server.stderr.on("data", onServerOutput);
     server.once("exit", () => reject(new Error(output)));
+    const deadline = Date.now() + 15000;
+    const checkReady = async () => {
+      try {
+        const response = await fetch(`${origin}/admin/login`, {signal: AbortSignal.timeout(1000)});
+        if (response.ok) return resolve();
+      } catch {}
+      if (Date.now() >= deadline) return reject(new Error(`Browser test server did not start: ${output}`));
+      setTimeout(checkReady, 100);
+    };
+    checkReady();
   });
 });
 after(async () => {
@@ -201,6 +210,7 @@ for (const [engine, browserType] of Object.entries({chromium, firefox, webkit}))
       const fieldMenuRect = await page.locator("[data-fields-panel]").evaluate((popover) => {
         const trigger = popover.querySelector(":scope > summary").getBoundingClientRect();
         const panel = popover.querySelector(":scope > .admin-toolbar-panel").getBoundingClientRect();
+        const option = popover.querySelector(".admin-field-option").getBoundingClientRect();
         const bounds = popover.closest(".admin-list-card").getBoundingClientRect();
         return {
           triggerRight: trigger.right,
@@ -208,12 +218,74 @@ for (const [engine, browserType] of Object.entries({chromium, firefox, webkit}))
           panelLeft: panel.left,
           panelRight: panel.right,
           panelTop: panel.top,
+          panelWidth: panel.width,
+          optionHeight: option.height,
           boundsLeft: bounds.left,
         };
       });
       assert.ok(Math.abs(fieldMenuRect.panelRight - fieldMenuRect.triggerRight) < 1);
       assert.ok(fieldMenuRect.panelTop >= fieldMenuRect.triggerBottom);
       assert.ok(fieldMenuRect.panelLeft >= fieldMenuRect.boundsLeft);
+      assert.ok(fieldMenuRect.panelWidth <= 21 * 16 + 1);
+      assert.ok(fieldMenuRect.optionHeight <= 2.25 * 16 + 1);
+      const initialOrder = await page.locator("thead th[data-list-column]").evaluateAll((cells) =>
+        cells.map((cell) => cell.dataset.listColumn),
+      );
+      const movedField = initialOrder[1];
+      const reorderHandle = page.locator(`[data-field-reorder="${movedField}"]`);
+      const movedOption = page.locator(".admin-field-option").filter({
+        has: page.locator(`[data-field-toggle="${movedField}"]`),
+      });
+      assert.equal(await movedOption.getAttribute("draggable"), null);
+      assert.equal(await reorderHandle.getAttribute("draggable"), null);
+      await reorderHandle.focus();
+      await reorderHandle.press("Alt+ArrowUp");
+      const reordered = [initialOrder[1], initialOrder[0], ...initialOrder.slice(2)];
+      assert.deepEqual(
+        await page.locator("thead th[data-list-column]").evaluateAll((cells) =>
+          cells.map((cell) => cell.dataset.listColumn),
+        ),
+        reordered,
+      );
+      assert.deepEqual(
+        await page.locator("tbody tr[data-group-row]").first().locator("[data-list-column]").evaluateAll((cells) =>
+          cells.map((cell) => cell.dataset.listColumn),
+        ),
+        reordered,
+      );
+      const draggedOption = page.locator(".admin-field-option").filter({
+        has: page.locator(`[data-field-toggle="${reordered[0]}"]`),
+      });
+      const targetOption = page.locator(".admin-field-option").last();
+      const sourceBounds = await draggedOption.boundingBox();
+      const targetBounds = await targetOption.boundingBox();
+      await page.mouse.move(
+        sourceBounds.x + sourceBounds.width / 2,
+        sourceBounds.y + sourceBounds.height / 2,
+      );
+      await page.mouse.down();
+      await page.mouse.move(
+        targetBounds.x + targetBounds.width / 2,
+        targetBounds.y + targetBounds.height * 0.9,
+        {steps: 8},
+      );
+      assert.equal(await page.locator(".admin-field-placeholder").count(), 1);
+      await page.mouse.up();
+      const afterDrag = await page.locator("thead th[data-list-column]").evaluateAll((cells) =>
+        cells.map((cell) => cell.dataset.listColumn),
+      );
+      assert.notDeepEqual(afterDrag, reordered);
+      assert.ok(afterDrag.indexOf(reordered[0]) > 1);
+      assert.deepEqual([...afterDrag].sort(), [...reordered].sort());
+      await page.reload();
+      await page.locator("[data-list-table]").waitFor();
+      assert.deepEqual(
+        await page.locator("thead th[data-list-column]").evaluateAll((cells) =>
+          cells.map((cell) => cell.dataset.listColumn),
+        ),
+        afterDrag,
+      );
+      await page.locator("[data-fields-panel] > summary").click();
       const fieldSearch = page.locator("[data-field-search]");
       await fieldSearch.fill("price");
       const priceToggle = page.locator('[data-field-toggle="price_cents"]');
@@ -260,23 +332,34 @@ for (const [engine, browserType] of Object.entries({chromium, firefox, webkit}))
       await page.locator("[data-list-table]").waitFor();
 
       await page.locator('[data-query-panel="filter"] > summary').click();
-      assert.equal(await page.locator(".admin-query-panel-header h3").textContent(), "Filter");
+      assert.equal(await page.locator('[data-query-panel="filter"] .admin-query-panel-header h3').textContent(), "Filter");
       await page.waitForFunction(() => Boolean(document.querySelector('[data-query-panel="filter"] .admin-query-panel').style.maxWidth));
       const filterMenuRect = await page.locator('[data-query-panel="filter"]').evaluate((popover) => {
         const trigger = popover.querySelector(":scope > summary").getBoundingClientRect();
         const panel = popover.querySelector(":scope > .admin-toolbar-panel").getBoundingClientRect();
+        const fieldControl = popover.querySelector(".admin-filter-field-picker > summary");
+        const operatorControl = popover.querySelector('.admin-filter-row > select[aria-label="Filter operator"]');
+        const deleteControl = popover.querySelector('.admin-filter-row > button[aria-label="Delete condition"]');
         const bounds = popover.closest(".admin-list-card").getBoundingClientRect();
         return {
           triggerRight: trigger.right,
           panelLeft: panel.left,
           panelRight: panel.right,
           panelWidth: panel.width,
+          fieldControlHeight: fieldControl.getBoundingClientRect().height,
+          operatorControlHeight: operatorControl.getBoundingClientRect().height,
+          operatorLineHeight: Number.parseFloat(getComputedStyle(operatorControl).lineHeight),
+          deleteControlHeight: deleteControl.getBoundingClientRect().height,
           boundsLeft: bounds.left,
         };
       });
       assert.ok(Math.abs(filterMenuRect.panelRight - filterMenuRect.triggerRight) < 1);
       assert.ok(filterMenuRect.panelLeft >= filterMenuRect.boundsLeft);
       assert.ok(filterMenuRect.panelWidth <= 42 * 16 + 1);
+      assert.ok(filterMenuRect.fieldControlHeight <= 2.125 * 16 + 1);
+      assert.equal(filterMenuRect.fieldControlHeight, filterMenuRect.operatorControlHeight);
+      assert.equal(filterMenuRect.fieldControlHeight, filterMenuRect.deleteControlHeight);
+      assert.ok(filterMenuRect.operatorLineHeight < filterMenuRect.operatorControlHeight - 2);
       assert.equal(await page.getByText("Describe how to filter this view").count(), 0);
       assert.equal(await page.locator(".admin-filter-heading").textContent(), "In this view, show records");
       assert.equal(await page.locator(".admin-filter-row").count(), 1);
@@ -318,6 +401,60 @@ for (const [engine, browserType] of Object.entries({chromium, firefox, webkit}))
       await page.locator('[data-query-panel="filter"] .admin-query-panel-actions button[type="submit"]').click();
       await page.waitForURL(/filter=/);
       assert.equal(await page.locator("[data-group-row]").count() > 0, true);
+    } finally {
+      await browser.close();
+    }
+  });
+}
+
+for (const [engine, browserType] of Object.entries({chromium, firefox, webkit})) {
+  test(`${engine}: group field picker and ordering`, async () => {
+    const browser = await browserType.launch();
+    try {
+      const page = await browser.newPage();
+      page.setDefaultTimeout(10000);
+      await login(page);
+      await page.goto(`${origin}/admin/shop/product`);
+      await page.locator("[data-list-table]").waitFor();
+
+      await page.locator('[data-query-panel="group"] > summary').click();
+      assert.equal(await page.locator('[data-query-panel="group"] .admin-query-panel-header h3').textContent(), "Group by");
+      await page.waitForFunction(() => Boolean(document.querySelector('[data-query-panel="group"] .admin-query-panel').style.maxWidth));
+      const groupPanelRect = await page.locator('[data-query-panel="group"]').evaluate((popover) => {
+        const trigger = popover.querySelector(":scope > summary").getBoundingClientRect();
+        const panel = popover.querySelector(":scope > .admin-toolbar-panel").getBoundingClientRect();
+        const bounds = popover.closest(".admin-list-card").getBoundingClientRect();
+        return {
+          triggerRight: trigger.right,
+          triggerBottom: trigger.bottom,
+          panelLeft: panel.left,
+          panelRight: panel.right,
+          panelTop: panel.top,
+          boundsLeft: bounds.left,
+        };
+      });
+      assert.ok(Math.abs(groupPanelRect.panelRight - groupPanelRect.triggerRight) < 1);
+      assert.ok(groupPanelRect.panelTop >= groupPanelRect.triggerBottom);
+      assert.ok(groupPanelRect.panelLeft >= groupPanelRect.boundsLeft);
+      assert.equal(await page.getByText("Pick a field to group by").count(), 1);
+      assert.equal(await page.getByRole("button", {name: "Status"}).isVisible(), true);
+      assert.equal(await page.getByRole("button", {name: "Name"}).isVisible(), false);
+
+      await page.getByRole("button", {name: "Status"}).click();
+      assert.equal(await page.locator('#list-query input[name="group"]').inputValue(), "status");
+      await page.getByRole("button", {name: "See all fields"}).click();
+      assert.equal(await page.getByRole("button", {name: "Name"}).isVisible(), true);
+      await page.getByRole("button", {name: "Name"}).click();
+      await page.getByLabel("Group direction for Name").selectOption("desc");
+      assert.equal(await page.locator('#list-query input[name="group"]').inputValue(), "status,-name");
+
+      await page.getByRole("button", {name: "Remove Status grouping"}).click();
+      assert.equal(await page.locator('#list-query input[name="group"]').inputValue(), "-name");
+      await page.locator('[data-query-panel="group"] .admin-query-panel-actions button[type="submit"]').click();
+      await page.waitForURL(/group=/);
+      await page.waitForFunction(() => JSON.parse(document.querySelector("#list-query-config").textContent).group.length === 1);
+      assert.ok(await page.locator('[data-group-header="1"]').count() > 0);
+      assert.match(await page.locator('[data-group-header="1"]').first().textContent(), /Name:/);
     } finally {
       await browser.close();
     }

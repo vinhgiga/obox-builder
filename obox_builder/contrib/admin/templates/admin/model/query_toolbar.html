@@ -26,12 +26,20 @@
                    placeholder="Find a field" autocomplete="off" data-field-search/>
             <div class="admin-field-list" role="group" aria-label="Fields">
               {% for column in columns %}
-              <label class="form-check form-switch admin-field-option" data-field-option
-                     data-field-label="{{ column.label | lower }}">
-                <input class="form-check-input" type="checkbox" checked
-                       data-field-toggle="{{ column.name }}"/>
-                <span>{{ column.label }}</span>
-              </label>
+              <div class="admin-field-option" data-field-option="{{ column.name }}"
+                   data-field-label="{{ column.label | lower }}">
+                <label class="form-check form-switch admin-field-toggle">
+                  <input class="form-check-input" type="checkbox" checked
+                         data-field-toggle="{{ column.name }}"/>
+                  <span>{{ column.label }}</span>
+                </label>
+                <button class="admin-field-reorder" type="button"
+                        data-field-reorder="{{ column.name }}"
+                        aria-label="Reorder {{ column.label }}"
+                        title="Drag anywhere on this row to reorder; use Alt+Up or Alt+Down">
+                  <i class="ti ti-grip-vertical" aria-hidden="true"></i>
+                </button>
+              </div>
               {% endfor %}
               <p class="text-secondary small mb-0 d-none" data-field-empty>No fields found.</p>
             </div>
@@ -84,6 +92,15 @@
             <span class="badge bg-secondary-lt" data-query-count>0</span>
           </summary>
           <div class="admin-toolbar-panel admin-query-panel">
+            <div class="admin-query-panel-header">
+              <h3>Group by</h3>
+              <details class="admin-query-help">
+                <summary class="btn btn-sm btn-icon" aria-label="Group help">
+                  <i class="ti ti-help-circle" aria-hidden="true"></i>
+                </summary>
+                <p>Choose fields to organize records into groups.</p>
+              </details>
+            </div>
             <div data-query-group></div>
             <div class="admin-query-panel-actions">
               <button class="btn btn-sm btn-primary" type="submit">Apply</button>

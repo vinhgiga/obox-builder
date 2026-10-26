@@ -24,6 +24,7 @@
   const termIds = new WeakMap();
   let nextTermId = 0;
   let activePicker = null;
+  let showAllGroupFields = false;
   const element = (tag, className, text) => {
     const node = document.createElement(tag);
     if (className) node.className = className;
@@ -436,6 +437,106 @@
         }),
       );
   };
+  const groupFieldIcon = (spec) =>
+    spec.choices.length || spec.type === "single_select"
+      ? "circle-chevron-down"
+      : spec.name.endsWith("_id")
+        ? "relation-one-to-many"
+        : fieldIcon(spec.type);
+  const grouping = () => {
+    const box = form.querySelector("[data-query-group]");
+    box.replaceChildren();
+    const available = fields.filter((item) => item.sortable);
+    const selected = new Set(state.group.map((term) => term.field));
+    const preferred = available.filter(
+      (item) =>
+        item.choices.length ||
+        ["single_select", "checkbox", "date", "datetime"].includes(item.type),
+    );
+    const suggestions = [...new Set([...preferred, ...available])].slice(0, 4);
+    const subtitle = element("p", "admin-group-subtitle", "Pick a field to group by");
+    box.append(subtitle);
+
+    if (state.group.length) {
+      box.append(element("p", "admin-group-selected-heading", "Grouped by"));
+      state.group.forEach((term, index) => {
+        const spec = field(term.field);
+        if (!spec) return;
+        const row = element("div", "admin-group-selected-row");
+        const glyph = element("i", `ti ti-${groupFieldIcon(spec)}`);
+        glyph.setAttribute("aria-hidden", "true");
+        row.append(glyph, element("span", "admin-group-selected-label", spec.label));
+        row.append(
+          select(
+            `Group direction for ${spec.label}`,
+            [
+              ["asc", "Ascending"],
+              ["desc", "Descending"],
+            ],
+            term.descending ? "desc" : "asc",
+            (value) => {
+              term.descending = value === "desc";
+            },
+          ),
+        );
+        if (index > 0) {
+          row.append(iconButton("chevron-up", `Move ${spec.label} group up`, () => {
+            [state.group[index - 1], state.group[index]] = [term, state.group[index - 1]];
+          }, "admin-group-icon-button"));
+        }
+        if (index < state.group.length - 1) {
+          row.append(iconButton("chevron-down", `Move ${spec.label} group down`, () => {
+            [state.group[index + 1], state.group[index]] = [term, state.group[index + 1]];
+          }, "admin-group-icon-button"));
+        }
+        row.append(iconButton("trash", `Remove ${spec.label} grouping`, () => {
+          state.group.splice(index, 1);
+        }, "admin-group-icon-button admin-filter-delete"));
+        box.append(row);
+      });
+    }
+
+    const visible = available.filter(
+      (spec) => !selected.has(spec.name) && (showAllGroupFields || suggestions.includes(spec)),
+    );
+    const list = element("div", "admin-group-field-list");
+    list.setAttribute("role", "group");
+    list.setAttribute("aria-label", "Fields available for grouping");
+    visible.forEach((spec) => {
+      const option = element("button", "admin-group-field-option", spec.label);
+      option.type = "button";
+      option.disabled = state.group.length >= 3;
+      const glyph = element("i", `ti ti-${groupFieldIcon(spec)}`);
+      glyph.setAttribute("aria-hidden", "true");
+      option.prepend(glyph);
+      option.addEventListener("click", (event) => {
+        event.stopPropagation();
+        if (state.group.length >= 3 || selected.has(spec.name)) return;
+        state.group.push({ field: spec.name, descending: false });
+        render();
+      });
+      list.append(option);
+    });
+    if (visible.length) box.append(list);
+    else if (!available.length) box.append(element("p", "admin-group-empty", "No fields can be grouped."));
+    else if (state.group.length >= 3) {
+      box.append(element("p", "admin-group-empty", "You can group by up to 3 fields."));
+    } else if (showAllGroupFields) {
+      box.append(element("p", "admin-group-empty", "All available fields are grouped."));
+    }
+
+    const hasMore = available.some((spec) => !suggestions.includes(spec));
+    if (hasMore) {
+      const toggle = button("", () => {
+        showAllGroupFields = !showAllGroupFields;
+      });
+      toggle.classList.add("admin-group-see-all");
+      const glyph = element("i", `ti ti-chevron-${showAllGroupFields ? "up" : "down"}`);
+      glyph.setAttribute("aria-hidden", "true");
+      toggle.append(glyph, element("span", "", showAllGroupFields ? "Show fewer fields" : "See all fields"));
+      box.append(toggle);
+    }
+  };
   const conditionCount = (node) =>
     node.children.reduce(
       (total, child) => total + (child.children ? conditionCount(child) : child.draft ? 0 : 1),
@@ -455,7 +556,7 @@
     }
     form.querySelector("[data-query-filters]").replaceChildren(group(state.filter, 1));
     ordering("sort", 5);
-    ordering("group", 3);
+    grouping();
     serialize();
   };
   render();
