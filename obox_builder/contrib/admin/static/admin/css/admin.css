@@ -828,12 +828,58 @@ mark {
 }
 
 .admin-row-height-panel {
-  width: max-content;
+  width: min(15rem, calc(100vw - 2rem));
+  padding: 0.625rem;
 }
 
 .admin-row-height-options {
   display: flex;
-  gap: 0.35rem;
+  flex-direction: column;
+}
+
+.admin-row-height-option {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  width: 100%;
+  min-height: 2.125rem;
+  padding: 0.4rem 0.5rem;
+  border: 0;
+  border-radius: var(--tblr-border-radius, 4px);
+  background: transparent;
+  color: var(--tblr-body-color, #182433);
+  font-size: 0.875rem;
+  text-align: left;
+}
+
+.admin-row-height-option > span {
+  flex: 1;
+}
+
+.admin-row-height-icon,
+.admin-row-height-option > .ti {
+  flex: 0 0 1rem;
+  width: 1rem;
+  height: 1rem;
+}
+
+.admin-row-height-option[aria-pressed="false"] > .ti-check {
+  visibility: hidden;
+}
+
+.admin-row-height-option:hover,
+.admin-row-height-option[data-row-height-choice][aria-pressed="true"] {
+  background: var(--tblr-bg-surface-secondary, #f2f4f7);
+}
+
+.admin-row-height-option:focus-visible {
+  outline: 2px solid var(--tblr-primary, #066fd1);
+  outline-offset: -2px;
+}
+
+.admin-row-height-divider {
+  margin: 0.5rem;
+  border-top: 1px solid var(--tblr-border-color, #e6e7e9);
 }
 
 .admin-list-search {
@@ -858,6 +904,8 @@ mark {
 }
 
 .admin-list-table-scroll {
+  --admin-row-height: 3.5rem;
+  --admin-cell-lines: 2;
   max-height: 70vh;
   overflow: auto;
 }
@@ -874,12 +922,48 @@ mark {
   display: none !important;
 }
 
-.admin-list-table-scroll[data-row-height="compact"] tbody td {
-  padding-block: 0.3rem;
+.admin-list-table-scroll[data-row-height="compact"] {
+  --admin-row-height: 2.5rem;
+  --admin-cell-lines: 1;
 }
 
-.admin-list-table-scroll[data-row-height="tall"] tbody td {
-  padding-block: 1rem;
+.admin-list-table-scroll[data-row-height="tall"] {
+  --admin-row-height: 6rem;
+  --admin-cell-lines: 4;
+}
+
+.admin-list-table-scroll[data-row-height="extra-tall"] {
+  --admin-row-height: 9rem;
+  --admin-cell-lines: 6;
+}
+
+.admin-list-table-scroll tbody tr[data-group-row] > td {
+  height: var(--admin-row-height);
+  padding-block: 0.35rem;
+}
+
+.admin-cell-content {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--admin-cell-lines);
+  max-width: 24rem;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  white-space: pre-line;
+  line-height: 1.25rem;
+}
+
+.admin-column-heading {
+  display: block;
+  max-width: 24rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-list-table-scroll[data-wrap-headers="true"] .admin-column-heading {
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .admin-list-footer {

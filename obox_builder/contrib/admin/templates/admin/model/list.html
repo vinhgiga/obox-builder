@@ -74,12 +74,14 @@
           <th class="w-1" scope="col">Actions</th>
           {% for column in columns %}
           <th scope="col" data-list-column="{{ column.name }}">
+            <span class="admin-column-heading">
             {% if column.type.sortable and not column.options.get('relationship_path') %}
             <a href="{{ sort_href(column.name) }}" class="text-body">
               {{ column.label }}
               {% if sort_state(column.name) == 'asc' %}&uarr;{% elif sort_state(column.name) == 'desc' %}&darr;{% endif %}
             </a>
             {% else %}{{ column.label }}{% endif %}
+            </span>
           </th>
           {% endfor %}
         </tr>
@@ -149,9 +151,9 @@
             {% if edit.error %}<div class="text-danger small mt-1">{{ edit.error }}</div>{% endif %}
           </td>
           {% else %}
-          <td data-list-column="{{ column.name }}">{% if column.name in list_display_links %}
+          <td data-list-column="{{ column.name }}"><div class="admin-cell-content">{% if column.name in list_display_links -%}
                 <a href="{{ admin.change_path(row.pk) }}">{{ cell_content(cell) }}</a>
-              {% else %}{{ cell_text(cell) }}{% endif %}</td>
+              {%- else -%}{{ cell_text(cell) }}{%- endif %}</div></td>
           {% endif %}
           {% endfor %}
         </tr>

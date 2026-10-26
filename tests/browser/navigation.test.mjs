@@ -322,6 +322,111 @@ for (const [engine, browserType] of Object.entries({chromium, firefox, webkit}))
 }
 
 for (const [engine, browserType] of Object.entries({chromium, firefox, webkit})) {
+  test(`${engine}: row height menu, text lines and header wrapping`, async () => {
+    const browser = await browserType.launch();
+    try {
+      const page = await browser.newPage();
+      page.setDefaultTimeout(10000);
+      await login(page);
+      await page.goto(`${origin}/admin/shop/product`);
+      const table = page.locator("[data-list-table]");
+      const panel = page.locator("[data-row-height-panel]");
+      await panel.locator(":scope > summary").click();
+      assert.deepEqual(await panel.locator("[data-row-height-choice] > span").allTextContents(),
+        ["Short", "Medium", "Tall", "Extra Tall"]);
+      assert.equal(await panel.getByRole("button", {name: "Medium", exact: true}).getAttribute("aria-pressed"), "true");
+      await page.evaluate(() => {
+        const cell = document.querySelector('tbody td[data-list-column="name"] .admin-cell-content');
+        cell.textContent = Array.from({length: 12}, (_, index) => `Line ${index + 1}: detailed content`).join("\n");
+        cell.style.width = "140px";
+        const heading = document.querySelector('th[data-list-column="price_cents"] .admin-column-heading');
+        heading.style.width = "75px";
+        heading.querySelector("a").textContent = "Reading minutes per article";
+      });
+      const header = table.locator("thead");
+      const originalHeaderHeight = (await header.boundingBox()).height;
+      const row = table.locator("tbody tr[data-group-row]").first();
+      const content = row.locator('td[data-list-column="name"] .admin-cell-content');
+      let previousRowHeight = 0;
+      let previousTextHeight = 0;
+      for (const label of ["Short", "Medium", "Tall", "Extra Tall"]) {
+        const choice = panel.getByRole("button", {name: label, exact: true});
+        await choice.click();
+        assert.equal(await choice.getAttribute("aria-pressed"), "true");
+        assert.equal(await panel.locator('[data-row-height-choice][aria-pressed="true"]').count(), 1);
+        assert.equal(await choice.locator(".ti-check").evaluate((icon) => getComputedStyle(icon).visibility), "visible");
+        const rowHeight = (await row.boundingBox()).height;
+        const textHeight = (await content.boundingBox()).height;
+        assert.ok(rowHeight > previousRowHeight, `${label} increases row height`);
+        assert.ok(textHeight > previousTextHeight, `${label} shows more text`);
+        assert.equal((await header.boundingBox()).height, originalHeaderHeight);
+        previousRowHeight = rowHeight;
+        previousTextHeight = textHeight;
+      }
+      const wrap = panel.getByRole("button", {name: "Wrap headers"});
+      assert.equal(await wrap.getAttribute("aria-pressed"), "false");
+      await wrap.focus();
+      await page.keyboard.press("Space");
+      assert.equal(await wrap.getAttribute("aria-pressed"), "true");
+      assert.ok((await header.boundingBox()).height > originalHeaderHeight);
+      assert.equal((await row.boundingBox()).height, previousRowHeight);
+      await wrap.click();
+      assert.equal((await header.boundingBox()).height, originalHeaderHeight);
+      await wrap.click();
+      await page.reload();
+      assert.equal(await table.getAttribute("data-row-height"), "extra-tall");
+      assert.equal(await table.getAttribute("data-wrap-headers"), "true");
+      await panel.locator(":scope > summary").click();
+      assert.equal(await panel.getByRole("button", {name: "Extra Tall"}).getAttribute("aria-pressed"), "true");
+      assert.equal(await wrap.getAttribute("aria-pressed"), "true");
+      await page.setViewportSize({width: 390, height: 844});
+      await page.waitForFunction(() => Boolean(document.querySelector(".admin-row-height-panel").style.maxWidth));
+      const bounds = await panel.locator(".admin-row-height-panel").boundingBox();
+      assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= 390);
+      await page.goto(`${origin}/admin/shop/category`);
+      assert.equal(await table.getAttribute("data-row-height"), "medium");
+      assert.equal(await table.getAttribute("data-wrap-headers"), "false");
+      await page.goBack();
+      assert.equal(await table.getAttribute("data-row-height"), "extra-tall");
+      assert.equal(await table.getAttribute("data-wrap-headers"), "true");
+    } finally {
+      await browser.close();
+    }
+  });
+}
+
+test("row height defaults and controls tolerate invalid or unavailable storage", async () => {
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage();
+    await login(page);
+    await page.goto(`${origin}/admin/shop/product`);
+    await page.evaluate(() => localStorage.setItem("admin-list:/admin/shop/product",
+      JSON.stringify({rowHeight: "unknown", wrapHeaders: "true"})));
+    await page.reload();
+    const table = page.locator("[data-list-table]");
+    const panel = page.locator("[data-row-height-panel]");
+    assert.equal(await table.getAttribute("data-row-height"), "medium");
+    assert.equal(await table.getAttribute("data-wrap-headers"), "false");
+    await page.addInitScript(() => {
+      Storage.prototype.getItem = () => { throw new Error("Storage unavailable"); };
+      Storage.prototype.setItem = () => { throw new Error("Storage unavailable"); };
+    });
+    await page.reload();
+    await panel.locator(":scope > summary").click();
+    await panel.getByRole("button", {name: "Extra Tall", exact: true}).click();
+    await panel.getByRole("button", {name: "Wrap headers"}).click();
+    assert.equal(await table.getAttribute("data-row-height"), "extra-tall");
+    assert.equal(await table.getAttribute("data-wrap-headers"), "true");
+    await page.reload();
+    assert.equal(await table.getAttribute("data-row-height"), "medium");
+    assert.equal(await table.getAttribute("data-wrap-headers"), "false");
+  } finally {
+    await browser.close();
+  }
+});
+
+for (const [engine, browserType] of Object.entries({chromium, firefox, webkit})) {
   test(`${engine}: filter field search and condition editing`, async () => {
     const browser = await browserType.launch();
     try {

@@ -99,6 +99,7 @@
           hidden: toggles.filter((input) => !input.checked).map((input) => input.dataset.fieldToggle),
           order,
           rowHeight: table.dataset.rowHeight,
+          wrapHeaders: table.dataset.wrapHeaders === "true",
         }),
       );
     } catch {
@@ -133,11 +134,15 @@
     });
   };
   const setHeight = (height) => {
-    if (!["compact", "medium", "tall"].includes(height)) return;
+    if (!["compact", "medium", "tall", "extra-tall"].includes(height)) height = "medium";
     table.dataset.rowHeight = height;
     toolbar.querySelectorAll("[data-row-height-choice]").forEach((button) => {
       button.setAttribute("aria-pressed", String(button.dataset.rowHeightChoice === height));
     });
+  };
+  const setWrapHeaders = (wrap) => {
+    table.dataset.wrapHeaders = String(wrap);
+    toolbar.querySelector("[data-wrap-headers]")?.setAttribute("aria-pressed", String(wrap));
   };
 
   if (Array.isArray(state.hidden)) {
@@ -147,6 +152,7 @@
     });
   }
   setHeight(state.rowHeight || "medium");
+  setWrapHeaders(state.wrapHeaders === true);
   renderFieldOrder();
   applyColumns();
 
@@ -304,6 +310,10 @@
       setHeight(button.dataset.rowHeightChoice);
       saveState();
     });
+  });
+  toolbar.querySelector("[data-wrap-headers]")?.addEventListener("click", () => {
+    setWrapHeaders(table.dataset.wrapHeaders !== "true");
+    saveState();
   });
   const positionPanel = (popover) => {
     const summary = popover.querySelector(":scope > summary");

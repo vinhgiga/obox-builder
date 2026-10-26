@@ -131,13 +131,28 @@
           </summary>
           <div class="admin-toolbar-panel admin-row-height-panel">
             <div class="admin-row-height-options" role="group" aria-label="Row height">
-              <button class="btn btn-sm" type="button" data-row-height-choice="compact"
-                      aria-pressed="false">Compact</button>
-              <button class="btn btn-sm" type="button" data-row-height-choice="medium"
-                      aria-pressed="true">Medium</button>
-              <button class="btn btn-sm" type="button" data-row-height-choice="tall"
-                      aria-pressed="false">Tall</button>
+              {% for value, label, path in [
+                ('compact', 'Short', 'M3 6h11M3 12h11M3 18h11'),
+                ('medium', 'Medium', 'M3 3h11v6H3zM3 15h11M3 21h11'),
+                ('tall', 'Tall', 'M3 3h11v12H3zM3 21h11'),
+                ('extra-tall', 'Extra Tall', 'M3 3h11v18H3z')
+              ] %}
+              <button class="admin-row-height-option" type="button" data-row-height-choice="{{ value }}"
+                      aria-pressed="{{ 'true' if value == 'medium' else 'false' }}">
+                <svg class="admin-row-height-icon" viewBox="0 0 24 24" fill="none"
+                     stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
+                     stroke-linejoin="round" aria-hidden="true">
+                  <path d="{{ path }}M20 4v16m-2-2 2 2 2-2M18 6l2-2 2 2"/>
+                </svg>
+                <span>{{ label }}</span><i class="ti ti-check" aria-hidden="true"></i>
+              </button>
+              {% endfor %}
             </div>
+            <div class="admin-row-height-divider"></div>
+            <button class="admin-row-height-option" type="button" data-wrap-headers aria-pressed="false">
+              <i class="ti ti-text-wrap" aria-hidden="true"></i><span>Wrap headers</span>
+              <i class="ti ti-check" aria-hidden="true"></i>
+            </button>
           </div>
         </details>
         {% if searchable %}
