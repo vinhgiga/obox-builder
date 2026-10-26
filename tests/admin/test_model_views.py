@@ -75,6 +75,8 @@ async def test_view_only_user_gets_denied_on_mutations(client: httpx.AsyncClient
     assert listing.status_code == 200
     assert "Widget" in listing.text
     assert "New product" not in listing.text
+    assert 'aria-label="Expand Widget"' in listing.text
+    assert 'name="_selected_action"' not in listing.text
     assert (await client.get(ADD_URL, headers={"accept": "text/html"})).status_code == 403
     detail = await client.get(f"{LIST_URL}/{product_id}", headers={"accept": "text/html"})
     assert detail.status_code == 200

@@ -64,13 +64,16 @@
     <table class="table table-vcenter card-table">
       <thead>
         <tr>
-          {% if bulk_actions %}
           <th class="w-1" scope="col">
-            <input type="checkbox" id="action-toggle" class="form-check-input m-0"
-                   form="bulk-form" aria-label="Select all on this page"/>
+            <div class="admin-row-controls">
+              <span class="admin-row-select">
+                {% if bulk_actions %}
+                <input type="checkbox" id="action-toggle" class="form-check-input m-0"
+                       form="bulk-form" aria-label="Select all on this page"/>
+                {% else %}<span aria-label="Row number">#</span>{% endif %}
+              </span>
+            </div>
           </th>
-          {% endif %}
-          <th class="w-1 text-end" scope="col">#</th>
           <th class="w-1" scope="col">Actions</th>
           {% for column in columns %}
           <th scope="col" data-list-column="{{ column.name }}">
@@ -90,7 +93,7 @@
         {% for row in rows %}
         {% for group in row.groups %}
         <tr data-group-header="{{ group.level }}" class="table-light">
-          <td colspan="{{ columns | length + 2 + (1 if bulk_actions else 0) }}"
+          <td colspan="{{ columns | length + 2 }}"
               data-list-colspan>
             <button type="button" class="btn btn-sm" data-group-toggle aria-expanded="true">
               {{ '↳ ' * (group.level - 1) }}{{ group.label }}: {{ group.value }}
@@ -100,14 +103,22 @@
         </tr>
         {% endfor %}
         <tr data-group-row{% if row.history_url %} data-history-url="{{ row.history_url }}"{% endif %}{% if row.comments_url %} data-comments-url="{{ row.comments_url }}"{% endif %}>
-          {% if bulk_actions %}
-          <td class="w-1">
-            <input type="checkbox" name="_selected_action" value="{{ row.pk }}"
-                   class="form-check-input m-0 action-select" form="bulk-form"
-                   aria-label="Select {{ row.label }}"/>
+          <td class="w-1" data-row-number>
+            <div class="admin-row-controls">
+              <span class="admin-row-select">
+                <span class="admin-row-number text-secondary">{{ start_index + loop.index0 }}</span>
+                {% if bulk_actions %}
+                <input type="checkbox" name="_selected_action" value="{{ row.pk }}"
+                       class="form-check-input m-0 action-select" form="bulk-form"
+                       aria-label="Select {{ row.label }}"/>
+                {% endif %}
+              </span>
+              <a href="{{ admin.change_path(row.pk) }}" class="btn btn-sm admin-row-expand"
+                 aria-label="Expand {{ row.label }}" title="Expand record">
+                <i class="ti ti-arrows-diagonal" aria-hidden="true"></i>
+              </a>
+            </div>
           </td>
-          {% endif %}
-          <td class="text-end text-secondary" data-row-number>{{ start_index + loop.index0 }}</td>
           <td>
             <div class="btn-list flex-nowrap">
             <a href="{{ admin.change_path(row.pk) }}" class="btn btn-sm">{{ 'Edit' if row.can_change else 'View' }}</a>
@@ -159,7 +170,7 @@
         </tr>
         {% else %}
         <tr>
-          <td colspan="{{ columns | length + 2 + (1 if bulk_actions else 0) }}"
+          <td colspan="{{ columns | length + 2 }}"
               data-list-colspan
               class="text-center text-secondary py-4">
             No {{ admin.plural_name | lower }} found.

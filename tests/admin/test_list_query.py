@@ -79,14 +79,17 @@ async def test_groups_count_all_filtered_rows_across_pages(client: httpx.AsyncCl
     assert 'data-group-header="1"' in response.text
     assert 'data-group-header="2"' in response.text
     assert "Status: Live" in response.text
-    assert len(re.findall(r">4</span>", response.text)) == 2
+    group_count = r"data-group-toggle[^>]*>[^<]*<span[^>]*>4</span>"
+    assert len(re.findall(group_count, response.text)) == 2
+    header = response.text.split("<thead>")[1].split("</thead>")[0]
+    assert f'colspan="{header.count("<th ")}"' in response.text
     assert response.text.count("<tr data-group-row") == 2
     assert "Draft" not in response.text.split("<tbody>")[1]
     second = await client.get(
         URL, params={"f": "status:eq:live", "group": "status,is_active", "size": 2, "page": 2}
     )
     assert second.status_code == 200
-    assert len(re.findall(r">4</span>", second.text)) == 2
+    assert len(re.findall(group_count, second.text)) == 2
 
 
 async def test_group_null_link_and_primary_key(client: httpx.AsyncClient) -> None:

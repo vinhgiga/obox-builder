@@ -195,6 +195,106 @@ for (const [engine, browserType] of Object.entries({chromium, firefox, webkit}))
 }
 
 for (const [engine, browserType] of Object.entries({chromium, firefox, webkit})) {
+  test(`${engine}: combined row numbers, selection and expansion`, async () => {
+    const browser = await browserType.launch();
+    try {
+      const page = await browser.newPage({reducedMotion: "reduce"});
+      page.setDefaultTimeout(10000);
+      await login(page);
+      await page.goto(`${origin}/admin/shop/product`);
+      await page.evaluate(() => { window.documentMarker = "same-document"; });
+      const table = page.locator("[data-list-table]");
+      const rows = table.locator("tbody tr[data-group-row]");
+      const first = rows.first();
+      const number = first.locator(".admin-row-number");
+      const checkbox = first.locator(".action-select");
+      const expand = first.locator(".admin-row-expand");
+      const opacity = (locator) => locator.evaluate((element) => getComputedStyle(element).opacity);
+      assert.equal(await table.locator("thead th").count(), await table.locator("thead th[data-list-column]").count() + 2);
+      assert.equal(await first.locator("[data-row-number] .action-select").count(), 1);
+      assert.equal(await number.textContent(), "1");
+      await page.mouse.move(0, 0);
+      assert.equal(await opacity(number), "1");
+      assert.equal(await opacity(checkbox), "0");
+      assert.equal(await opacity(expand), "0");
+      const width = (await first.boundingBox()).width;
+      await first.locator('td[data-list-column="name"]').hover();
+      assert.equal(await opacity(number), "0");
+      assert.equal(await opacity(checkbox), "1");
+      assert.equal(await opacity(expand), "1");
+      assert.equal((await first.boundingBox()).width, width);
+      await checkbox.check();
+      assert.equal(await page.locator("#action-toggle").evaluate((input) => input.indeterminate), true);
+      await rows.nth(1).locator('td[data-list-column="name"]').hover();
+      assert.equal(await opacity(checkbox), "1");
+      assert.equal(await opacity(expand), "0");
+      await table.focus();
+      await page.mouse.move(0, 0);
+      assert.equal(await opacity(checkbox), "1");
+      assert.equal(await opacity(number), "0");
+      assert.equal(await opacity(expand), "0");
+      assert.equal(await first.evaluate((row) => row.classList.contains("selected")), true);
+      await page.keyboard.press("Tab");
+      await checkbox.focus();
+      assert.equal(await checkbox.evaluate((input) => input === document.activeElement), true);
+      await page.keyboard.press("Space");
+      assert.equal(await checkbox.isChecked(), false);
+      assert.equal(await opacity(checkbox), "1");
+      assert.equal(await opacity(expand), "1");
+      const detail = await first.getByRole("link", {name: "Edit", exact: true}).getAttribute("href");
+      assert.equal(await expand.getAttribute("href"), detail);
+      await expand.focus();
+      assert.equal(await expand.evaluate((link) => link === document.activeElement), true);
+      await page.keyboard.press("Enter");
+      await page.waitForURL(`${origin}${detail}`);
+      await page.locator('form[data-prepopulated-fields] [name="name"]').waitFor();
+      await page.goBack();
+      await ready(page, "Products");
+      await table.waitFor();
+      const toggle = page.locator("#action-toggle");
+      await toggle.check();
+      assert.equal(await rows.locator(".action-select:checked").count(), await rows.count());
+      await toggle.uncheck();
+      assert.equal(await rows.locator(".action-select:checked").count(), 0);
+      await table.evaluate((element) => { element.scrollTop = 0; });
+      await rows.nth(0).locator('td[data-list-column="name"]').hover();
+      await rows.nth(0).locator(".action-select").click();
+      await rows.nth(2).locator('td[data-list-column="name"]').hover();
+      await rows.nth(2).locator(".action-select").click({modifiers: ["Shift"]});
+      assert.equal(await rows.locator(".action-select:checked").count(), 3);
+      await page.goto(`${origin}/admin/shop/product?size=2&page=2&group=status`);
+      assert.equal(await number.textContent(), "3");
+      const columns = await table.locator("thead th").count();
+      assert.equal(await table.locator("[data-list-colspan]").first().getAttribute("colspan"), String(columns));
+    } finally {
+      await browser.close();
+    }
+  });
+}
+
+test("touch users can select and expand rows without hover", async () => {
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage({hasTouch: true, viewport: {width: 390, height: 844}});
+    await login(page);
+    await page.goto(`${origin}/admin/shop/product`);
+    const row = page.locator("tbody tr[data-group-row]").first();
+    const checkbox = row.locator(".action-select");
+    const expand = row.locator(".admin-row-expand");
+    assert.equal(await checkbox.evaluate((input) => getComputedStyle(input).opacity), "1");
+    assert.equal(await expand.evaluate((link) => getComputedStyle(link).opacity), "1");
+    await checkbox.tap();
+    assert.equal(await checkbox.isChecked(), true);
+    const detail = await expand.getAttribute("href");
+    await expand.tap();
+    await page.waitForURL(`${origin}${detail}`);
+    await page.locator('form[data-prepopulated-fields] [name="name"]').waitFor();
+  } finally {
+    await browser.close();
+  }
+});
+
+for (const [engine, browserType] of Object.entries({chromium, firefox, webkit})) {
   test(`${engine}: list field visibility and row height persist`, async () => {
     const browser = await browserType.launch();
     try {
