@@ -19,7 +19,7 @@
   <script src="{{ static('admin/vendor/hx-preload-4.0.0.js') }}" defer></script>
   <script src="{{ static('admin/js/navigation.js') }}" defer></script>
   {% endif %}
-  {% for script in ['admin', 'list-query', 'comments', 'jobs', 'relations'] %}
+  {% for script in ['admin', 'list-query', 'list-view', 'comments', 'jobs', 'relations'] %}
   <script src="{{ static('admin/js/' ~ script ~ '.js') }}" defer></script>
   {% endfor %}
   {% for script in admin_js or [] %}<script src="{{ static(script) }}" defer></script>{% endfor %}

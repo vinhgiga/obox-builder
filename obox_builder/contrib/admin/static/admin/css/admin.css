@@ -81,6 +81,245 @@ mark {
   position: fixed;
 }
 
+/* -- model list ------------------------------------------------------------ */
+
+.admin-list-titlebar,
+.admin-list-actions,
+.admin-list-toolbar-main,
+.admin-list-controls,
+.admin-list-views,
+.admin-list-view-save,
+.admin-list-footer {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.admin-list-titlebar {
+  justify-content: space-between;
+  gap: 1rem;
+  width: 100%;
+}
+
+.admin-list-titlebar .page-title {
+  margin: 0;
+}
+
+.admin-list-actions,
+.admin-list-views,
+.admin-list-controls,
+.admin-list-view-save {
+  flex-wrap: wrap;
+}
+
+.admin-list-toolbar {
+  display: block;
+  padding: 0.75rem 1rem;
+}
+
+.admin-list-toolbar-main {
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem 1rem;
+}
+
+.admin-list-views {
+  min-width: 0;
+}
+
+.admin-list-controls {
+  position: relative;
+  justify-content: flex-end;
+  margin-left: auto;
+}
+
+.admin-toolbar-popover {
+  position: static;
+}
+
+.admin-toolbar-popover > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  list-style: none;
+  cursor: pointer;
+}
+
+.admin-toolbar-popover > summary::-webkit-details-marker {
+  display: none;
+}
+
+.admin-toolbar-popover[open] > summary {
+  color: var(--tblr-primary, #066fd1);
+  background: var(--tblr-primary-lt, #e6f1fa);
+  border-color: transparent;
+}
+
+.admin-toolbar-panel {
+  position: absolute;
+  z-index: 30;
+  inset-block-start: calc(100% + 0.5rem);
+  inset-inline-end: 0;
+  padding: 0.75rem;
+  border: 1px solid var(--tblr-border-color, #e6e7e9);
+  border-radius: var(--tblr-border-radius, 4px);
+  background: var(--tblr-bg-surface, #fff);
+  box-shadow: var(--tblr-box-shadow, 0 0.25rem 1rem rgba(4, 32, 69, 0.1));
+}
+
+.admin-fields-panel {
+  width: min(21rem, calc(100vw - 2rem));
+}
+
+.admin-field-list {
+  max-height: min(22rem, 55vh);
+  overflow-y: auto;
+  margin-block: 0.5rem;
+}
+
+.admin-field-option {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-height: 2.4rem;
+  margin: 0;
+  padding: 0.3rem 0.35rem;
+  border-radius: var(--tblr-border-radius, 4px);
+  cursor: pointer;
+}
+
+.admin-field-option .form-check-input {
+  flex: 0 0 auto;
+  margin: 0;
+}
+
+.admin-field-option:hover {
+  background: var(--tblr-bg-surface-secondary, #f6f8fb);
+}
+
+.admin-fields-actions,
+.admin-query-panel-actions {
+  display: flex;
+  gap: 0.5rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--tblr-border-color, #e6e7e9);
+}
+
+.admin-fields-actions .btn {
+  flex: 1 1 0;
+}
+
+.admin-query-panel {
+  width: min(34rem, calc(100vw - 2rem));
+  max-height: min(70vh, 38rem);
+  overflow-y: auto;
+}
+
+.admin-query-panel-actions {
+  margin-top: 0.75rem;
+}
+
+.admin-simple-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.admin-simple-filters .form-label {
+  min-width: 9rem;
+  margin: 0;
+}
+
+.admin-row-height-panel {
+  width: max-content;
+}
+
+.admin-row-height-options {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.admin-list-search {
+  width: min(15rem, calc(100vw - 2rem));
+}
+
+.admin-list-view-save {
+  flex-wrap: wrap;
+  margin-top: 0.75rem;
+}
+
+.admin-list-view-save input {
+  width: min(14rem, 100%);
+}
+
+.admin-list-view-delete {
+  margin: 0;
+}
+
+.admin-list-card {
+  overflow: visible;
+}
+
+.admin-list-table-scroll {
+  max-height: 70vh;
+  overflow: auto;
+}
+
+.admin-list-table-scroll thead th {
+  position: sticky;
+  z-index: 2;
+  inset-block-start: 0;
+  background: var(--tblr-bg-surface, #fff);
+  box-shadow: inset 0 -1px var(--tblr-border-color, #e6e7e9);
+}
+
+.admin-list-table-scroll [data-list-column][hidden] {
+  display: none !important;
+}
+
+.admin-list-table-scroll[data-row-height="compact"] tbody td {
+  padding-block: 0.3rem;
+}
+
+.admin-list-table-scroll[data-row-height="tall"] tbody td {
+  padding-block: 1rem;
+}
+
+.admin-list-footer {
+  justify-content: space-between;
+  flex-wrap: wrap;
+  min-height: 3.5rem;
+}
+
+.admin-list-footer .pagination {
+  margin: 0;
+}
+
+@media (max-width: 767.98px) {
+  .admin-list-titlebar,
+  .admin-list-toolbar-main,
+  .admin-list-footer {
+    align-items: flex-start;
+  }
+
+  .admin-list-titlebar {
+    flex-direction: column;
+  }
+
+  .admin-list-controls {
+    justify-content: flex-start;
+    margin-left: 0;
+  }
+
+  .admin-list-search {
+    width: 100%;
+  }
+
+  .admin-list-table-scroll {
+    max-height: 65vh;
+  }
+}
+
 /* -- inline editing -------------------------------------------------------- */
 
 .inline-editor {

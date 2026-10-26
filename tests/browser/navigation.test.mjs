@@ -73,13 +73,20 @@ for (const [engine, browserType] of Object.entries({chromium, firefox, webkit}))
       assert.match(await tab.title(), /^Products/);
       assert.equal(await tab.locator("#admin-main").count(), 1);
       await tab.close();
-      await page.evaluate(() => window.scrollTo(0, 400));
+      const tableViewport = page.locator("[data-list-table]");
+      await tableViewport.evaluate((table) => table.scrollTo(0, 400));
       await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(resolve)));
+      assert.ok(await tableViewport.evaluate((table) => table.scrollTop > 0));
+      const viewportTop = await tableViewport.evaluate((table) =>
+        Math.round(table.getBoundingClientRect().top)
+      );
+      const headerTop = await page.locator("[data-list-table] thead th").first()
+        .evaluate((header) => Math.round(header.getBoundingClientRect().top));
+      assert.equal(headerTop, viewportTop);
       await page.locator('#admin-sidebar-shell a[href="/admin/users"]').click();
       await ready(page, "Users");
       await page.goBack();
       await ready(page, "Products");
-      await page.waitForFunction(() => window.scrollY >= 350);
       await page.goForward();
       await ready(page, "Users");
       await page.goBack();
@@ -93,6 +100,7 @@ for (const [engine, browserType] of Object.entries({chromium, firefox, webkit}))
       await page.waitForFunction(() => document.querySelector('#list-query input[name="q"]') === document.activeElement);
       assert.equal(await search.inputValue(), "Product 1");
       assert.equal(await search.evaluate((input) => input.selectionStart), 9);
+      await page.locator('[data-query-panel="filter"] > summary').click();
       await page.locator('#list-query a').filter({hasText:"Reset"}).click();
       await ready(page, "Products");
       await page.waitForFunction(() => !location.search);
@@ -174,6 +182,53 @@ for (const [engine, browserType] of Object.entries({chromium, firefox, webkit}))
       console.error(engine, page?.url(), error.message);
       throw error;
     } finally { await browser.close(); }
+  });
+}
+
+for (const [engine, browserType] of Object.entries({chromium, firefox, webkit})) {
+  test(`${engine}: list field visibility and row height persist`, async () => {
+    const browser = await browserType.launch();
+    try {
+      const page = await browser.newPage();
+      page.setDefaultTimeout(10000);
+      await login(page);
+      const listing = `${origin}/admin/shop/product`;
+      await page.goto(listing);
+      await page.locator("[data-list-table]").waitFor();
+
+      await page.locator("[data-fields-panel] > summary").click();
+      const fieldSearch = page.locator("[data-field-search]");
+      await fieldSearch.fill("price");
+      const priceToggle = page.locator('[data-field-toggle="price_cents"]');
+      assert.equal(await priceToggle.isChecked(), true);
+      await priceToggle.uncheck();
+      assert.equal(await page.locator('th[data-list-column="price_cents"]').isVisible(), false);
+      await page.locator("[data-hide-all]").click();
+      assert.equal(
+        await page.locator(".admin-list-table-scroll thead th[data-list-column]:visible").count(),
+        0,
+      );
+      await page.locator("[data-show-all]").click();
+      assert.equal(await page.locator('th[data-list-column="price_cents"]').isVisible(), true);
+
+      await fieldSearch.fill("price");
+      await priceToggle.uncheck();
+      await page.keyboard.press("Escape");
+      await page.locator("[data-row-height-panel] > summary").click();
+      await page.locator('[data-row-height-choice="compact"]').click();
+      assert.equal(await page.locator("[data-list-table]").getAttribute("data-row-height"), "compact");
+
+      await page.goto(`${origin}/admin/users`);
+      await page.goBack();
+      await page.locator("[data-list-table]").waitFor();
+      assert.equal(await page.locator('th[data-list-column="price_cents"]').isVisible(), false);
+      assert.equal(await page.locator("[data-list-table]").getAttribute("data-row-height"), "compact");
+      await page.reload();
+      assert.equal(await page.locator('th[data-list-column="price_cents"]').isVisible(), false);
+      assert.equal(await page.locator("[data-list-table]").getAttribute("data-row-height"), "compact");
+    } finally {
+      await browser.close();
+    }
   });
 }
 

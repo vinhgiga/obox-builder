@@ -236,11 +236,13 @@
   const conditionCount = (node) =>
     node.children.reduce((total, child) => total + (child.children ? conditionCount(child) : 1), 0);
   const render = () => {
-    form.querySelector('[data-query-panel="filter"] summary').textContent =
-      `Filter (${conditionCount(state.filter)})`;
+    const simpleFilterCount = [...form.querySelectorAll(".admin-simple-filters select")]
+      .filter((select) => select.value).length;
+    form.querySelector('[data-query-panel="filter"] [data-query-count]').textContent =
+      conditionCount(state.filter) + simpleFilterCount;
     for (const kind of ["sort", "group"]) {
-      form.querySelector(`[data-query-panel="${kind}"] summary`).textContent =
-        `${kind === "sort" ? "Sort" : "Group"} (${state[kind].length})`;
+      form.querySelector(`[data-query-panel="${kind}"] [data-query-count]`).textContent =
+        state[kind].length;
     }
     form.querySelector("[data-query-filters]").replaceChildren(group(state.filter, 1));
     ordering("sort", 5);
@@ -248,6 +250,9 @@
     serialize();
   };
   render();
+  form.querySelectorAll(".admin-simple-filters select").forEach((select) => {
+    select.addEventListener("change", render);
+  });
   form.addEventListener("submit", serialize);
   document.querySelector("[data-save-view]")?.addEventListener("submit", (event) => {
     serialize();

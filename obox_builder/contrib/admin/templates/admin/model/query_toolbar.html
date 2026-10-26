@@ -1,69 +1,142 @@
-<div class="card-body border-bottom">
-  <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
-    <span class="text-secondary">My views</span>
-    <a href="{{ admin.list_path() }}" class="btn btn-sm{{ ' btn-primary' if not selected_view }}">All records</a>
-    {% for view in saved_views %}
-    <a href="{{ admin.list_path() }}?view={{ view.id }}" class="btn btn-sm{{ ' btn-primary' if selected_view and selected_view.id == view.id }}">{{ view.name }}</a>
-    {% endfor %}
-    {% if selected_view %}
-    <form method="post" action="{{ admin.list_path() }}/views/{{ selected_view.id }}/delete" data-confirm="Delete this saved view?">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token }}"/>
-      <button class="btn btn-sm btn-outline-danger" type="submit">Delete view</button>
-    </form>
-    {% endif %}
-  </div>
-  <form id="list-query" method="get" action="{{ admin.list_path() }}" class="d-flex flex-column gap-3">
+<div class="card-header admin-list-toolbar">
+  <form id="list-query" method="get" action="{{ admin.list_path() }}">
     {% if selected_view %}<input type="hidden" name="view" value="{{ selected_view.id }}"/>{% endif %}
     <input type="hidden" name="filter" value="{{ query_state.filter }}"/>
     <input type="hidden" name="sort" value="{{ query_state.get('sort', '') }}"/>
     <input type="hidden" name="group" value="{{ query_state.get('group', '') }}"/>
     <input type="hidden" name="size" value="{{ size }}"/>
-    {% if searchable %}
-    <div class="input-group">
-      <input type="search" name="q" value="{{ q }}" class="form-control" maxlength="200"
-             placeholder="Search {{ admin.plural_name | lower }}" aria-label="Search {{ admin.plural_name | lower }}"/>
-      <button class="btn" type="submit">Search</button>
+    <button class="visually-hidden" type="submit" tabindex="-1">Search</button>
+    <div class="admin-list-toolbar-main">
+      <nav class="admin-list-views" aria-label="Saved views">
+        <span class="text-secondary small">My views</span>
+        <a href="{{ admin.list_path() }}" class="btn btn-sm{{ ' btn-primary' if not selected_view }}">All records</a>
+        {% for view in saved_views %}
+        <a href="{{ admin.list_path() }}?view={{ view.id }}" class="btn btn-sm{{ ' btn-primary' if selected_view and selected_view.id == view.id }}">{{ view.name }}</a>
+        {% endfor %}
+      </nav>
+      <div class="admin-list-controls" data-list-toolbar>
+        {% if columns %}
+        <details class="admin-toolbar-popover admin-fields-popover" data-fields-panel>
+          <summary class="btn btn-sm">
+            <i class="ti ti-eye-off" aria-hidden="true"></i><span>Hide fields</span>
+          </summary>
+          <div class="admin-toolbar-panel admin-fields-panel">
+            <label class="visually-hidden" for="field-search">Find a field</label>
+            <input id="field-search" type="search" class="form-control form-control-sm"
+                   placeholder="Find a field" autocomplete="off" data-field-search/>
+            <div class="admin-field-list" role="group" aria-label="Fields">
+              {% for column in columns %}
+              <label class="form-check form-switch admin-field-option" data-field-option
+                     data-field-label="{{ column.label | lower }}">
+                <input class="form-check-input" type="checkbox" checked
+                       data-field-toggle="{{ column.name }}"/>
+                <span>{{ column.label }}</span>
+              </label>
+              {% endfor %}
+              <p class="text-secondary small mb-0 d-none" data-field-empty>No fields found.</p>
+            </div>
+            <div class="admin-fields-actions">
+              <button class="btn btn-sm" type="button" data-hide-all>Hide all</button>
+              <button class="btn btn-sm" type="button" data-show-all>Show all</button>
+            </div>
+          </div>
+        </details>
+        {% endif %}
+        <details class="admin-toolbar-popover" data-query-panel="filter">
+          <summary class="btn btn-sm">
+            <i class="ti ti-filter" aria-hidden="true"></i><span>Filter</span>
+            <span class="badge bg-secondary-lt" data-query-count>0</span>
+          </summary>
+          <div class="admin-toolbar-panel admin-query-panel">
+            {% if simple_filters %}
+            <div class="admin-simple-filters">
+              {% for filter in simple_filters %}
+              <label class="form-label">{{ filter.title }}
+                <select name="{{ filter.parameter_name }}" class="form-select form-select-sm">
+                  <option value="">All</option>
+                  {% for value, label in filter.lookups %}
+                  <option value="{{ value }}" {{ 'selected' if filter.value == value }}>{{ label }}</option>
+                  {% endfor %}
+                </select>
+              </label>
+              {% endfor %}
+            </div>
+            {% endif %}
+            <div data-query-filters class="mt-2"></div>
+            <div class="admin-query-panel-actions">
+              <button class="btn btn-sm btn-primary" type="submit">Apply</button>
+              <a href="{{ admin.list_path() }}" class="btn btn-sm">Reset</a>
+            </div>
+          </div>
+        </details>
+        <details class="admin-toolbar-popover" data-query-panel="group">
+          <summary class="btn btn-sm">
+            <i class="ti ti-layout-list" aria-hidden="true"></i><span>Group</span>
+            <span class="badge bg-secondary-lt" data-query-count>0</span>
+          </summary>
+          <div class="admin-toolbar-panel admin-query-panel">
+            <div data-query-group></div>
+            <div class="admin-query-panel-actions">
+              <button class="btn btn-sm btn-primary" type="submit">Apply</button>
+            </div>
+          </div>
+        </details>
+        <details class="admin-toolbar-popover" data-query-panel="sort">
+          <summary class="btn btn-sm">
+            <i class="ti ti-arrows-sort" aria-hidden="true"></i><span>Sort</span>
+            <span class="badge bg-secondary-lt" data-query-count>0</span>
+          </summary>
+          <div class="admin-toolbar-panel admin-query-panel">
+            <div data-query-sort></div>
+            <div class="admin-query-panel-actions">
+              <button class="btn btn-sm btn-primary" type="submit">Apply</button>
+            </div>
+          </div>
+        </details>
+        <details class="admin-toolbar-popover" data-row-height-panel>
+          <summary class="btn btn-sm">
+            <i class="ti ti-arrows-vertical" aria-hidden="true"></i><span>Row height</span>
+          </summary>
+          <div class="admin-toolbar-panel admin-row-height-panel">
+            <div class="admin-row-height-options" role="group" aria-label="Row height">
+              <button class="btn btn-sm" type="button" data-row-height-choice="compact"
+                      aria-pressed="false">Compact</button>
+              <button class="btn btn-sm" type="button" data-row-height-choice="medium"
+                      aria-pressed="true">Medium</button>
+              <button class="btn btn-sm" type="button" data-row-height-choice="tall"
+                      aria-pressed="false">Tall</button>
+            </div>
+          </div>
+        </details>
+        {% if searchable %}
+        <div class="input-group input-group-sm admin-list-search">
+          <input type="search" name="q" value="{{ q }}" class="form-control" maxlength="200"
+                 placeholder="Search {{ admin.plural_name | lower }}"
+                 aria-label="Search {{ admin.plural_name | lower }}"/>
+          <button class="btn" type="submit" aria-label="Search records">
+            <i class="ti ti-search" aria-hidden="true"></i>
+          </button>
+        </div>
+        {% endif %}
+      </div>
     </div>
-    {% endif %}
-    {% if simple_filters %}
-    <div class="d-flex flex-wrap gap-3">
-      {% for filter in simple_filters %}
-      <label class="form-label">{{ filter.title }}
-        <select name="{{ filter.parameter_name }}" class="form-select">
-          <option value="">All</option>
-          {% for value, label in filter.lookups %}
-          <option value="{{ value }}" {{ 'selected' if filter.value == value }}>{{ label }}</option>
-          {% endfor %}
-        </select>
-      </label>
-      {% endfor %}
-    </div>
-    {% endif %}
-    <div class="d-flex flex-wrap gap-3">
-      <details class="flex-fill" data-query-panel="filter">
-        <summary>Filter</summary>
-        <div data-query-filters class="mt-2"></div>
-      </details>
-      <details class="flex-fill" data-query-panel="sort">
-        <summary>Sort ({{ sort_terms | length }})</summary>
-        <div data-query-sort class="mt-2"></div>
-      </details>
-      <details class="flex-fill" data-query-panel="group">
-        <summary>Group ({{ group_terms | length }})</summary>
-        <div data-query-group class="mt-2"></div>
-      </details>
-    </div>
-    <div class="d-flex flex-wrap align-items-center gap-2">
-      <button class="btn btn-primary" type="submit">Apply</button>
-      <a href="{{ admin.list_path() }}" class="btn">Reset</a>
-    </div>
-    <noscript>Enable JavaScript to edit filters, sort order and groups.</noscript>
+    <noscript><p class="text-secondary small mb-0 mt-2">Enable JavaScript to hide fields and edit filters, sort order and groups.</p></noscript>
   </form>
-  <form method="post" action="{{ admin.list_path() }}/views{% if request.url.query %}?{{ request.url.query }}{% endif %}" class="d-flex flex-wrap gap-2 mt-3" data-save-view>
+  <form method="post" action="{{ admin.list_path() }}/views{% if request.url.query %}?{{ request.url.query }}{% endif %}"
+        class="admin-list-view-save" data-save-view>
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}"/>
-    <input name="name" value="{{ selected_view.name if selected_view else '' }}" class="form-control w-auto" required maxlength="100" placeholder="View name" aria-label="View name"/>
-    <button type="submit" class="btn">{{ 'Update view' if selected_view else 'Save view' }}</button>
-    {% if selected_view %}<button type="submit" name="save_as" value="new" class="btn">Save as new</button>{% endif %}
+    <input name="name" value="{{ selected_view.name if selected_view else '' }}"
+           class="form-control form-control-sm" required maxlength="100"
+           placeholder="View name" aria-label="View name"/>
+    <button type="submit" class="btn btn-sm">{{ 'Update view' if selected_view else 'Save view' }}</button>
+    {% if selected_view %}<button type="submit" name="save_as" value="new" class="btn btn-sm">Save as new</button>{% endif %}
   </form>
+  {% if selected_view %}
+  <form method="post" action="{{ admin.list_path() }}/views/{{ selected_view.id }}/delete"
+        class="admin-list-view-delete" data-confirm="Delete this saved view?">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}"/>
+    <button class="btn btn-sm btn-outline-danger" type="submit">Delete view</button>
+  </form>
+  {% endif %}
 </div>
 <script type="application/json" id="list-query-config">{{ {'fields': query_fields, 'filter': filter_tree, 'sort': sort_terms, 'group': group_terms} | tojson }}</script>

@@ -3,7 +3,43 @@
 {% block title %}{{ admin.plural_name }}{% endblock %}
 {% block content %}
 <div class="page-header d-print-none">
-  <h2 class="page-title">{{ admin.plural_name }}{% if total is none %} (page {{ page }}){% else %} ({{ displayed_total }}{{ '+' if total_capped }}){% endif %}</h2>
+  <div class="admin-list-titlebar">
+    <h2 class="page-title">{{ admin.plural_name }}</h2>
+    {% if can_add or inline_columns or bulk_actions or admin.imports_available() %}
+    <div class="admin-list-actions">
+      {% if admin.imports_available() and (admin.permission_name('add') in perms or admin.permission_name('change') in perms) %}
+      <a href="{{ admin.import_path() }}" class="btn">Import spreadsheet</a>
+      {% endif %}
+      {% if can_add %}
+      <a href="{{ admin.add_path() }}" class="btn btn-primary">New {{ admin.name | lower }}</a>
+      {% endif %}
+      {% if inline_columns %}
+      <button type="submit" form="inline-edit" class="btn" data-inline-save disabled>
+        Save changes
+        <span class="badge bg-blue-lt ms-1 d-none" data-inline-count>0</span>
+      </button>
+      <button type="button" class="btn d-none" data-inline-revert>Revert</button>
+      {% endif %}
+      {% if bulk_actions %}
+      <div class="d-flex align-items-center gap-2">
+        <select name="action" form="bulk-form" class="form-select w-auto" data-bulk-action
+                aria-label="Action">
+          <option value="">---------</option>
+          {% for bulk_action_spec in bulk_actions %}
+          <option value="{{ bulk_action_spec.name }}">{{ bulk_action_spec.description }}</option>
+          {% endfor %}
+        </select>
+        <button type="submit" form="bulk-form" class="btn">Run</button>
+        <span class="text-secondary small" data-selection-counter>0 of {{ rows | length }} selected</span>
+        {% if displayed_total is not none and displayed_total > rows | length %}
+        <a href="#" class="small d-none" data-select-all data-total="{{ displayed_total }}">Select all {{ displayed_total }} {{ admin.plural_name | lower }}</a>
+        <a href="#" class="small d-none" data-select-clear>Clear selection</a>
+        {% endif %}
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+  </div>
 </div>
 {% if inline_columns %}
 <form id="inline-edit" method="post" action="{{ inline_action }}" class="d-none">
@@ -17,60 +53,27 @@
   <input type="hidden" name="select_across" value="0"/>
 </form>
 {% endif %}
-<div class="card">
-  {% if can_add or inline_columns or bulk_actions or admin.imports_available() %}
-  <div class="card-header flex-wrap gap-2 py-2">
-    {% if admin.imports_available() and (admin.permission_name('add') in perms or admin.permission_name('change') in perms) %}
-    <a href="{{ admin.import_path() }}" class="btn">Import spreadsheet</a>
-    {% endif %}
-    {% if can_add %}
-    <a href="{{ admin.add_path() }}" class="btn btn-primary">New {{ admin.name | lower }}</a>
-    {% endif %}
-    {% if inline_columns %}
-    <button type="submit" form="inline-edit" class="btn" data-inline-save disabled>
-      Save changes
-      <span class="badge bg-blue-lt ms-1 d-none" data-inline-count>0</span>
-    </button>
-    <button type="button" class="btn d-none" data-inline-revert>Revert</button>
-    {% endif %}
-    {% if bulk_actions %}
-    <div class="d-flex align-items-center gap-2">
-      <select name="action" form="bulk-form" class="form-select w-auto" data-bulk-action
-              aria-label="Action">
-        <option value="">---------</option>
-        {% for bulk_action_spec in bulk_actions %}
-        <option value="{{ bulk_action_spec.name }}">{{ bulk_action_spec.description }}</option>
-        {% endfor %}
-      </select>
-      <button type="submit" form="bulk-form" class="btn">Run</button>
-      <span class="text-secondary small" data-selection-counter>0 of {{ rows | length }} selected</span>
-      {% if displayed_total is not none and displayed_total > rows | length %}
-      <a href="#" class="small d-none" data-select-all data-total="{{ displayed_total }}"
-         >Select all {{ displayed_total }} {{ admin.plural_name | lower }}</a>
-      <a href="#" class="small d-none" data-select-clear>Clear selection</a>
-      {% endif %}
-    </div>
-    {% endif %}
-  </div>
-  {% endif %}
+<div class="card admin-list-card">
   {% include "admin/model/query_toolbar.html" %}
   {% if inline_banner %}
   <div class="alert alert-danger rounded-0 mb-0" role="alert">{{ inline_banner }}</div>
   {% endif %}
-  <div class="table-responsive">
+  <div class="table-responsive admin-list-table-scroll" data-list-table
+       data-list-key="{{ admin.list_path() }}" data-row-height="medium"
+       role="region" tabindex="0" aria-label="{{ admin.plural_name }}">
     <table class="table table-vcenter card-table">
       <thead>
         <tr>
           {% if bulk_actions %}
-          <th class="w-1">
+          <th class="w-1" scope="col">
             <input type="checkbox" id="action-toggle" class="form-check-input m-0"
                    form="bulk-form" aria-label="Select all on this page"/>
           </th>
           {% endif %}
-          <th class="w-1 text-end">#</th>
-          <th class="w-1">Actions</th>
+          <th class="w-1 text-end" scope="col">#</th>
+          <th class="w-1" scope="col">Actions</th>
           {% for column in columns %}
-          <th>
+          <th scope="col" data-list-column="{{ column.name }}">
             {% if column.type.sortable and not column.options.get('relationship_path') %}
             <a href="{{ sort_href(column.name) }}" class="text-body">
               {{ column.label }}
@@ -85,7 +88,8 @@
         {% for row in rows %}
         {% for group in row.groups %}
         <tr data-group-header="{{ group.level }}" class="table-light">
-          <td colspan="{{ columns | length + 2 + (1 if bulk_actions else 0) }}">
+          <td colspan="{{ columns | length + 2 + (1 if bulk_actions else 0) }}"
+              data-list-colspan>
             <button type="button" class="btn btn-sm" data-group-toggle aria-expanded="true">
               {{ '↳ ' * (group.level - 1) }}{{ group.label }}: {{ group.value }}
               <span class="badge bg-secondary-lt ms-2">{{ group.count }}</span>
@@ -124,7 +128,7 @@
           {% set column = columns[loop.index0] %}
           {% set edit = row.edits[loop.index0] %}
           {% if edit %}
-          <td{% if edit.modified %} class="cell-modified"{% endif %}>
+          <td data-list-column="{{ column.name }}"{% if edit.modified %} class="cell-modified"{% endif %}>
             {% if edit.kind == 'select' %}
             <select form="inline-edit" name="edit:{{ row.pk }}:{{ edit.name }}"
                     class="inline-editor form-select form-select-sm{{ ' is-invalid' if edit.error }}"
@@ -145,7 +149,7 @@
             {% if edit.error %}<div class="text-danger small mt-1">{{ edit.error }}</div>{% endif %}
           </td>
           {% else %}
-          <td>{% if column.name in list_display_links %}
+          <td data-list-column="{{ column.name }}">{% if column.name in list_display_links %}
                 <a href="{{ admin.change_path(row.pk) }}">{{ cell_content(cell) }}</a>
               {% else %}{{ cell_text(cell) }}{% endif %}</td>
           {% endif %}
@@ -154,6 +158,7 @@
         {% else %}
         <tr>
           <td colspan="{{ columns | length + 2 + (1 if bulk_actions else 0) }}"
+              data-list-colspan
               class="text-center text-secondary py-4">
             No {{ admin.plural_name | lower }} found.
           </td>
@@ -162,6 +167,13 @@
       </tbody>
     </table>
   </div>
+  <div class="card-footer admin-list-footer">
+    <span class="text-secondary small">
+      {% if total is none %}page {{ page }}{% else %}
+      {{ rows | length }} rows shown · {{ displayed_total }}{{ '+' if total_capped }} total
+      {% endif %}
+    </span>
+    {% include "admin/includes/pagination.html" %}
+  </div>
 </div>
-{% include "admin/includes/pagination.html" %}
 {% endblock %}
