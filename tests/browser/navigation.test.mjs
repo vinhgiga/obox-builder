@@ -67,7 +67,7 @@ for (const [engine, browserType] of Object.entries({chromium, firefox, webkit}))
       await ready(page, "Products");
       assert.equal(await page.locator(`#admin-sidebar-shell a[href="${listing}"]`).getAttribute("aria-current"), "page");
       assert.ok(requests.some((request) => request.headers()["hx-preloaded"] === "true"));
-      assert.equal(await page.locator("[data-query-filters] button").count(), 2);
+      assert.equal(await page.locator("[data-query-action]").count(), 2);
       const tab = await page.context().newPage();
       await tab.goto(`${origin}${listing}`);
       assert.match(await tab.title(), /^Products/);
@@ -91,7 +91,7 @@ for (const [engine, browserType] of Object.entries({chromium, firefox, webkit}))
       await ready(page, "Users");
       await page.goBack();
       await ready(page, "Products");
-      assert.equal(await page.locator("[data-query-filters] button").count(), 2);
+      assert.equal(await page.locator("[data-query-action]").count(), 2);
 
       // Programmatic search goes through the same navigation lifecycle.
       const search = page.locator('#list-query input[name="q"]');
@@ -197,6 +197,23 @@ for (const [engine, browserType] of Object.entries({chromium, firefox, webkit}))
       await page.locator("[data-list-table]").waitFor();
 
       await page.locator("[data-fields-panel] > summary").click();
+      await page.waitForFunction(() => Boolean(document.querySelector(".admin-fields-panel").style.maxWidth));
+      const fieldMenuRect = await page.locator("[data-fields-panel]").evaluate((popover) => {
+        const trigger = popover.querySelector(":scope > summary").getBoundingClientRect();
+        const panel = popover.querySelector(":scope > .admin-toolbar-panel").getBoundingClientRect();
+        const bounds = popover.closest(".admin-list-card").getBoundingClientRect();
+        return {
+          triggerRight: trigger.right,
+          triggerBottom: trigger.bottom,
+          panelLeft: panel.left,
+          panelRight: panel.right,
+          panelTop: panel.top,
+          boundsLeft: bounds.left,
+        };
+      });
+      assert.ok(Math.abs(fieldMenuRect.panelRight - fieldMenuRect.triggerRight) < 1);
+      assert.ok(fieldMenuRect.panelTop >= fieldMenuRect.triggerBottom);
+      assert.ok(fieldMenuRect.panelLeft >= fieldMenuRect.boundsLeft);
       const fieldSearch = page.locator("[data-field-search]");
       await fieldSearch.fill("price");
       const priceToggle = page.locator('[data-field-toggle="price_cents"]');
@@ -226,6 +243,81 @@ for (const [engine, browserType] of Object.entries({chromium, firefox, webkit}))
       await page.reload();
       assert.equal(await page.locator('th[data-list-column="price_cents"]').isVisible(), false);
       assert.equal(await page.locator("[data-list-table]").getAttribute("data-row-height"), "compact");
+    } finally {
+      await browser.close();
+    }
+  });
+}
+
+for (const [engine, browserType] of Object.entries({chromium, firefox, webkit})) {
+  test(`${engine}: filter field search and condition editing`, async () => {
+    const browser = await browserType.launch();
+    try {
+      const page = await browser.newPage();
+      page.setDefaultTimeout(10000);
+      await login(page);
+      await page.goto(`${origin}/admin/shop/product`);
+      await page.locator("[data-list-table]").waitFor();
+
+      await page.locator('[data-query-panel="filter"] > summary').click();
+      assert.equal(await page.locator(".admin-query-panel-header h3").textContent(), "Filter");
+      await page.waitForFunction(() => Boolean(document.querySelector('[data-query-panel="filter"] .admin-query-panel').style.maxWidth));
+      const filterMenuRect = await page.locator('[data-query-panel="filter"]').evaluate((popover) => {
+        const trigger = popover.querySelector(":scope > summary").getBoundingClientRect();
+        const panel = popover.querySelector(":scope > .admin-toolbar-panel").getBoundingClientRect();
+        const bounds = popover.closest(".admin-list-card").getBoundingClientRect();
+        return {
+          triggerRight: trigger.right,
+          panelLeft: panel.left,
+          panelRight: panel.right,
+          panelWidth: panel.width,
+          boundsLeft: bounds.left,
+        };
+      });
+      assert.ok(Math.abs(filterMenuRect.panelRight - filterMenuRect.triggerRight) < 1);
+      assert.ok(filterMenuRect.panelLeft >= filterMenuRect.boundsLeft);
+      assert.ok(filterMenuRect.panelWidth <= 42 * 16 + 1);
+      assert.equal(await page.getByText("Describe how to filter this view").count(), 0);
+      assert.equal(await page.locator(".admin-filter-heading").textContent(), "In this view, show records");
+      assert.equal(await page.locator(".admin-filter-row").count(), 1);
+      assert.equal(await page.locator(".admin-filter-join-label").textContent(), "Where");
+      assert.equal(await page.locator(".admin-filter-field-label").textContent(), "Name");
+      assert.equal(await page.getByLabel("Filter operator").inputValue(), "contains");
+      assert.equal(await page.locator('[data-query-panel="filter"] [data-query-count]').textContent(), "0");
+      assert.deepEqual(
+        JSON.parse(await page.locator('#list-query input[name="filter"]').inputValue()).children,
+        [],
+      );
+
+      await page.locator(".admin-filter-field-picker > summary").click();
+      const menu = page.locator(".admin-filter-field-menu");
+      await menu.getByRole("searchbox", {name: "Find a field"}).fill("status");
+      assert.equal(await menu.getByRole("button", {name: "Status"}).isVisible(), true);
+      assert.equal(await menu.getByRole("button", {name: "Name"}).isVisible(), false);
+      await menu.getByRole("button", {name: "Status"}).click();
+      await page.getByLabel("Filter value").selectOption("draft");
+
+      const filter = JSON.parse(await page.locator('#list-query input[name="filter"]').inputValue());
+      assert.deepEqual(filter.children, [{field: "status", op: "eq", value: "draft"}]);
+      assert.equal(await page.locator('[data-query-panel="filter"] [data-query-count]').textContent(), "1");
+
+      await page.locator('[data-query-action="add-condition"]').click();
+      assert.equal(await page.locator(".admin-filter-row").count(), 2);
+      assert.equal(
+        await page.locator(".admin-filter-row").last().locator('select[aria-label="Condition join"]').inputValue(),
+        "and",
+      );
+      await page.locator(".admin-filter-row").last().getByRole("button", {name: "Delete condition"}).click();
+      assert.equal(await page.locator(".admin-filter-row").count(), 1);
+
+      await page.locator('[data-query-action="add-group"]').click();
+      assert.equal(await page.getByText("Group conditions").count(), 1);
+      await page.locator(".admin-filter-nested-group").getByRole("button", {name: "Delete group"}).click();
+      assert.equal(await page.locator(".admin-filter-nested-group").count(), 0);
+
+      await page.locator('[data-query-panel="filter"] .admin-query-panel-actions button[type="submit"]').click();
+      await page.waitForURL(/filter=/);
+      assert.equal(await page.locator("[data-group-row]").count() > 0, true);
     } finally {
       await browser.close();
     }

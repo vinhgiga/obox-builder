@@ -48,6 +48,15 @@
             <span class="badge bg-secondary-lt" data-query-count>0</span>
           </summary>
           <div class="admin-toolbar-panel admin-query-panel">
+            <div class="admin-query-panel-header">
+              <h3>Filter</h3>
+              <details class="admin-query-help">
+                <summary class="btn btn-sm btn-icon" aria-label="Filter help">
+                  <i class="ti ti-help-circle" aria-hidden="true"></i>
+                </summary>
+                <p>Choose a field, operator and value. Add conditions or groups to narrow this view.</p>
+              </details>
+            </div>
             {% if simple_filters %}
             <div class="admin-simple-filters">
               {% for filter in simple_filters %}
@@ -62,7 +71,7 @@
               {% endfor %}
             </div>
             {% endif %}
-            <div data-query-filters class="mt-2"></div>
+            <div data-query-filters></div>
             <div class="admin-query-panel-actions">
               <button class="btn btn-sm btn-primary" type="submit">Apply</button>
               <a href="{{ admin.list_path() }}" class="btn btn-sm">Reset</a>

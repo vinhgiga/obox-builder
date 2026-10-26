@@ -17,6 +17,12 @@
     const openPopover = activePopovers.find((popover) => popover.open);
     if (!openPopover) return;
     event.preventDefault();
+    const nested = [...openPopover.querySelectorAll("details[open]")].at(-1);
+    if (nested) {
+      nested.open = false;
+      nested.querySelector("summary")?.focus();
+      return;
+    }
     openPopover.open = false;
     openPopover.querySelector("summary").focus();
   });
@@ -24,7 +30,7 @@
   const table = document.querySelector("[data-list-table]");
   if (!toolbar || !table) return;
 
-  const popovers = [...toolbar.querySelectorAll("details")];
+  const popovers = [...toolbar.querySelectorAll(":scope > details")];
   activeToolbar = toolbar;
   activePopovers = popovers;
   const toggles = [...toolbar.querySelectorAll("[data-field-toggle]")];
@@ -108,9 +114,26 @@
       saveState();
     });
   });
+  const positionPanel = (popover) => {
+    const summary = popover.querySelector(":scope > summary");
+    const panel = popover.querySelector(":scope > .admin-toolbar-panel");
+    const bounds = toolbar.closest(".admin-list-card")?.getBoundingClientRect();
+    if (!summary || !panel || !bounds) return;
+    panel.style.maxWidth = `${Math.max(0, summary.getBoundingClientRect().right - bounds.left - 8)}px`;
+  };
+  window.addEventListener("resize", () => {
+    popovers.filter((popover) => popover.open).forEach(positionPanel);
+  });
   popovers.forEach((popover) => popover.addEventListener("toggle", () => {
-    if (popover.open) popovers.forEach((other) => {
-      if (other !== popover) other.open = false;
-    });
+    if (popover.open) {
+      positionPanel(popover);
+      popovers.forEach((other) => {
+        if (other !== popover) other.open = false;
+      });
+    } else {
+      const panel = popover.querySelector(":scope > .admin-toolbar-panel");
+      if (panel) panel.style.maxWidth = "";
+      popover.querySelectorAll("details[open]").forEach((nested) => { nested.open = false; });
+    }
   }));
 })();
