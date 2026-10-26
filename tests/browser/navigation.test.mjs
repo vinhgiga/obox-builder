@@ -364,7 +364,7 @@ for (const [engine, browserType] of Object.entries({chromium, firefox, webkit}))
       assert.equal(await page.locator(".admin-filter-heading").textContent(), "In this view, show records");
       assert.equal(await page.locator(".admin-filter-row").count(), 1);
       assert.equal(await page.locator(".admin-filter-join-label").textContent(), "Where");
-      assert.equal(await page.locator(".admin-filter-field-label").textContent(), "Name");
+      assert.equal(await page.locator('[data-query-panel="filter"] .admin-filter-field-label').textContent(), "Name");
       assert.equal(await page.getByLabel("Filter operator").inputValue(), "contains");
       assert.equal(await page.locator('[data-query-panel="filter"] [data-query-count]').textContent(), "0");
       assert.deepEqual(
@@ -372,8 +372,8 @@ for (const [engine, browserType] of Object.entries({chromium, firefox, webkit}))
         [],
       );
 
-      await page.locator(".admin-filter-field-picker > summary").click();
-      const menu = page.locator(".admin-filter-field-menu");
+      await page.locator('[data-query-panel="filter"] .admin-filter-field-picker > summary').click();
+      const menu = page.locator('[data-query-panel="filter"] .admin-filter-field-menu');
       await menu.getByRole("searchbox", {name: "Find a field"}).fill("status");
       assert.equal(await menu.getByRole("button", {name: "Status"}).isVisible(), true);
       assert.equal(await menu.getByRole("button", {name: "Name"}).isVisible(), false);
@@ -562,6 +562,139 @@ for (const [engine, browserType] of Object.entries({chromium, firefox, webkit}))
   });
 }
 
+for (const [engine, browserType] of Object.entries({chromium, firefox, webkit})) {
+  test(`${engine}: searchable sort fields, automatic and manual sorting`, async () => {
+    const browser = await browserType.launch();
+    try {
+      const page = await browser.newPage();
+      page.setDefaultTimeout(10000);
+      await login(page);
+      await page.goto(`${origin}/admin/shop/product?sort=`);
+      const panel = page.locator('[data-query-panel="sort"]');
+      const search = panel.getByRole("searchbox", {name: "Find a sort field"});
+      const open = () => panel.locator(":scope > summary").click();
+      const sorted = async (value) => {
+        await page.waitForFunction((value) => {
+          const config = JSON.parse(document.querySelector("#list-query-config").textContent);
+          return config.sort.map((term) => `${term.descending ? "-" : ""}${term.field}`).join(",") === value;
+        }, value);
+        await panel.locator(":scope > .admin-query-panel").waitFor({state: "visible"});
+      };
+      await open();
+      assert.equal(await panel.locator("h3").textContent(), "Sort by");
+      await page.waitForFunction(() => document.activeElement?.getAttribute("aria-label") === "Find a sort field");
+      assert.equal(await search.evaluate((input) => input === document.activeElement), true);
+      await search.fill("missing field");
+      assert.equal(await panel.getByRole("status").filter({hasText: "No fields found."}).isVisible(), true);
+      await search.press("Enter");
+      assert.equal(new URL(page.url()).searchParams.get("sort"), "");
+      await search.fill("  nAMe  ");
+      assert.equal(await panel.locator(".admin-sort-field-option:visible").count(), 1);
+      await panel.getByRole("button", {name: "Name", exact: true}).click();
+      await sorted("name");
+      const removeBounds = await panel.getByRole("button", {name: "Remove Name sort"}).boundingBox();
+      const gripBounds = await panel.getByRole("button", {name: "Move Name sort with Alt+Up or Alt+Down"}).boundingBox();
+      assert.ok(removeBounds.x + removeBounds.width <= gripBounds.x);
+      assert.equal(await page.locator('tbody td[data-list-column="name"]').first().textContent(), "Product 0");
+      assert.equal(await panel.locator("[data-sort-label]").textContent(), "Sorted by 1 field");
+      assert.deepEqual(await panel.getByLabel("Sort direction for Name").locator("option").allTextContents(), ["A → Z", "Z → A"]);
+      await panel.getByLabel("Sort direction for Name").selectOption("desc");
+      await sorted("-name");
+      assert.equal(await page.locator('tbody td[data-list-column="name"]').first().textContent(), "Product 9");
+      assert.equal(await page.locator('th[data-list-column="name"]').getAttribute("class"), "is-sorted");
+      const automatic = panel.getByRole("switch", {name: "Automatically sort records"});
+      await automatic.uncheck();
+      assert.equal(await page.locator('th[data-list-column="name"]').getAttribute("class"), "");
+      await panel.getByLabel("Add another sort").click();
+      const menu = panel.locator(".admin-sort-fields.admin-filter-field-menu").last();
+      await page.waitForFunction(() => document.activeElement?.getAttribute("aria-label") === "Find a sort field");
+      assert.equal(await menu.getByRole("searchbox").evaluate((input) => input === document.activeElement), true);
+      assert.equal(await menu.getByRole("button", {name: "Name", exact: true}).count(), 0);
+      await menu.getByRole("searchbox").fill("price");
+      await menu.getByRole("button", {name: "Price cents", exact: true}).click();
+      assert.equal(await page.locator('#list-query input[name="sort"]').inputValue(), "-name,price_cents");
+      assert.equal(new URL(page.url()).searchParams.get("sort"), "-name");
+      assert.deepEqual(await panel.getByLabel("Sort direction for Price cents").locator("option").allTextContents(), ["1 → 9", "9 → 1"]);
+      await panel.getByRole("button", {name: "Move Price cents sort with Alt+Up or Alt+Down"}).press("Alt+ArrowUp");
+      assert.equal(await page.locator('#list-query input[name="sort"]').inputValue(), "price_cents,-name");
+      await panel.getByRole("button", {name: "Sort", exact: true}).click();
+      await sorted("price_cents,-name");
+      assert.equal(await automatic.isChecked(), false);
+      assert.equal(await panel.locator("[data-sort-label]").textContent(), "Sorted by 2 fields");
+
+      await panel.locator('.admin-sort-row[data-sort-field="name"] summary').click();
+      const replace = panel.locator('.admin-sort-row[data-sort-field="name"] .admin-sort-fields');
+      assert.equal(await replace.getByRole("button", {name: "Price cents", exact: true}).count(), 0);
+      await page.keyboard.press("Escape");
+      assert.equal(await panel.getAttribute("open"), "");
+      assert.equal(await replace.isVisible(), false);
+      await panel.locator('.admin-sort-row[data-sort-field="name"] summary').click();
+      await replace.getByRole("searchbox").fill("status");
+      await replace.getByRole("button", {name: "Status", exact: true}).click();
+      assert.equal(await page.locator('#list-query input[name="sort"]').inputValue(), "price_cents,-status");
+      await panel.getByRole("button", {name: "Remove Price cents sort"}).click();
+      await panel.getByRole("button", {name: "Remove Status sort"}).click();
+      assert.equal(await search.first().isVisible(), true);
+      await panel.getByRole("button", {name: "Sort", exact: true}).click();
+      await sorted("");
+      assert.equal(new URL(page.url()).searchParams.get("sort"), "");
+      assert.equal(await panel.locator("[data-sort-label]").textContent(), "Sort");
+      await search.fill("active");
+      await panel.getByRole("button", {name: "Is active", exact: true}).click();
+      assert.deepEqual(await panel.getByLabel("Sort direction for Is active").locator("option").allTextContents(), ["Unchecked → Checked", "Checked → Unchecked"]);
+      await automatic.check();
+      await sorted("is_active");
+      assert.equal(await automatic.isChecked(), true);
+      await page.reload();
+      await open();
+      assert.equal(await automatic.isChecked(), true);
+    } finally {
+      await browser.close();
+    }
+  });
+}
+
+test("sort priority, field limit and viewport bounds", async () => {
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage();
+    await login(page);
+    await page.goto(`${origin}/admin/shop/product?sort=name`);
+    const panel = page.locator('[data-query-panel="sort"]');
+    await panel.locator(":scope > summary").click();
+    await panel.getByRole("switch", {name: "Automatically sort records"}).uncheck();
+    for (const name of ["Price cents", "Is active", "Created at", "Category"]) {
+      await panel.getByLabel("Add another sort").click();
+      const menu = panel.locator(".admin-sort-field-picker").last().locator(".admin-sort-fields");
+      await menu.getByRole("button", {name, exact: true}).click();
+    }
+    assert.equal(await panel.locator(".admin-sort-row").count(), 5);
+    assert.equal(await panel.getByLabel("Add another sort").count(), 0);
+    assert.deepEqual(await panel.getByLabel("Sort direction for Created at").locator("option").allTextContents(), ["Earliest → Latest", "Latest → Earliest"]);
+    await panel.locator('[data-sort-field="category_id"] .admin-sort-grip')
+      .dragTo(panel.locator('[data-sort-field="name"]'));
+    assert.equal(await page.locator('#list-query input[name="sort"]').inputValue(), "category_id,name,price_cents,is_active,created_at");
+    await panel.getByRole("button", {name: "Remove Category sort"}).click();
+    assert.equal(await panel.getByLabel("Add another sort").count(), 1);
+    await page.setViewportSize({width: 390, height: 844});
+    await page.waitForFunction(() => {
+      const menu = document.querySelector('[data-query-panel="sort"] > .admin-query-panel');
+      return menu.getBoundingClientRect().bottom <= innerHeight - 8;
+    });
+    const bounds = await panel.locator(":scope > .admin-query-panel").boundingBox();
+    assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= 390);
+    assert.equal(await panel.locator(":scope > .admin-query-panel").evaluate((menu) => menu.scrollWidth <= menu.clientWidth), true);
+    await panel.getByLabel("Add another sort").click();
+    const menu = panel.locator(".admin-sort-field-picker").last().locator(".admin-sort-fields");
+    await page.waitForFunction(() => Boolean(document.querySelector('[data-query-panel="sort"] details[open] .admin-sort-fields')?.style.inset));
+    const pickerBounds = await menu.boundingBox();
+    assert.ok(pickerBounds.x >= 0 && pickerBounds.x + pickerBounds.width <= 390);
+    assert.ok(pickerBounds.y >= 0 && pickerBounds.y + pickerBounds.height <= 844);
+  } finally {
+    await browser.close();
+  }
+});
+
 test("group picker handles unavailable fields and a fully grouped list", async () => {
   const browser = await chromium.launch();
   try {
@@ -595,6 +728,13 @@ test("group picker handles unavailable fields and a fully grouped list", async (
         assert.equal(await page.locator(".admin-group-field-option").count(), 0);
       }
       assert.equal(await page.locator('[data-query-panel="group"] button[type="submit"]').isVisible(), false);
+      await page.locator('[data-query-panel="sort"] > summary').click();
+      const sort = page.locator('[data-query-panel="sort"]');
+      if (names.includes("name")) {
+        assert.equal(await sort.getByRole("button", {name: "Name", exact: true}).isVisible(), true);
+      } else {
+        assert.equal(await sort.getByText("No fields can be sorted.").isVisible(), true);
+      }
       await page.unroute("**/admin/shop/product");
     }
   } finally {

@@ -109,14 +109,20 @@
         </details>
         <details class="admin-toolbar-popover" data-query-panel="sort">
           <summary class="btn btn-sm">
-            <i class="ti ti-arrows-sort" aria-hidden="true"></i><span>Sort</span>
-            <span class="badge bg-secondary-lt" data-query-count>0</span>
+            <i class="ti ti-arrows-sort" aria-hidden="true"></i><span data-sort-label>Sort</span>
+            <span class="d-none" data-query-count>0</span>
           </summary>
           <div class="admin-toolbar-panel admin-query-panel">
-            <div data-query-sort></div>
-            <div class="admin-query-panel-actions">
-              <button class="btn btn-sm btn-primary" type="submit">Apply</button>
+            <div class="admin-query-panel-header">
+              <h3>Sort by</h3>
+              <details class="admin-query-help">
+                <summary class="btn btn-sm btn-icon" aria-label="Sort help">
+                  <i class="ti ti-help-circle" aria-hidden="true"></i>
+                </summary>
+                <p>Sort records by one or more fields. Fields higher in the list take priority.</p>
+              </details>
             </div>
+            <div data-query-sort></div>
           </div>
         </details>
         <details class="admin-toolbar-popover" data-row-height-panel>

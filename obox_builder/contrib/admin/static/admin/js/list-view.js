@@ -13,7 +13,7 @@
     }
   });
   document.addEventListener("keydown", (event) => {
-    if (event.key !== "Escape") return;
+    if (event.key !== "Escape" || event.defaultPrevented) return;
     const openPopover = activePopovers.find((popover) => popover.open);
     if (!openPopover) return;
     event.preventDefault();
@@ -311,7 +311,7 @@
     const bounds = toolbar.closest(".admin-list-card")?.getBoundingClientRect();
     if (!summary || !panel || !bounds) return;
     panel.style.maxWidth = `${Math.max(0, summary.getBoundingClientRect().right - bounds.left - 8)}px`;
-    if (popover.dataset.queryPanel === "group") {
+    if (["group", "sort"].includes(popover.dataset.queryPanel)) {
       panel.style.maxHeight = `${Math.max(0, window.innerHeight - panel.getBoundingClientRect().top - 8)}px`;
     }
   };

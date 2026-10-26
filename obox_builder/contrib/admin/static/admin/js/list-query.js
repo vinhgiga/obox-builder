@@ -5,10 +5,17 @@
   const config = document.querySelector("#list-query-config");
   if (!form || !config) return;
   const state = JSON.parse(config.textContent);
+  const appliedSortFields = new Set(state.sort.map((term) => term.field));
   const initiallyGrouped = state.group.length > 0;
   const fields = state.fields;
   const field = (name) => fields.find((item) => item.name === name);
   const input = (name) => form.elements.namedItem(name);
+  const sortPanel = form.querySelector('[data-query-panel="sort"]');
+  const sortPreferenceKey = `admin-sort-auto:${form.action}:${input("view")?.value || ""}`;
+  let automaticSort = true;
+  try {
+    automaticSort = localStorage.getItem(sortPreferenceKey) !== "false";
+  } catch {}
   const initialField =
     fields.find((item) => item.type === "text" && item.operators.length) ||
     fields.find((item) => item.operators.length);
@@ -109,16 +116,17 @@
     const menu = picker.querySelector(".admin-filter-field-menu");
     if (!summary || !menu) return;
     const rect = summary.getBoundingClientRect();
-    const width = Math.min(360, window.innerWidth - 16);
+    const width = Math.min(picker.classList.contains("admin-sort-field-picker") ? 420 : 360, window.innerWidth - 16);
     const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8));
-    const height = Math.min(340, window.innerHeight - 16);
-    const below = window.innerHeight - rect.bottom - 12;
-    const top = below >= Math.min(height, 180)
-      ? rect.bottom + 4
-      : Math.max(8, rect.top - height - 4);
-    menu.style.inset = `${top}px auto auto ${left}px`;
+    const below = Math.max(0, window.innerHeight - rect.bottom - 12);
+    const above = Math.max(0, rect.top - 12);
+    const openBelow = below >= 180 || below >= above;
+    const height = Math.min(340, openBelow ? below : above);
     menu.style.width = `${width}px`;
     menu.style.maxHeight = `${height}px`;
+    const top = openBelow ? rect.bottom + 4
+      : Math.max(8, rect.top - menu.getBoundingClientRect().height - 4);
+    menu.style.inset = `${top}px auto auto ${left}px`;
   };
   const pickerChanged = (picker) => {
     if (picker.open) {
@@ -377,69 +385,193 @@
     box.append(actions);
     return box;
   };
-  const ordering = (kind, max) => {
-    const box = form.querySelector(`[data-query-${kind}]`);
+  const applySort = () => {
+    serialize();
+    document.body.dataset.sortMenu = form.action;
+    form.requestSubmit();
+  };
+  const sortChanged = () => {
+    render();
+    if (automaticSort) applySort();
+    else sortPanel.querySelector(".admin-sort-field-picker > summary, .admin-sort-search")?.focus();
+  };
+  const sortFields = (current, choose) => {
+    const box = element("div", "admin-sort-fields");
+    const searchRow = element("div", "admin-sort-search-row");
+    const glyph = element("i", "ti ti-search");
+    glyph.setAttribute("aria-hidden", "true");
+    const search = element("input", "form-control form-control-sm admin-sort-search");
+    search.type = "search";
+    search.placeholder = "Find a field";
+    search.setAttribute("aria-label", "Find a sort field");
+    search.autocomplete = "off";
+    const list = element("div", "admin-sort-field-list");
+    list.id = `sort-field-options-${current || "new"}`;
+    search.setAttribute("aria-controls", list.id);
+    list.setAttribute("role", "group");
+    list.setAttribute("aria-label", "Fields available for sorting");
+    fields.filter((spec) => spec.sortable &&
+      (spec.name === current || !state.sort.some((term) => term.field === spec.name))
+    ).forEach((spec) => {
+      const option = element("button", "admin-sort-field-option", spec.label);
+      option.type = "button";
+      const icon = element("i", `ti ti-${queryFieldIcon(spec)}`);
+      icon.setAttribute("aria-hidden", "true");
+      option.prepend(icon);
+      option.addEventListener("click", (event) => {
+        event.stopPropagation();
+        choose(spec.name);
+        sortChanged();
+      });
+      list.append(option);
+    });
+    const empty = element("p", "admin-group-empty", "No fields found.");
+    empty.setAttribute("role", "status");
+    const filter = () => {
+      const query = search.value.trim().toLocaleLowerCase();
+      [...list.children].forEach((option) => {
+        option.classList.toggle("d-none", !option.textContent.toLocaleLowerCase().includes(query));
+      });
+      empty.classList.toggle("d-none", [...list.children].some((option) => !option.classList.contains("d-none")));
+    };
+    search.addEventListener("input", filter);
+    search.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") event.preventDefault();
+    });
+    filter();
+    searchRow.append(glyph, search);
+    box.append(searchRow, list, empty);
+    return box;
+  };
+  const sortPicker = (label, current, choose, add = false) => {
+    const picker = element("details", "admin-filter-field-picker admin-sort-field-picker");
+    const summary = element("summary", add ? "admin-sort-add" : "admin-filter-field-trigger");
+    summary.setAttribute("aria-label", label);
+    summary.setAttribute("aria-expanded", "false");
+    if (add) {
+      const plus = element("i", "ti ti-plus");
+      plus.setAttribute("aria-hidden", "true");
+      summary.append(plus);
+    }
+    summary.append(element("span", "admin-filter-field-label", label));
+    if (!add) {
+      const chevron = element("i", "ti ti-chevron-down");
+      chevron.setAttribute("aria-hidden", "true");
+      summary.append(chevron);
+    }
+    const menu = sortFields(current, choose);
+    menu.id = `sort-field-picker-${current || "new"}`;
+    summary.setAttribute("aria-controls", menu.id);
+    menu.classList.add("admin-filter-field-menu");
+    picker.append(summary, menu);
+    picker.addEventListener("toggle", () => pickerChanged(picker));
+    return picker;
+  };
+  const sorting = () => {
+    const box = form.querySelector("[data-query-sort]");
     box.replaceChildren();
-    const terms = state[kind];
-    const available = fields.filter((item) => item.sortable);
-    terms.forEach((term, index) => {
-      const row = element("div", "d-flex flex-wrap gap-2 mb-2");
-      row.append(
-        select(
-          `${kind} field ${index + 1}`,
-          available
-            .filter(
-              (item) =>
-                item.name === term.field || !terms.some((other) => other.field === item.name),
-            )
-            .map((item) => [item.name, item.label]),
-          term.field,
-          (value) => {
-            term.field = value;
-          },
-        ),
-      );
-      row.append(
-        select(
-          `${kind} direction ${index + 1}`,
-          [
-            ["asc", "Ascending"],
-            ["desc", "Descending"],
-          ],
-          term.descending ? "desc" : "asc",
-          (value) => {
-            term.descending = value === "desc";
-          },
-        ),
-      );
-      if (index)
-        row.append(
-          button("Move up", () => {
-            [terms[index - 1], terms[index]] = [term, terms[index - 1]];
-          }),
-        );
-      if (index < terms.length - 1)
-        row.append(
-          button("Move down", () => {
-            [terms[index + 1], terms[index]] = [term, terms[index + 1]];
-          }),
-        );
-      row.append(
-        button("Remove", () => {
-          terms.splice(index, 1);
-        }),
-      );
+    const available = fields.filter((spec) => spec.sortable);
+    document.querySelectorAll("[data-list-column]").forEach((cell) => {
+      cell.classList.toggle("is-sorted", automaticSort && appliedSortFields.has(cell.dataset.listColumn));
+    });
+    sortPanel.classList.toggle("is-sorted", state.sort.length > 0);
+    sortPanel.querySelector("[data-sort-label]").textContent = state.sort.length
+      ? `Sorted by ${state.sort.length} field${state.sort.length === 1 ? "" : "s"}` : "Sort";
+    if (!state.sort.length) {
+      box.append(available.length
+        ? sortFields(null, (name) => state.sort.push({field: name, descending: false}))
+        : element("p", "admin-group-empty", "No fields can be sorted."));
+      if (automaticSort || !appliedSortFields.size) return;
+    }
+    state.sort.forEach((term, index) => {
+      const spec = field(term.field);
+      const row = element("div", "admin-sort-row");
+      row.dataset.sortField = term.field;
+      row.append(sortPicker(spec.label, term.field, (name) => { term.field = name; }));
+      const labels = ["integer", "decimal"].includes(spec.type) ? ["1 → 9", "9 → 1"]
+        : ["date", "datetime", "time"].includes(spec.type) ? ["Earliest → Latest", "Latest → Earliest"]
+          : spec.type === "checkbox" ? ["Unchecked → Checked", "Checked → Unchecked"] : ["A → Z", "Z → A"];
+      const direction = select(`Sort direction for ${spec.label}`,
+        [["asc", labels[0]], ["desc", labels[1]]], term.descending ? "desc" : "asc",
+        (value) => { term.descending = value === "desc"; });
+      direction.addEventListener("change", () => { if (automaticSort) applySort(); });
+      row.append(direction);
+      const move = (next) => {
+        if (next < 0 || next >= state.sort.length || next === index) return;
+        const [moved] = state.sort.splice(index, 1);
+        state.sort.splice(next, 0, moved);
+        sortChanged();
+        [...sortPanel.querySelectorAll("[data-sort-field]")]
+          .find((item) => item.dataset.sortField === term.field)?.querySelector(".admin-sort-grip")?.focus();
+      };
+      const grip = element("button", "admin-sort-icon admin-sort-grip");
+      grip.type = "button";
+      grip.setAttribute("aria-label", `Move ${spec.label} sort with Alt+Up or Alt+Down`);
+      grip.title = "Drag to reorder; use Alt+Up or Alt+Down";
+      const glyph = element("i", "ti ti-grip-vertical");
+      glyph.setAttribute("aria-hidden", "true");
+      grip.append(glyph);
+      grip.draggable = true;
+      grip.addEventListener("keydown", (event) => {
+        if (!event.altKey || !["ArrowUp", "ArrowDown"].includes(event.key)) return;
+        event.preventDefault();
+        move(index + (event.key === "ArrowUp" ? -1 : 1));
+      });
+      grip.addEventListener("dragstart", (event) => {
+        event.dataTransfer.setData("text/plain", term.field);
+        event.dataTransfer.effectAllowed = "move";
+      });
+      row.addEventListener("dragover", (event) => event.preventDefault());
+      row.addEventListener("drop", (event) => {
+        event.preventDefault();
+        const from = state.sort.findIndex((item) => item.field === event.dataTransfer.getData("text/plain"));
+        if (from < 0 || from === index) return;
+        const [moved] = state.sort.splice(from, 1);
+        state.sort.splice(index, 0, moved);
+        sortChanged();
+      });
+      const remove = element("button", "admin-sort-icon");
+      remove.type = "button";
+      remove.setAttribute("aria-label", `Remove ${spec.label} sort`);
+      const cross = element("i", "ti ti-x");
+      cross.setAttribute("aria-hidden", "true");
+      remove.append(cross);
+      remove.addEventListener("click", (event) => {
+        event.stopPropagation();
+        state.sort.splice(index, 1);
+        sortChanged();
+      });
+      row.append(remove, grip);
       box.append(row);
     });
-    const next = available.find((item) => !terms.some((term) => term.field === item.name));
-    if (terms.length < max && next)
-      box.append(
-        button(`Add ${kind}`, () => {
-          terms.push({ field: next.name, descending: false });
-        }),
-      );
+    if (state.sort.length && state.sort.length < 5 && available.some((spec) => !state.sort.some((term) => term.field === spec.name))) {
+      box.append(sortPicker("Add another sort", null,
+        (name) => state.sort.push({field: name, descending: false}), true));
+    }
+    const footer = element("div", "admin-sort-footer");
+    const label = element("label", "form-check form-switch mb-0");
+    const automatic = element("input", "form-check-input");
+    automatic.type = "checkbox";
+    automatic.setAttribute("role", "switch");
+    automatic.checked = automaticSort;
+    automatic.addEventListener("change", () => {
+      automaticSort = automatic.checked;
+      try { localStorage.setItem(sortPreferenceKey, String(automaticSort)); } catch {}
+      sorting();
+      if (automaticSort) applySort();
+      else sortPanel.querySelector('[role="switch"]')?.focus();
+    });
+    label.append(automatic, element("span", "form-check-label", "Automatically sort records"));
+    footer.append(label);
+    if (!automaticSort) {
+      const apply = element("button", "btn btn-sm btn-primary", "Sort");
+      apply.type = "button";
+      apply.addEventListener("click", applySort);
+      footer.append(apply);
+    }
+    box.append(footer);
   };
-  const groupFieldIcon = (spec) =>
+  const queryFieldIcon = (spec) =>
     spec.choices.length || spec.type === "single_select"
       ? "circle-chevron-down"
       : spec.name.endsWith("_id")
@@ -470,7 +602,7 @@
         const spec = field(term.field);
         if (!spec) return;
         const row = element("div", "admin-group-selected-row");
-        const glyph = element("i", `ti ti-${groupFieldIcon(spec)}`);
+        const glyph = element("i", `ti ti-${queryFieldIcon(spec)}`);
         glyph.setAttribute("aria-hidden", "true");
         row.append(glyph, element("span", "admin-group-selected-label", spec.label));
         row.append(
@@ -514,7 +646,7 @@
       const option = element("button", "admin-group-field-option", spec.label);
       option.type = "button";
       option.disabled = state.group.length >= 3;
-      const glyph = element("i", `ti ti-${groupFieldIcon(spec)}`);
+      const glyph = element("i", `ti ti-${queryFieldIcon(spec)}`);
       glyph.setAttribute("aria-hidden", "true");
       option.prepend(glyph);
       option.addEventListener("click", (event) => {
@@ -604,7 +736,7 @@
         state[kind].length;
     }
     form.querySelector("[data-query-filters]").replaceChildren(group(state.filter, 1));
-    ordering("sort", 5);
+    sorting();
     grouping();
     serialize();
   };
@@ -614,6 +746,16 @@
     grouping();
   });
   render();
+  sortPanel.addEventListener("toggle", () => {
+    if (sortPanel.open && !state.sort.length) sortPanel.querySelector(".admin-sort-search")?.focus();
+  });
+  if (document.body.dataset.sortMenu === form.action) {
+    delete document.body.dataset.sortMenu;
+    sortPanel.open = true;
+    requestAnimationFrame(() => sortPanel.querySelector(".admin-sort-field-picker > summary, .admin-sort-search")?.focus());
+  } else {
+    delete document.body.dataset.sortMenu;
+  }
   form.querySelectorAll(".admin-simple-filters select").forEach((select) => {
     select.addEventListener("change", render);
   });

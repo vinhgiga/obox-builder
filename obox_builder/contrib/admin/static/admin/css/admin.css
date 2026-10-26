@@ -321,7 +321,8 @@ mark {
   font-size: 0.875rem;
 }
 
-.admin-toolbar-popover[data-query-panel="group"] > .admin-query-panel {
+.admin-toolbar-popover[data-query-panel="group"] > .admin-query-panel,
+.admin-toolbar-popover[data-query-panel="sort"] > .admin-query-panel {
   width: min(20rem, calc(100vw - 2rem));
   padding: 0.875rem 1.125rem;
   font-size: 0.875rem;
@@ -331,7 +332,8 @@ mark {
   width: min(24rem, calc(100vw - 2rem));
 }
 
-.admin-toolbar-popover[data-query-panel="group"] .admin-query-help > summary {
+.admin-toolbar-popover[data-query-panel="group"] .admin-query-help > summary,
+.admin-toolbar-popover[data-query-panel="sort"] .admin-query-help > summary {
   width: 1.25rem;
   min-width: 0;
   min-height: 1.25rem;
@@ -597,31 +599,37 @@ mark {
   font-size: 0.875rem;
 }
 
-.admin-group-field-list {
+.admin-group-field-list,
+.admin-sort-field-list {
   display: flex;
   flex-direction: column;
   max-height: min(18rem, 40vh);
   overflow-y: auto;
 }
 
-.admin-group-search-row {
+.admin-group-search-row,
+.admin-sort-search-row {
   display: flex;
   align-items: center;
   gap: 0.7rem;
   margin: 0.75rem 0 0.4rem;
 }
 
-.admin-group-search-row > .ti {
+.admin-group-search-row > .ti,
+.admin-sort-search-row > .ti {
   flex: 0 0 1rem;
   color: var(--tblr-secondary, #626976);
 }
 
-.admin-group-search-row:focus-within > .ti {
+.admin-group-search-row:focus-within > .ti,
+.admin-sort-search-row:focus-within > .ti {
   color: var(--tblr-primary, #066fd1);
 }
 
 .admin-group-search,
-.admin-group-search:focus {
+.admin-group-search:focus,
+.admin-sort-search,
+.admin-sort-search:focus {
   min-width: 0;
   padding-inline: 0;
   border: 0;
@@ -631,7 +639,8 @@ mark {
   font-size: inherit;
 }
 
-.admin-group-field-option {
+.admin-group-field-option,
+.admin-sort-field-option {
   display: flex;
   align-items: center;
   gap: 0.7rem;
@@ -646,17 +655,20 @@ mark {
 }
 
 .admin-group-field-option:hover:not(:disabled),
+.admin-sort-field-option:hover,
 .admin-group-see-all:hover {
   background: var(--tblr-bg-surface-secondary, #f2f4f7);
 }
 
 .admin-group-field-option > .ti,
+.admin-sort-field-option > .ti,
 .admin-group-see-all > .ti {
   flex: 0 0 1rem;
   color: var(--tblr-secondary, #626976);
 }
 
 .admin-group-field-option:focus-visible,
+.admin-sort-field-option:focus-visible,
 .admin-group-see-all:focus-visible {
   outline: 2px solid var(--tblr-primary, #066fd1);
   outline-offset: -2px;
@@ -718,6 +730,79 @@ mark {
   margin: 0.5rem 0;
   color: var(--tblr-secondary, #626976);
   font-size: 0.875rem;
+}
+
+.admin-toolbar-popover[data-query-panel="sort"].is-sorted > .admin-query-panel {
+  width: min(28rem, calc(100vw - 2rem));
+}
+
+.admin-toolbar-popover[data-query-panel="sort"].is-sorted > summary,
+.admin-list-table-scroll [data-list-column].is-sorted {
+  background: var(--tblr-orange-lt, #fff4ed);
+  color: var(--tblr-body-color, #182433);
+}
+
+.admin-sort-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0.65fr) 1.25rem 1.25rem;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.admin-sort-row > .form-select {
+  width: 100% !important;
+  min-width: 0;
+  height: 2.125rem;
+  padding: 0.25rem 1.5rem 0.25rem 0.5rem;
+  font-size: inherit;
+}
+
+.admin-sort-icon {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--tblr-secondary, #626976);
+}
+
+.admin-sort-grip {
+  cursor: grab;
+}
+
+.admin-sort-field-picker > .admin-sort-add,
+.admin-sort-field-picker[open] > .admin-sort-add {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  padding-block: 0.5rem;
+  padding-inline: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--tblr-secondary, #626976);
+  cursor: pointer;
+  list-style: none;
+}
+
+.admin-sort-fields.admin-filter-field-menu {
+  overflow: hidden;
+}
+
+.admin-sort-search-row {
+  flex-shrink: 0;
+}
+
+.admin-sort-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.75rem -1.125rem -0.875rem;
+  padding: 0.75rem 1.125rem;
+  border-top: 1px solid var(--tblr-border-color, #e6e7e9);
+  background: var(--tblr-bg-surface-secondary, #f6f8fb);
 }
 
 .admin-query-panel-actions {
