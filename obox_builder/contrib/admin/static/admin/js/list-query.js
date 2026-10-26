@@ -5,6 +5,7 @@
   const config = document.querySelector("#list-query-config");
   if (!form || !config) return;
   const state = JSON.parse(config.textContent);
+  const initiallyGrouped = state.group.length > 0;
   const fields = state.fields;
   const field = (name) => fields.find((item) => item.name === name);
   const input = (name) => form.elements.namedItem(name);
@@ -25,6 +26,7 @@
   let nextTermId = 0;
   let activePicker = null;
   let showAllGroupFields = false;
+  let groupFieldSearch = "";
   const element = (tag, className, text) => {
     const node = document.createElement(tag);
     if (className) node.className = className;
@@ -451,11 +453,16 @@
     const preferred = available.filter(
       (item) =>
         item.choices.length ||
-        ["single_select", "checkbox", "date", "datetime"].includes(item.type),
+        item.type === "single_select" ||
+        item.name.endsWith("_id"),
     );
-    const suggestions = [...new Set([...preferred, ...available])].slice(0, 4);
-    const subtitle = element("p", "admin-group-subtitle", "Pick a field to group by");
-    box.append(subtitle);
+    const secondary = available.filter(
+      (item) => ["checkbox", "date", "datetime"].includes(item.type),
+    );
+    const suggestions = [...new Set([...preferred, ...secondary, ...available])].slice(0, 4);
+    if (!showAllGroupFields) {
+      box.append(element("p", "admin-group-subtitle", "Pick a field to group by"));
+    }
 
     if (state.group.length) {
       box.append(element("p", "admin-group-selected-heading", "Grouped by"));
@@ -496,10 +503,11 @@
       });
     }
 
-    const visible = available.filter(
-      (spec) => !selected.has(spec.name) && (showAllGroupFields || suggestions.includes(spec)),
+    const visible = (showAllGroupFields ? available : suggestions).filter(
+      (spec) => !selected.has(spec.name),
     );
     const list = element("div", "admin-group-field-list");
+    list.id = "group-field-options";
     list.setAttribute("role", "group");
     list.setAttribute("aria-label", "Fields available for grouping");
     visible.forEach((spec) => {
@@ -514,28 +522,69 @@
         if (state.group.length >= 3 || selected.has(spec.name)) return;
         state.group.push({ field: spec.name, descending: false });
         render();
+        form.querySelectorAll(".admin-group-selected-row select")[state.group.length - 1]?.focus();
       });
       list.append(option);
     });
-    if (visible.length) box.append(list);
-    else if (!available.length) box.append(element("p", "admin-group-empty", "No fields can be grouped."));
+    box.append(list);
+    if (showAllGroupFields) {
+      const searchRow = element("div", "admin-group-search-row");
+      const searchIcon = element("i", "ti ti-search");
+      searchIcon.setAttribute("aria-hidden", "true");
+      const search = element("input", "form-control form-control-sm admin-group-search");
+      search.type = "search";
+      search.placeholder = "Find a field";
+      search.setAttribute("aria-label", "Find a grouping field");
+      search.setAttribute("aria-controls", list.id);
+      search.autocomplete = "off";
+      search.value = groupFieldSearch;
+      const empty = element("p", "admin-group-empty d-none", "No fields found.");
+      empty.setAttribute("role", "status");
+      const filterFields = () => {
+        groupFieldSearch = search.value;
+        const query = groupFieldSearch.trim().toLocaleLowerCase();
+        const options = [...list.children];
+        options.forEach((option) => {
+          option.classList.toggle("d-none", !option.textContent.toLocaleLowerCase().includes(query));
+        });
+        empty.classList.toggle("d-none", options.some((option) => !option.classList.contains("d-none")));
+      };
+      search.addEventListener("input", filterFields);
+      search.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") event.preventDefault();
+      });
+      searchRow.append(searchIcon, search);
+      box.prepend(searchRow);
+      list.after(empty);
+      filterFields();
+    }
+    if (!available.length) box.append(element("p", "admin-group-empty", "No fields can be grouped."));
     else if (state.group.length >= 3) {
       box.append(element("p", "admin-group-empty", "You can group by up to 3 fields."));
-    } else if (showAllGroupFields) {
+    } else if (available.every((spec) => selected.has(spec.name))) {
       box.append(element("p", "admin-group-empty", "All available fields are grouped."));
     }
 
     const hasMore = available.some((spec) => !suggestions.includes(spec));
     if (hasMore) {
-      const toggle = button("", () => {
+      const toggle = element("button", "admin-group-see-all");
+      toggle.type = "button";
+      toggle.setAttribute("aria-expanded", String(showAllGroupFields));
+      toggle.setAttribute("aria-controls", list.id);
+      toggle.addEventListener("click", (event) => {
+        event.stopPropagation();
         showAllGroupFields = !showAllGroupFields;
+        groupFieldSearch = "";
+        grouping();
+        box.querySelector(showAllGroupFields ? ".admin-group-search" : ".admin-group-see-all")?.focus();
       });
-      toggle.classList.add("admin-group-see-all");
       const glyph = element("i", `ti ti-chevron-${showAllGroupFields ? "up" : "down"}`);
       glyph.setAttribute("aria-hidden", "true");
       toggle.append(glyph, element("span", "", showAllGroupFields ? "Show fewer fields" : "See all fields"));
       box.append(toggle);
     }
+    form.querySelector('[data-query-panel="group"] .admin-query-panel-actions')
+      .classList.toggle("d-none", !state.group.length && !initiallyGrouped);
   };
   const conditionCount = (node) =>
     node.children.reduce(
@@ -559,6 +608,11 @@
     grouping();
     serialize();
   };
+  form.querySelector('[data-query-panel="group"]').addEventListener("toggle", () => {
+    showAllGroupFields = false;
+    groupFieldSearch = "";
+    grouping();
+  });
   render();
   form.querySelectorAll(".admin-simple-filters select").forEach((select) => {
     select.addEventListener("change", render);

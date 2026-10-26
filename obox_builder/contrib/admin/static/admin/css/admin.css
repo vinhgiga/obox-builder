@@ -321,6 +321,27 @@ mark {
   font-size: 0.875rem;
 }
 
+.admin-toolbar-popover[data-query-panel="group"] > .admin-query-panel {
+  width: min(20rem, calc(100vw - 2rem));
+  padding: 0.875rem 1.125rem;
+  font-size: 0.875rem;
+}
+
+.admin-toolbar-popover[data-query-panel="group"] > .admin-query-panel:has(.admin-group-selected-row) {
+  width: min(24rem, calc(100vw - 2rem));
+}
+
+.admin-toolbar-popover[data-query-panel="group"] .admin-query-help > summary {
+  width: 1.25rem;
+  min-width: 0;
+  min-height: 1.25rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--tblr-secondary, #626976);
+}
+
 .admin-query-panel-header {
   display: flex;
   align-items: center;
@@ -568,7 +589,7 @@ mark {
 .admin-group-selected-heading {
   margin: 0.75rem 0 0.4rem;
   color: var(--tblr-secondary, #626976);
-  font-weight: 500;
+  font-weight: 400;
 }
 
 .admin-group-selected-heading {
@@ -579,14 +600,44 @@ mark {
 .admin-group-field-list {
   display: flex;
   flex-direction: column;
+  max-height: min(18rem, 40vh);
+  overflow-y: auto;
+}
+
+.admin-group-search-row {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  margin: 0.75rem 0 0.4rem;
+}
+
+.admin-group-search-row > .ti {
+  flex: 0 0 1rem;
+  color: var(--tblr-secondary, #626976);
+}
+
+.admin-group-search-row:focus-within > .ti {
+  color: var(--tblr-primary, #066fd1);
+}
+
+.admin-group-search,
+.admin-group-search:focus {
+  min-width: 0;
+  padding-inline: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  outline: 0;
+  font-size: inherit;
 }
 
 .admin-group-field-option {
   display: flex;
   align-items: center;
   gap: 0.7rem;
-  min-height: 2.65rem;
-  padding: 0.4rem 0.25rem;
+  flex-shrink: 0;
+  min-height: 2rem;
+  padding: 0.3rem 0.25rem;
   border: 0;
   border-radius: var(--tblr-border-radius, 4px);
   background: transparent;
@@ -594,8 +645,21 @@ mark {
   text-align: left;
 }
 
-.admin-group-field-option:hover:not(:disabled) {
+.admin-group-field-option:hover:not(:disabled),
+.admin-group-see-all:hover {
   background: var(--tblr-bg-surface-secondary, #f2f4f7);
+}
+
+.admin-group-field-option > .ti,
+.admin-group-see-all > .ti {
+  flex: 0 0 1rem;
+  color: var(--tblr-secondary, #626976);
+}
+
+.admin-group-field-option:focus-visible,
+.admin-group-see-all:focus-visible {
+  outline: 2px solid var(--tblr-primary, #066fd1);
+  outline-offset: -2px;
 }
 
 .admin-group-field-option:disabled {
@@ -621,11 +685,18 @@ mark {
 
 .admin-group-selected-row > .form-select {
   width: auto;
-  min-width: 8rem;
+  min-width: 0;
+  padding: 0.25rem 1.5rem 0.25rem 0.5rem;
+  font-size: inherit;
 }
 
 .admin-group-icon-button {
   flex: 0 0 auto;
+  min-height: 1.75rem;
+  padding: 0.2rem;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .admin-group-see-all {
@@ -633,7 +704,7 @@ mark {
   align-items: center;
   gap: 0.6rem;
   width: 100%;
-  min-height: 2.75rem;
+  min-height: 2.25rem;
   margin-top: 0.45rem;
   padding: 0.4rem 0.25rem;
   border: 0;

@@ -311,6 +311,9 @@
     const bounds = toolbar.closest(".admin-list-card")?.getBoundingClientRect();
     if (!summary || !panel || !bounds) return;
     panel.style.maxWidth = `${Math.max(0, summary.getBoundingClientRect().right - bounds.left - 8)}px`;
+    if (popover.dataset.queryPanel === "group") {
+      panel.style.maxHeight = `${Math.max(0, window.innerHeight - panel.getBoundingClientRect().top - 8)}px`;
+    }
   };
   window.addEventListener("resize", () => {
     popovers.filter((popover) => popover.open).forEach(positionPanel);
@@ -327,7 +330,10 @@
         });
       } else {
         const panel = popover.querySelector(":scope > .admin-toolbar-panel");
-        if (panel) panel.style.maxWidth = "";
+        if (panel) {
+          panel.style.maxWidth = "";
+          panel.style.maxHeight = "";
+        }
         popover.querySelectorAll("details[open]").forEach((nested) => { nested.open = false; });
       }
     });

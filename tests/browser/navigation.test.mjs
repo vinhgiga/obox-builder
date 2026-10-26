@@ -430,23 +430,108 @@ for (const [engine, browserType] of Object.entries({chromium, firefox, webkit}))
           panelLeft: panel.left,
           panelRight: panel.right,
           panelTop: panel.top,
+          panelWidth: panel.width,
+          panelHeight: panel.height,
+          panelScrollHeight: panel.scrollHeight,
+          panelClientHeight: panel.clientHeight,
+          helpWidth: popover.querySelector(".admin-query-help > summary").getBoundingClientRect().width,
           boundsLeft: bounds.left,
         };
       });
       assert.ok(Math.abs(groupPanelRect.panelRight - groupPanelRect.triggerRight) < 1);
       assert.ok(groupPanelRect.panelTop >= groupPanelRect.triggerBottom);
       assert.ok(groupPanelRect.panelLeft >= groupPanelRect.boundsLeft);
+      assert.ok(groupPanelRect.panelWidth <= 320);
+      assert.ok(groupPanelRect.panelHeight < 310);
+      assert.equal(groupPanelRect.panelScrollHeight, groupPanelRect.panelClientHeight);
+      assert.ok(groupPanelRect.helpWidth <= 24);
       assert.equal(await page.getByText("Pick a field to group by").count(), 1);
-      assert.equal(await page.getByRole("button", {name: "Status"}).isVisible(), true);
+      assert.deepEqual(await page.locator(".admin-group-field-option").allTextContents(), [
+        "Status", "Category", "Is active", "Created at",
+      ]);
+      assert.equal(await page.getByRole("button", {name: "Name"}).isVisible(), false);
+      const apply = page.locator('[data-query-panel="group"] .admin-query-panel-actions button[type="submit"]');
+      assert.equal(await apply.isVisible(), false);
+
+      const seeAll = page.getByRole("button", {name: "See all fields"});
+      const groupSearch = page.getByRole("searchbox", {name: "Find a grouping field"});
+      assert.equal(await groupSearch.count(), 0);
+      assert.equal(await seeAll.getAttribute("aria-expanded"), "false");
+      await seeAll.focus();
+      await page.keyboard.press("Enter");
+      const showFewer = page.getByRole("button", {name: "Show fewer fields"});
+      assert.equal(await showFewer.getAttribute("aria-expanded"), "true");
+      assert.equal(await page.getByText("Pick a field to group by").count(), 0);
+      assert.equal(await groupSearch.evaluate((search) => search === document.activeElement), true);
+      assert.deepEqual(await groupSearch.evaluate((search) => {
+        const style = getComputedStyle(search);
+        return [style.borderTopWidth, style.outlineStyle, style.boxShadow];
+      }), ["0px", "none", "none"]);
+      assert.equal(await groupSearch.evaluate((search) =>
+        search.closest("[data-query-group]").firstElementChild.contains(search)), true);
+      assert.equal(await page.getByRole("button", {name: "Name"}).isVisible(), true);
+      await groupSearch.fill("  nAMe  ");
+      assert.equal(await page.locator(".admin-group-field-option:visible").count(), 1);
+      assert.equal(await page.getByRole("button", {name: "Name", exact: true}).isVisible(), true);
+      await groupSearch.fill("no matching field");
+      assert.equal(await page.getByRole("status").filter({hasText: "No fields found."}).isVisible(), true);
+      assert.equal(await page.locator(".admin-group-field-option:visible").count(), 0);
+      await groupSearch.press("Enter");
+      assert.equal(new URL(page.url()).search, "");
+      await groupSearch.fill("");
+      assert.equal(await page.locator(".admin-group-field-option:visible").count(), 8);
+      await showFewer.focus();
+      await page.keyboard.press("Enter");
+      assert.equal(await seeAll.evaluate((button) => button === document.activeElement), true);
+      assert.equal(await groupSearch.count(), 0);
+      assert.equal(await page.getByText("Pick a field to group by").isVisible(), true);
       assert.equal(await page.getByRole("button", {name: "Name"}).isVisible(), false);
 
       await page.getByRole("button", {name: "Status"}).click();
       assert.equal(await page.locator('#list-query input[name="group"]').inputValue(), "status");
+      assert.equal(await apply.isVisible(), true);
+      for (const closeWith of ["trigger", "escape", "outside", "other-panel"]) {
+        await seeAll.click();
+        assert.equal(await groupSearch.inputValue(), "");
+        assert.equal(await groupSearch.evaluate((search) => search === document.activeElement), true);
+        assert.equal(await page.getByText("Pick a field to group by").count(), 0);
+        await groupSearch.fill("name");
+        if (closeWith === "trigger") await page.locator('[data-query-panel="group"] > summary').click();
+        else if (closeWith === "escape") await page.keyboard.press("Escape");
+        else if (closeWith === "outside") await page.locator(".page-title").click();
+        else await page.locator('[data-query-panel="sort"] > summary').click();
+        await page.waitForFunction(() => !document.querySelector('[data-query-panel="group"]').open);
+        await page.locator('[data-query-panel="group"] > summary').click();
+        await page.waitForFunction(() => document.querySelector(".admin-group-see-all")?.getAttribute("aria-expanded") === "false");
+        assert.equal(await groupSearch.count(), 0);
+        assert.equal(await page.getByText("Pick a field to group by").isVisible(), true);
+        assert.equal(await page.getByRole("button", {name: "Name", exact: true}).isVisible(), false);
+        assert.equal(await page.locator('#list-query input[name="group"]').inputValue(), "status");
+      }
       await page.getByRole("button", {name: "See all fields"}).click();
       assert.equal(await page.getByRole("button", {name: "Name"}).isVisible(), true);
+      await groupSearch.fill("name");
       await page.getByRole("button", {name: "Name"}).click();
+      assert.equal(await groupSearch.inputValue(), "name");
+      assert.equal(await page.getByRole("status").filter({hasText: "No fields found."}).isVisible(), true);
+      await groupSearch.fill("");
       await page.getByLabel("Group direction for Name").selectOption("desc");
       assert.equal(await page.locator('#list-query input[name="group"]').inputValue(), "status,-name");
+
+      await page.getByRole("button", {name: "Is active", exact: true}).click();
+      assert.equal(await page.locator(".admin-group-field-option:enabled").count(), 0);
+      assert.equal(await page.getByText("You can group by up to 3 fields.").isVisible(), true);
+      await page.setViewportSize({width: 390, height: 844});
+      await page.waitForFunction(() => {
+        const panel = document.querySelector('[data-query-panel="group"] > .admin-query-panel');
+        return panel.getBoundingClientRect().bottom <= innerHeight - 8;
+      });
+      assert.equal(await page.locator('[data-query-panel="group"] > .admin-query-panel')
+        .evaluate((panel) => panel.scrollWidth <= panel.clientWidth), true);
+      await page.setViewportSize({width: 1280, height: 720});
+      await page.getByRole("button", {name: "Move Is active group up"}).click();
+      assert.equal(await page.locator('#list-query input[name="group"]').inputValue(), "status,is_active,-name");
+      await page.getByRole("button", {name: "Remove Is active grouping"}).click();
 
       await page.getByRole("button", {name: "Remove Status grouping"}).click();
       assert.equal(await page.locator('#list-query input[name="group"]').inputValue(), "-name");
@@ -455,11 +540,67 @@ for (const [engine, browserType] of Object.entries({chromium, firefox, webkit}))
       await page.waitForFunction(() => JSON.parse(document.querySelector("#list-query-config").textContent).group.length === 1);
       assert.ok(await page.locator('[data-group-header="1"]').count() > 0);
       assert.match(await page.locator('[data-group-header="1"]').first().textContent(), /Name:/);
+
+      await page.locator('[data-query-panel="group"] > summary').click();
+      await page.getByRole("button", {name: "Remove Name grouping"}).click();
+      assert.equal(await apply.isVisible(), true);
+      await apply.click();
+      await page.waitForFunction(() => JSON.parse(document.querySelector("#list-query-config").textContent).group.length === 0);
+      assert.equal(await page.locator('[data-group-header]').count(), 0);
+
+      await page.setViewportSize({width: 390, height: 844});
+      await page.locator('[data-query-panel="group"] > summary').click();
+      await page.getByRole("button", {name: "See all fields"}).click();
+      const mobilePanel = await page.locator('[data-query-panel="group"] > .admin-query-panel').boundingBox();
+      assert.ok(mobilePanel.x >= 0 && mobilePanel.x + mobilePanel.width <= 390);
+      assert.ok(mobilePanel.y + mobilePanel.height <= 844);
+      await page.keyboard.press("Escape");
+      assert.equal(await page.locator('[data-query-panel="group"]').getAttribute("open"), null);
     } finally {
       await browser.close();
     }
   });
 }
+
+test("group picker handles unavailable fields and a fully grouped list", async () => {
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage();
+    await login(page);
+    for (const names of [[], ["meta"], ["name"]]) {
+      await page.route("**/admin/shop/product", async (route) => {
+        const response = await route.fetch();
+        const body = (await response.text()).replace(
+          /(<script[^>]*id="list-query-config"[^>]*>)([\s\S]*?)(<\/script>)/,
+          (_, start, json, end) => {
+            const config = JSON.parse(json);
+            config.fields = config.fields.filter((field) => names.includes(field.name));
+            config.sort = [];
+            return start + JSON.stringify(config) + end;
+          },
+        );
+        await route.fulfill({response, body});
+      });
+      await page.goto(`${origin}/admin/shop/product`);
+      await page.locator('[data-query-panel="group"] > summary').click();
+      assert.equal(await page.getByRole("button", {name: "See all fields"}).count(), 0);
+      if (names.includes("name")) {
+        assert.deepEqual(await page.locator(".admin-group-field-option").allTextContents(), ["Name"]);
+        await page.getByRole("button", {name: "Name", exact: true}).click();
+        assert.equal(await page.getByText("All available fields are grouped.").isVisible(), true);
+        await page.getByRole("button", {name: "Remove Name grouping"}).click();
+        assert.equal(await page.getByRole("button", {name: "Name", exact: true}).isVisible(), true);
+      } else {
+        assert.equal(await page.getByText("No fields can be grouped.").isVisible(), true);
+        assert.equal(await page.locator(".admin-group-field-option").count(), 0);
+      }
+      assert.equal(await page.locator('[data-query-panel="group"] button[type="submit"]').isVisible(), false);
+      await page.unroute("**/admin/shop/product");
+    }
+  } finally {
+    await browser.close();
+  }
+});
 
 test("navigation, child forms and deletion work with JavaScript disabled", async () => {
   const browser = await chromium.launch();
