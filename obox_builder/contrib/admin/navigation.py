@@ -16,15 +16,20 @@ class PermissionHolder(Protocol):
 
 @dataclass(frozen=True)
 class NavItem:
-    """A single sidebar link; hidden unless ``required_perm`` is held."""
+    """A sidebar link requiring its primary permission or one of its alternatives."""
 
     label: str
     url: str
     icon: str = ""
     required_perm: str | None = None
+    alternative_perms: tuple[str, ...] = ()
 
     def is_visible(self, user: PermissionHolder) -> bool:
-        return self.required_perm is None or user.has_perm(self.required_perm)
+        return (
+            self.required_perm is None
+            or user.has_perm(self.required_perm)
+            or any(user.has_perm(perm) for perm in self.alternative_perms)
+        )
 
 
 @dataclass(frozen=True)

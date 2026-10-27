@@ -135,6 +135,8 @@ class ModelAdmin:
     fields: ClassVar[Sequence[str] | None] = None
     fieldsets: ClassVar[Sequence[tuple[str | None, Mapping[str, Any]]] | None] = None
     readonly_fields: ClassVar[Sequence[str | Callable[..., Any]]] = ()
+    save_as: ClassVar[bool] = False
+    save_as_continue: ClassVar[bool] = True
     exclude: ClassVar[Sequence[str]] = ()
     fields_config: ClassVar[Mapping[str, FieldConfig]] = {}
     verbose_name: ClassVar[str] = ""
@@ -245,7 +247,10 @@ class ModelAdmin:
         return f"{self.app_label}.{self.permission_codename(action)}"
 
     def has_view_permission(self, ctx: AdminContext, obj: Any = None) -> bool:
-        return bool(ctx.user.has_perm(self.permission_name("view")))
+        return bool(
+            ctx.user.has_perm(self.permission_name("view"))
+            or ctx.user.has_perm(self.permission_name("change"))
+        )
 
     def has_add_permission(self, ctx: AdminContext) -> bool:
         return bool(ctx.user.has_perm(self.permission_name("add")))
@@ -855,7 +860,15 @@ class ModelAdmin:
         destination = self.list_path()
         if action == "add_another" and self.has_add_permission(ctx):
             destination = self.add_path()
-        elif action == "continue" and self.has_view_permission(ctx, obj):
+        elif (
+            action == "continue"
+            and self.has_view_permission(ctx, obj)
+            or (
+                action == "save_as_new"
+                and self.save_as_continue
+                and self.has_change_permission(ctx, obj)
+            )
+        ):
             destination = self.change_path(self.get_pk(obj))
         return RedirectResponse(destination, status_code=303)
 

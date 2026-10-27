@@ -806,6 +806,8 @@ async def _render_form(
         inline_formsets=inline_forms,
         can_add=admin.has_add_permission(ctx),
         can_continue=admin.has_view_permission(ctx, target),
+        can_delete=not is_add and admin.has_delete_permission(ctx, target),
+        delete_url=admin.delete_path(admin.get_pk(target)) if not is_add else None,
         is_add=is_add,
         action=admin.add_path() if is_add else admin.change_path(admin.get_pk(target)),
         title=f"{'New' if is_add else 'View' if readonly else 'Edit'} {admin.name.lower()}",
