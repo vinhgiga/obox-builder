@@ -83,6 +83,7 @@ class BaseSettings(PydanticBaseSettings):
     LOGIN_MAX_ATTEMPTS: int = 5
     LOGIN_LOCKOUT_SECONDS: int = 900
     PASSWORD_MIN_LENGTH: int = 8
+    PASSWORD_MIN_UNIQUE_CHARACTERS: int = Field(default=3, ge=1)
     SUPERUSER_PASSWORD: SecretStr | None = None
     HISTORY_ENABLED: bool = True
     #: ``closed`` fails the transaction when history cannot be written;
