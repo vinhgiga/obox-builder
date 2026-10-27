@@ -86,7 +86,7 @@ async def use(
         _CONTEXT.reset(token)
 
 
-def bind(db: Any, request: Any) -> None:
+def bind(db: Any, request: Any, *, source: str = "admin_ui") -> None:
     """Attach a late-bound context resolver to a session.
 
     Called from router dependencies that run *before* authentication: the
@@ -94,12 +94,12 @@ def bind(db: Any, request: Any) -> None:
     """
 
     def resolve() -> HistoryContext:
-        return from_request(request)
+        return from_request(request, source=source)
 
     db.info[CTX_KEY] = resolve
 
 
-def from_request(request: Any) -> HistoryContext:
+def from_request(request: Any, *, source: str = "admin_ui") -> HistoryContext:
     """Build a context from the request state (user, session, request id)."""
     user = getattr(request.state, "user", None)
     actor_id: int | None = None
@@ -107,11 +107,14 @@ def from_request(request: Any) -> HistoryContext:
     if user is not None and getattr(user, "id", None) is not None:
         actor_id = int(user.id)
         actor_label = str(getattr(user, "username", "") or user)
+        api_token = getattr(request.state, "api_token", None)
+        if api_token is not None:
+            actor_label = f"{actor_label[:120]} via {api_token.token_prefix}"
     auth_session = getattr(request.state, "auth_session", None)
     return HistoryContext(
         actor_id=actor_id,
         actor_label=actor_label,
-        source="admin_ui",
+        source=source,
         request_id=sanitize_request_id(getattr(request.state, "request_id", None)),
         ip=_client_ip(request),
         user_agent=_truncate(getattr(auth_session, "user_agent", None), 255),

@@ -67,6 +67,9 @@ def main() -> None:
         run_async(seed())
         application = create_app()
         application.include_router(site.get_router(), prefix="/admin")
+        application.include_router(site.get_router(), prefix="/vi/admin")
+        application.state.i18n_patterns_used = True
+        application.state.i18n_prefix_default_language = False
         uvicorn.run(application, host="127.0.0.1", port=port)
 
 

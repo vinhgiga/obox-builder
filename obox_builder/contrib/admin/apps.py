@@ -13,6 +13,11 @@ class AdminConfig(AppConfig):
 
         site.navigation = default_navigation()
         site.autodiscover()
+        from obox_builder.contrib.admin.token_admin import ApiTokenAdmin
+        from obox_builder.contrib.auth.models import ApiToken
+
+        if site.get_model_admin_for(ApiToken) is None:
+            site.register(ApiToken, ApiTokenAdmin)
         if not apps.is_installed("obox_builder.contrib.history"):
             return
         from obox_builder.contrib.admin.navigation import NavGroup, NavItem

@@ -39,6 +39,8 @@ async def test_full_pages_and_navigation_fragments(
         "HX-Request-Type",
         "HX-History-Restore-Request",
         "HX-Preloaded",
+        "Accept-Language",
+        "Cookie",
     }
 
 

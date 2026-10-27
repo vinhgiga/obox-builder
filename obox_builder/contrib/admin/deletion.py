@@ -18,6 +18,7 @@ from obox_builder.contrib.admin.context import AdminContext
 from obox_builder.contrib.admin.options import ModelAdmin
 from obox_builder.contrib.admin.rendering import render
 from obox_builder.contrib.admin.views.common import csrf_token_for, page_context
+from obox_builder.contrib.auth.tokens import scope_allows
 
 MAX_OBJECTS = 1000
 CONFIRM_SECONDS = 900
@@ -138,10 +139,24 @@ async def collect_deletion(
                 .where(admin.pk_column() == pk)
                 .order_by(None)
             )
-            visible = scoped is not None and admin.has_view_permission(model_ctx, obj)
+            scopes = ctx.extra.get("api_scopes")
+            visible = (
+                scoped is not None
+                and admin.has_view_permission(model_ctx, obj)
+                and (scopes is None or scope_allows(scopes, admin.model_label, "read"))
+            )
             text = str(obj)
             label = (f"#{pk}" if text.startswith("<") else text) if visible else "Restricted record"
             permission = "delete" if action == "delete" else "change"
+            scopes = ctx.extra.get("api_scopes")
+            if (
+                scopes is not None
+                and action in {"delete", "update"}
+                and not scope_allows(
+                    scopes, admin.model_label, "delete" if action == "delete" else "write"
+                )
+            ):
+                plan.permissions.add(f"{permission} {admin.plural_name.lower()}")
             if action in {"delete", "update"} and (
                 scoped is None or not getattr(admin, f"has_{permission}_permission")(model_ctx, obj)
             ):

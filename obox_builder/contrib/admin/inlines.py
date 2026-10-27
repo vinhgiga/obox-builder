@@ -16,6 +16,7 @@ from obox_builder.forms import BoundForm, render_values
 
 
 class InlineModelAdmin(ModelAdmin):
+    api_name: ClassVar[str | None] = None
     fk_name: ClassVar[str | None] = None
     extra: ClassVar[int] = 3
     min_num: ClassVar[int] = 0
@@ -175,6 +176,7 @@ class InlineFormSet:
             )
             await self.inline.save_model(ctx, obj, row.bound, change=row.obj is not None)
             await self.inline.save_related(ctx, obj, row.bound, change=row.obj is not None)
+            row.obj = obj
         await self.ctx.db.flush()
 
     def initial(self, ctx: AdminContext) -> dict[str, Any]:

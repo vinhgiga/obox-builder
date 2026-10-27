@@ -54,6 +54,7 @@ class ActionSpec:
     description: str
     permissions: tuple[str, ...]
     func: Callable[[AdminContext, sa.Select[Any]], Awaitable[Any]]
+    api: bool = False
 
 
 @dataclass(frozen=True)
@@ -119,6 +120,7 @@ class ModelAdmin:
     so the mental model carries over.
     """
 
+    api_enabled: bool = False
     model: type[Any]
 
     list_display: ClassVar[Sequence[str | Callable[..., Any]]] = ()
@@ -253,13 +255,19 @@ class ModelAdmin:
         )
 
     def has_add_permission(self, ctx: AdminContext) -> bool:
-        return bool(ctx.user.has_perm(self.permission_name("add")))
+        return self._has_write_permission(ctx, "add")
 
     def has_change_permission(self, ctx: AdminContext, obj: Any = None) -> bool:
-        return bool(ctx.user.has_perm(self.permission_name("change")))
+        return self._has_write_permission(ctx, "change")
 
     def has_delete_permission(self, ctx: AdminContext, obj: Any = None) -> bool:
-        return bool(ctx.user.has_perm(self.permission_name("delete")))
+        return self._has_write_permission(ctx, "delete")
+
+    def _has_write_permission(self, ctx: AdminContext, action: str) -> bool:
+        # Account writes must use the dedicated administration policy and password helpers.
+        return self.model_label not in {"auth.user", "auth.role", "auth.permission"} and bool(
+            ctx.user.has_perm(self.permission_name(action))
+        )
 
     def check_permission(self, ctx: AdminContext, action: str, obj: Any = None) -> None:
         checker = getattr(self, f"has_{action}_permission")
@@ -313,7 +321,12 @@ class ModelAdmin:
         stmt: sa.Select[Any] = sa.select(self.model)
         for spec in self.get_field_specs():
             relationship = spec.options.get("relationship")
-            if spec.type.name in {"link", "multi_link"} and relationship:
+            if (
+                spec.type.name in {"link", "multi_link"}
+                and relationship
+                and (spec.type.name == "multi_link" or not (ctx and ctx.extra.get("api")))
+                and not (ctx and ctx.extra.get("api_labels"))
+            ):
                 stmt = stmt.options(selectinload(getattr(self.model, str(relationship))))
         return stmt
 
@@ -379,6 +392,10 @@ class ModelAdmin:
     def get_extra_form_fields(self, ctx: AdminContext) -> Sequence[FieldSpec]:
         """Return validated form-only fields; override for request-specific fields."""
         return self.extra_form_fields
+
+    def get_api_urls(self) -> Sequence[AdminRoute]:
+        """Additional JSON routes, relative to this model's API namespace."""
+        return ()
 
     def get_urls(self) -> Sequence[AdminRoute]:
         """Return extra FastAPI routes under this model's admin URL.
@@ -695,6 +712,7 @@ class ModelAdmin:
             description=description,
             permissions=permissions,
             func=func,
+            api=bool(getattr(method, "api_enabled", False)),
         )
 
     def _action_allowed(self, spec: ActionSpec, ctx: AdminContext, obj: Any = None) -> bool:

@@ -38,6 +38,9 @@ class Json(FieldType):
     def annotation(self, spec: FieldSpec) -> Any:
         return Any
 
+    def from_api(self, raw: Any, spec: FieldSpec) -> Any:
+        return raw
+
     def from_input(self, raw: Any, spec: FieldSpec) -> Any:
         if raw is None or (isinstance(raw, str) and not raw.strip()):
             return None

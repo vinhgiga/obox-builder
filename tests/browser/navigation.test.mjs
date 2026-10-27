@@ -57,6 +57,31 @@ async function ready(page, title) {
   assert.equal(await page.evaluate(() => window.documentMarker), "same-document");
 }
 
+test("localized lists keep their language when scrolling and loading summaries", async () => {
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage({reducedMotion: "reduce"});
+    const requests = [];
+    const errors = [];
+    page.on("pageerror", (error) => errors.push(error.stack));
+    page.on("request", (request) => {
+      if (request.headers()["x-admin-rows"] || new URL(request.url()).pathname.endsWith("/summary")) requests.push(request);
+    });
+    await login(page);
+    await page.goto(`${origin}/vi/admin/shop/product?size=20`);
+    await page.waitForFunction(() => Boolean(document.querySelector("[data-list-table]")?.adminList));
+    await page.locator("[data-list-table]").evaluate((element) => { element.scrollTop = element.scrollHeight; });
+    await page.waitForFunction(() => document.querySelector("[data-list-table]").adminList.rows.length >= 40);
+    await page.locator('[data-summary-field="name"] > summary').click();
+    await page.locator('[data-summary-field="name"] [data-summary-operation="filled"]').click();
+    await page.waitForFunction(() => document.querySelector('[data-summary-field="name"] [data-summary-value]').textContent === "Filled 70");
+    assert.ok(requests.length >= 2);
+    assert.ok(requests.every((request) => new URL(request.url()).pathname.startsWith("/vi/admin/")));
+    assert.equal(await page.locator("html").getAttribute("lang"), "vi");
+    assert.deepEqual(errors, []);
+  } finally { await browser.close(); }
+});
+
 for (const [engine, browserType] of Object.entries({chromium, firefox, webkit})) {
   test(`${engine}: column summaries follow field types, filters and column layout`, async () => {
     const browser = await browserType.launch();

@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from copy import copy
 from dataclasses import dataclass, field
 from typing import Any
 
 import sqlalchemy as sa
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ValidationError, create_model
 
 from obox_builder.fields.base import FieldSpec, RecordContext
 
@@ -36,11 +37,26 @@ class BoundForm:
         data: Mapping[str, Any],
         *,
         base: RecordContext | None = None,
+        partial: bool = False,
+        api: bool = False,
     ) -> BoundForm:
         base = base or RecordContext()
+        existing: dict[str, Any] = {}
+        if partial and base.obj is not None:
+            for spec in specs:
+                if not spec.is_editable():
+                    continue
+                attr = str(spec.options.get("value_attr") or spec.name)
+                if spec.type.name == "link" and spec.column is not None:
+                    attr = str(spec.column.key)
+                value = getattr(base.obj, attr, None)
+                if spec.type.name == "multi_link":
+                    key = sa.inspect(spec.options["target"]).primary_key[0].key
+                    value = [getattr(item, key) for item in value or []]
+                existing[spec.name] = value
         ctx = RecordContext(
             obj=base.obj,
-            values=dict(data),
+            values=existing | dict(data),
             user=base.user,
             extra=base.extra,
         )
@@ -48,6 +64,10 @@ class BoundForm:
         payload: dict[str, Any] = {}
         for spec in specs:
             if not spec.is_editable():
+                continue
+            if partial and spec.name not in data:
+                continue
+            if api and spec.name not in data and not spec.required and spec.required_if is None:
                 continue
             if (
                 spec.type.name == "multi_link"
@@ -58,7 +78,12 @@ class BoundForm:
                 continue
             if spec.editable_if is not None and not spec.editable_if(ctx):
                 continue
-            value = spec.type.from_input(data.get(spec.name), spec)
+            raw = data.get(spec.name)
+            value = (
+                (None if api and raw is None else spec.type.from_api(raw, spec))
+                if api
+                else spec.type.from_input(raw, spec)
+            )
             required = spec.required or (
                 spec.required_if is not None and bool(spec.required_if(ctx))
             )
@@ -70,15 +95,27 @@ class BoundForm:
                 bound.errors.setdefault(spec.name, []).append(message)
                 continue
             payload[spec.name] = value
+        validation_data = existing | payload
+        if partial:
+            overrides: dict[str, Any] = {}
+            for name, info in schema.model_fields.items():
+                if name not in validation_data and info.is_required():
+                    optional = copy(info)
+                    optional.default = None
+                    overrides[name] = (info.annotation, optional)
+            if overrides:
+                schema = create_model(f"{schema.__name__}Partial", __base__=schema, **overrides)
         try:
-            parsed = schema.model_validate(payload)
+            parsed = schema.model_validate(validation_data)
         except ValidationError as exc:
             _collect_pydantic_errors(bound, exc)
             return bound
         bound.parsed = parsed
-        if ctx.values != payload:
-            ctx = RecordContext(obj=ctx.obj, values=payload, user=ctx.user, extra=ctx.extra)
+        if ctx.values != validation_data:
+            ctx = RecordContext(obj=ctx.obj, values=validation_data, user=ctx.user, extra=ctx.extra)
         for spec in specs:
+            if partial and spec.name not in data:
+                continue
             if spec.valid_if is None or spec.name in bound.errors:
                 continue
             message = spec.valid_if(getattr(parsed, spec.name, None), ctx)

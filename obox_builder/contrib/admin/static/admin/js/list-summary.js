@@ -64,7 +64,7 @@
       requests.set(field, controller);
       menu.setAttribute("aria-busy", "true");
       output.textContent = "Loading…";
-      const url = new URL(`${viewport.dataset.listKey}/summary`, location.origin);
+      const url = new URL(window.localizeAdminURL(`${viewport.dataset.listKey}/summary`), location.origin);
       url.search = location.search;
       url.searchParams.delete("page");
       url.searchParams.set("field", field);

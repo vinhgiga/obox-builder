@@ -19,7 +19,7 @@ from obox_builder.contrib.admin.views.history import (
     model_timeline_available,
     timeline_context,
 )
-from obox_builder.contrib.auth import services
+from obox_builder.contrib.auth import administration, services
 from obox_builder.contrib.auth.dependencies import permission_required
 from obox_builder.contrib.auth.models import (
     USER_ADD_PERMISSION,
@@ -31,6 +31,7 @@ from obox_builder.contrib.auth.models import (
 )
 from obox_builder.contrib.auth.validators import PasswordValidationError
 from obox_builder.contrib.history import HISTORY_VIEW_PERMISSION
+from obox_builder.core.exceptions import PermissionDenied
 from obox_builder.db.session import get_db
 from obox_builder.http.shortcuts import redirect
 
@@ -64,17 +65,6 @@ async def _history_for(db: AsyncSession, user: User, target: User) -> dict[str, 
 
 async def _all_roles(db: AsyncSession) -> list[Role]:
     return list(await db.scalars(select(Role).order_by(Role.name)))
-
-
-async def _active_superuser_count(db: AsyncSession, *, excluding: User | None = None) -> int:
-    query = (
-        select(func.count())
-        .select_from(User)
-        .where(User.is_superuser.is_(True), User.is_active.is_(True))
-    )
-    if excluding is not None:
-        query = query.where(User.id != excluding.id)
-    return await db.scalar(query) or 0
 
 
 def _user_form_context(user: User | None, roles: list[Role], **extra: object) -> dict[str, object]:
@@ -155,6 +145,12 @@ async def user_create_submit(
     await ensure_csrf(request, csrf_token)
     roles = await _all_roles(db)
     errors: list[str] = []
+    selected = []
+    try:
+        selected = await administration.selected_roles(db, user, role_ids)
+    except ValueError as exc:
+        errors.append(str(exc))
+    await administration.check_user(db, user, None, active=is_active, superuser=is_superuser)
     if not password:
         errors.append("A password is required.")
     elif password != confirm_password:
@@ -163,19 +159,19 @@ async def user_create_submit(
         errors.append("Only a superuser can create another superuser.")
     if not errors:
         try:
-            target = await services.create_user(
-                db,
-                username,
-                password or None,
-                email=email,
-                full_name=full_name,
-                is_superuser=is_superuser and user.is_superuser,
-                is_active=is_active,
-            )
+            async with db.begin_nested():
+                target = await services.create_user(
+                    db,
+                    username,
+                    password or None,
+                    email=email,
+                    full_name=full_name,
+                    is_superuser=is_superuser and user.is_superuser,
+                    is_active=is_active,
+                )
         except (ValueError, PasswordValidationError) as exc:
             errors = getattr(exc, "errors", None) or [str(exc)]
         else:
-            selected = [role for role in roles if role.id in set(role_ids)]
             if selected:
                 await db.refresh(target, ["roles"])
                 target.roles = selected
@@ -264,26 +260,36 @@ async def user_edit_submit(
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     await ensure_csrf(request, csrf_token)
+    await administration.lock_superusers(db)
     target = await db.scalar(
-        select(User).where(User.id == user_id).options(selectinload(User.roles))
+        select(User)
+        .where(User.id == user_id)
+        .options(selectinload(User.roles).selectinload(Role.permissions))
+        .with_for_update()
     )
     if target is None:
         return render(request, "admin/errors/404.html", {}, status_code=404)
     roles = await _all_roles(db)
     errors: list[str] = []
+    selected = []
+    try:
+        selected = await administration.selected_roles(db, user, role_ids)
+    except ValueError as exc:
+        errors.append(str(exc))
+    try:
+        await administration.check_user(db, user, target, active=is_active, superuser=is_superuser)
+    except PermissionDenied as exc:
+        errors.append(str(exc))
 
     if is_superuser != target.is_superuser and not user.is_superuser:
         errors.append("Only a superuser can change the superuser flag.")
-    wants_superuser = target.is_superuser if not user.is_superuser else is_superuser
-    if (
-        target.is_superuser
-        and (not wants_superuser or not is_active)
-        and await _active_superuser_count(db, excluding=target) == 0
-    ):
-        errors.append("The last active superuser cannot be demoted or deactivated.")
     if password and password != confirm_password:
         errors.append("The two password fields do not match.")
 
+    if password:
+        from obox_builder.contrib.auth.validators import validate_password
+
+        errors.extend(validate_password(password, username=target.username))
     if not errors:
         target.email = services.normalize_email(email)
         target.full_name = full_name.strip()
@@ -296,7 +302,6 @@ async def user_edit_submit(
             except PasswordValidationError as exc:
                 errors = exc.errors
         if not errors:
-            selected = [role for role in roles if role.id in set(role_ids)]
             target.roles = selected
             if not target.is_active:
                 from obox_builder.contrib.auth import sessions as auth_sessions

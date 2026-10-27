@@ -7,13 +7,14 @@ the template search path or the configured context processors change.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from fastapi import Request
 from jinja2 import Environment
 from starlette.responses import HTMLResponse
 
 from obox_builder.conf import settings
+from obox_builder.contrib.i18n.translations import gettext, ngettext, npgettext, pgettext
 from obox_builder.templating.filters import filesizeformat, format_datetime, querystring
 from obox_builder.templating.loaders import AppDirectoriesLoader, collect_template_dirs
 from obox_builder.utils import import_string
@@ -45,6 +46,10 @@ def get_environment() -> Environment:
             loader=AppDirectoriesLoader(search_paths),
             autoescape=True,
             auto_reload=settings.DEBUG,
+            extensions=["jinja2.ext.i18n"],
+        )
+        cast(Any, environment).install_gettext_callables(
+            gettext, ngettext, newstyle=True, pgettext=pgettext, npgettext=npgettext
         )
         environment.filters["format_datetime"] = format_datetime
         environment.filters["filesizeformat"] = filesizeformat

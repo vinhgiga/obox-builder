@@ -10,8 +10,10 @@ from pydantic_settings import BaseSettings as PydanticBaseSettings
 from pydantic_settings import SettingsConfigDict
 
 from obox_builder.conf.logging import default_logging_config
+from obox_builder.utils.locale import normalize_language_tag
 
 DEFAULT_MIDDLEWARE = [
+    "obox_builder.contrib.i18n.middleware.LocaleMiddleware",
     "obox_builder.core.middleware.request_id.RequestIDMiddleware",
     "obox_builder.core.middleware.security_headers.SecurityHeadersMiddleware",
 ]
@@ -38,7 +40,11 @@ class BaseSettings(PydanticBaseSettings):
     #: remains the URL for ``default`` unless ``DATABASES["default"]`` overrides it.
     DATABASES: dict[str, str] = Field(default_factory=dict)
     DATABASE_ROUTERS: list[str] = Field(default_factory=list)
-    LANGUAGE_CODE: Literal["en", "vi"] = "en"
+    LANGUAGE_CODE: str = "en"
+    LANGUAGES: tuple[tuple[str, str], ...] = (("en", "English"), ("vi", "Tiếng Việt"))
+    LANGUAGE_COOKIE_NAME: str = "obox_language"
+    LANGUAGE_COOKIE_AGE: int = Field(default=365 * 24 * 60 * 60, ge=0)
+    LOCALE_PATHS: list[Path] = Field(default_factory=list)
     MEDIA_ROOT: Path = Path("media")
     STORAGE_BACKEND: str = "obox_builder.core.storage.FileSystemStorage"
     CACHE_BACKEND: str = "obox_builder.core.cache.MemoryCache"
@@ -47,6 +53,16 @@ class BaseSettings(PydanticBaseSettings):
     CACHE_DEFAULT_TIMEOUT: int = Field(default=300, ge=0)
     ADMIN_MAX_UPLOAD_BYTES: int = Field(default=10 * 1024 * 1024, ge=1, le=50 * 1024 * 1024)
     ADMIN_SMOOTH_NAVIGATION: bool = True
+    ADMIN_API_MAX_BATCH: int = Field(default=50, ge=1, le=200)
+    ADMIN_API_MAX_BODY_BYTES: int = Field(default=1024 * 1024, ge=1)
+    ADMIN_API_REQUIRE_IF_MATCH: bool = True
+    ADMIN_API_RATE_LIMIT: int = Field(default=300, ge=1)
+    ADMIN_API_LOGIN_RATE_LIMIT: int = Field(default=10, ge=1)
+    ADMIN_API_TRUSTED_ORIGINS: list[str] = Field(default_factory=list)
+    ADMIN_API_QUERY_TIMEOUT_MS: int = Field(default=5000, ge=1)
+    ADMIN_API_IDEMPOTENCY_TTL_SECONDS: int = Field(default=86400, ge=1)
+    ADMIN_API_TOKEN_MAX_AGE_DAYS: int = Field(default=90, ge=1)
+    ADMIN_API_UPLOAD_TTL_SECONDS: int = Field(default=3600, ge=60)
     #: Use ICU Vietnamese ordering for admin text sort/group; None uses the database default.
     ADMIN_TEXT_COLLATION: Literal["vi"] | None = None
     INSTALLED_APPS: list[str] = Field(default_factory=list)
@@ -267,6 +283,28 @@ class BaseSettings(PydanticBaseSettings):
             if info.field_name == "SECURE_HSTS_PRELOAD" and hsts_seconds < 31_536_000:
                 raise ValueError("SECURE_HSTS_PRELOAD requires at least one year of HSTS")
         return value
+
+    @field_validator("LANGUAGE_CODE")
+    @classmethod
+    def normalize_language_code(cls, value: str) -> str:
+        return normalize_language_tag(value)
+
+    @field_validator("LANGUAGES")
+    @classmethod
+    def validate_languages(cls, value: tuple[tuple[str, str], ...]) -> tuple[tuple[str, str], ...]:
+        if not value:
+            raise ValueError("LANGUAGES must contain at least one language.")
+        normalized: list[tuple[str, str]] = []
+        seen: set[str] = set()
+        for code, label in value:
+            language = normalize_language_tag(code)
+            if language in seen:
+                raise ValueError(f"LANGUAGES contains duplicate language code {language!r}.")
+            if not label.strip():
+                raise ValueError("LANGUAGES labels must not be blank.")
+            seen.add(language)
+            normalized.append((language, label.strip()))
+        return tuple(normalized)
 
     @field_validator("INSTALLED_APPS")
     @classmethod

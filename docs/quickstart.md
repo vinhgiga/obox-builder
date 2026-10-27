@@ -89,6 +89,33 @@ routers = [router, (admin_site.get_router(), "/admin")]
 `obox_builder.contrib.admin`, and points `DATABASE_URL` at a local SQLite
 file, so the admin works out of the box.
 
+### Language preferences
+
+The scaffold defaults to English and Vietnamese. `LocaleMiddleware` checks a
+language URL prefix when routes use `i18n_patterns()`, then the language cookie,
+the browser's `Accept-Language` header, and finally `LANGUAGE_CODE`. Set
+`LANGUAGES` to control which languages can be selected.
+
+To localize public routes and keep the default language's existing URLs, wrap
+their router in `i18n_patterns()`:
+
+```python
+from obox_builder.contrib.i18n import i18n_patterns
+from obox_builder.http.i18n import router as i18n_router
+
+routers = [
+    i18n_patterns(router, prefix_default_language=False),
+    i18n_router,
+    (admin_site.get_router(), "/admin"),
+]
+```
+
+This serves the default language at `/` and Vietnamese at `/vi/`. Leaving the
+default prefix enabled (the default) serves `/en/` and `/vi/` instead.
+With the default prefix disabled, unprefixed routes use `LANGUAGE_CODE`; URL
+prefixes still select their own language regardless of cookie or browser
+preference.
+
 ## 5. Create the database
 
 ```shell

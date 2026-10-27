@@ -12,7 +12,10 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from datetime import date, datetime, time, timezone
+from decimal import Decimal
 from typing import Any, ClassVar
+from uuid import UUID
 
 from sqlalchemy import String
 from sqlalchemy.sql.elements import ColumnElement
@@ -132,6 +135,32 @@ class FieldType(ABC):
     def from_partial_input(self, raw: Any, spec: FieldSpec) -> Any:
         """Normalise a partial filter value without changing its meaning."""
         return self.from_input(raw, spec)
+
+    def from_api(self, raw: Any, spec: FieldSpec) -> Any:
+        """Decode a JSON value; custom types may override this boundary."""
+        return self.from_input(raw, spec)
+
+    def to_api(self, value: Any, spec: FieldSpec) -> Any:
+        """Encode scalar values without losing decimal or integer precision."""
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            return (
+                value.replace(tzinfo=value.tzinfo or timezone.utc)
+                .astimezone(timezone.utc)
+                .isoformat()
+                .replace("+00:00", "Z")
+            )
+        if isinstance(value, (date, time)):
+            return value.isoformat()
+        if isinstance(value, (Decimal, UUID)) or self.name == "link" or spec.primary_key:
+            return str(value)
+        if spec.column is not None:
+            from sqlalchemy import BigInteger
+
+            if isinstance(spec.column.type, BigInteger):
+                return str(value)
+        return self.diff_repr(value)
 
     def validate(self, value: Any, spec: FieldSpec) -> str | None:
         """Type-level validation that runs before Pydantic; return an error."""

@@ -29,6 +29,9 @@ class Checkbox(FieldType):
             return None if spec.nullable and not spec.required else False
         return str(raw).strip().lower() in _TRUE
 
+    def from_api(self, raw: Any, spec: FieldSpec) -> Any:
+        return raw
+
     def to_input(self, value: Any, spec: FieldSpec) -> str:
         return "true" if value else ""
 

@@ -110,7 +110,7 @@ async def validate_model_uniqueness(
     mapper = sa.inspect(model)
     for columns, nulls_not_distinct in unique_column_sets(model):
         names = tuple(_attribute_for_column(model, column) for column in columns)
-        if not set(names) <= _form_fields(bound, overrides):
+        if not set(names) & _form_fields(bound, overrides):
             continue
         values = _candidate_values(model, obj, bound, overrides, columns)
         candidate = tuple(values[name] for name in names)

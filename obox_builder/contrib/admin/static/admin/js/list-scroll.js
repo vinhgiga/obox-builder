@@ -121,7 +121,7 @@
       viewport.setAttribute("aria-busy", "true");
       status.textContent = "Loading records…";
       try {
-        const response = await fetch(nextURL, {
+        const response = await fetch(window.localizeAdminURL(nextURL), {
           headers: {"X-Admin-Rows": "true"}, signal: controller.signal,
         });
         if (!response.ok) throw new Error("Load failed");

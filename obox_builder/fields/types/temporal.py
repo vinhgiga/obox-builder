@@ -7,12 +7,13 @@ from typing import Any
 
 from obox_builder.fields.base import Cell, FieldSpec, FieldType
 from obox_builder.fields.types.text import EQ, GT, GTE, IN, ISNULL, LT, LTE, NE
+from obox_builder.utils.locale import get_active_locale
 
 
 def _locale_format(value: dt.date | dt.datetime, pattern: str) -> str:
     from obox_builder.conf import settings
 
-    if settings.LANGUAGE_CODE == "vi":
+    if get_active_locale(settings.LANGUAGE_CODE) == "vi":
         pattern = pattern.replace("%Y-%m-%d", "%d/%m/%Y")
     return value.strftime(pattern)
 

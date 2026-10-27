@@ -11,7 +11,7 @@
     <div class="collapse navbar-collapse" id="admin-sidebar">
       <ul class="navbar-nav pt-lg-3">
         {% for group in nav_groups %}
-          <li class="nav-item"><span class="nav-link text-uppercase text-secondary small">{{ group.label }}</span></li>
+          <li class="nav-item"><span class="nav-link text-uppercase text-secondary small">{{ _(group.label) }}</span></li>
           {% for item in group.items %}
             {% set is_active = current_path == item.url or (item.url != '/admin/' and current_path.startswith(item.url)) %}
             <li class="nav-item {{ 'active' if is_active }}">
@@ -19,7 +19,7 @@
                 <span class="nav-link-icon d-md-none d-lg-inline-block">
                   {% if item.icon %}<i class="ti {{ item.icon }}"></i>{% endif %}
                 </span>
-                <span class="nav-link-title">{{ item.label }}</span>
+                <span class="nav-link-title">{{ _(item.label) }}</span>
               </a>
             </li>
           {% endfor %}

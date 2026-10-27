@@ -1,0 +1,10 @@
+<form method="post" action="/i18n/set-language" class="d-flex align-items-center me-3 flex-shrink-0">
+  <input type="hidden" name="next" value="{{ current_path or '/' }}"/>
+  <label class="visually-hidden" for="admin-language">{{ _("Language") }}</label>
+  <select id="admin-language" name="language" class="form-select form-select-sm w-auto flex-shrink-0"
+          aria-label="{{ _('Language') }}" onchange="this.form.requestSubmit()">
+    {% for code, label in available_languages %}
+    <option value="{{ code }}"{% if code == language_code %} selected{% endif %}>{{ label }}</option>
+    {% endfor %}
+  </select>
+</form>

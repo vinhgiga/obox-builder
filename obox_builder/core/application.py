@@ -17,6 +17,7 @@ from starlette.responses import Response
 
 from obox_builder import __version__
 from obox_builder.conf import settings
+from obox_builder.contrib.i18n.urls import I18nPatterns
 from obox_builder.core.exceptions import ImproperlyConfigured, NotAuthenticated, PermissionDenied
 from obox_builder.utils import import_string
 
@@ -125,7 +126,7 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
         await db.dispose()
 
 
-def _iter_routers(root_urlconf: str) -> Iterator[tuple[APIRouter, str]]:
+def _iter_routers(root_urlconf: str) -> Iterator[tuple[APIRouter, str] | I18nPatterns]:
     if not root_urlconf:
         return
     try:
@@ -138,7 +139,9 @@ def _iter_routers(root_urlconf: str) -> Iterator[tuple[APIRouter, str]]:
     if entries is None:
         raise ImproperlyConfigured(f"ROOT_URLCONF {root_urlconf!r} must define a 'routers' list.")
     for entry in entries:
-        if isinstance(entry, APIRouter):
+        if isinstance(entry, I18nPatterns):
+            yield entry
+        elif isinstance(entry, APIRouter):
             yield entry, ""
         elif (
             isinstance(entry, tuple)
@@ -150,7 +153,7 @@ def _iter_routers(root_urlconf: str) -> Iterator[tuple[APIRouter, str]]:
         else:
             raise ImproperlyConfigured(
                 f"ROOT_URLCONF {root_urlconf!r} entries must be APIRouter instances "
-                "or (APIRouter, prefix) tuples."
+                "(APIRouter, prefix) tuples, or i18n_patterns() results."
             )
 
 
@@ -178,18 +181,39 @@ def create_app() -> FastAPI:
     application.add_exception_handler(IntegrityError, integrity_error_handler)
     if config.SECURE_SSL_REDIRECT:
         application.add_middleware(HTTPSRedirectMiddleware)
-    for entry in config.MIDDLEWARE:
-        middleware = import_string(entry)
+    for middleware_path in config.MIDDLEWARE:
+        middleware = import_string(middleware_path)
         if not inspect.isclass(middleware):
-            raise ImproperlyConfigured(f"MIDDLEWARE entry {entry!r} must point to a class.")
+            raise ImproperlyConfigured(
+                f"MIDDLEWARE entry {middleware_path!r} must point to a class."
+            )
         application.add_middleware(cast("Any", middleware))
     application.add_middleware(
         TrustedHostMiddleware,
         allowed_hosts=config.ALLOWED_HOSTS,
         www_redirect=False,
     )
-    for router, prefix in _iter_routers(config.ROOT_URLCONF):
-        application.include_router(router, prefix=prefix)
+    prefix_default_language: bool | None = None
+    for router_entry in _iter_routers(config.ROOT_URLCONF):
+        if isinstance(router_entry, I18nPatterns):
+            if (
+                prefix_default_language is not None
+                and prefix_default_language != router_entry.prefix_default_language
+            ):
+                raise ImproperlyConfigured(
+                    "All i18n_patterns() groups in a root URLconf must use the same "
+                    "prefix_default_language value."
+                )
+            prefix_default_language = router_entry.prefix_default_language
+            application.state.i18n_patterns_used = True
+            application.state.i18n_prefix_default_language = prefix_default_language
+            for router, prefix in router_entry.iter_router_prefixes(
+                config.LANGUAGES, config.LANGUAGE_CODE
+            ):
+                application.include_router(router, prefix=prefix)
+        else:
+            router, prefix = router_entry
+            application.include_router(router, prefix=prefix)
     _mount_static(application)
     return application
 

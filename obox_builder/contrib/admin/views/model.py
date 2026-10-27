@@ -33,15 +33,14 @@ from obox_builder.contrib.admin.list_query import (
 )
 from obox_builder.contrib.admin.models import SavedView
 from obox_builder.contrib.admin.options import AdminRoute, ModelAdmin
-from obox_builder.contrib.admin.relations import build_cells, relation_choices, validate_relations
+from obox_builder.contrib.admin.relations import build_cells, relation_choices
 from obox_builder.contrib.admin.rendering import render
+from obox_builder.contrib.admin.services import RecordService
 from obox_builder.contrib.admin.site import AdminSite
 from obox_builder.contrib.admin.summaries import summary_choices
 from obox_builder.contrib.admin.uniqueness import validate_model_uniqueness
 from obox_builder.contrib.admin.uploads import (
-    discard_uploads,
     open_upload,
-    persist_uploads,
     stage_uploads,
 )
 from obox_builder.contrib.admin.views.common import (
@@ -319,9 +318,9 @@ def _register_one(router: APIRouter, site: AdminSite, admin: ModelAdmin) -> None
 
 
 def _register_custom_routes(
-    router: APIRouter, site: AdminSite, admin: ModelAdmin, base: str
+    router: APIRouter, site: AdminSite, admin: ModelAdmin, base: str, *, api: bool = False
 ) -> None:
-    routes = admin.get_urls()
+    routes = admin.get_api_urls() if api else admin.get_urls()
     names: set[str] = set()
     paths: set[str] = set()
     for custom in routes:
@@ -338,6 +337,17 @@ def _register_custom_routes(
         ):
             raise ImproperlyConfigured("Admin routes need a safe relative path and a valid name.")
         path = custom.path.strip("/")
+        if api and path.split("/", 1)[0] in {
+            "schema",
+            "records",
+            "records:query",
+            "records:delete",
+            "records:upsert",
+            "options",
+            "actions",
+            "views",
+        }:
+            raise ImproperlyConfigured("Custom API routes cannot replace built-in resources.")
         if any(not part for part in path.split("/")):
             raise ImproperlyConfigured("Admin route paths cannot contain empty segments.")
         if path in paths or custom.name in names:
@@ -355,14 +365,19 @@ def _register_custom_routes(
             raise ImproperlyConfigured("Admin route permissions must be strings or None.")
         route = custom
 
-        admin_context = _admin_route_context(site, admin, route.permission)
+        if api:
+            from obox_builder.contrib.admin.api.custom import api_route_context
+
+            admin_context = api_route_context(admin, route.permission)
+        else:
+            admin_context = _admin_route_context(site, admin, route.permission)
 
         endpoint = _inject_admin_context(custom.endpoint, admin_context)
         router.add_api_route(
             f"{base}/{path}",
             endpoint,
             methods=list(methods),
-            name=f"{admin.route_prefix}_{custom.name}",
+            name=f"{'api_' if api else ''}{admin.route_prefix}_{custom.name}",
             dependencies=[Depends(admin_context)],
         )
 
@@ -843,31 +858,13 @@ async def _create(ctx: AdminContext) -> Response:
     specs = admin.get_form_fields(ctx)
     data, staged_uploads, upload_errors = await stage_uploads(data, specs)
     schema = admin.get_form(ctx)
-    bound = BoundForm.bind(specs, schema, data, base=ctx.record_context())
-    bound.errors.update(upload_errors)
-    if bound.is_valid:
-        await validate_relations(ctx, bound)
-    if bound.is_valid:
-        await validate_model_uniqueness(ctx, admin.model, bound)
+    bound = await RecordService(ctx).bind(data, specs=specs, schema=schema, errors=upload_errors)
     formsets = await load_inlines(ctx, None, data)
     if not bound.is_valid or not all(formset.is_valid for formset in formsets):
         return await _render_form(
             ctx, values=_values_from_data(data, specs), errors=bound.errors, formsets=formsets
         )
-    obj = admin.model()
-    ctx.obj = obj
-    try:
-        persist_uploads(staged_uploads)
-        async with ctx.db.begin_nested():
-            bound.apply_to(obj)
-            await admin.save_model(ctx, obj, bound, change=False)
-            await admin.save_related(ctx, obj, bound, change=False)
-            for formset in formsets:
-                await formset.save(obj)
-            await ctx.db.flush()
-    except BaseException:
-        discard_uploads(staged_uploads)
-        raise
+    obj = await RecordService(ctx).save(bound, formsets=formsets, uploads=staged_uploads)
     await flash(request, f"{admin.name} {_object_label(admin, obj)!r} was created.")
     return await admin.response_add(ctx, obj)
 
@@ -887,12 +884,9 @@ async def _update(ctx: AdminContext, target: Any) -> Response:
     specs = admin.get_form_fields(ctx)
     data, staged_uploads, upload_errors = await stage_uploads(data, specs, target)
     schema = admin.get_form(ctx, change=True)
-    bound = BoundForm.bind(specs, schema, data, base=ctx.record_context())
-    bound.errors.update(upload_errors)
-    if bound.is_valid:
-        await validate_relations(ctx, bound)
-    if bound.is_valid:
-        await validate_model_uniqueness(ctx, admin.model, bound, target)
+    bound = await RecordService(ctx).bind(
+        data, target=target, specs=specs, schema=schema, errors=upload_errors
+    )
     formsets = await load_inlines(ctx, target, data)
     if not bound.is_valid or not all(formset.is_valid for formset in formsets):
         return await _render_form(
@@ -902,18 +896,7 @@ async def _update(ctx: AdminContext, target: Any) -> Response:
             errors=bound.errors,
             formsets=formsets,
         )
-    try:
-        persist_uploads(staged_uploads)
-        async with ctx.db.begin_nested():
-            bound.apply_to(target)
-            await admin.save_model(ctx, target, bound, change=True)
-            await admin.save_related(ctx, target, bound, change=True)
-            for formset in formsets:
-                await formset.save(target)
-            await ctx.db.flush()
-    except BaseException:
-        discard_uploads(staged_uploads)
-        raise
+    await RecordService(ctx).save(bound, target=target, formsets=formsets, uploads=staged_uploads)
     await flash(request, f"{admin.name} {_object_label(admin, target)!r} was updated.")
     return await admin.response_change(ctx, target)
 
@@ -925,30 +908,13 @@ async def _save_as_new(ctx: AdminContext, data: dict[str, Any], source: Any) -> 
     specs = admin.get_form_fields(ctx)
     data = _copy_inline_submission(admin, data)
     data, staged_uploads, upload_errors = await stage_uploads(data, specs, source)
-    bound = BoundForm.bind(specs, admin.get_form(ctx), data, base=ctx.record_context())
-    bound.errors.update(upload_errors)
-    if bound.is_valid:
-        await validate_relations(ctx, bound)
-    if bound.is_valid:
-        await validate_model_uniqueness(ctx, admin.model, bound)
+    bound = await RecordService(ctx).bind(data, specs=specs, errors=upload_errors)
     formsets = await load_inlines(ctx, None, data)
     if not bound.is_valid or not all(formset.is_valid for formset in formsets):
         return await _render_form(
             ctx, values=_values_from_data(data, specs), errors=bound.errors, formsets=formsets
         )
-    obj = admin.model()
-    try:
-        persist_uploads(staged_uploads)
-        async with ctx.db.begin_nested():
-            bound.apply_to(obj)
-            await admin.save_model(ctx, obj, bound, change=False)
-            await admin.save_related(ctx, obj, bound, change=False)
-            for formset in formsets:
-                await formset.save(obj)
-            await ctx.db.flush()
-    except BaseException:
-        discard_uploads(staged_uploads)
-        raise
+    obj = await RecordService(ctx).save(bound, formsets=formsets, uploads=staged_uploads)
     await flash(ctx.request, f"{admin.name} was copied into a new record.")
     return await admin.response_add(ctx, obj)
 
@@ -1231,9 +1197,7 @@ async def _delete(ctx: AdminContext, target: Any) -> Response:
         )
     label = _object_label(admin, target)
     object_id = admin.get_pk(target)
-    async with ctx.db.begin_nested():
-        await admin.delete_model(ctx, target)
-        await ctx.db.flush()
+    await RecordService(ctx).delete(target)
     await flash(request, f"{admin.name} {label!r} was deleted.")
     return await admin.response_delete(ctx, object_id)
 
@@ -1307,8 +1271,7 @@ async def _choice_map(
 
 
 async def _get_object(ctx: AdminContext, pk: str, *, for_update: bool = False) -> Any:
-    admin = _require_admin(ctx)
-    obj = await admin.get_object(ctx, pk, for_update=for_update)
+    obj = await RecordService(ctx).get(pk, for_update=for_update)
     ctx.obj = obj
     return obj
 

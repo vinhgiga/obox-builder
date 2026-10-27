@@ -12,10 +12,26 @@
     return ctx && (ctx.target === document.body || ctx.target?.id === "admin-main");
   }
 
+  function languagePrefix() {
+    var language = document.documentElement.lang.toLowerCase();
+    var prefix = language ? "/" + language : "";
+    return prefix && (location.pathname === prefix + "/admin" || location.pathname.startsWith(prefix + "/admin/"))
+      ? prefix
+      : "";
+  }
+
+  function isAdminPath(pathname) {
+    var prefix = languagePrefix();
+    return pathname === "/admin" || pathname.startsWith("/admin/") ||
+      (prefix && (pathname === prefix + "/admin" || pathname.startsWith(prefix + "/admin/")));
+  }
+
   function syncNavigation() {
     document.querySelectorAll("#admin-sidebar-shell a.nav-link[href]").forEach(function (link) {
+      var linkPath = link.pathname.replace(/\/$/, "");
+      var adminHome = /\/admin$/.test(linkPath);
       var active = link.pathname === location.pathname ||
-        (link.pathname !== "/admin/" && location.pathname.startsWith(link.pathname + "/"));
+        (!adminHome && location.pathname.startsWith(linkPath + "/"));
       link.closest("li").classList.toggle("active", active);
       if (active) link.setAttribute("aria-current", "page");
       else link.removeAttribute("aria-current");
@@ -30,7 +46,8 @@
     var element = event.target;
     if (!element.matches("a, form")) return;
     var url = new URL(element.href || element.action, location.href);
-    if (!url.pathname.startsWith("/admin/") && url.pathname !== "/admin") {
+    var languageChange = element.tagName === "FORM" && url.pathname === "/i18n/set-language";
+    if (!languageChange && !isAdminPath(url.pathname)) {
       event.preventDefault();
     }
   });
@@ -67,6 +84,11 @@
     }
   });
 
+  document.addEventListener("htmx:finally:request", function (event) {
+    var ctx = event.detail.ctx;
+    if (ctx.hx?.location) ctx.keepIndicators = false;
+  });
+
   document.addEventListener("htmx:before:swap", function (event) {
     if (isPage(event.detail.ctx)) {
       clearTimeout(importTimer);
@@ -82,6 +104,10 @@
 
   document.addEventListener("htmx:finally:swap", function (event) {
     if (!isPage(event.detail.ctx)) return;
+    var response = event.detail.ctx.response?.raw;
+    var language = response?.headers.get("content-language");
+    if (language) document.documentElement.lang = language;
+    window.localizeAdminURLs();
     currentURL = location.href;
     syncNavigation();
     document.dispatchEvent(new Event("admin:load"));
@@ -110,6 +136,8 @@
     restoring = false;
     searchFocus = null;
   });
+
+  document.addEventListener("htmx:after:history:update", window.localizeAdminURLs);
 
   function scheduleImportRefresh() {
     clearTimeout(importTimer);

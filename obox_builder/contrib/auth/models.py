@@ -166,6 +166,32 @@ class PasswordResetToken(Model, TimestampMixin):
     used_at: Mapped[datetime | None] = mapped_column(TZDateTime, default=None)
 
 
+class ApiToken(Model, TimestampMixin, VersionedMixin):
+    __history__ = {"exclude": ["token_hash"]}
+
+    id: Mapped[int] = mapped_column(BigIntIdentity, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        sa.ForeignKey(f"{User.__tablename__}.id", ondelete="CASCADE"), index=True
+    )
+    name: Mapped[str] = mapped_column(sa.String(100), index=True)
+    token_prefix: Mapped[str] = mapped_column(sa.String(16), index=True)
+    token_hash: Mapped[str] = mapped_column(sa.String(64), unique=True)
+    scopes: Mapped[list[str]] = mapped_column(JSONB, default=list)
+    expires_at: Mapped[datetime | None] = mapped_column(TZDateTime, index=True)
+    last_used_at: Mapped[datetime | None] = mapped_column(
+        TZDateTime, info={"admin": {"history": False}}
+    )
+    last_used_ip: Mapped[str | None] = mapped_column(
+        sa.String(45), info={"admin": {"history": False}}
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(TZDateTime)
+
+    __table_args__ = (sa.CheckConstraint("length(name) BETWEEN 1 AND 100", name="name_length"),)
+
+    def __str__(self) -> str:
+        return self.name
+
+
 class AnonymousUser:
     """Stand-in used by templates and dependency defaults for anonymous requests."""
 

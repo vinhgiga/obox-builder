@@ -86,7 +86,8 @@ def parse_month(value: str) -> datetime:
 
 async def _relkind(db: AsyncSession) -> str | None:
     kind = await db.scalar(
-        sa.text("SELECT relkind FROM pg_class WHERE oid = to_regclass(:name)"), {"name": TABLE}
+        sa.text("SELECT relkind::text FROM pg_class WHERE oid = to_regclass(:name)"),
+        {"name": TABLE},
     )
     return None if kind is None else str(kind)
 
