@@ -323,7 +323,7 @@ class Worker:
                         logger.error(
                             "Event worker database operation failed: %s", type(exc).__name__
                         )
-                    with suppress(TimeoutError):
+                    with suppress(asyncio.TimeoutError):
                         await asyncio.wait_for(wake.wait(), timeout=settings.EVENTS_POLL_INTERVAL)
             finally:
                 self._wake = None
@@ -333,7 +333,7 @@ async def shutdown(worker: Worker, task: asyncio.Task[None]) -> None:
     worker.stop()
     try:
         await asyncio.wait_for(asyncio.shield(task), timeout=settings.EVENTS_SHUTDOWN_TIMEOUT)
-    except TimeoutError:
+    except asyncio.TimeoutError:
         task.cancel()
         with suppress(asyncio.CancelledError):
             await task

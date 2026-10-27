@@ -316,7 +316,7 @@ class Worker:
                     continue
             except Exception as exc:
                 logger.error("Background worker operation failed: %s.", type(exc).__name__)
-            with suppress(TimeoutError):
+            with suppress(asyncio.TimeoutError):
                 await asyncio.wait_for(self._stopping.wait(), timeout=settings.JOBS_POLL_INTERVAL)
 
     async def run(self) -> None:
@@ -342,7 +342,7 @@ async def shutdown(worker: Worker, task: asyncio.Task[None]) -> None:
     worker.stop()
     try:
         await asyncio.wait_for(asyncio.shield(task), timeout=settings.JOBS_SHUTDOWN_TIMEOUT)
-    except TimeoutError:
+    except asyncio.TimeoutError:
         task.cancel()
         with suppress(asyncio.CancelledError):
             await task
