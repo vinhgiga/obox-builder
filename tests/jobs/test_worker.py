@@ -6,6 +6,7 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
+import anyio
 import pytest
 import sqlalchemy as sa
 from obox_builder.conf import settings
@@ -26,7 +27,7 @@ async def update(task_id: str, **values: Any) -> None:
 
 
 async def wait_for_file(path: Path) -> None:
-    async with asyncio.timeout(15):
+    with anyio.fail_after(15):
         while not path.exists():
             await asyncio.sleep(0.01)
 
@@ -38,7 +39,7 @@ async def test_idle_worker_heartbeats_and_marks_clean_shutdown(
     worker = Worker(queues=("idle",), concurrency=2)
     running = asyncio.create_task(worker.run())
     try:
-        async with asyncio.timeout(10):
+        with anyio.fail_after(10):
             row = None
             while row is None:
                 row = await read(
@@ -213,7 +214,7 @@ async def test_heartbeat_and_running_revoke(
             assert await revoke(db, row.task_id)
             await db.commit()
         else:
-            async with asyncio.timeout(10):
+            with anyio.fail_after(10):
                 while (await read(sa.select(Task))).locked_until <= initial:
                     await asyncio.sleep(0.05)
             gate.write_text("release", encoding="utf-8")

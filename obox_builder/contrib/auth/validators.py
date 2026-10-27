@@ -48,6 +48,6 @@ def validate_password(
         errors.append("Password must not be the same as the username.")
     if username and username.lower() in password.lower() and len(username) >= 4:
         errors.append("Password must not contain the username.")
-    if len(set(password)) < 3:
+    if len(set(password)) < settings.PASSWORD_MIN_UNIQUE_CHARACTERS:
         errors.append("Password is too simple.")
     return errors

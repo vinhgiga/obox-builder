@@ -5,7 +5,7 @@ from __future__ import annotations
 import csv
 import io
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import sqlalchemy as sa
 from obox_builder.contrib.history.export import (
@@ -120,7 +120,7 @@ def test_guard_cell_only_touches_formula_starters() -> None:
 
 async def test_export_window_is_exclusive_upper_bound(db: AsyncSession) -> None:
     await _seed(db, count=2)
-    boundary = datetime(2026, 1, 1, tzinfo=UTC)
+    boundary = datetime(2026, 1, 1, tzinfo=timezone.utc)
     await db.execute(sa.update(RowChange).values(occurred_at=boundary))
     await db.commit()
 

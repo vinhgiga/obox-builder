@@ -1,19 +1,23 @@
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Callable
 from pathlib import Path
-from typing import cast
+from typing import TypeVar, cast
 
 from alembic import command
 from alembic.autogenerate import compare_metadata
 from alembic.runtime.migration import MigrationContext
 from alembic.script import Script, ScriptDirectory
-from sqlalchemy import create_engine
+from sqlalchemy import Connection
+from sqlalchemy.ext.asyncio import create_async_engine
 
 from obox_builder.conf import settings
 from obox_builder.core.exceptions import ImproperlyConfigured
 from obox_builder.db.base import ModelBase
-from obox_builder.db.engine import to_sync_url
 from obox_builder.db.migrations.config import build_config, make_include_object, version_dir
+
+T = TypeVar("T")
 
 
 def _prepare() -> None:
@@ -32,18 +36,27 @@ def _database_url(database: str) -> str:
         ) from None
 
 
+def _run_sync(database: str, operation: Callable[[Connection], T]) -> T:
+    async def run() -> T:
+        engine = create_async_engine(_database_url(database))
+        try:
+            async with engine.connect() as connection:
+                return await connection.run_sync(operation)
+        finally:
+            await engine.dispose()
+
+    return asyncio.run(run())
+
+
 def _has_changes(database: str) -> bool:
-    engine = create_engine(to_sync_url(_database_url(database)))
-    try:
-        with engine.connect() as connection:
-            context = MigrationContext.configure(
-                connection,
-                opts={"compare_type": True, "include_object": make_include_object(database)},
-            )
-            diff = compare_metadata(context, ModelBase.metadata)
-    finally:
-        engine.dispose()
-    return bool(diff)
+    def compare(connection: Connection) -> bool:
+        context = MigrationContext.configure(
+            connection,
+            opts={"compare_type": True, "include_object": make_include_object(database)},
+        )
+        return bool(compare_metadata(context, ModelBase.metadata))
+
+    return _run_sync(database, compare)
 
 
 def make_migration(
@@ -71,19 +84,18 @@ def upgrade(revision: str = "head", *, sql: bool = False, database: str = "defau
     if database != "default" and not version_dir(database).exists():
         return
     config = build_config(database)
-    config.attributes["connection_url"] = to_sync_url(_database_url(database))
+    config.attributes["connection_url"] = _database_url(database)
     command.upgrade(config, revision, sql=sql)
 
 
 def current_revision(database: str = "default") -> str | None:
     _prepare()
-    engine = create_engine(to_sync_url(_database_url(database)))
-    try:
-        with engine.connect() as connection:
-            context = MigrationContext.configure(connection)
-            return context.get_current_revision()
-    finally:
-        engine.dispose()
+
+    def get_revision(connection: Connection) -> str | None:
+        context = MigrationContext.configure(connection)
+        return context.get_current_revision()
+
+    return _run_sync(database, get_revision)
 
 
 def migration_history(database: str = "default") -> list[tuple[str, bool]]:

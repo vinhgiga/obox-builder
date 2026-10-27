@@ -159,6 +159,7 @@ class AdminSite:
                     url=admin.list_path(),
                     icon="ti-table",
                     required_perm=admin.permission_name("view"),
+                    alternative_perms=(admin.permission_name("change"),),
                 )
             )
         for group_label, items in registry_items.items():

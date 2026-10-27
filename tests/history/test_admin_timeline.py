@@ -127,22 +127,23 @@ async def test_history_timeline_requires_the_history_permission(
 async def test_history_permission_alone_is_not_enough(client: httpx.AsyncClient) -> None:
     item_id = await make_item()
     await make_user("auditor")
-    await grant_permissions("auditor", "warehouse.change_item", "history.view_row_change")
+    await grant_permissions("auditor", "history.view_row_change")
     await login_session(client, "auditor")
 
     denied = await client.get(f"{LIST_URL}/{item_id}/history", headers={"accept": "text/html"})
     assert denied.status_code == 403
 
 
-async def test_reader_with_both_permissions_sees_the_timeline(
+@pytest.mark.parametrize("model_permission", ["warehouse.view_item", "warehouse.change_item"])
+async def test_reader_with_model_and_history_permissions_sees_the_timeline(
     client: httpx.AsyncClient,
+    model_permission: str,
 ) -> None:
     item_id = await make_item()
     await make_user("auditor")
     await grant_permissions(
         "auditor",
-        "warehouse.view_item",
-        "warehouse.change_item",
+        model_permission,
         "history.view_row_change",
     )
     await login_session(client, "auditor")

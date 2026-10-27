@@ -7,7 +7,7 @@ import io
 import json
 import logging
 from dataclasses import replace
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Annotated, Any
 from uuid import UUID
 
@@ -94,7 +94,7 @@ def _parse_day(raw: str) -> datetime | None:
         parsed = date.fromisoformat(raw)
     except ValueError:
         return None
-    return datetime(parsed.year, parsed.month, parsed.day, tzinfo=UTC)
+    return datetime(parsed.year, parsed.month, parsed.day, tzinfo=timezone.utc)
 
 
 def _feed_filters(request: Request, allowed: frozenset[str] | None) -> FeedFilters:
@@ -361,7 +361,7 @@ async def history_export(
     ctx = AdminContext(request=request, user=user, db=db, site=current_site(request))
     filters = _scoped_filters(ctx, _feed_filters(request, allowed), admins)
     records = await _export_records(ctx, filters, admins)
-    stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     if fmt == "ndjson":
         body = "".join(json.dumps(record, ensure_ascii=False) + "\n" for record in records)
         media_type = "application/x-ndjson; charset=utf-8"

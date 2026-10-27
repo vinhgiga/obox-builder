@@ -8,9 +8,10 @@ import random
 import uuid
 from contextlib import suppress
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
+import anyio
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -49,7 +50,7 @@ class EventMessage:
     def from_event(cls, event: Event) -> EventMessage:
         values = {name: getattr(event, name) for name in cls.__dataclass_fields__}
         if event.occurred_at.tzinfo is None:
-            values["occurred_at"] = event.occurred_at.replace(tzinfo=UTC)
+            values["occurred_at"] = event.occurred_at.replace(tzinfo=timezone.utc)
         return cls(**values)
 
 
@@ -215,7 +216,7 @@ async def deliver(delivery: Delivery) -> None:
     try:
         if subscription is None:
             raise LookupError("Subscription is not registered on this worker.")
-        async with asyncio.timeout(subscription.timeout):
+        with anyio.fail_after(subscription.timeout):
             if subscription.transactional:
                 async with session_scope() as db:
                     # SQLite has no row locks. Acquire its writer lock before
@@ -322,7 +323,7 @@ class Worker:
                         logger.error(
                             "Event worker database operation failed: %s", type(exc).__name__
                         )
-                    with suppress(TimeoutError):
+                    with suppress(asyncio.TimeoutError):
                         await asyncio.wait_for(wake.wait(), timeout=settings.EVENTS_POLL_INTERVAL)
             finally:
                 self._wake = None
@@ -332,7 +333,7 @@ async def shutdown(worker: Worker, task: asyncio.Task[None]) -> None:
     worker.stop()
     try:
         await asyncio.wait_for(asyncio.shield(task), timeout=settings.EVENTS_SHUTDOWN_TIMEOUT)
-    except TimeoutError:
+    except asyncio.TimeoutError:
         task.cancel()
         with suppress(asyncio.CancelledError):
             await task

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Callable
-from datetime import UTC, date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 
 import pytest
@@ -135,7 +135,7 @@ async def test_diff_repr_normalises_numbers_dates_and_links(db: AsyncSession) ->
         sku="ANV-1",
         price=Decimal("12.50"),
         released_on=date(2026, 1, 2),
-        checked_at=datetime(2026, 1, 2, 3, 4, tzinfo=UTC),
+        checked_at=datetime(2026, 1, 2, 3, 4, tzinfo=timezone.utc),
         shelf_id=shelf.id,
     )
     db.add(item)

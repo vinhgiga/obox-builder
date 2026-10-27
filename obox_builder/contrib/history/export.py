@@ -12,7 +12,7 @@ import io
 import json
 import logging
 from collections.abc import AsyncIterator
-from datetime import UTC, date, datetime
+from datetime import date, datetime, timezone
 from typing import Any
 
 import sqlalchemy as sa
@@ -120,4 +120,4 @@ def parse_day(raw: str) -> datetime | None:
         parsed = date.fromisoformat(raw)
     except ValueError:
         return None
-    return datetime(parsed.year, parsed.month, parsed.day, tzinfo=UTC)
+    return datetime(parsed.year, parsed.month, parsed.day, tzinfo=timezone.utc)

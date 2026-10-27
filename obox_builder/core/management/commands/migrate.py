@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 import typer
 
 from obox_builder.core.management import utils
@@ -16,7 +18,7 @@ async def handle(
     from obox_builder.db.migrations import configure_alembic_logging, upgrade
 
     configure_alembic_logging(utils.get_verbosity())
-    upgrade(target, sql=sql, database=database)
+    await asyncio.to_thread(upgrade, target, sql=sql, database=database)
     if not sql:
         await post_migrate.send_async(sender="migrate", database=database)
     utils.echo(f"Applied migrations up to {target!r} on {database!r}.")

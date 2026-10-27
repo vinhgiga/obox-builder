@@ -9,6 +9,7 @@ declares an ``@source`` for every installed app's ``templates/`` directory plus
 from __future__ import annotations
 
 import importlib.util
+import sys
 import tempfile
 from pathlib import Path
 
@@ -67,6 +68,8 @@ def handle(
 ) -> None:
     if action not in {"build", "watch"}:
         raise CommandError(f"Unknown action {action!r}; expected 'build' or 'watch'.")
+    if sys.version_info < (3, 11):
+        raise CommandError("The tailwind extra requires Python 3.11 or later.")
     if _find_spec("pytailwindcss") is None:
         raise CommandError(
             "The tailwind command requires the optional dependency: "

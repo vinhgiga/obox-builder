@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from obox_builder.contrib.comments import (
     COMMENTS_ADD_PERMISSION,
@@ -37,7 +37,7 @@ def comment(*, author_id: int = 1, parent_id: int | None = None, **values: objec
         "model_label": "commentsdemo.ticket",
         "object_pk": "1",
         "author_label": "ann",
-        "created_at": datetime.now(UTC),
+        "created_at": datetime.now(timezone.utc),
         "body": "hello",
         "author_id": author_id,
     }
@@ -66,13 +66,13 @@ def test_edit_requires_author_add_permission_and_live_comment() -> None:
     author = policy(user(VIEW, COMMENTS_ADD_PERMISSION))
     assert author.can_edit(comment())
     assert not author.can_edit(comment(author_id=2))
-    assert not author.can_edit(comment(deleted_at=datetime.now(UTC)))
+    assert not author.can_edit(comment(deleted_at=datetime.now(timezone.utc)))
     assert not policy(user(VIEW)).can_edit(comment())
 
 
 def test_edit_window_is_enforced() -> None:
     author = policy(user(VIEW, COMMENTS_ADD_PERMISSION))
-    old = comment(created_at=datetime.now(UTC) - timedelta(seconds=120))
+    old = comment(created_at=datetime.now(timezone.utc) - timedelta(seconds=120))
     assert not author.can_edit(old, edit_window_seconds=60)
     assert author.can_edit(old, edit_window_seconds=300)
     assert author.can_edit(old, edit_window_seconds=None)
@@ -84,7 +84,7 @@ def test_delete_author_or_moderator_only() -> None:
     assert not author.can_delete(comment(author_id=2))
     moderator = policy(user(VIEW, COMMENTS_MODERATE_PERMISSION))
     assert moderator.can_delete(comment(author_id=2))
-    assert not moderator.can_delete(comment(deleted_at=datetime.now(UTC)))
+    assert not moderator.can_delete(comment(deleted_at=datetime.now(timezone.utc)))
     assert not policy(user(VIEW)).can_delete(comment())
 
 
@@ -101,7 +101,7 @@ def test_resolve_author_model_changer_or_moderator_on_live_roots() -> None:
     assert not moderator.can_resolve(comment())
     moderator_with_add = policy(user(VIEW, COMMENTS_MODERATE_PERMISSION, COMMENTS_ADD_PERMISSION))
     assert moderator_with_add.can_resolve(comment(author_id=2))
-    assert not author.can_resolve(comment(deleted_at=datetime.now(UTC)))
+    assert not author.can_resolve(comment(deleted_at=datetime.now(timezone.utc)))
 
 
 def test_anonymous_viewer_has_no_capabilities() -> None:

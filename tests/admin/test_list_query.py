@@ -444,6 +444,7 @@ async def test_vietnamese_sort_group_and_saved_view(
 
     from obox_builder.conf import settings
 
+    pytest.importorskip("icu", reason="requires the vietnamese extra")
     monkeypatch.setattr(settings, "ADMIN_TEXT_COLLATION", "vi")
     token = await signed_in(client)
     names = ["An", "Ăn", "Ân", "Ba", "Da", "Đa", "Em"]

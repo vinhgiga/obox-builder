@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from obox_builder.contrib.admin.management.commands import tailwind as tailwind_command
@@ -35,13 +36,23 @@ def test_input_css_has_prefix_and_no_preflight(admin_env: None) -> None:
     assert 'obox_builder/contrib/admin/templates"' in css
 
 
-def test_tailwind_build_reports_missing_dependency(
-    cli, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+@pytest.mark.parametrize(
+    ("version", "message"),
+    [((3, 10), "requires Python 3.11"), ((3, 11), "obox-builder[tailwind]")],
+)
+def test_tailwind_build_reports_requirements(
+    cli,
+    runner: CliRunner,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    version: tuple[int, int],
+    message: str,
 ) -> None:
+    monkeypatch.setattr(tailwind_command, "sys", SimpleNamespace(version_info=version))
     monkeypatch.setattr(tailwind_command, "_find_spec", lambda name: None)
     result = runner.invoke(cli, ["tailwind", "build", "-o", str(tmp_path / "tw.css")])
     assert result.exit_code == 1
-    assert "obox-builder[tailwind]" in result.output
+    assert message in result.output
 
 
 def test_tailwind_rejects_unknown_action(admin_env: None, cli, runner: CliRunner) -> None:

@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -78,7 +78,7 @@ def parse_month(value: str) -> datetime:
     match = re.fullmatch(r"(\d{4})-(\d{2})", value)
     if not match or not 1 <= int(match.group(2)) <= 12:
         raise PartitionError(f"Invalid month {value!r}; expected YYYY-MM.")
-    return datetime(int(match.group(1)), int(match.group(2)), 1, tzinfo=UTC)
+    return datetime(int(match.group(1)), int(match.group(2)), 1, tzinfo=timezone.utc)
 
 
 # -- catalog ------------------------------------------------------------------
@@ -143,7 +143,7 @@ async def ensure(
     infos = await partition_infos(db)
     existing = {info.name for info in infos}
     result = PartitionResult(dry_run=dry_run)
-    base = month_start(now or datetime.now(UTC))
+    base = month_start(now or datetime.now(timezone.utc))
     for offset in range(months):
         name = partition_name(add_months(base, offset))
         if name in existing:
@@ -324,4 +324,4 @@ def conversion_sql(cutoff: datetime, *, concurrent: bool = True) -> list[str]:
 
 
 def next_month_cutoff(now: datetime | None = None) -> datetime:
-    return add_months(month_start(now or datetime.now(UTC)), 1)
+    return add_months(month_start(now or datetime.now(timezone.utc)), 1)
