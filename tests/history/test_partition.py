@@ -8,7 +8,7 @@ offline ``--sql`` output and the clean error paths are exercised.
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -70,7 +70,7 @@ async def test_service_requires_postgresql(db: AsyncSession) -> None:
 
 
 def test_sql_prints_conversion_recipe() -> None:
-    statements = conversion_sql(datetime(2026, 12, 1, tzinfo=UTC))
+    statements = conversion_sql(datetime(2026, 12, 1, tzinfo=timezone.utc))
     script = "\n".join(statements)
     assert "PARTITION BY RANGE (occurred_at)" in script
     assert "ATTACH PARTITION history_row_change_legacy" in script
@@ -125,7 +125,7 @@ async def test_conversion_then_ensure_and_retention(db: AsyncSession) -> None:
     if _dialect(db) != "postgresql":
         pytest.skip("PostgreSQL-only")
 
-    now = datetime.now(UTC)
+    now = datetime.now(timezone.utc)
     cutoff = month_start(now)
     old = cutoff - timedelta(days=40)
 

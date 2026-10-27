@@ -5,7 +5,7 @@ mount the admin, create the database and log in. It takes a few minutes.
 
 ## Requirements
 
-- Python 3.11 or later
+- Python 3.10 or later
 - [uv](https://docs.astral.sh/uv/)
 - Git
 

@@ -6,7 +6,7 @@ import inspect
 import json
 import uuid
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any
 
 import sqlalchemy as sa
@@ -66,7 +66,7 @@ async def enqueue(
                 args=arguments[0],
                 kwargs=arguments[1],
                 max_retries=definition.max_retries,
-                eta=eta.astimezone(UTC) if eta is not None else utcnow(),
+                eta=eta.astimezone(timezone.utc) if eta is not None else utcnow(),
                 dedup_key=dedup_key,
             )
             .on_conflict_do_nothing(index_elements=["dedup_key"])

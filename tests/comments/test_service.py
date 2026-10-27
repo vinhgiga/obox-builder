@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 import sqlalchemy as sa
@@ -164,7 +164,7 @@ async def test_edit_window_and_author_only(db: AsyncSession, comments_env: None)
     comment = await repo.add(TARGET, options(), {"body": "before"})
     with pytest.raises(CommentPermissionDenied):
         await service(db, bob.id).edit(TARGET, options(), comment.id, {"body": "nope"})
-    comment.created_at = datetime.now(UTC) - timedelta(seconds=3600)
+    comment.created_at = datetime.now(timezone.utc) - timedelta(seconds=3600)
     await db.flush()
     with pytest.raises(CommentPermissionDenied):
         await repo.edit(TARGET, options(edit_window_seconds=60), comment.id, {"body": "late"})

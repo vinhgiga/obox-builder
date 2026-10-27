@@ -17,6 +17,7 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
+import anyio
 import sqlalchemy as sa
 from pydantic import SecretStr
 
@@ -242,7 +243,7 @@ async def execute(task: Task) -> None:
     heartbeat = asyncio.create_task(_heartbeat(task))
     execution = asyncio.create_task(_execute(task))
     try:
-        async with asyncio.timeout(definition.time_limit):
+        with anyio.fail_after(definition.time_limit):
             done, _ = await asyncio.wait(
                 (heartbeat, execution), return_when=asyncio.FIRST_COMPLETED
             )
@@ -322,10 +323,10 @@ class Worker:
         self._check_loop()
         async with (
             presence(self.hostname, self.queues, self.concurrency),
-            asyncio.TaskGroup() as group,
+            anyio.create_task_group() as group,
         ):
             for _ in range(self.concurrency):
-                group.create_task(self._consume())
+                group.start_soon(self._consume)
 
     @staticmethod
     def _check_loop() -> None:

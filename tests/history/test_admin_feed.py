@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import httpx
 import pytest
@@ -160,7 +160,7 @@ async def test_feed_filters_by_date_window(client: httpx.AsyncClient) -> None:
     await login_session(client, "alice")
     await make_item("Anvil")
 
-    today = datetime.now(UTC).date()
+    today = datetime.now(timezone.utc).date()
     tomorrow = (today + timedelta(days=1)).isoformat()
     yesterday = (today - timedelta(days=1)).isoformat()
 
