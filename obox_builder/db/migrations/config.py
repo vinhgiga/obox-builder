@@ -64,6 +64,9 @@ def build_config(database: str = "default", *, create_version_dir: bool = False)
     config = Config()
     root = project_root()
     config.set_main_option("script_location", str(root / MIGRATIONS_DIR_NAME))
+    file_template = getattr(settings, "ALEMBIC_FILE_TEMPLATE", None)
+    if file_template:
+        config.set_main_option("file_template", file_template.replace("%", "%%"))
     config.set_main_option("path_separator", "os")
     versions = version_dir(database)
     if create_version_dir:
