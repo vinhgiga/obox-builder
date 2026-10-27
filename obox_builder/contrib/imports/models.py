@@ -53,7 +53,7 @@ class ImportRow(Model):
     app_label = "imports"
     id: Mapped[int] = mapped_column(primary_key=True)
     session_id: Mapped[str] = mapped_column(
-        sa.ForeignKey("imports_import_session.id", ondelete="CASCADE")
+        sa.ForeignKey("obox_import_session.id", ondelete="CASCADE")
     )
     number: Mapped[int] = mapped_column()
     data: Mapped[list[Any]] = mapped_column(JSONB)

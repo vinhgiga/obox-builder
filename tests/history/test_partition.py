@@ -73,10 +73,10 @@ def test_sql_prints_conversion_recipe() -> None:
     statements = conversion_sql(datetime(2026, 12, 1, tzinfo=timezone.utc))
     script = "\n".join(statements)
     assert "PARTITION BY RANGE (occurred_at)" in script
-    assert "ATTACH PARTITION history_row_change_legacy" in script
+    assert "ATTACH PARTITION obox_row_change_legacy" in script
     assert "TIMESTAMPTZ '2026-12-01 00:00:00+00:00'" in script
     assert f"CREATE TABLE IF NOT EXISTS {DEFAULT_PARTITION}" in script
-    assert "history_row_change_immutable" in script
+    assert "obox_row_change_immutable" in script
 
 
 def _env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -135,8 +135,8 @@ async def test_conversion_then_ensure_and_retention(db: AsyncSession) -> None:
         await db.rollback()
         # The shared sequence is OWNED BY NONE and the legacy partition has a
         # non-metadata name, so drop_all alone would leak both into later tests.
-        await db.execute(sa.text("DROP TABLE IF EXISTS history_row_change_legacy"))
-        await db.execute(sa.text("DROP SEQUENCE IF EXISTS history_row_change_id_seq CASCADE"))
+        await db.execute(sa.text("DROP TABLE IF EXISTS obox_row_change_legacy"))
+        await db.execute(sa.text("DROP SEQUENCE IF EXISTS obox_row_change_id_seq CASCADE"))
         await db.execute(sa.text("DROP FUNCTION IF EXISTS history_forbid_mutation() CASCADE"))
         await db.commit()
 
@@ -152,7 +152,7 @@ async def _conversion_scenario(
 
     await _apply(db, conversion_sql(cutoff, concurrent=False))
     names = {info.name for info in await partition_infos(db)}
-    assert names == {"history_row_change_legacy", DEFAULT_PARTITION}
+    assert names == {"obox_row_change_legacy", DEFAULT_PARTITION}
 
     appended = await ensure(db, months=2, now=now)
     assert appended.created == [partition_name(now), partition_name(add_months(cutoff, 1))]
@@ -176,14 +176,14 @@ async def _conversion_scenario(
 
     rows = await db.execute(
         sa.text(
-            "SELECT object_pk, tableoid::regclass::text FROM history_row_change "
+            "SELECT object_pk, tableoid::regclass::text FROM obox_row_change "
             "WHERE object_pk IN ('2', '3', '4')"
         )
     )
     homes = {str(pk): str(home) for pk, home in rows.all()}
     assert homes["2"] == partition_name(now)
     assert homes["3"] == DEFAULT_PARTITION
-    assert homes["4"] == "history_row_change_legacy"
+    assert homes["4"] == "obox_row_change_legacy"
 
     with pytest.raises(DBAPIError, match="append-only"):
         await db.execute(
@@ -192,7 +192,7 @@ async def _conversion_scenario(
     await db.rollback()
 
     result = await drop_before(db, month=cutoff.strftime("%Y-%m"))
-    assert result.dropped == ["history_row_change_legacy"]
+    assert result.dropped == ["obox_row_change_legacy"]
     assert result.rows_dropped == 3
 
     remaining = set(await db.scalars(sa.select(RowChange.object_pk)))

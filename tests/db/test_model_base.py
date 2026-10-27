@@ -25,12 +25,12 @@ def populated(monkeypatch: pytest.MonkeyPatch) -> None:
     obox_builder.setup()
 
 
-def test_table_names_follow_app_label_and_snake_case(populated: None) -> None:
+def test_table_names_use_obox_prefix_and_snake_case(populated: None) -> None:
     from tests.support.apps.shop.models import Category, Order, Product
 
-    assert Product.__tablename__ == "shop_product"
-    assert Category.__tablename__ == "shop_category"
-    assert Order.__tablename__ == "shop_order"
+    assert Product.__tablename__ == "obox_product"
+    assert Category.__tablename__ == "obox_category"
+    assert Order.__tablename__ == "obox_order"
     assert Product.app_label == "shop"
 
 
@@ -58,7 +58,7 @@ def test_models_are_registered_in_the_app_registry(populated: None) -> None:
 def test_bare_tables_are_registered(populated: None) -> None:
     from obox_builder.apps import apps
 
-    assert {table.name for table in apps.get_tables()} == {"shop_order_items", "shop_order_labels"}
+    assert {table.name for table in apps.get_tables()} == {"obox_order_items", "obox_order_labels"}
 
 
 def test_relationship_defaults_to_lazy_raise(populated: None) -> None:
@@ -84,6 +84,6 @@ def test_model_can_override_app_label(populated: None) -> None:
         id: Mapped[int] = mapped_column(primary_key=True)
 
     try:
-        assert Special.__tablename__ == "custom_special"
+        assert Special.__tablename__ == "obox_special"
     finally:
         ModelBase.metadata.remove(cast(sa.Table, Special.__table__))

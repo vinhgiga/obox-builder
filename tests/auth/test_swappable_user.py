@@ -16,13 +16,23 @@ from obox_builder import setup
 setup()
 
 from obox_builder.apps import apps
-from obox_builder.contrib.auth.models import USER_VIEW_PERMISSION, User
+from obox_builder.contrib.auth.models import (
+    ApiToken,
+    Permission,
+    Role,
+    Session,
+    USER_VIEW_PERMISSION,
+    User,
+)
 from obox_builder.contrib.admin.navigation import default_navigation
 from obox_builder.db.base import ModelBase
 
 custom_user = apps.get_model("customusers", "Account")
 assert User is custom_user
 assert User.__tablename__ == "customusers_account"
+assert {model.__tablename__ for model in (Role, Permission, Session, ApiToken)} == {
+    "auth_role", "auth_permission", "auth_session", "auth_api_token"
+}
 assert USER_VIEW_PERMISSION == "customusers.view_account"
 user_item = next(
     item for group in default_navigation() for item in group.items if item.url == "/admin/users"
@@ -34,9 +44,9 @@ for table_name in (
     "auth_api_token",
     "auth_password_reset_token",
     "auth_user_roles",
-    "admin_saved_view",
-    "comments_row_comment",
-    "comments_comment_mention",
+    "obox_saved_view",
+    "obox_row_comment",
+    "obox_comment_mention",
 ):
     table = ModelBase.metadata.tables[table_name]
     assert any(

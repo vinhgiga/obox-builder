@@ -23,7 +23,7 @@ def _boom_insert(*args: Any, **kwargs: Any) -> Any:
 
 
 async def item_count(db: AsyncSession) -> int:
-    return int(await db.scalar(sa.text("select count(*) from warehouse_item")) or 0)
+    return int(await db.scalar(sa.text("select count(*) from obox_item")) or 0)
 
 
 async def change_count(db: AsyncSession) -> int:

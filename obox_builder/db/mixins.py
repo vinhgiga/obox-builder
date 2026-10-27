@@ -25,7 +25,7 @@ class VersionedMixin:
     Every UPDATE carries ``WHERE version = <loaded value>`` and bumps the
     column, so two writers editing one row can no longer silently overwrite
     each other: the loser's flush raises ``StaleDataError``. Row history
-    records the version into ``history_row_change.row_version`` when the
+    records the version into ``obox_row_change.row_version`` when the
     tracked model uses this mixin.
     """
 

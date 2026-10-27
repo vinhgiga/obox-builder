@@ -20,6 +20,7 @@ class AbstractUser(Model, TimestampMixin, VersionedMixin):
     """Mapped user fields and behavior shared by the built-in and custom users."""
 
     __abstract__ = True
+    __auth_model__ = True
     __history__: ClassVar[bool | Mapping[str, Any] | None] = {
         "exclude": ["meta"],
         "relations": ["roles"],

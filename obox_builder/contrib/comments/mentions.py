@@ -2,7 +2,7 @@
 
 Plain ``@name`` text is never parsed (ADR-0002 D6), which avoids accidental
 notifications and username enumeration. Tokens are resolved to real users and
-mirrored into ``comments_comment_mention`` at write time.
+mirrored into ``obox_comment_mention`` at write time.
 """
 
 from __future__ import annotations

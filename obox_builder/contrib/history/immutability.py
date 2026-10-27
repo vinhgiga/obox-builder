@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger("obox.history")
 
-TABLE = "history_row_change"
+TABLE = "obox_row_change"
 
 #: Local switch that lets maintenance commands (purge, anonymize) mutate rows.
 MAINTENANCE_GUC = "SET LOCAL obox.history_maintenance = 'on'"

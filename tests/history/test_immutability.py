@@ -53,7 +53,7 @@ async def test_postgres_trigger_blocks_update_delete_and_truncate(db: AsyncSessi
     for statement in (
         sa.update(RowChange).values(object_repr="tampered"),
         sa.delete(RowChange),
-        sa.text("TRUNCATE history_row_change"),
+        sa.text("TRUNCATE obox_row_change"),
     ):
         with pytest.raises(ProgrammingError, match="append-only"):
             await db.execute(statement)

@@ -46,9 +46,7 @@ def statements(db: AsyncSession) -> Iterator[list[str]]:
 
 
 def _history_inserts(statements: Sequence[str]) -> list[str]:
-    return [
-        sql for sql in statements if sql.casefold().startswith("insert into history_row_change")
-    ]
+    return [sql for sql in statements if sql.casefold().startswith("insert into obox_row_change")]
 
 
 async def test_flush_adds_exactly_one_history_insert(

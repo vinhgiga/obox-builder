@@ -39,7 +39,7 @@ class Delivery(Model):
     app_label = "events"
 
     id: Mapped[uuid.UUID] = mapped_column(sa.Uuid, primary_key=True)
-    event_id: Mapped[uuid.UUID] = mapped_column(sa.ForeignKey("events_event.id"), index=True)
+    event_id: Mapped[uuid.UUID] = mapped_column(sa.ForeignKey("obox_event.id"), index=True)
     subscription_id: Mapped[str] = mapped_column(sa.String(255))
     queue: Mapped[str] = mapped_column(sa.String(150), default="default")
     status: Mapped[str] = mapped_column(sa.String(16), default="pending")
@@ -67,7 +67,7 @@ class DeliveryAttempt(Model):
     app_label = "events"
 
     id: Mapped[int] = mapped_column(BigIntIdentity, primary_key=True)
-    delivery_id: Mapped[uuid.UUID] = mapped_column(sa.ForeignKey("events_delivery.id"), index=True)
+    delivery_id: Mapped[uuid.UUID] = mapped_column(sa.ForeignKey("obox_delivery.id"), index=True)
     number: Mapped[int] = mapped_column()
     started_at: Mapped[datetime] = mapped_column(TZDateTime)
     finished_at: Mapped[datetime | None] = mapped_column(TZDateTime)

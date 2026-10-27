@@ -62,7 +62,7 @@ class TaskAttempt(Model):
 
     id: Mapped[int] = mapped_column(sa.Integer, primary_key=True)
     task_id: Mapped[str] = mapped_column(
-        sa.String(155), sa.ForeignKey("jobs_task.task_id", ondelete="CASCADE")
+        sa.String(155), sa.ForeignKey("obox_task.task_id", ondelete="CASCADE")
     )
     retries: Mapped[int] = mapped_column(sa.Integer)
     worker: Mapped[str] = mapped_column(sa.String(155))

@@ -7,17 +7,17 @@ from obox_builder.db import JSONB, JsonDict, Model, TimestampMixin, relationship
 from sqlalchemy.orm import Mapped, mapped_column
 
 order_items = sa.Table(
-    "shop_order_items",
+    "obox_order_items",
     Model.metadata,
-    sa.Column("order_id", sa.ForeignKey("shop_order.id"), primary_key=True),
-    sa.Column("product_id", sa.ForeignKey("shop_product.id"), primary_key=True),
+    sa.Column("order_id", sa.ForeignKey("obox_order.id"), primary_key=True),
+    sa.Column("product_id", sa.ForeignKey("obox_product.id"), primary_key=True),
 )
 
 order_labels = sa.Table(
-    "shop_order_labels",
+    "obox_order_labels",
     Model.metadata,
-    sa.Column("order_id", sa.ForeignKey("shop_order.id"), primary_key=True),
-    sa.Column("label_id", sa.ForeignKey("shop_label.id"), primary_key=True),
+    sa.Column("order_id", sa.ForeignKey("obox_order.id"), primary_key=True),
+    sa.Column("label_id", sa.ForeignKey("obox_label.id"), primary_key=True),
 )
 
 
@@ -50,7 +50,7 @@ class Product(Model, TimestampMixin):
     is_active: Mapped[bool] = mapped_column(sa.Boolean, index=True, default=True)
     meta: Mapped[JsonDict] = mapped_column(JSONB, default=dict)
     category_id: Mapped[int | None] = mapped_column(
-        sa.ForeignKey("shop_category.id"), nullable=True
+        sa.ForeignKey("obox_category.id"), nullable=True
     )
 
     category: Mapped[Category | None] = relationship(back_populates="products")
@@ -87,7 +87,7 @@ class Label(Model):
 class OrderDetails(Model):
     id: Mapped[int] = mapped_column(primary_key=True)
     order_id: Mapped[int] = mapped_column(
-        sa.ForeignKey("shop_order.id", ondelete="CASCADE"), unique=True
+        sa.ForeignKey("obox_order.id", ondelete="CASCADE"), unique=True
     )
     recipient: Mapped[str] = mapped_column(sa.String(80))
     order: Mapped[Order] = relationship(back_populates="details")
@@ -102,10 +102,10 @@ class MultiTableRecord(Model):
 
 
 class DetailedMultiTableRecord(MultiTableRecord):
-    __tablename__ = "shop_detailed_multi_table_record"
+    __tablename__ = "obox_detailed_multi_table_record"
 
     id: Mapped[int] = mapped_column(
-        sa.ForeignKey("shop_multi_table_record.id", ondelete="CASCADE"), primary_key=True
+        sa.ForeignKey("obox_multi_table_record.id", ondelete="CASCADE"), primary_key=True
     )
     details: Mapped[str] = mapped_column(sa.String(120))
 
@@ -121,9 +121,9 @@ class Asset(Model):
 class OrderLine(Model):
     __table_args__ = (sa.UniqueConstraint("order_id", "sku"),)
     id: Mapped[int] = mapped_column(primary_key=True)
-    order_id: Mapped[int] = mapped_column(sa.ForeignKey("shop_order.id", ondelete="CASCADE"))
-    product_id: Mapped[int | None] = mapped_column(sa.ForeignKey("shop_product.id"), nullable=True)
-    asset_id: Mapped[UUID | None] = mapped_column(sa.ForeignKey("shop_asset.id"), nullable=True)
+    order_id: Mapped[int] = mapped_column(sa.ForeignKey("obox_order.id", ondelete="CASCADE"))
+    product_id: Mapped[int | None] = mapped_column(sa.ForeignKey("obox_product.id"), nullable=True)
+    asset_id: Mapped[UUID | None] = mapped_column(sa.ForeignKey("obox_asset.id"), nullable=True)
     sku: Mapped[str] = mapped_column(sa.String(40))
     quantity: Mapped[int] = mapped_column(default=1)
     order: Mapped[Order] = relationship(back_populates="lines")
@@ -136,7 +136,7 @@ class OrderLine(Model):
 
 class Shipment(Model):
     id: Mapped[int] = mapped_column(primary_key=True)
-    order_id: Mapped[int] = mapped_column(sa.ForeignKey("shop_order.id", ondelete="CASCADE"))
+    order_id: Mapped[int] = mapped_column(sa.ForeignKey("obox_order.id", ondelete="CASCADE"))
     name: Mapped[str] = mapped_column(sa.String(40))
 
     def __str__(self) -> str:
@@ -146,7 +146,7 @@ class Shipment(Model):
 class Tracking(Model):
     id: Mapped[int] = mapped_column(primary_key=True)
     shipment_id: Mapped[int | None] = mapped_column(
-        sa.ForeignKey("shop_shipment.id", ondelete="SET NULL")
+        sa.ForeignKey("obox_shipment.id", ondelete="SET NULL")
     )
     name: Mapped[str] = mapped_column(sa.String(40))
 
@@ -156,7 +156,7 @@ class Tracking(Model):
 
 class Invoice(Model):
     id: Mapped[int] = mapped_column(primary_key=True)
-    order_id: Mapped[int] = mapped_column(sa.ForeignKey("shop_order.id", ondelete="RESTRICT"))
+    order_id: Mapped[int] = mapped_column(sa.ForeignKey("obox_order.id", ondelete="RESTRICT"))
     name: Mapped[str] = mapped_column(sa.String(40))
 
     def __str__(self) -> str:

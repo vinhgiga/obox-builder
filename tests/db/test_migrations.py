@@ -92,10 +92,10 @@ def test_makemigrations_then_migrate_creates_tables(project: Path) -> None:
     assert current in path.read_text()
     tables = _table_names(project)
     assert {
-        "shop_category",
-        "shop_product",
-        "shop_order",
-        "shop_order_items",
+        "obox_category",
+        "obox_product",
+        "obox_order",
+        "obox_order_items",
         "alembic_version",
     } <= tables
 
@@ -173,7 +173,7 @@ def test_shared_migration_graph_filters_operations_per_database_alias(
     source = path.read_text()
     assert path.parent == project / "migrations" / "versions"
     assert "upgrade_db_" in source
-    assert "shop_product" in source
+    assert "obox_product" in source
     assert migration_history("default") == [(path.stem.split("_")[0], False)]
     assert migration_history("analytics") == [(path.stem.split("_")[0], False)]
 
@@ -182,7 +182,7 @@ def test_shared_migration_graph_filters_operations_per_database_alias(
     assert current_revision("analytics") is not None
     assert current_revision("default") is None
     assert migration_history("analytics")[-1][1] is True
-    assert "shop_product" in _table_names(project, "analytics.sqlite3")
+    assert "obox_product" in _table_names(project, "analytics.sqlite3")
 
     result = runner.invoke(create_typer_app(), ["showmigrations", "--database", "analytics"])
     assert result.exit_code == 0, result.output
@@ -191,7 +191,7 @@ def test_shared_migration_graph_filters_operations_per_database_alias(
     result = runner.invoke(create_typer_app(), ["migrate"])
     assert result.exit_code == 0, result.output
     assert current_revision("default") == current_revision("analytics")
-    assert "shop_product" not in _table_names(project)
+    assert "obox_product" not in _table_names(project)
     assert make_migration("again") is None
 
 
@@ -240,5 +240,5 @@ def test_cli_migrate_sql_prints_statements(project: Path) -> None:
     assert result.exit_code == 0, result.output
     result = runner.invoke(create_typer_app(), ["migrate", "--sql"])
     assert result.exit_code == 0, result.output
-    assert "CREATE TABLE shop_product" in result.output
+    assert "CREATE TABLE obox_product" in result.output
     assert _table_names(project) <= {"alembic_version"}

@@ -19,9 +19,7 @@ class Broken(Model):
 
     id: Mapped[int] = mapped_column(sa.Integer, primary_key=True)
     name: Mapped[str] = mapped_column(sa.String(50), default="")
-    parent_id: Mapped[int | None] = mapped_column(
-        sa.ForeignKey("badhistory_broken.id"), nullable=True
-    )
+    parent_id: Mapped[int | None] = mapped_column(sa.ForeignKey("obox_broken.id"), nullable=True)
 
     parent: Mapped[Broken | None] = relationship(remote_side=[id], back_populates="children")
     children: Mapped[list[Broken]] = relationship(back_populates="parent")

@@ -1,4 +1,4 @@
-"""``history_partition``: manage monthly RANGE partitions of ``history_row_change``.
+"""``history_partition``: manage monthly RANGE partitions of ``obox_row_change``.
 
 PostgreSQL only. The conversion from a plain table to a partitioned one is
 *printed* (``history_partition --sql``) rather than executed by the CLI: it is a
@@ -8,9 +8,9 @@ operator reviews and applies it (see ``docs/history.md``). Once partitioned:
 * ``ensure`` creates the coming months plus a ``DEFAULT`` partition, so inserts
   never fail when the cron drifts;
 * ``drop_before`` applies retention with ``DROP TABLE`` on whole month
-  partitions (O(1), no bloat), never touching ``history_row_change_default``.
+  partitions (O(1), no bloat), never touching ``obox_row_change_default``.
 
-Partition names are ``history_row_change_YYYYMM``; only names this module minted
+Partition names are ``obox_row_change_YYYYMM``; only names this module minted
 are ever dropped.
 """
 
@@ -26,7 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger("obox.history.audit")
 
-TABLE = "history_row_change"
+TABLE = "obox_row_change"
 DEFAULT_PARTITION = f"{TABLE}_default"
 _BOUND_TO_RE = re.compile(r"TO \('([^']+)'\)")
 _OFFSET_RE = re.compile(r"([+-]\d{2})$")
@@ -106,7 +106,7 @@ def _parse_upper(bound: str) -> datetime | None:
 
 
 async def partition_infos(db: AsyncSession) -> list[PartitionInfo]:
-    """Partitions of ``history_row_change``; raises unless it is partitioned."""
+    """Partitions of ``obox_row_change``; raises unless it is partitioned."""
     if db.get_bind().dialect.name != "postgresql":
         raise PartitionError("history_partition requires PostgreSQL.")
     kind = await _relkind(db)
@@ -221,7 +221,7 @@ _LEGACY_INDEXES = (
 )
 
 _COLUMNS = """
-    id BIGINT NOT NULL DEFAULT nextval('history_row_change_id_seq'),
+    id BIGINT NOT NULL DEFAULT nextval('obox_row_change_id_seq'),
     occurred_at TIMESTAMP WITH TIME ZONE NOT NULL,
     change_set_id UUID NOT NULL,
     op VARCHAR(16) NOT NULL,
@@ -243,7 +243,7 @@ _COLUMNS = """
 
 
 def conversion_sql(cutoff: datetime, *, concurrent: bool = True) -> list[str]:
-    """The reviewed DDL that turns a plain ``history_row_change`` into a
+    """The reviewed DDL that turns a plain ``obox_row_change`` into a
     partitioned table, keeping existing rows as the first (legacy) partition.
 
     ``cutoff`` must be a month start: entries before it stay on the old table,
@@ -303,7 +303,7 @@ def conversion_sql(cutoff: datetime, *, concurrent: bool = True) -> list[str]:
         ),
         # The serial sequence is shared by the legacy partition: free it so
         # dropping that partition later never drops the sequence.
-        "ALTER SEQUENCE IF EXISTS history_row_change_id_seq OWNED BY NONE;",
+        "ALTER SEQUENCE IF EXISTS obox_row_change_id_seq OWNED BY NONE;",
         f"CREATE TABLE IF NOT EXISTS {DEFAULT_PARTITION} PARTITION OF {TABLE} DEFAULT;",
         (
             "CREATE OR REPLACE FUNCTION history_forbid_mutation() RETURNS trigger AS $$ "

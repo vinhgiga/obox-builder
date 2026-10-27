@@ -217,7 +217,7 @@ async def test_raw_sql_uses_an_explicit_alias_session(multi_db: None) -> None:
     async with session_scope("analytics") as session:
         session.add(Product(name="raw target"))
     async with get_sessionmaker("analytics")() as session:
-        result = await session.execute(sa.text("SELECT name FROM shop_product"))
+        result = await session.execute(sa.text("SELECT name FROM obox_product"))
         assert result.scalar_one() == "raw target"
 
 

@@ -8,7 +8,7 @@ from obox_builder.core.management.base import CommandError, command
 
 @command(
     help=(
-        "Manage monthly partitions of history_row_change (PostgreSQL). "
+        "Manage monthly partitions of obox_row_change (PostgreSQL). "
         "Exactly one of --ensure / --drop-before / --sql is required."
     )
 )

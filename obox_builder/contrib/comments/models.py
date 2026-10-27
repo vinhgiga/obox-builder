@@ -1,7 +1,7 @@
 """Comment tables.
 
 Comments are mutable user content, deliberately kept out of
-``history_row_change`` (ADR-0002 D1). The polymorphic target uses the same
+``obox_row_change`` (ADR-0002 D1). The polymorphic target uses the same
 ``(model_label, object_pk)`` identity as row history, so both features line up
 without sharing a foreign key to every model.
 """
@@ -23,7 +23,7 @@ from obox_builder.db.types import BigIntIdentity, TZDateTime
 BODY_FORMATS = ("text", "md")
 SOURCES = ("admin_ui", "api", "cli", "job", "system", "import")
 
-TABLE = "comments_row_comment"
+TABLE = "obox_row_comment"
 
 
 class RowComment(Model, VersionedMixin):

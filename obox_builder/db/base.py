@@ -27,7 +27,7 @@ class ModelBase(DeclarativeBase):
 
 
 class Model(ModelBase):
-    """Base model: table name defaults to ``<app_label>_<snake_name>``.
+    """Base model: table name defaults to ``obox_<snake_name>``.
 
     The owning app is found by matching the model's module against the app
     registry (longest ``AppConfig.name`` prefix). Override ``app_label`` on a
@@ -39,6 +39,7 @@ class Model(ModelBase):
 
     app_label: ClassVar[str] = ""
     _model_label: ClassVar[str] = ""
+    __auth_model__: ClassVar[bool] = False
     __permissions__: ClassVar[list[tuple[str, str]]] = []
     #: Row-history declaration: ``True`` for defaults, ``False``/``None`` to opt
     #: out, or a mapping with ``fields``/``exclude``/``relations``/``mask``/
@@ -69,7 +70,8 @@ class Model(ModelBase):
                     cls.app_label = label
             cls._model_label = label
             if "__tablename__" not in cls.__dict__:
-                cls.__tablename__ = f"{label}_{camel_to_snake(cls.__name__)}"
+                prefix = label if label == "auth" or cls.__auth_model__ else "obox"
+                cls.__tablename__ = f"{prefix}_{camel_to_snake(cls.__name__)}"
         super().__init_subclass__(**kwargs)
 
 

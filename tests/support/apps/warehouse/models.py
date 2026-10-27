@@ -10,10 +10,10 @@ from obox_builder.db.types import BigIntIdentity, TZDateTime
 from sqlalchemy.orm import Mapped, mapped_column
 
 item_tags = sa.Table(
-    "warehouse_item_tags",
+    "obox_item_tags",
     Model.metadata,
-    sa.Column("item_id", sa.ForeignKey("warehouse_item.id"), primary_key=True),
-    sa.Column("tag_id", sa.ForeignKey("warehouse_tag.id"), primary_key=True),
+    sa.Column("item_id", sa.ForeignKey("obox_item.id"), primary_key=True),
+    sa.Column("tag_id", sa.ForeignKey("obox_tag.id"), primary_key=True),
 )
 
 
@@ -50,7 +50,7 @@ class Item(Model, TimestampMixin, VersionedMixin):
     internal_note: Mapped[str] = mapped_column(
         sa.String(100), default="", info={"admin": {"history": False}}
     )
-    shelf_id: Mapped[int | None] = mapped_column(sa.ForeignKey("warehouse_shelf.id"), nullable=True)
+    shelf_id: Mapped[int | None] = mapped_column(sa.ForeignKey("obox_shelf.id"), nullable=True)
 
     shelf: Mapped[Shelf | None] = relationship(back_populates="items")
     tags: Mapped[list[Tag]] = relationship(secondary=item_tags, back_populates="items")
