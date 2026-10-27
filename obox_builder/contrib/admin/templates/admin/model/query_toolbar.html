@@ -1,19 +1,13 @@
 <div class="card-header admin-list-toolbar">
-  <form id="list-query" method="get" action="{{ admin.list_path() }}">
+  <div class="admin-list-toolbar-main">
+    {% include "admin/model/view_controls.html" %}
+  <form class="admin-list-query" id="list-query" method="get" action="{{ admin.list_path() }}">
     {% if selected_view %}<input type="hidden" name="view" value="{{ selected_view.id }}"/>{% endif %}
     <input type="hidden" name="filter" value="{{ query_state.filter }}"/>
     <input type="hidden" name="sort" value="{{ query_state.get('sort', '') }}"/>
     <input type="hidden" name="group" value="{{ query_state.get('group', '') }}"/>
     <input type="hidden" name="size" value="{{ size }}"/>
     <button class="visually-hidden" type="submit" tabindex="-1">Search</button>
-    <div class="admin-list-toolbar-main">
-      <nav class="admin-list-views" aria-label="Saved views">
-        <span class="text-secondary small">My views</span>
-        <a href="{{ admin.list_path() }}" class="btn btn-sm{{ ' btn-primary' if not selected_view }}">All records</a>
-        {% for view in saved_views %}
-        <a href="{{ admin.list_path() }}?view={{ view.id }}" class="btn btn-sm{{ ' btn-primary' if selected_view and selected_view.id == view.id }}">{{ view.name }}</a>
-        {% endfor %}
-      </nav>
       <div class="admin-list-controls" data-list-toolbar>
         {% if columns %}
         <details class="admin-toolbar-popover admin-fields-popover" data-fields-panel>
@@ -166,24 +160,8 @@
         </div>
         {% endif %}
       </div>
-    </div>
     <noscript><p class="text-secondary small mb-0 mt-2">Enable JavaScript to hide fields and edit filters, sort order and groups.</p></noscript>
   </form>
-  <form method="post" action="{{ admin.list_path() }}/views{% if request.url.query %}?{{ request.url.query }}{% endif %}"
-        class="admin-list-view-save" data-save-view>
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}"/>
-    <input name="name" value="{{ selected_view.name if selected_view else '' }}"
-           class="form-control form-control-sm" required maxlength="100"
-           placeholder="View name" aria-label="View name"/>
-    <button type="submit" class="btn btn-sm">{{ 'Update view' if selected_view else 'Save view' }}</button>
-    {% if selected_view %}<button type="submit" name="save_as" value="new" class="btn btn-sm">Save as new</button>{% endif %}
-  </form>
-  {% if selected_view %}
-  <form method="post" action="{{ admin.list_path() }}/views/{{ selected_view.id }}/delete"
-        class="admin-list-view-delete" data-confirm="Delete this saved view?">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}"/>
-    <button class="btn btn-sm btn-outline-danger" type="submit">Delete view</button>
-  </form>
-  {% endif %}
+  </div>
 </div>
 <script type="application/json" id="list-query-config">{{ {'fields': query_fields, 'filter': filter_tree, 'sort': sort_terms, 'group': group_terms} | tojson }}</script>

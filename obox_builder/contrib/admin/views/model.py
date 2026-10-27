@@ -287,6 +287,48 @@ def _register_one(router: APIRouter, site: AdminSite, admin: ModelAdmin) -> None
         ctx = AdminContext(request=request, user=user, db=db, site=site, admin=admin)
         return await delete_view(ctx, view_id)
 
+    async def view_rename(
+        request: Request, view_id: int, user: Any = user_dep, db: AsyncSession = Depends(get_db)
+    ) -> Any:
+        from obox_builder.contrib.admin.views.saved_views import edit_view
+
+        return await edit_view(
+            AdminContext(request=request, user=user, db=db, site=site, admin=admin), view_id
+        )
+
+    async def view_duplicate(
+        request: Request, view_id: int, user: Any = user_dep, db: AsyncSession = Depends(get_db)
+    ) -> Any:
+        from obox_builder.contrib.admin.views.saved_views import edit_view
+
+        return await edit_view(
+            AdminContext(request=request, user=user, db=db, site=site, admin=admin),
+            view_id,
+            duplicate=True,
+        )
+
+    async def csv_download(
+        request: Request, user: Any = user_dep, db: AsyncSession = Depends(get_db)
+    ) -> Any:
+        from obox_builder.contrib.admin.views.exports import export_csv
+
+        return await export_csv(
+            AdminContext(request=request, user=user, db=db, site=site, admin=admin)
+        )
+
+    router.add_api_route(f"{base}/export.csv", csv_download, methods=["GET"], name=f"{name}_csv")
+    router.add_api_route(
+        f"{base}/views/{{view_id}}/rename",
+        view_rename,
+        methods=["POST"],
+        name=f"{name}_view_rename",
+    )
+    router.add_api_route(
+        f"{base}/views/{{view_id}}/duplicate",
+        view_duplicate,
+        methods=["POST"],
+        name=f"{name}_view_duplicate",
+    )
     router.add_api_route(f"{base}/views", view_save, methods=["POST"], name=f"{name}_view_save")
     router.add_api_route(
         f"{base}/views/{{view_id}}/delete",

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { once } from "node:events";
 import { createServer } from "node:net";
 import { after, before, test } from "node:test";
@@ -55,6 +56,92 @@ async function ready(page, title) {
   assert.equal(await page.locator("#admin-main").count(), 1);
   assert.equal(await page.locator("#admin-sidebar-shell").count(), 1);
   assert.equal(await page.evaluate(() => window.documentMarker), "same-document");
+}
+
+for (const [engine, browserType] of Object.entries({chromium, firefox, webkit})) {
+  test(`${engine}: saved view sidebar, menu actions and complete CSV download`, async () => {
+    const browser = await browserType.launch();
+    try {
+      const page = await browser.newPage({reducedMotion: "reduce"});
+      page.setDefaultTimeout(10000);
+      const errors = [];
+      page.on("pageerror", (error) => errors.push(error.stack));
+      await login(page);
+      await page.goto(`${origin}/admin/shop/product?q=Product+1&sort=name&size=2`);
+      const toggle = page.locator("[data-views-toggle]");
+      const menu = page.locator("[data-view-menu]");
+      const sidebar = page.locator("[data-views-sidebar]");
+      const name = `Review ${engine}`;
+      const currentName = () => page.locator("[data-current-view-name]").textContent();
+      const rename = async (value) => {
+        await menu.locator("summary").click();
+        await menu.getByRole("menuitem", {name: "Rename view"}).click();
+        const dialog = page.locator("[data-view-name-dialog]");
+        await dialog.getByRole("textbox", {name: "New view name"}).fill(value);
+        await dialog.getByRole("button", {name: "Save", exact: true}).click();
+        await page.waitForFunction((value) => document.querySelector("[data-current-view-name]").textContent === value, value);
+      };
+      await rename(name);
+      const originalURL = page.url();
+      await toggle.click();
+      assert.equal(await toggle.getAttribute("aria-expanded"), "true");
+      assert.equal(await sidebar.getByRole("link", {name, exact: true}).getAttribute("aria-current"), "page");
+      await sidebar.getByRole("searchbox", {name: "Find a view"}).fill("no matching view");
+      assert.equal(await sidebar.locator("[data-views-empty]").isVisible(), true);
+      await sidebar.getByRole("searchbox", {name: "Find a view"}).fill("");
+      await page.reload();
+      assert.equal(await sidebar.isVisible(), true);
+      await toggle.click();
+      await menu.locator("summary").click();
+      await menu.getByRole("menuitem", {name: "Duplicate view"}).click();
+      await page.waitForFunction((name) => document.querySelector("[data-current-view-name]").textContent === `${name} copy`, name);
+      assert.notEqual(page.url(), originalURL);
+      await rename(`${name} renamed`);
+
+      await page.locator("[data-fields-panel] > summary").click();
+      for (const field of ["status", "price_cents", "category_id", "is_active"]) {
+        await page.locator(`[data-field-toggle="${field}"]`).uncheck();
+      }
+      await page.locator('[data-field-reorder="name"]').press("Alt+ArrowUp");
+      await page.locator("[data-fields-panel] > summary").click();
+      await menu.locator("summary").click();
+      const downloading = page.waitForEvent("download");
+      await menu.getByRole("menuitem", {name: "Download CSV"}).click();
+      const download = await downloading;
+      const csv = readFileSync(await download.path(), "utf8").replace(/^\uFEFF/, "").trimEnd().split(/\r?\n/);
+      assert.equal(download.suggestedFilename(), "product.csv");
+      assert.equal(csv[0], "Name,Id");
+      assert.equal(csv.length, 12);
+      assert.ok(csv.slice(1).every((row) => row.startsWith("Product 1")));
+      assert.equal(await currentName(), `${name} renamed`);
+
+      await menu.locator("summary").click();
+      await menu.getByRole("menuitem", {name: "Delete view"}).click();
+      await page.locator("[data-confirm-cancel]").click();
+      assert.equal(await currentName(), `${name} renamed`);
+      await menu.locator("summary").click();
+      await menu.getByRole("menuitem", {name: "Delete view"}).click();
+      await page.locator("[data-confirm-ok]").click();
+      await page.waitForFunction(() => document.querySelector("[data-current-view-name]").textContent === "Grid view");
+      await toggle.click();
+      assert.equal(await sidebar.getByRole("link", {name, exact: true}).count(), 1);
+      assert.equal(await sidebar.getByRole("link", {name: `${name} renamed`, exact: true}).count(), 0);
+
+      await page.setViewportSize({width: 390, height: 844});
+      await sidebar.getByRole("searchbox").focus();
+      await page.keyboard.press("Escape");
+      assert.equal(await toggle.getAttribute("aria-expanded"), "false");
+      await menu.locator("summary").click();
+      assert.equal(await menu.getByRole("menuitem", {name: "Delete view"}).isDisabled(), true);
+      const bounds = await menu.locator("[role=menu]").boundingBox();
+      assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= 390);
+      await page.keyboard.press("ArrowDown");
+      assert.equal(await menu.getByRole("menuitem", {name: "Rename view"}).evaluate((button) => button === document.activeElement), true);
+      await page.keyboard.press("Escape");
+      assert.equal(await menu.getAttribute("open"), null);
+      assert.deepEqual(errors, []);
+    } finally { await browser.close(); }
+  });
 }
 
 test("localized lists keep their language when scrolling and loading summaries", async () => {
@@ -454,6 +541,7 @@ for (const [engine, browserType] of Object.entries({chromium, firefox, webkit}))
       }, viewName);
       await page.locator("[data-save-view]").evaluate((form) => form.requestSubmit());
       await page.waitForFunction(() => Boolean(document.querySelector('#list-query input[name="view"]')?.value));
+      await page.waitForFunction((name) => document.querySelector('[data-save-view] input[name="name"]')?.value === name, viewName);
       assert.equal(await page.locator('[data-save-view] input[name="name"]').inputValue(), viewName);
       assert.equal(await page.locator(".admin-list-views").isVisible(), false);
       assert.equal(await page.locator("[data-save-view]").isVisible(), false);

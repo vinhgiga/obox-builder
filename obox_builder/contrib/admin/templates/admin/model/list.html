@@ -57,6 +57,9 @@
   {% if inline_banner %}
   <div class="alert alert-danger rounded-0 mb-0" role="alert">{{ inline_banner }}</div>
   {% endif %}
+  <div class="admin-list-workspace">
+    {% include "admin/model/saved_views.html" %}
+    <div class="admin-list-grid">
   <div class="admin-list-body">
   <div class="table-responsive admin-list-table-scroll" data-list-table
        data-list-key="{{ admin.list_path() }}" data-row-height="medium"
@@ -130,6 +133,8 @@
       </tr></tfoot></table>
     </div>
     <div data-list-pagination>{% include "admin/includes/pagination.html" %}</div>
+  </div>
+    </div>
   </div>
 </div>
 {% endblock %}

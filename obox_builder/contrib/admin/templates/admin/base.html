@@ -21,7 +21,7 @@
   <script src="{{ static('admin/js/navigation.js') }}" defer></script>
   {% endif %}
   <script src="{{ static('admin/vendor/tanstack/virtual-core.min.js') }}" defer></script>
-  {% for script in ['admin', 'list-query', 'list-view', 'list-scroll', 'list-summary', 'comments', 'jobs', 'relations'] %}
+  {% for script in ['admin', 'list-query', 'list-view', 'list-scroll', 'list-summary', 'saved-views', 'comments', 'jobs', 'relations'] %}
   <script src="{{ static('admin/js/' ~ script ~ '.js') }}" defer></script>
   {% endfor %}
   {% for script in admin_js or [] %}<script src="{{ static(script) }}" defer></script>{% endfor %}

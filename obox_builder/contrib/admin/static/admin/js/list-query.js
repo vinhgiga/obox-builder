@@ -760,12 +760,13 @@
     select.addEventListener("change", render);
   });
   form.addEventListener("submit", serialize);
-  document.querySelector("[data-save-view]")?.addEventListener("submit", (event) => {
+  form.addEventListener("admin:serialize-query", serialize);
+  document.querySelectorAll("[data-save-query]").forEach((target) => target.addEventListener("submit", (event) => {
     serialize();
     const url = new URL(event.currentTarget.action);
     url.search = new URLSearchParams(new FormData(form)).toString();
     event.currentTarget.action = url.toString();
-  });
+  }));
 
   const table = document.querySelector("[data-list-table]");
   const collapsed = new Set();

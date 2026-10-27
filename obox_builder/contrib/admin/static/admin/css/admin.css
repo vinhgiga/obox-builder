@@ -105,11 +105,8 @@ mark {
   min-height: 0;
 }
 
-/* Retain secondary controls and their forms for future layouts. */
-.admin-list-actions,
-.admin-list-views,
-.admin-list-toolbar .admin-list-view-save,
-.admin-list-toolbar .admin-list-view-delete {
+/* Retain secondary record actions for the compact layout. */
+.admin-list-actions {
   display: none;
 }
 
@@ -139,6 +136,178 @@ mark {
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 0.75rem 1rem;
+}
+
+.admin-list-query {
+  flex: 1;
+  min-width: 0;
+}
+
+.admin-view-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.admin-view-menu {
+  position: relative;
+  min-width: 0;
+}
+
+.admin-view-menu > summary {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  list-style: none;
+  cursor: pointer;
+  max-width: 18rem;
+}
+
+.admin-view-menu > summary::-webkit-details-marker {
+  display: none;
+}
+
+[data-current-view-name],
+.admin-saved-view span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-view-menu-panel {
+  position: absolute;
+  z-index: 35;
+  inset-block-start: calc(100% + 0.5rem);
+  inset-inline-start: 0;
+  width: min(16rem, calc(100vw - 2rem));
+  padding: 0.35rem;
+  border: 1px solid var(--tblr-border-color, #e6e7e9);
+  border-radius: 0.5rem;
+  background: var(--tblr-bg-surface, #fff);
+  box-shadow: 0 0.5rem 1.5rem #0002;
+  overflow-y: auto;
+}
+
+.admin-view-menu-panel :is(button, a) {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.65rem 0.75rem;
+  border: 0;
+  border-radius: 0.25rem;
+  background: transparent;
+  color: inherit;
+  text-align: start;
+  text-decoration: none;
+}
+
+.admin-view-menu-panel :is(button, a):is(:hover, :focus-visible) {
+  background: var(--tblr-bg-surface-secondary, #f1f3f5);
+}
+
+.admin-view-menu-panel :is(button, a):disabled {
+  opacity: 0.45;
+}
+
+.admin-view-menu-divider {
+  border-top: 1px solid var(--tblr-border-color, #e6e7e9);
+  margin-block: 0.35rem;
+}
+
+.admin-view-dialog {
+  width: min(24rem, calc(100vw - 2rem));
+  padding: 1.25rem;
+  border: 0;
+  border-radius: 0.5rem;
+  background: var(--tblr-bg-surface, #fff);
+  color: var(--tblr-body-color);
+}
+
+.admin-view-dialog::backdrop {
+  background: #0005;
+}
+
+.admin-list-workspace {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.admin-list-grid {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.admin-views-sidebar {
+  display: flex;
+  flex: 0 0 15rem;
+  flex-direction: column;
+  gap: 0.75rem;
+  width: 15rem;
+  padding: 1rem;
+  border-inline-end: 1px solid var(--tblr-border-color, #e6e7e9);
+  overflow-y: auto;
+  background: var(--tblr-bg-surface, #fff);
+}
+
+.admin-views-sidebar [hidden],
+.admin-views-sidebar[hidden] {
+  display: none !important;
+}
+
+.admin-views-sidebar h3 {
+  margin: 0;
+}
+
+.admin-views-sidebar .admin-list-views {
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 0.25rem;
+}
+
+.admin-saved-view {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem;
+  border-radius: 0.35rem;
+  color: inherit;
+  text-decoration: none;
+}
+
+.admin-saved-view:is(:hover, .is-active) {
+  background: var(--tblr-primary-lt, #e6f1fa);
+  color: var(--tblr-primary, #066fd1);
+}
+
+.admin-views-sidebar .admin-list-view-save {
+  flex-direction: column;
+  align-items: stretch;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--tblr-border-color, #e6e7e9);
+}
+
+@media (max-width: 767.98px) {
+  .admin-list-query {
+    flex-basis: 100%;
+  }
+
+  .admin-views-sidebar {
+    position: absolute;
+    z-index: 20;
+    inset-block: 0;
+    inset-inline-start: 0;
+    max-width: calc(100% - 1rem);
+    box-shadow: 0.25rem 0 1rem #0002;
+  }
 }
 
 .admin-list-views {
@@ -929,7 +1098,7 @@ mark {
 }
 
 .admin-list-card.is-virtual > .admin-list-toolbar,
-.admin-list-card.is-virtual > .admin-list-footer {
+.admin-list-card.is-virtual .admin-list-footer {
   flex-shrink: 0;
 }
 
