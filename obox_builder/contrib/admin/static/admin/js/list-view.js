@@ -106,8 +106,9 @@
       // Keep the controls usable when browser storage is unavailable.
     }
   };
+  const allRows = () => [...table.closest(".admin-list-card").querySelectorAll("[data-list-summary] tr"), ...table.querySelectorAll("thead tr"), ...(table.adminList?.rows || table.querySelectorAll("tbody tr"))];
   const applyFieldOrder = () => {
-    table.querySelectorAll("tr").forEach((row) => {
+    allRows().forEach((row) => {
       const cells = [...row.children].filter((cell) => cell.hasAttribute("data-list-column"));
       if (!cells.length) return;
       const byName = new Map(cells.map((cell) => [cell.dataset.listColumn, cell]));
@@ -124,15 +125,17 @@
   const applyColumns = () => {
     applyFieldOrder();
     const visibleCount = toggles.filter((input) => input.checked).length;
-    table.querySelectorAll("[data-list-column]").forEach((cell) => {
+    allRows().flatMap((row) => [...row.querySelectorAll("[data-list-column]")]).forEach((cell) => {
       const input = toggles.find((item) => item.dataset.fieldToggle === cell.dataset.listColumn);
       cell.hidden = Boolean(input && !input.checked);
     });
     const fixedColumns = table.querySelectorAll("thead th:not([data-list-column])").length;
-    table.querySelectorAll("[data-list-colspan]").forEach((cell) => {
+    allRows().flatMap((row) => [...row.querySelectorAll("[data-list-colspan]")]).forEach((cell) => {
       cell.colSpan = fixedColumns + visibleCount;
     });
+    table.dispatchEvent(new Event("admin:columns"));
   };
+  table.addEventListener("admin:rows", applyColumns);
   const setHeight = (height) => {
     if (!["compact", "medium", "tall", "extra-tall"].includes(height)) height = "medium";
     table.dataset.rowHeight = height;
@@ -320,7 +323,17 @@
     const panel = popover.querySelector(":scope > .admin-toolbar-panel");
     const bounds = toolbar.closest(".admin-list-card")?.getBoundingClientRect();
     if (!summary || !panel || !bounds) return;
-    panel.style.maxWidth = `${Math.max(0, summary.getBoundingClientRect().right - bounds.left - 8)}px`;
+    const mobile = window.innerWidth < 768;
+    panel.style.insetInlineEnd = "";
+    panel.style.maxWidth = `${Math.max(0, mobile
+      ? Math.min(window.innerWidth, bounds.right) - Math.max(0, bounds.left) - 16
+      : summary.getBoundingClientRect().right - bounds.left - 8)}px`;
+    if (mobile) {
+      const rect = panel.getBoundingClientRect();
+      const shift = Math.max(0, Math.max(8, bounds.left + 8) - rect.left)
+        - Math.max(0, rect.right - Math.min(window.innerWidth - 8, bounds.right - 8));
+      panel.style.insetInlineEnd = `${getComputedStyle(popover).direction === "rtl" ? shift : -shift}px`;
+    }
     if (["group", "sort"].includes(popover.dataset.queryPanel)) {
       panel.style.maxHeight = `${Math.max(0, window.innerHeight - panel.getBoundingClientRect().top - 8)}px`;
     }
@@ -343,6 +356,7 @@
         if (panel) {
           panel.style.maxWidth = "";
           panel.style.maxHeight = "";
+          panel.style.insetInlineEnd = "";
         }
         popover.querySelectorAll("details[open]").forEach((nested) => { nested.open = false; });
       }

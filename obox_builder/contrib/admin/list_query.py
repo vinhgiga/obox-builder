@@ -7,6 +7,7 @@ from typing import Any
 
 import sqlalchemy as sa
 
+from obox_builder.conf import settings
 from obox_builder.contrib.admin.context import AdminContext
 from obox_builder.contrib.admin.models import SavedView
 from obox_builder.fields import FieldSpec, QuerySpec, QuerySpecError
@@ -57,6 +58,44 @@ async def load_query(ctx: AdminContext) -> tuple[QuerySpec, SavedView | None]:
         default_size=ctx.admin.get_list_per_page(ctx),
     )
     return query, selected
+
+
+def list_queryset(
+    ctx: AdminContext, query: QuerySpec, specs: Mapping[str, FieldSpec]
+) -> tuple[sa.Select[Any], list[dict[str, Any]]]:
+    """Apply the same scope and filters to lists and aggregate queries."""
+    assert ctx.admin is not None  # noqa: S101
+    admin = ctx.admin
+    request = ctx.request
+    stmt = query.apply(
+        admin.get_queryset(ctx),
+        specs,
+        search_specs=admin.get_search_specs(ctx),
+        text_collation=settings.ADMIN_TEXT_COLLATION,
+    )
+
+    simple_filters = []
+    for filter_class in admin.get_list_filter(ctx):
+        if isinstance(filter_class, str):
+            continue
+        filter_instance = filter_class(ctx)
+        lookups = [(str(value), str(label)) for value, label in filter_instance.lookups()]
+        value = request.query_params.get(filter_class.parameter_name, "")
+        if value and value not in {item[0] for item in lookups}:
+            raise QuerySpecError(f"Invalid {filter_class.parameter_name!r} filter value.")
+        if value:
+            scoped_ids = stmt.with_only_columns(admin.pk_column()).order_by(None)
+            stmt = filter_instance.queryset(stmt, value).where(admin.pk_column().in_(scoped_ids))
+        simple_filters.append(
+            {
+                "title": filter_class.title,
+                "parameter_name": filter_class.parameter_name,
+                "lookups": lookups,
+                "value": value,
+            }
+        )
+
+    return stmt, simple_filters
 
 
 async def group_headers(

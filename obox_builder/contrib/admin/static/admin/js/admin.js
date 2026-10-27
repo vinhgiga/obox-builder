@@ -359,14 +359,18 @@
     });
   }
 
+  function listElements(selector) {
+    var list = document.querySelector("[data-list-table]")?.adminList;
+    return list ? list.queryAll(selector) : Array.from(document.querySelectorAll(selector));
+  }
+
+  var boundEditors = new WeakSet();
   function initInlineEditors() {
     var form = document.getElementById("inline-edit");
     if (!form) {
       return;
     }
-    var editors = Array.prototype.slice.call(
-      document.querySelectorAll("[data-inline-editor]")
-    );
+    var editors = listElements("[data-inline-editor]");
     if (!editors.length) {
       return;
     }
@@ -376,7 +380,7 @@
 
     function refresh() {
       var count = 0;
-      editors.forEach(function (editor) {
+      listElements("[data-inline-editor]").forEach(function (editor) {
         var modified = editor.value !== editor.dataset.original;
         if (modified) {
           count += 1;
@@ -422,6 +426,8 @@
     }
 
     editors.forEach(function (editor) {
+      if (boundEditors.has(editor)) return;
+      boundEditors.add(editor);
       editor.dataset.committed = editor.value;
       editor.addEventListener("input", refresh);
       editor.addEventListener("change", function () {
@@ -454,21 +460,22 @@
         });
       }
     });
-    if (revertButton) {
+    if (revertButton && !form.dataset.inlineBound) {
       revertButton.addEventListener("click", function () {
-        editors.forEach(function (editor) {
+        listElements("[data-inline-editor]").forEach(function (editor) {
           editor.value = editor.dataset.original;
           editor.dataset.committed = editor.dataset.original;
         });
         refresh();
       });
     }
+    form.dataset.inlineBound = "true";
     refresh();
   }
 
   function stagedInlineCount() {
     var count = 0;
-    document.querySelectorAll("[data-inline-editor]").forEach(function (editor) {
+    listElements("[data-inline-editor]").forEach(function (editor) {
       if (editor.value !== editor.dataset.original) {
         count += 1;
       }
@@ -482,15 +489,14 @@
       return;
     }
     var toggle = document.getElementById("action-toggle");
-    var boxes = Array.prototype.slice.call(
-      document.querySelectorAll("input.action-select")
-    );
+    if (form.refreshSelection) { form.refreshSelection(); return; }
+    var boxes = () => listElements("input.action-select");
     var select = document.querySelector("[data-bulk-action]");
     var counter = document.querySelector("[data-selection-counter]");
     var selectAllLink = document.querySelector("[data-select-all]");
     var clearLink = document.querySelector("[data-select-clear]");
     var selectAcross = form.querySelector('input[name="select_across"]');
-    var total = selectAllLink ? parseInt(selectAllLink.dataset.total || "0", 10) : boxes.length;
+    var total = selectAllLink ? parseInt(selectAllLink.dataset.total || "0", 10) : boxes().length;
     var noun = form.dataset.noun || "items";
     var across = false;
     var lastIndex = null;
@@ -509,7 +515,7 @@
 
     function selectedCount() {
       var count = 0;
-      boxes.forEach(function (box) {
+      boxes().forEach(function (box) {
         if (box.checked) {
           count += 1;
         }
@@ -522,16 +528,16 @@
       if (counter) {
         counter.textContent = across
           ? "All " + total + " selected"
-          : count + " of " + boxes.length + " selected";
+          : count + " of " + boxes().length + " selected";
       }
       if (toggle) {
-        toggle.checked = boxes.length > 0 && count === boxes.length;
-        toggle.indeterminate = count > 0 && count < boxes.length;
+        toggle.checked = boxes().length > 0 && count === boxes().length;
+        toggle.indeterminate = count > 0 && count < boxes().length;
       }
       if (selectAllLink) {
         selectAllLink.classList.toggle(
           "d-none",
-          !(count > 0 && count === boxes.length && !across && boxes.length < total)
+          !(count > 0 && count === boxes().length && !across && boxes().length < total)
         );
       }
       if (clearLink) {
@@ -539,26 +545,28 @@
       }
     }
 
-    boxes.forEach(function (box, index) {
-      box.addEventListener("click", function (event) {
-        if (event.shiftKey && lastIndex !== null && lastIndex !== index) {
-          var start = Math.min(lastIndex, index);
-          var end = Math.max(lastIndex, index);
-          for (var i = start; i <= end; i += 1) {
-            boxes[i].checked = box.checked;
-            updateRow(boxes[i]);
-          }
+    document.querySelector("[data-list-table]").addEventListener("click", function (event) {
+      var box = event.target.closest("input.action-select");
+      if (!box) return;
+      var current = boxes();
+      var index = current.indexOf(box);
+      if (event.shiftKey && lastIndex !== null && lastIndex !== index) {
+        var start = Math.min(lastIndex, index);
+        var end = Math.max(lastIndex, index);
+        for (var i = start; i <= end; i += 1) {
+          current[i].checked = box.checked;
+          updateRow(current[i]);
         }
-        lastIndex = index;
-        updateRow(box);
-        setAcross(false);
-        update();
-      });
+      }
+      lastIndex = index;
+      updateRow(box);
+      setAcross(false);
+      update();
     });
 
     if (toggle) {
       toggle.addEventListener("change", function () {
-        boxes.forEach(function (box) {
+        boxes().forEach(function (box) {
           box.checked = toggle.checked;
           updateRow(box);
         });
@@ -570,7 +578,7 @@
     if (selectAllLink) {
       selectAllLink.addEventListener("click", function (event) {
         event.preventDefault();
-        boxes.forEach(function (box) {
+        boxes().forEach(function (box) {
           box.checked = true;
           updateRow(box);
         });
@@ -582,7 +590,7 @@
     if (clearLink) {
       clearLink.addEventListener("click", function (event) {
         event.preventDefault();
-        boxes.forEach(function (box) {
+        boxes().forEach(function (box) {
           box.checked = false;
           updateRow(box);
         });
@@ -619,8 +627,14 @@
       }
     });
 
+    form.refreshSelection = update;
     update();
   }
+
+  document.addEventListener("admin:rows", function () {
+    initInlineEditors();
+    initBulkActions();
+  });
 
   function initPage() {
     if (confirmDialog && !confirmDialog.isConnected) confirmDialog = null;

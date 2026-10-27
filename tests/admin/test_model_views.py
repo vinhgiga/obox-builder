@@ -606,6 +606,58 @@ async def test_pagination(client: httpx.AsyncClient) -> None:
     assert "Item 0" not in second.text
 
 
+async def test_scroll_pages_keep_query_and_skip_repeated_count(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from obox_builder.contrib.admin.pagination import AdminPaginator
+
+    for index in range(3):
+        await make_product(f"Scroll {index}", status="live")
+    await make_product("Other", status="draft")
+    await make_product("Unrelated", status="live")
+    await make_user("alice", is_superuser=True)
+    await login_session(client, "alice")
+    query = "?size=2&sort=name&f=status:eq:live&f=name:contains:Scroll"
+    first = await client.get(LIST_URL + query)
+    assert "3 records" in first.text
+    assert "data-next-url=" in first.text
+    assert "f=status%3Aeq%3Alive&amp;f=name%3Acontains%3AScroll" in first.text
+    assert 'aria-label="Add product"' in first.text
+
+    async def unexpected_count(self: AdminPaginator) -> int:
+        raise AssertionError("Subsequent scroll pages must not repeat the total count")
+
+    monkeypatch.setattr(AdminPaginator, "count", unexpected_count)
+    second = await client.get(LIST_URL + query + "&page=2", headers={"X-Admin-Rows": "true"})
+    assert second.status_code == 200
+    assert "Scroll 2" in second.text
+    assert "Scroll 0" not in second.text
+    assert "Other" not in second.text
+    assert '<table data-list-page data-next-url="">' in second.text
+    assert "<main" not in second.text
+    assert "<script" not in second.text
+    assert "X-Admin-Rows" in second.headers["vary"]
+    assert second.headers["cache-control"] == "private, no-cache"
+    assert 'name="csrf_token"' in second.text
+
+
+async def test_scroll_pages_enforce_permissions_and_handle_empty_results(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = {"X-Admin-Rows": "true"}
+    await make_user("reader")
+    await login_session(client, "reader")
+    assert (await client.get(LIST_URL, headers=headers)).status_code == 403
+    await grant_permissions("reader", "shop.view_product")
+    response = await client.get(LIST_URL, headers=headers)
+    assert response.status_code == 200
+    assert 'data-next-url=""' in response.text
+    assert "No products found." in response.text
+    full = await client.get(LIST_URL)
+    assert "0 records" in full.text
+    assert 'aria-label="Add product"' not in full.text
+
+
 async def test_link_cells_link_to_the_target_admin(client: httpx.AsyncClient) -> None:
     category_id = await make_category("Books")
     await make_product("Novel", category_id=category_id)

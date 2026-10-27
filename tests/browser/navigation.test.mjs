@@ -58,6 +58,193 @@ async function ready(page, title) {
 }
 
 for (const [engine, browserType] of Object.entries({chromium, firefox, webkit})) {
+  test(`${engine}: column summaries follow field types, filters and column layout`, async () => {
+    const browser = await browserType.launch();
+    try {
+      const page = await browser.newPage({reducedMotion: "reduce"});
+      page.setDefaultTimeout(10000);
+      const errors = [];
+      const requests = [];
+      page.on("pageerror", (error) => errors.push(error.stack));
+      page.on("request", (request) => { if (new URL(request.url()).pathname.endsWith("/summary")) requests.push(request); });
+      await login(page);
+      await page.goto(`${origin}/admin/shop/product?size=20`);
+      const numeric = page.locator('[data-summary-field="price_cents"]');
+      const text = page.locator('[data-summary-field="name"]');
+      const checkbox = page.locator('[data-summary-field="is_active"]');
+      assert.equal(requests.length, 0);
+      await numeric.locator("summary").click();
+      assert.deepEqual(await numeric.locator("[data-summary-operation]").allTextContents(),
+        ["None", "Sum", "Average", "Median", "Min", "Max", "Range", "Standard deviation", "Empty", "Filled", "Unique", "Percent empty", "Percent filled", "Percent unique"]);
+      await page.waitForFunction(() => Boolean(document.querySelector('[data-summary-field="price_cents"] [role=menu]').style.bottom));
+      const panel = await numeric.locator("[role=menu]").boundingBox();
+      const trigger = await numeric.locator("summary").boundingBox();
+      assert.ok(panel.y >= 0 && panel.y + panel.height <= trigger.y);
+      await numeric.getByRole("menuitemradio", {name: "Sum", exact: true}).click();
+      await page.waitForFunction(() => document.querySelector('[data-summary-field="price_cents"] [data-summary-value]').textContent === "Sum 2,415");
+      assert.equal(requests.length, 1);
+      await text.locator("summary").click();
+      assert.equal(await text.locator('[data-summary-operation="sum"]').count(), 0);
+      await text.getByRole("menuitemradio", {name: "Filled", exact: true}).click();
+      await page.waitForFunction(() => document.querySelector('[data-summary-field="name"] [data-summary-value]').textContent === "Filled 70");
+      await checkbox.locator("summary").click();
+      assert.equal(await checkbox.locator('[data-summary-operation="percent_checked"]').count(), 1);
+      await page.keyboard.press("ArrowDown");
+      assert.equal(await checkbox.locator('[data-summary-operation="none"]').evaluate((button) => button === document.activeElement), true);
+      await page.keyboard.press("Escape");
+      assert.equal(await checkbox.getAttribute("open"), null);
+
+      const aligned = async () => {
+        const positions = await page.evaluate(() => [...document.querySelectorAll('[data-list-table] thead [data-list-column]')].filter((cell) => !cell.hidden).map((header) => {
+          const cell = [...document.querySelectorAll('[data-list-summary] [data-list-column]')].find((cell) => cell.dataset.listColumn === header.dataset.listColumn);
+          return Math.abs(header.getBoundingClientRect().left - cell.getBoundingClientRect().left);
+        }));
+        assert.ok(positions.every((difference) => difference <= 2), JSON.stringify(positions));
+      };
+      await aligned();
+      await page.locator("[data-fields-panel] > summary").click();
+      await page.locator('[data-field-toggle="status"]').uncheck();
+      await page.locator('[data-field-reorder="price_cents"]').press("Alt+ArrowUp");
+      await page.locator("[data-fields-panel] > summary").click();
+      await page.waitForFunction(() => document.querySelector('[data-list-summary] [data-list-column="status"]').hidden);
+      await aligned();
+      await page.reload();
+      await page.waitForFunction(() => document.querySelector('[data-summary-field="price_cents"] [data-summary-value]').textContent === "Sum 2,415");
+      await page.goto(`${origin}/admin/shop/product?size=20&q=Product+1`);
+      await page.waitForFunction(() => document.querySelector('[data-summary-field="price_cents"] [data-summary-value]').textContent === "Sum 146");
+      await page.waitForFunction(() => document.querySelector('[data-summary-field="name"] [data-summary-value]').textContent === "Filled 11");
+      await numeric.locator("summary").click();
+      await numeric.getByRole("menuitemradio", {name: "None", exact: true}).click();
+      assert.equal(await numeric.locator("[data-summary-value]").textContent(), "Summary");
+
+      await page.setViewportSize({width: 390, height: 844});
+      await page.locator("[data-list-table]").evaluate((element) => { element.scrollLeft = element.scrollWidth; });
+      await page.waitForFunction(() => Math.abs(document.querySelector('[data-list-table]').scrollLeft - document.querySelector('[data-list-summary]').scrollLeft) <= 1);
+      await aligned();
+      await checkbox.locator("summary").click();
+      await page.waitForFunction(() => {
+        const panel = document.querySelector('[data-summary-field="is_active"] [role=menu]');
+        const rect = panel.getBoundingClientRect();
+        return panel.style.left && rect.left >= 0 && rect.right <= innerWidth;
+      });
+      const mobilePanel = await checkbox.locator("[role=menu]").boundingBox();
+      assert.ok(mobilePanel.x >= 0 && mobilePanel.x + mobilePanel.width <= 390);
+      assert.deepEqual(errors, []);
+    } finally { await browser.close(); }
+  });
+}
+
+for (const [engine, browserType] of Object.entries({chromium, firefox, webkit})) {
+  test(`${engine}: virtual list fits viewport, retries pages and preserves offscreen edits`, {timeout: 30000}, async () => {
+    const browser = await browserType.launch();
+    try {
+      const page = await browser.newPage({reducedMotion: "reduce"});
+      page.setDefaultTimeout(10000);
+      const errors = [];
+      page.on("pageerror", (error) => errors.push(error.stack));
+      await login(page);
+      await page.goto(`${origin}/admin/shop/product?size=20&sort=id`);
+      const viewport = page.locator("[data-list-table]");
+      await page.waitForFunction(() => Boolean(document.querySelector("[data-list-table]")?.adminList));
+      const geometry = await page.locator(".admin-list-card").evaluate((card) => ({
+        bottom: card.getBoundingClientRect().bottom,
+        height: innerHeight,
+        overflow: document.documentElement.scrollHeight - innerHeight,
+      }));
+      assert.ok(Math.abs(geometry.height - geometry.bottom - 12) <= 2, JSON.stringify(geometry));
+      assert.ok(geometry.overflow <= 1);
+      assert.equal(await page.locator("[data-list-pagination]").isVisible(), false);
+      const add = await page.getByRole("link", {name: "Add product", exact: true}).boundingBox();
+      const footer = await page.locator(".admin-list-footer").boundingBox();
+      assert.ok(add.y + add.height < footer.y);
+      assert.match(await page.locator("[data-list-total]").textContent(), /records/);
+
+      const first = viewport.locator("[data-group-row]").first();
+      const key = await first.getAttribute("data-row-key");
+      const editor = first.locator("[data-inline-editor]");
+      const price = String(Number(await editor.inputValue()) + 13);
+      await editor.fill(price);
+      await first.locator(".action-select").check({force: true});
+      await viewport.focus();
+      const requests = [];
+      let fail = true;
+      await page.route("**/admin/shop/product?*", async (route) => {
+        if (route.request().headers()["x-admin-rows"] !== "true") return route.continue();
+        requests.push(route.request().url());
+        if (fail) return route.fulfill({status: 503, body: "Unavailable"});
+        return route.continue();
+      });
+      const bottom = () => viewport.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+      await bottom();
+      await page.locator("[data-list-retry]:not(.d-none)").waitFor();
+      assert.equal(requests.length, 1);
+      fail = false;
+      await page.locator("[data-list-retry]").click();
+      await page.waitForFunction(() => document.querySelector("[data-list-table]").adminList.rows.length >= 40);
+      assert.equal(requests.filter((url) => new URL(url).searchParams.get("page") === "2").length, 2);
+      assert.ok(await viewport.locator("[data-group-row]").count() < 35);
+      assert.equal(await viewport.locator(`[data-row-key="${key}"]`).count(), 0);
+      assert.equal(await viewport.evaluate((element, key) => element.adminList.rows.find((row) => row.dataset.rowKey === key).querySelector(".action-select").checked, key), true);
+
+      const posted = page.waitForRequest((request) => request.method() === "POST" && request.url().includes("/inline"));
+      await page.locator("#inline-edit").evaluate((form) => form.requestSubmit());
+      const data = new URLSearchParams((await posted).postData());
+      assert.equal(data.get(`edit:${key}:price_cents`), price);
+      await page.waitForFunction(({key, price}) => document.querySelector(`[data-row-key="${key}"] [data-inline-editor]`)?.dataset.original === price, {key, price});
+
+      // Every page is loaded once as the user reaches the end, without duplicate records.
+      await page.unroute("**/admin/shop/product?*");
+      for (let count = 20; count < 70; count += 20) {
+        await bottom();
+        await page.waitForFunction((count) => document.querySelector("[data-list-table]").adminList.rows.filter((row) => row.dataset.rowKey).length > count, count);
+      }
+      await bottom();
+      await page.waitForFunction(() => !document.querySelector("[data-list-table]").dataset.nextUrl);
+      const keys = await viewport.evaluate((element) => element.adminList.rows.map((row) => row.dataset.rowKey));
+      assert.equal(new Set(keys).size, keys.length);
+      assert.ok(await viewport.locator("[data-group-row]").count() < 35);
+      await viewport.evaluate((element) => { element.scrollTop = 0; });
+      await viewport.locator(`[data-row-key="${key}"]`).waitFor();
+      assert.equal(await viewport.locator(`[data-row-key="${key}"] [data-inline-editor]`).inputValue(), price);
+      await page.setViewportSize({width: 390, height: 844});
+      await page.waitForFunction(() => Math.abs(document.querySelector(".admin-list-card").getBoundingClientRect().bottom - innerHeight + 12) < 2);
+
+      // A group spanning several pages keeps one header and its collapsed state.
+      await page.setViewportSize({width: 1280, height: 720});
+      await page.goto(`${origin}/admin/shop/product?size=20&sort=id&group=status`);
+      await bottom();
+      await page.waitForFunction(() => document.querySelector("[data-list-table]").adminList.rows.filter((row) => row.dataset.rowKey).length >= 40);
+      assert.equal(await viewport.evaluate((element) => element.adminList.rows.filter((row) => row.dataset.groupHeader).length), 1);
+      await viewport.evaluate((element) => { element.scrollTop = 0; });
+      await page.locator("[data-group-toggle]").click();
+      assert.equal(await page.locator("[data-group-toggle]").getAttribute("aria-expanded"), "false");
+      await page.waitForFunction(() => !document.querySelector("[data-list-table] [data-group-row]"));
+      await page.locator("[data-group-toggle]").click();
+      await viewport.locator("[data-group-row]").first().waitFor();
+
+      // Leaving while a page is in flight aborts it and cannot change the next screen.
+      let release;
+      let started;
+      const inFlight = new Promise((resolve) => { started = resolve; });
+      const pending = new Promise((resolve) => { release = resolve; });
+      await page.route("**/admin/shop/product?*", async (route) => {
+        if (route.request().headers()["x-admin-rows"] !== "true") return route.continue();
+        started();
+        await pending;
+        await route.abort().catch(() => {});
+      });
+      await bottom();
+      await inFlight;
+      await page.locator('#admin-sidebar-shell a[href="/admin/users"]').click();
+      await page.waitForFunction(() => document.title.startsWith("Users"));
+      release();
+      assert.equal(await page.locator("[data-list-table]").count(), 0);
+      assert.deepEqual(errors, []);
+    } finally { await browser.close(); }
+  });
+}
+
+for (const [engine, browserType] of Object.entries({chromium, firefox, webkit})) {
   test(`${engine}: navigation, preload, history, forms and recovery`, {timeout: 90000}, async () => {
     const browser = await browserType.launch();
     let page;
@@ -114,6 +301,7 @@ for (const [engine, browserType] of Object.entries({chromium, firefox, webkit}))
       await ready(page, "Products");
       await page.waitForFunction(() => !location.search);
 
+      await page.locator(".admin-list-actions").evaluate((actions) => { actions.style.display = "flex"; });
       await page.getByRole("link", {name: "New product", exact: true}).click();
       await ready(page, "New product");
       await page.locator('[name="name"]').evaluate((input) => { input.form.noValidate = true; });
@@ -191,6 +379,72 @@ for (const [engine, browserType] of Object.entries({chromium, firefox, webkit}))
       console.error(engine, page?.url(), error.message);
       throw error;
     } finally { await browser.close(); }
+  });
+}
+
+for (const [engine, browserType] of Object.entries({chromium, firefox, webkit})) {
+  test(`${engine}: compact list layout retains hidden action and view logic`, async () => {
+    const browser = await browserType.launch();
+    try {
+      const page = await browser.newPage({reducedMotion: "reduce"});
+      page.setDefaultTimeout(10000);
+      await login(page);
+      await page.goto(`${origin}/admin/shop/product`);
+      const hiddenControls = [".admin-list-actions", ".admin-list-views", "[data-save-view]"];
+      for (const selector of hiddenControls) {
+        assert.equal(await page.locator(selector).count(), 1);
+        assert.equal(await page.locator(selector).isVisible(), false);
+      }
+      assert.equal(await page.getByRole("link", {name: "New product", includeHidden: true}).getAttribute("href"), "/admin/shop/product/add");
+      assert.equal(await page.locator("[data-bulk-action]").isDisabled(), false);
+      const geometry = await page.evaluate(() => {
+        const rect = (selector) => document.querySelector(selector).getBoundingClientRect();
+        const title = rect(".admin-list-header");
+        const toolbar = rect(".admin-list-toolbar");
+        return {
+          titleGap: title.top - rect("#admin-navbar").bottom,
+          cardGap: rect(".admin-list-card").top - title.bottom,
+          toolbarHeight: toolbar.height,
+          tableGap: rect("[data-list-table]").top - toolbar.bottom,
+        };
+      });
+      assert.ok(geometry.titleGap >= 0 && geometry.titleGap <= 16, JSON.stringify(geometry));
+      assert.ok(geometry.cardGap >= 0 && geometry.cardGap <= 12);
+      assert.ok(geometry.toolbarHeight <= 56);
+      assert.ok(Math.abs(geometry.tableGap) <= 2);
+
+      const editor = page.locator('td[data-list-column="price_cents"] input').first();
+      const price = String(Number(await editor.inputValue()) + 1);
+      await editor.fill(price);
+      await page.waitForFunction(() => !document.querySelector("[data-inline-save]").disabled);
+      assert.equal(await page.locator("[data-inline-save]").isVisible(), false);
+      assert.equal(await page.locator("[data-inline-revert]").isVisible(), false);
+      await page.locator("#inline-edit").evaluate((form) => form.requestSubmit());
+      await page.waitForFunction((price) => document.querySelector('td[data-list-column="price_cents"] input')?.dataset.original === price, price);
+      assert.equal(await page.locator(".admin-list-actions").isVisible(), false);
+
+      const viewName = `Compact ${engine}`;
+      await page.locator('[data-save-view] input[name="name"]').evaluate((input, value) => {
+        input.value = value;
+      }, viewName);
+      await page.locator("[data-save-view]").evaluate((form) => form.requestSubmit());
+      await page.waitForFunction(() => Boolean(document.querySelector('#list-query input[name="view"]')?.value));
+      assert.equal(await page.locator('[data-save-view] input[name="name"]').inputValue(), viewName);
+      assert.equal(await page.locator(".admin-list-views").isVisible(), false);
+      assert.equal(await page.locator("[data-save-view]").isVisible(), false);
+      assert.equal(await page.locator(".admin-list-view-delete").isVisible(), false);
+      assert.equal(await page.locator('.admin-list-view-delete input[name="csrf_token"]').count(), 1);
+
+      await page.setViewportSize({width: 390, height: 844});
+      const mobileTitle = await page.locator(".admin-list-header").boundingBox();
+      const mobileNavbar = await page.locator("#admin-navbar").boundingBox();
+      assert.ok(mobileTitle.y >= mobileNavbar.y + mobileNavbar.height);
+      for (const selector of hiddenControls) assert.equal(await page.locator(selector).isVisible(), false);
+      assert.equal(await page.locator('[data-query-panel="filter"] > summary').isVisible(), true);
+      assert.equal(await page.locator('#list-query input[name="q"]').isVisible(), true);
+    } finally {
+      await browser.close();
+    }
   });
 }
 
@@ -298,7 +552,7 @@ for (const [engine, browserType] of Object.entries({chromium, firefox, webkit}))
   test(`${engine}: list field visibility and row height persist`, async () => {
     const browser = await browserType.launch();
     try {
-      const page = await browser.newPage();
+      const page = await browser.newPage({reducedMotion: "reduce"});
       page.setDefaultTimeout(10000);
       await login(page);
       const listing = `${origin}/admin/shop/product`;
@@ -357,6 +611,8 @@ for (const [engine, browserType] of Object.entries({chromium, firefox, webkit}))
         has: page.locator(`[data-field-toggle="${reordered[0]}"]`),
       });
       const targetOption = page.locator(".admin-field-option").last();
+      await page.waitForFunction(() => [...document.querySelectorAll("[data-field-option]")]
+        .every((option) => getComputedStyle(option).transform === "none"));
       const sourceBounds = await draggedOption.boundingBox();
       const targetBounds = await targetOption.boundingBox();
       await page.mouse.move(
@@ -884,7 +1140,8 @@ test("sort priority, field limit and viewport bounds", async () => {
     await page.setViewportSize({width: 390, height: 844});
     await page.waitForFunction(() => {
       const menu = document.querySelector('[data-query-panel="sort"] > .admin-query-panel');
-      return menu.getBoundingClientRect().bottom <= innerHeight - 8;
+      const bounds = menu.getBoundingClientRect();
+      return bounds.bottom <= innerHeight - 8 && bounds.left >= 0 && bounds.right <= innerWidth;
     });
     const bounds = await panel.locator(":scope > .admin-query-panel").boundingBox();
     assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= 390);

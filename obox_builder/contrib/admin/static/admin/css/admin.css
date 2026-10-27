@@ -95,6 +95,24 @@ mark {
   gap: 0.5rem;
 }
 
+.page-body:has(.admin-list-header) {
+  margin-top: 0.5rem;
+  margin-bottom: 0;
+}
+
+.page-wrapper .admin-list-header {
+  margin: 0 0 0.5rem;
+  min-height: 0;
+}
+
+/* Retain secondary controls and their forms for future layouts. */
+.admin-list-actions,
+.admin-list-views,
+.admin-list-toolbar .admin-list-view-save,
+.admin-list-toolbar .admin-list-view-delete {
+  display: none;
+}
+
 .admin-list-titlebar {
   justify-content: space-between;
   gap: 1rem;
@@ -114,7 +132,7 @@ mark {
 
 .admin-list-toolbar {
   display: block;
-  padding: 0.75rem 1rem;
+  padding: 0.5rem 0.75rem;
 }
 
 .admin-list-toolbar-main {
@@ -901,12 +919,58 @@ mark {
 
 .admin-list-card {
   overflow: visible;
+  min-height: 0;
 }
+
+.admin-list-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.admin-list-card.is-virtual > .admin-list-toolbar,
+.admin-list-card.is-virtual > .admin-list-footer {
+  flex-shrink: 0;
+}
+
+.admin-list-card.is-virtual [data-list-pagination] {
+  display: none;
+}
+
+.admin-list-add {
+  position: relative;
+  margin: 0.75rem;
+  width: fit-content;
+}
+
+.is-virtual .admin-list-add {
+  position: absolute;
+  margin: 0;
+  inset-inline-start: 0.75rem;
+  bottom: 0.75rem;
+  z-index: 3;
+  gap: 0.5rem;
+  border-radius: 2rem;
+  background: var(--tblr-bg-surface, #fff);
+  box-shadow: 0 2px 6px #0001;
+}
+
+.admin-list-table-scroll table {
+  margin-bottom: 3.5rem;
+}
+
+.admin-list-table-scroll [data-virtual-spacer] > td {
+  padding: 0;
+  border: 0;
+}
+
 
 .admin-list-table-scroll {
   --admin-row-height: 3.5rem;
   --admin-cell-lines: 2;
-  max-height: 70vh;
+  min-height: 0;
+  height: 100%;
+  overflow-anchor: none;
   overflow: auto;
 }
 
@@ -967,9 +1031,79 @@ mark {
 }
 
 .admin-list-footer {
-  justify-content: space-between;
-  flex-wrap: wrap;
-  min-height: 3.5rem;
+  display: block;
+  padding: 0;
+  min-height: 2.5rem;
+}
+
+.admin-list-summary-scroll {
+  max-width: 100%;
+  overflow: auto;
+  scrollbar-width: none;
+}
+
+.admin-list-summary-scroll table {
+  table-layout: fixed;
+}
+
+.admin-list-summary-scroll td {
+  height: 2.5rem;
+  padding: 0.35rem 0.75rem;
+  border-inline-end: 1px solid var(--tblr-border-color, #e6e7e9);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+[data-summary-status] [data-list-status]:not(:empty) {
+  display: block;
+}
+
+.admin-column-summary > summary {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.35rem;
+  cursor: pointer;
+  color: var(--tblr-secondary, #626976);
+  font-size: 0.75rem;
+  list-style: none;
+}
+
+.admin-column-summary > summary::-webkit-details-marker {
+  display: none;
+}
+
+.admin-column-summary [data-summary-value] {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.admin-summary-menu {
+  position: fixed;
+  z-index: 1050;
+  width: 14rem;
+  max-height: 22rem;
+  overflow-y: auto;
+  border: 1px solid var(--tblr-border-color, #e6e7e9);
+  border-radius: 0.5rem;
+  background: var(--tblr-bg-surface, #fff);
+  box-shadow: 0 0.5rem 1.5rem #0002;
+  padding: 0.25rem;
+}
+
+.admin-summary-menu button {
+  display: block;
+  width: 100%;
+  border: 0;
+  border-radius: 0.25rem;
+  padding: 0.5rem 0.75rem;
+  background: transparent;
+  color: inherit;
+  text-align: start;
+}
+
+.admin-summary-menu button:is(:hover, :focus-visible, [aria-checked="true"]) {
+  background: var(--tblr-bg-surface-secondary, #f1f3f5);
 }
 
 .admin-list-footer .pagination {
@@ -1000,9 +1134,6 @@ mark {
     width: min(42rem, calc(100vw - 2rem));
   }
 
-  .admin-list-table-scroll {
-    max-height: 65vh;
-  }
 
   .admin-filter-row {
     grid-template-columns: minmax(4.5rem, 0.6fr) minmax(0, 1.4fr) 2.25rem 2.25rem;

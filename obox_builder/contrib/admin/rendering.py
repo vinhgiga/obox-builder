@@ -47,6 +47,8 @@ def render(
     response.headers["Vary"] = (
         "HX-Request, HX-Target, HX-Request-Type, HX-History-Restore-Request, HX-Preloaded"
     )
+    if name in {"admin/model/list.html", "admin/model/list_page.html"}:
+        response.headers["Vary"] += ", X-Admin-Rows"
     if fragment and request.method != "GET":
         response.headers["HX-Push-Url"] = "false"
     if fragment and name == "admin/auth/login.html":

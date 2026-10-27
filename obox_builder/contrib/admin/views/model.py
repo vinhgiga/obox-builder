@@ -25,12 +25,18 @@ from obox_builder.conf import settings
 from obox_builder.contrib.admin.context import AdminContext
 from obox_builder.contrib.admin.deletion import collect_deletion, confirmed, deletion_page
 from obox_builder.contrib.admin.inlines import InlineFormSet, load_inlines
-from obox_builder.contrib.admin.list_query import group_headers, load_query, view_scope
+from obox_builder.contrib.admin.list_query import (
+    group_headers,
+    list_queryset,
+    load_query,
+    view_scope,
+)
 from obox_builder.contrib.admin.models import SavedView
 from obox_builder.contrib.admin.options import AdminRoute, ModelAdmin
 from obox_builder.contrib.admin.relations import build_cells, relation_choices, validate_relations
 from obox_builder.contrib.admin.rendering import render
 from obox_builder.contrib.admin.site import AdminSite
+from obox_builder.contrib.admin.summaries import summary_choices
 from obox_builder.contrib.admin.uniqueness import validate_model_uniqueness
 from obox_builder.contrib.admin.uploads import (
     discard_uploads,
@@ -39,6 +45,7 @@ from obox_builder.contrib.admin.uploads import (
     stage_uploads,
 )
 from obox_builder.contrib.admin.views.common import (
+    csrf_token_for,
     ensure_csrf,
     flash,
     page_context,
@@ -91,6 +98,15 @@ def _register_one(router: APIRouter, site: AdminSite, admin: ModelAdmin) -> None
     ) -> Any:
         ctx = AdminContext(request=request, user=user, db=db, site=site, admin=admin)
         return await _list(ctx)
+
+    async def summary_view(
+        request: Request, user: Any = user_dep, db: AsyncSession = Depends(get_db)
+    ) -> Any:
+        from obox_builder.contrib.admin.summaries import summary_response
+
+        return await summary_response(
+            AdminContext(request=request, user=user, db=db, site=site, admin=admin)
+        )
 
     async def add_view(
         request: Request, user: Any = user_dep, db: AsyncSession = Depends(get_db)
@@ -286,6 +302,7 @@ def _register_one(router: APIRouter, site: AdminSite, admin: ModelAdmin) -> None
     router.add_api_route(
         f"{base}/actions", actions_submit, methods=["POST"], name=f"{name}_actions"
     )
+    router.add_api_route(f"{base}/summary", summary_view, methods=["GET"], name=f"{name}_summary")
     router.add_api_route(f"{base}/{{pk}}", change_view, methods=["GET"], name=f"{name}_change")
     router.add_api_route(
         f"{base}/{{pk}}/files/{{field_name}}", file_view, methods=["GET"], name=f"{name}_file"
@@ -452,39 +469,16 @@ async def _list(
     except LookupError as exc:
         return _not_found(ctx, str(exc))
 
-    stmt = admin.get_queryset(ctx)
     try:
-        stmt = query.apply(
-            stmt,
-            specs,
-            search_specs=admin.get_search_specs(ctx),
-            text_collation=settings.ADMIN_TEXT_COLLATION,
-        )
+        stmt, simple_filters = list_queryset(ctx, query, specs)
     except QuerySpecError as exc:
         return _bad_request(ctx, str(exc))
 
-    simple_filters = []
-    for filter_class in admin.get_list_filter(ctx):
-        if isinstance(filter_class, str):
-            continue
-        filter_instance = filter_class(ctx)
-        lookups = [(str(value), str(label)) for value, label in filter_instance.lookups()]
-        value = request.query_params.get(filter_class.parameter_name, "")
-        if value and value not in {item[0] for item in lookups}:
-            return _bad_request(ctx, f"Invalid {filter_class.parameter_name!r} filter value.")
-        if value:
-            scoped_ids = stmt.with_only_columns(admin.pk_column()).order_by(None)
-            stmt = filter_instance.queryset(stmt, value).where(admin.pk_column().in_(scoped_ids))
-        simple_filters.append(
-            {
-                "title": filter_class.title,
-                "parameter_name": filter_class.parameter_name,
-                "lookups": lookups,
-                "value": value,
-            }
-        )
-
-    pagination = await admin.get_paginator(ctx, stmt).get_page(query.page, query.size)
+    row_request = request.headers.get("x-admin-rows") == "true"
+    paginator = admin.get_paginator(ctx, stmt)
+    if row_request:
+        paginator.show_full_result_count = False
+    pagination = await paginator.get_page(query.page, query.size)
     total = pagination.count
     pages = pagination.num_pages
     offset = (query.page - 1) * query.size
@@ -538,6 +532,24 @@ async def _list(
                 "comments_count": comment_counts.get(str(pk), 0) if comments_url else 0,
             }
         )
+    next_params = [
+        (key, value) for key, value in request.query_params.multi_items() if key != "page"
+    ]
+    next_params.append(("page", str(query.page + 1)))
+    next_url = f"{admin.list_path()}?{urlencode(next_params)}" if pagination.has_next else ""
+    row_context = {
+        "admin": admin,
+        "columns": columns,
+        "list_display_links": admin.get_list_display_links(ctx),
+        "rows": rows,
+        "start_index": offset + 1,
+        "bulk_actions": admin.get_actions(ctx),
+        "delete_href": admin.delete_path,
+        "csrf_token": csrf_token_for(request),
+        "next_url": next_url,
+    }
+    if row_request:
+        return render(request, "admin/model/list_page.html", row_context)
     inline_action = f"{admin.list_path()}/inline"
     if request.url.query:
         inline_action = f"{inline_action}?{request.url.query}"
@@ -578,6 +590,8 @@ async def _list(
         columns=columns,
         list_display_links=admin.get_list_display_links(ctx),
         rows=rows,
+        next_url=next_url,
+        summary_choices=summary_choices,
         q=query.q,
         page=query.page,
         pages=pages,

@@ -47,6 +47,9 @@ def main() -> None:
         site.register(Label, type("LabelAdmin", (ModelAdmin,), {"search_fields": ("title",)}))
         site.register(OrderLine)
         site.register(Order, OrderAdmin)
+        product_admin = site.get_model_admin_for(Product)
+        assert product_admin is not None
+        type(product_admin).list_editable = ("price_cents",)
 
         async def seed() -> None:
             async with get_engine().begin() as connection:
@@ -55,7 +58,7 @@ def main() -> None:
                 await sync_permissions(db)
                 user = await create_user(db, "browser-user", "Browser-test-password-2026!")
                 user.is_superuser = True
-                db.add_all([Product(name=f"Product {i}") for i in range(70)])
+                db.add_all([Product(name=f"Product {i}", price_cents=i) for i in range(70)])
                 db.add_all(
                     [Label(id=f"label-{i:02}", title=f"Browser label {i:02}") for i in range(25)]
                 )

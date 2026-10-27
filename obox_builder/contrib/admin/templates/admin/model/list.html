@@ -1,8 +1,7 @@
 {% extends "admin/base.html" %}
-{% from "admin/macros/cells.html" import cell_content, cell_text %}
 {% block title %}{{ admin.plural_name }}{% endblock %}
 {% block content %}
-<div class="page-header d-print-none">
+<div class="page-header d-print-none admin-list-header">
   <div class="admin-list-titlebar">
     <h2 class="page-title">{{ admin.plural_name }}</h2>
     {% if can_add or inline_columns or bulk_actions or admin.imports_available() %}
@@ -58,8 +57,10 @@
   {% if inline_banner %}
   <div class="alert alert-danger rounded-0 mb-0" role="alert">{{ inline_banner }}</div>
   {% endif %}
+  <div class="admin-list-body">
   <div class="table-responsive admin-list-table-scroll" data-list-table
        data-list-key="{{ admin.list_path() }}" data-row-height="medium"
+       data-next-url="{{ next_url }}" data-start-index="{{ start_index }}" data-total="{{ total if total is not none else '' }}"
        role="region" tabindex="0" aria-label="{{ admin.plural_name }}">
     <table class="table table-vcenter card-table">
       <thead>
@@ -90,103 +91,45 @@
         </tr>
       </thead>
       <tbody>
-        {% for row in rows %}
-        {% for group in row.groups %}
-        <tr data-group-header="{{ group.level }}" class="table-light">
-          <td colspan="{{ columns | length + 2 }}"
-              data-list-colspan>
-            <button type="button" class="btn btn-sm" data-group-toggle aria-expanded="true">
-              {{ '↳ ' * (group.level - 1) }}{{ group.label }}: {{ group.value }}
-              <span class="badge bg-secondary-lt ms-2">{{ group.count }}</span>
-            </button>
-          </td>
-        </tr>
-        {% endfor %}
-        <tr data-group-row{% if row.history_url %} data-history-url="{{ row.history_url }}"{% endif %}{% if row.comments_url %} data-comments-url="{{ row.comments_url }}"{% endif %}>
-          <td class="w-1" data-row-number>
-            <div class="admin-row-controls">
-              <span class="admin-row-select">
-                <span class="admin-row-number text-secondary">{{ start_index + loop.index0 }}</span>
-                {% if bulk_actions %}
-                <input type="checkbox" name="_selected_action" value="{{ row.pk }}"
-                       class="form-check-input m-0 action-select" form="bulk-form"
-                       aria-label="Select {{ row.label }}"/>
-                {% endif %}
-              </span>
-              <a href="{{ admin.change_path(row.pk) }}" class="btn btn-sm admin-row-expand"
-                 aria-label="Expand {{ row.label }}" title="Expand record">
-                <i class="ti ti-arrows-diagonal" aria-hidden="true"></i>
-              </a>
-            </div>
-          </td>
-          <td>
-            <div class="btn-list flex-nowrap">
-            <a href="{{ admin.change_path(row.pk) }}" class="btn btn-sm">{{ 'Edit' if row.can_change else 'View' }}</a>
-            {% if row.can_delete %}
-            <form method="post" action="{{ delete_href(row.pk) }}" class="d-inline"
-                  data-confirm="Delete {{ row.label }}? This cannot be undone.">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token }}"/>
-              <button type="submit" class="btn btn-sm btn-danger">Delete</button>
-            </form>
-            {% endif %}
-            {% if row.comments_url %}
-            <a href="{{ row.comments_url }}" class="btn btn-sm">
-              Comments
-              {% if row.comments_count %}<span class="badge bg-blue-lt ms-1">{{ row.comments_count }}</span>{% endif %}
-            </a>
-            {% endif %}
-            </div>
-          </td>
-          {% for cell in row.cells %}
-          {% set column = columns[loop.index0] %}
-          {% set edit = row.edits[loop.index0] %}
-          {% if edit %}
-          <td data-list-column="{{ column.name }}"{% if edit.modified %} class="cell-modified"{% endif %}>
-            {% if edit.kind == 'select' %}
-            <select form="inline-edit" name="edit:{{ row.pk }}:{{ edit.name }}"
-                    class="inline-editor form-select form-select-sm{{ ' is-invalid' if edit.error }}"
-                    data-inline-editor data-original="{{ edit.original }}" autocomplete="off">
-              {% for option_value, option_label in edit.choices %}
-              <option value="{{ option_value }}"
-                      {{ 'selected' if option_value == edit.value }}>{{ option_label }}</option>
-              {% endfor %}
-            </select>
-            {% else %}
-            <input form="inline-edit" name="edit:{{ row.pk }}:{{ edit.name }}"
-                   type="{{ 'number' if edit.kind == 'number' else 'text' }}"
-                   {% if edit.step %}step="{{ edit.step }}"{% endif %}
-                   value="{{ edit.value }}"
-                   class="inline-editor form-control form-control-sm{{ ' is-invalid' if edit.error }}"
-                   data-inline-editor data-original="{{ edit.original }}" autocomplete="off"/>
-            {% endif %}
-            {% if edit.error %}<div class="text-danger small mt-1">{{ edit.error }}</div>{% endif %}
-          </td>
-          {% else %}
-          <td data-list-column="{{ column.name }}"><div class="admin-cell-content">{% if column.name in list_display_links -%}
-                <a href="{{ admin.change_path(row.pk) }}">{{ cell_content(cell) }}</a>
-              {%- else -%}{{ cell_text(cell) }}{%- endif %}</div></td>
-          {% endif %}
-          {% endfor %}
-        </tr>
-        {% else %}
-        <tr>
-          <td colspan="{{ columns | length + 2 }}"
-              data-list-colspan
-              class="text-center text-secondary py-4">
-            No {{ admin.plural_name | lower }} found.
-          </td>
-        </tr>
-        {% endfor %}
+        {% include "admin/model/list_rows.html" %}
       </tbody>
     </table>
   </div>
+  {% if can_add %}
+  <a href="{{ admin.add_path() }}" class="btn admin-list-add" aria-label="Add {{ admin.name | lower }}">
+    <i class="ti ti-plus" aria-hidden="true"></i><span>Add {{ admin.name | lower }}</span>
+  </a>
+  {% endif %}
+  </div>
   <div class="card-footer admin-list-footer">
-    <span class="text-secondary small">
-      {% if total is none %}page {{ page }}{% else %}
-      {{ rows | length }} rows shown · {{ displayed_total }}{{ '+' if total_capped }} total
-      {% endif %}
-    </span>
-    {% include "admin/includes/pagination.html" %}
+    <div class="admin-list-summary-scroll" data-list-summary aria-label="Column summaries">
+      <table class="table card-table mb-0"><tfoot><tr>
+        <td colspan="2" data-summary-status>
+          <span class="text-secondary small" data-list-total>{% if total is none %}{{ rows | length }} records loaded · page {{ page }}{% else %}{{ total }} records{% endif %}</span>
+          <span class="text-secondary small" role="status" data-list-status></span>
+          <button type="button" class="btn btn-sm d-none" data-list-retry>Retry loading</button>
+        </td>
+        {% for column in columns %}
+        <td data-list-column="{{ column.name }}">
+          {% set choices = summary_choices(column) %}
+          {% if choices %}
+          <details class="admin-column-summary" data-summary-field="{{ column.name }}">
+            <summary aria-label="Summary for {{ column.label }}" title="Statistics for all filtered records">
+              <i class="ti ti-chevron-down" aria-hidden="true"></i><span data-summary-value>Summary</span>
+            </summary>
+            <div class="admin-summary-menu" role="menu" aria-label="{{ column.label }} statistics">
+              {% for operation, label in choices %}
+              <button type="button" role="menuitemradio" aria-checked="{{ 'true' if operation == 'none' else 'false' }}"
+                      data-summary-operation="{{ operation }}">{{ label }}</button>
+              {% endfor %}
+            </div>
+          </details>
+          {% endif %}
+        </td>
+        {% endfor %}
+      </tr></tfoot></table>
+    </div>
+    <div data-list-pagination>{% include "admin/includes/pagination.html" %}</div>
   </div>
 </div>
 {% endblock %}

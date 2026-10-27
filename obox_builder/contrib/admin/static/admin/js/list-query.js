@@ -767,27 +767,32 @@
     event.currentTarget.action = url.toString();
   });
 
-  // A header inherits its parent path; records inherit the complete group path.
-  const path = [];
-  let counter = 0;
-  const groupedRows = [];
+  const table = document.querySelector("[data-list-table]");
   const collapsed = new Set();
-  document.querySelectorAll("[data-group-header], [data-group-row]").forEach((row) => {
-    if (row.hasAttribute("data-group-header")) {
-      const level = Number(row.dataset.groupHeader);
-      path.length = level - 1;
-      row.groupParents = [...path];
-      const id = ++counter;
-      path.push(id);
-      row.querySelector("[data-group-toggle]").addEventListener("click", (event) => {
-        if (collapsed.has(id)) collapsed.delete(id);
-        else collapsed.add(id);
-        event.currentTarget.setAttribute("aria-expanded", String(!collapsed.has(id)));
-        groupedRows.forEach((item) => {
-          item.hidden = item.groupParents.some((key) => collapsed.has(key));
-        });
-      });
-    } else row.groupParents = [...path];
-    groupedRows.push(row);
+  let groupedRows = [];
+  function groupRows() {
+    const path = [];
+    groupedRows = table.adminList?.rows || [...table.querySelectorAll("tbody tr")];
+    groupedRows.forEach((row) => {
+      if (row.hasAttribute("data-group-header")) {
+        path.length = Number(row.dataset.groupHeader) - 1;
+        row.groupParents = [...path];
+        path.push(JSON.stringify([...path, row.dataset.groupKey]));
+        row.groupID = path.at(-1);
+        row.querySelector("[data-group-toggle]").setAttribute("aria-expanded", String(!collapsed.has(row.groupID)));
+      } else row.groupParents = [...path];
+      row.hidden = row.groupParents.some((key) => collapsed.has(key));
+    });
+    table.dispatchEvent(new Event("admin:group"));
+  }
+  table.addEventListener("admin:rows", groupRows);
+  table.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-group-toggle]");
+    if (!button) return;
+    const id = button.closest("tr").groupID;
+    if (collapsed.has(id)) collapsed.delete(id);
+    else collapsed.add(id);
+    groupRows();
   });
+  groupRows();
 })();

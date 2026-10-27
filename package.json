@@ -5,12 +5,15 @@
   "packageManager": "pnpm@11.5.2",
   "scripts": {
     "commitlint": "commitlint",
+    "vendor:virtual": "node scripts/vendor-virtual.mjs",
     "lint": "node scripts/lint-js.mjs",
     "test": "node --test tests/browser/navigation.test.mjs",
     "test:commitlint": "node --test tests/tooling/commitlint.test.mjs"
   },
   "devDependencies": {
     "@commitlint/cli": "21.2.4",
+    "@tanstack/virtual-core": "3.19.8",
+    "esbuild": "0.28.2",
     "playwright": "1.62.1"
   }
 }

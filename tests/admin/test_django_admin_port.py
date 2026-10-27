@@ -370,7 +370,7 @@ async def test_custom_paginator_and_countless_next_previous_pages(
         lambda self, ctx, queryset: CustomCountPaginator(ctx, queryset),
     )
     custom = await client.get(f"{LIST_URL}?size=2&sort=name")
-    assert "123 total" in custom.text
+    assert "123 records" in custom.text
 
     monkeypatch.setattr(
         ProductAdmin,
