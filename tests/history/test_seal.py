@@ -43,6 +43,8 @@ def test_merkle_root_and_block_hash_are_deterministic() -> None:
 async def _seed(db: AsyncSession, count: int = 5) -> None:
     db.add_all(Item(name=f"Anvil {index}", sku=f"SKU-{index}") for index in range(count))
     await db.commit()
+    await db.execute(sa.update(RowChange).values(occurred_at=utcnow() - timedelta(seconds=1)))
+    await db.commit()
 
 
 async def test_seal_builds_chained_blocks(db: AsyncSession) -> None:
@@ -167,7 +169,7 @@ async def _seed_cli() -> None:
     async with get_engine().begin() as connection:
         await connection.run_sync(ModelBase.metadata.create_all)
     async with session_scope() as db:
-        db.add(Item(name="Anvil", sku="ANV-1"))
+        await _seed(db, count=1)
 
 
 def test_commands_seal_and_verify(env: None) -> None:

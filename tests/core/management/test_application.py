@@ -123,6 +123,7 @@ def test_default_middleware_adds_security_headers(monkeypatch: pytest.MonkeyPatc
 def test_create_app_mounts_static_files_in_debug(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(SETTINGS_MODULE_ENV, "tests.support.templating_settings")
     client = TestClient(get_asgi_application())
-    assert client.get("/static/shop/logo.txt").text == "shop-logo\n"
+    logo = apps.get_app_config("shop").path / "static" / "shop" / "logo.txt"
+    assert client.get("/static/shop/logo.txt").content == logo.read_bytes()
     assert client.get("/static/project.txt").status_code == 200
     assert client.get("/static/nope.txt").status_code == 404

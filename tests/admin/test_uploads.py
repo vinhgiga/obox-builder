@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from io import BytesIO
 from pathlib import Path
 
@@ -48,7 +49,8 @@ async def test_private_upload_is_stored_with_random_name_and_mode(
     assert stored.read().endswith(b"image")
     stored.close()
     path = tmp_path / relative
-    assert path.stat().st_mode & 0o777 == 0o600
+    if os.name == "posix":
+        assert path.stat().st_mode & 0o777 == 0o600
     discard_uploads(staged)
     assert open_upload(relative) is None
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -24,8 +25,9 @@ def test_filesystem_storage_saves_private_files_and_preserves_collisions(tmp_pat
     assert storage.exists(name)
     with storage.open(name) as stored:
         assert stored.read() == b"image"
-    assert (tmp_path / name).stat().st_mode & 0o777 == 0o600
-    assert (tmp_path / "private").stat().st_mode & 0o777 == 0o700
+    if os.name == "posix":
+        assert (tmp_path / name).stat().st_mode & 0o777 == 0o600
+        assert (tmp_path / "private").stat().st_mode & 0o777 == 0o700
 
     with pytest.raises(FileExistsError):
         storage.save(name, b"replacement")

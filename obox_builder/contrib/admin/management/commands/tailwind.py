@@ -48,7 +48,7 @@ def template_directories() -> list[Path]:
 def build_input_css(directories: list[Path]) -> str:
     lines = [BASE_CSS.rstrip("\n")]
     for directory in directories:
-        lines.append(f'@source "{directory}";')
+        lines.append(f'@source "{directory.as_posix()}";')
     return "\n".join(lines) + "\n"
 
 

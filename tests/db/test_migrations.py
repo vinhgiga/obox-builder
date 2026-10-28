@@ -40,7 +40,7 @@ def make_project(tmp_path: Path) -> Path:
     (project / "__init__.py").write_text("")
     (config_dir / "__init__.py").write_text("")
     db_path = project / "db.sqlite3"
-    (config_dir / "settings.py").write_text(PROJECT_SETTINGS % {"db_path": db_path})
+    (config_dir / "settings.py").write_text(PROJECT_SETTINGS % {"db_path": db_path.as_posix()})
     migrations = project / "migrations"
     for source in sorted((PROJECT_TEMPLATE_DIR / "migrations").rglob("*")):
         if source.is_dir():

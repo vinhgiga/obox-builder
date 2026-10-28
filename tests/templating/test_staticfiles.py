@@ -106,7 +106,7 @@ def test_collect_static_preserves_unicode_and_percent_filenames(
     extra.mkdir()
     names = ("⊗.txt", "%2F.txt")
     for name in names:
-        (extra / name).write_text(name)
+        (extra / name).write_text(name, encoding="utf-8")
     root = tmp_path / "collected"
     _reload_settings(
         monkeypatch,
@@ -117,7 +117,7 @@ def test_collect_static_preserves_unicode_and_percent_filenames(
     result = collect_static()
 
     assert all(name in result.copied for name in names)
-    assert [(root / name).read_text() for name in names] == list(names)
+    assert [(root / name).read_text(encoding="utf-8") for name in names] == list(names)
 
 
 def test_app_static_files_falls_back_to_later_directories(
@@ -127,7 +127,7 @@ def test_app_static_files_falls_back_to_later_directories(
     second = tmp_path / "second"
     first.mkdir()
     second.mkdir()
-    (second / "fallback.txt").write_text("found\n")
+    (second / "fallback.txt").write_bytes(b"found\n")
     application = Starlette(routes=[Mount("/static", app=AppStaticFiles([first, second]))])
 
     response = TestClient(application).get("/static/fallback.txt")
@@ -149,7 +149,8 @@ def test_app_static_files_serves_and_blocks_traversal(
         routes=[Mount("/static", app=AppStaticFiles(find_static_directories()))]
     )
     client = TestClient(application)
-    assert client.get("/static/shop/logo.txt").text == "shop-logo\n"
+    logo = SUPPORT_DIR / "apps" / "shop" / "static" / "shop" / "logo.txt"
+    assert client.get("/static/shop/logo.txt").content == logo.read_bytes()
     assert client.get("/static/project.txt").status_code == 200
     assert client.get("/static/missing.txt").status_code == 404
     assert client.get("/static/../pyproject.toml").status_code == 404
