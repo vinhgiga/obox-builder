@@ -74,7 +74,6 @@ def test_runserver_refuses_to_start_with_failing_checks(cli, runner: CliRunner) 
         (["localhost:9000"], "localhost", 9000),
         (["0:9000"], "0.0.0.0", 9000),  # noqa: S104 - explicit wildcard address
         (["[::1]:9000"], "::1", 9000),
-        (["--host", "127.1.2.3", "--port", "9999"], "127.1.2.3", 9999),
     ],
 )
 def test_runserver_starts_uvicorn_with_application(
@@ -118,9 +117,7 @@ def test_runserver_verbosity_maps_to_log_level(
     assert calls[0]["log_level"] == "warning"
 
 
-@pytest.mark.parametrize(
-    ("arguments", "reload"), [([], True), (["--reload"], True), (["--noreload"], False)]
-)
+@pytest.mark.parametrize(("arguments", "reload"), [([], True), (["--noreload"], False)])
 def test_runserver_reload_uses_import_string(
     cli, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, arguments: list[str], reload: bool
 ) -> None:
@@ -135,6 +132,18 @@ def test_runserver_reload_uses_import_string(
     assert len(calls) == 1
     assert calls[0]["app"] == "tests.support.asgi:application"
     assert calls[0]["reload"] is reload
+
+
+@pytest.mark.parametrize("option", ["--host", "--port", "--reload"])
+def test_runserver_rejects_custom_options(
+    cli, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, option: str
+) -> None:
+    calls: list[Any] = []
+    monkeypatch.setattr(uvicorn, "run", lambda app, **kwargs: calls.append(app))
+    result = runner.invoke(cli, ["runserver", option])
+    assert result.exit_code == 2
+    assert "No such option" in result.output
+    assert calls == []
 
 
 def test_runserver_skip_checks_starts_even_with_errors(

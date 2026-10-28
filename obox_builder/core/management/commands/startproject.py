@@ -35,4 +35,4 @@ def handle(
         utils.echo(f"  {path.relative_to(target)}", level=2)
     utils.echo("Next steps:")
     utils.echo(f"  cd {target}")
-    utils.echo("  python manage.py runserver --reload")
+    utils.echo("  python manage.py runserver")

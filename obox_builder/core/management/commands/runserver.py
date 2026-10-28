@@ -28,26 +28,21 @@ def handle(
     addrport: str | None = typer.Argument(
         None, help="Port number or address:port (default: 127.0.0.1:8000)."
     ),
-    host: str | None = typer.Option(None, help="Host to bind."),
-    port: int | None = typer.Option(None, min=0, max=65535, help="Port to bind."),
-    reload: bool = typer.Option(
-        True, "--reload/--noreload", help="Restart on code changes (enabled by default)."
-    ),
+    noreload: bool = typer.Option(False, "--noreload", help="Disable the auto-reloader."),
 ) -> None:
+    host = "127.0.0.1"
+    port = 8000
     if addrport is not None:
-        if host is not None or port is not None:
-            raise CommandError("The address argument cannot be combined with --host or --port.")
         match = ADDRPORT.fullmatch(addrport)
         if match is None:
             raise CommandError(f'"{addrport}" is not a valid port number or address:port pair.')
-        host, raw_port = match.groups()
+        address, raw_port = match.groups()
+        host = address or host
         port = int(raw_port)
-    host = "127.0.0.1" if host is None else host
     if host.startswith("[") and host.endswith("]"):
         host = host[1:-1]
     if host == "0":
         host = "0.0.0.0"  # noqa: S104 - explicitly requested by the address argument
-    port = 8000 if port is None else port
     if not 0 <= port <= 65535:
         raise CommandError("Port must be between 0 and 65535.")
     target = settings.ASGI_APPLICATION
@@ -61,6 +56,6 @@ def handle(
         application,
         host=host,
         port=port,
-        reload=reload,
+        reload=not noreload,
         log_level=LOG_LEVELS.get(utils.get_verbosity(), "info"),
     )
