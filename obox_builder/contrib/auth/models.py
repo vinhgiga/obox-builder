@@ -143,8 +143,6 @@ class Role(Model, TimestampMixin, VersionedMixin):
 
     id: Mapped[int] = mapped_column(BigIntIdentity, primary_key=True)
     name: Mapped[str] = mapped_column(sa.String(150), unique=True)
-    description: Mapped[str] = mapped_column(sa.Text, default="")
-    is_system: Mapped[bool] = mapped_column(default=False)
 
     users: Mapped[list[AbstractUser]] = relationship(
         User, secondary=user_roles, back_populates="roles"

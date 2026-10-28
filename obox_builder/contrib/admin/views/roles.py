@@ -127,7 +127,6 @@ async def role_create_submit(
     user: AddRoles,
     csrf_token: str = Form(""),
     name: str = Form(""),
-    description: str = Form(""),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     await ensure_csrf(request, csrf_token)
@@ -138,13 +137,13 @@ async def role_create_submit(
     elif await db.scalar(select(Role).where(Role.name == cleaned)) is not None:
         errors.append(f"A role named {cleaned!r} already exists.")
     if not errors:
-        role = Role(name=cleaned, description=description.strip())
+        role = Role(name=cleaned)
         db.add(role)
         await db.flush()
         logger.info("Admin %r created role %r", user.username, role.name)
         await flash(request, f"Role {role.name!r} created.")
         return redirect(f"/admin/roles/{role.id}", status_code=303)
-    context = {"target": None, "errors": errors, "form": {"name": name, "description": description}}
+    context = {"target": None, "errors": errors, "form": {"name": name}}
     return render(
         request, "admin/roles/form.html", await page_context(request, **context), status_code=200
     )
@@ -203,7 +202,6 @@ async def role_edit_submit(
     user: ChangeRoles,
     csrf_token: str = Form(""),
     name: str = Form(""),
-    description: str = Form(""),
     permission_ids: list[int] = Form(default=[]),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
@@ -233,7 +231,6 @@ async def role_edit_submit(
             errors.append(f"A role named {cleaned!r} already exists.")
     if not errors:
         role.name = cleaned
-        role.description = description.strip()
         role.permissions = permissions
         logger.info(
             "Admin %r updated role %r (%d permissions)",
@@ -246,7 +243,7 @@ async def role_edit_submit(
     context = {
         "target": role,
         "errors": errors,
-        "form": {"name": name, "description": description},
+        "form": {"name": name},
         "matrix": await _permission_matrix(db),
         "selected_permission_ids": set(permission_ids),
         "history": await _history_for(db, user, role),
@@ -273,9 +270,6 @@ async def role_delete(
     if role is None:
         return render(request, "admin/errors/404.html", {}, status_code=404)
     administration.check_role(user, role)
-    if role.is_system:
-        await flash(request, f"Role {role.name!r} is a system role and cannot be deleted.", "error")
-        return redirect("/admin/roles", status_code=303)
     await db.delete(role)
     logger.info("Admin %r deleted role %r", user.username, role.name)
     await flash(request, f"Role {role.name!r} deleted.")

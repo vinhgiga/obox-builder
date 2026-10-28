@@ -48,6 +48,7 @@ async def test_accounts_switch_crud_etags_and_secret_redaction(api: httpx.AsyncC
     )
     assert role.status_code == 201, role.text
     row = role.json()
+    assert set(row) == {"id", "name", "permission_ids", "etag"}
     created = await api.post(
         f"{BASE}/users",
         headers=headers,
@@ -100,6 +101,28 @@ async def test_accounts_switch_crud_etags_and_secret_redaction(api: httpx.AsyncC
         )
     ).status_code == 204
     assert (await api.get(path)).json()["role_ids"] == []
+
+
+@pytest.mark.parametrize("field,value", [("description", "Legacy"), ("is_system", True)])
+async def test_role_api_rejects_removed_fields(
+    api: httpx.AsyncClient, field: str, value: Any
+) -> None:
+    headers = await sign_in(api)
+    site_for(api).api_auth_enabled = True
+    rejected = await api.post(
+        f"{BASE}/roles", headers=headers, json={"name": "Reader", field: value}
+    )
+    assert rejected.status_code == 422
+    assert (await api.get(f"{BASE}/roles")).json()["roles"] == []
+    created = await api.post(f"{BASE}/roles", headers=headers, json={"name": "Reader"})
+    assert created.status_code == 201
+    row = created.json()
+    path = f"{BASE}/roles/{row['id']}"
+    rejected = await api.patch(
+        path, headers={**headers, "If-Match": row["etag"]}, json={field: value}
+    )
+    assert rejected.status_code == 422
+    assert (await api.get(path)).json() == row
 
 
 async def test_delegation_policy_applies_to_api_and_html(api: httpx.AsyncClient) -> None:
@@ -156,6 +179,11 @@ async def test_delegation_policy_applies_to_api_and_html(api: httpx.AsyncClient)
             f"{BASE}/roles/{role['id']}",
             headers={**headers, "If-Match": role["etag"]},
             json={"permission_ids": []},
+        )
+    ).status_code == 403
+    assert (
+        await api.delete(
+            f"{BASE}/roles/{role['id']}", headers={**headers, "If-Match": role["etag"]}
         )
     ).status_code == 403
     assert (

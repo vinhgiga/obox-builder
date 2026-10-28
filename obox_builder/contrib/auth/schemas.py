@@ -32,5 +32,4 @@ class UserForm(BaseModel):
 
 class RoleForm(BaseModel):
     name: str
-    description: str = ""
     permission_ids: list[int] = Field(default_factory=list)

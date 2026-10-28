@@ -51,7 +51,6 @@ class UserPatch(BaseModel):
 class RoleInput(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     name: str = Field(default="", min_length=1, max_length=150)
-    description: str = Field(default="", max_length=10000)
     permission_ids: list[str] = Field(default_factory=list, max_length=1000)
 
 
@@ -127,8 +126,6 @@ def account_data(row: Any) -> dict[str, Any]:
     else:
         data = {
             "name": row.name,
-            "description": row.description,
-            "is_system": row.is_system,
             "permission_ids": sorted(str(p.id) for p in row.permissions),
         }
         revision = [row.version, ensure_aware(row.updated_at).astimezone(timezone.utc).isoformat()]
@@ -288,7 +285,7 @@ def register_accounts(router: APIRouter) -> None:
         actor = account_access(request, user, "role", "add" if pk is None else "change")
         data = parse_body(RoleInput, await json_body(request)).model_dump(exclude_unset=True)
         role = (
-            Role(name="", description="", permissions=[])
+            Role(name="", permissions=[])
             if pk is None
             else await load_account(db, Role, pk, lock=True)
         )
@@ -327,7 +324,5 @@ def register_accounts(router: APIRouter) -> None:
         role = await load_account(db, Role, pk, lock=True)
         check_if_match(account_data(role)["etag"], request.headers.get("if-match"))
         administration.check_role(actor, role)
-        if role.is_system:
-            raise Problem(409, "conflict", "System roles cannot be deleted.")
         await db.delete(role)
         return Response(status_code=204)

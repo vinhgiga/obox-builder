@@ -18,8 +18,6 @@ def check_permissions(actor: User, permissions: Sequence[Permission]) -> None:
 
 
 def check_role(actor: User, role: Role) -> None:
-    if role.is_system and not actor.is_superuser:
-        raise PermissionDenied("Only a superuser can administer system roles.")
     check_permissions(actor, role.permissions)
 
 

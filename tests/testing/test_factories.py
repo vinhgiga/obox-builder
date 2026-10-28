@@ -44,7 +44,7 @@ async def test_make_user_is_idempotent_and_updates_flags(db_ready: None) -> None
 
 
 async def test_make_role_resolves_permissions(db_ready: None) -> None:
-    await make_role("Editor", "auth.view_user", "auth.change_user", is_system=False)
+    await make_role("Editor", "auth.view_user", "auth.change_user")
     async with session_scope() as db:
         row = await db.scalar(
             sa.select(Role).where(Role.name == "Editor").options(selectinload(Role.permissions))
@@ -57,6 +57,18 @@ async def test_make_role_resolves_permissions(db_ready: None) -> None:
 async def test_make_role_rejects_unknown_permission(db_ready: None) -> None:
     with pytest.raises(ValueError, match="does not exist"):
         await make_role("Broken", "nope.not_a_perm")
+
+
+async def test_make_role_updates_existing_permissions(db_ready: None) -> None:
+    first = await make_role("Editor", "auth.view_user")
+    second = await make_role("Editor", "auth.change_user")
+    assert first.id == second.id
+    async with session_scope() as db:
+        row = await db.scalar(
+            sa.select(Role).where(Role.id == first.id).options(selectinload(Role.permissions))
+        )
+        assert row is not None
+        assert [permission.full_name for permission in row.permissions] == ["auth.change_user"]
 
 
 async def test_grant_permissions_attaches_personal_role(db_ready: None) -> None:

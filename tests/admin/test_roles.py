@@ -24,9 +24,13 @@ async def test_create_and_edit_role_with_permissions(client: httpx.AsyncClient) 
     await login_session(client, "alice")
     token = await csrf_for("alice")
 
+    form = await client.get("/admin/roles/new")
+    assert form.status_code == 200
+    assert 'name="description"' not in form.text
+
     created = await client.post(
         "/admin/roles/new",
-        data={"csrf_token": token, "name": "Editors", "description": "Can edit content"},
+        data={"csrf_token": token, "name": "Editors"},
         follow_redirects=False,
     )
     assert created.status_code == 303
@@ -48,12 +52,19 @@ async def test_create_and_edit_role_with_permissions(client: httpx.AsyncClient) 
         data={
             "csrf_token": token,
             "name": "Editors",
-            "description": "Can view users",
             "permission_ids": [str(permission_id)],
         },
         follow_redirects=False,
     )
     assert updated.status_code == 303
+
+    form = await client.get(f"/admin/roles/{role_id}")
+    assert form.status_code == 200
+    assert 'name="description"' not in form.text
+    listing = await client.get("/admin/roles")
+    assert listing.status_code == 200
+    assert "Editors" in listing.text
+    assert "<th>Description</th>" not in listing.text
 
     async with session_scope() as db:
         role = await db.scalar(sa.select(Role).where(Role.id == role_id).options())
@@ -76,15 +87,27 @@ async def test_duplicate_role_name_rejected(client: httpx.AsyncClient) -> None:
     assert "already exists" in duplicate.text
 
 
-async def test_system_role_cannot_be_deleted(client: httpx.AsyncClient) -> None:
-    from obox_builder.contrib.auth.models import Role
+@pytest.mark.parametrize("holds_permission", [False, True])
+async def test_delegate_deletes_only_roles_with_held_permissions(
+    client: httpx.AsyncClient, holds_permission: bool
+) -> None:
+    from obox_builder.contrib.auth.models import Permission, Role
     from obox_builder.db.session import session_scope
 
-    await make_user("alice", is_superuser=True)
+    await make_user("alice")
+    await grant_permissions("alice", "auth.delete_role")
+    if holds_permission:
+        await grant_permissions("alice", "auth.view_user")
     await login_session(client, "alice")
     token = await csrf_for("alice")
     async with session_scope() as db:
-        role = Role(name="Builtin", is_system=True)
+        permission = await db.scalar(
+            sa.select(Permission).where(
+                Permission.app_label == "auth", Permission.codename == "view_user"
+            )
+        )
+        assert permission is not None
+        role = Role(name="Readers", permissions=[permission])
         db.add(role)
         await db.flush()
         role_id = role.id
@@ -92,9 +115,9 @@ async def test_system_role_cannot_be_deleted(client: httpx.AsyncClient) -> None:
     response = await client.post(
         f"/admin/roles/{role_id}/delete", data={"csrf_token": token}, follow_redirects=False
     )
-    assert response.status_code == 303
+    assert response.status_code == (303 if holds_permission else 403)
     async with session_scope() as db:
-        assert await db.scalar(sa.select(Role).where(Role.id == role_id)) is not None
+        assert (await db.get(Role, role_id) is None) == holds_permission
 
 
 async def test_delete_custom_role(client: httpx.AsyncClient) -> None:

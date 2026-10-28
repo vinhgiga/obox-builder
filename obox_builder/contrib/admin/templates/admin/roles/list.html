@@ -17,7 +17,6 @@
           <th class="w-1 text-end">#</th>
           <th class="w-1">Actions</th>
           <th>Name</th>
-          <th>Description</th>
           <th>Users</th>
           <th>Permissions</th>
         </tr>
@@ -31,7 +30,7 @@
             {% if perms.auth.change_role %}
             <a href="/admin/roles/{{ role.id }}" class="btn btn-sm">Edit</a>
             {% endif %}
-            {% if not role.is_system and perms.auth.delete_role %}
+            {% if perms.auth.delete_role %}
             <form method="post" action="/admin/roles/{{ role.id }}/delete" class="d-inline"
                   data-confirm="Delete role '{{ role.name }}'? This cannot be undone.">
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}"/>
@@ -42,14 +41,12 @@
           </td>
           <td>
             <a href="/admin/roles/{{ role.id }}">{{ role.name }}</a>
-            {% if role.is_system %}<span class="badge bg-azure-lt ms-2">system</span>{% endif %}
           </td>
-          <td class="text-secondary">{{ role.description }}</td>
           <td>{{ user_counts.get(role.id, 0) }}</td>
           <td>{{ role.permissions | length }}</td>
         </tr>
         {% else %}
-        <tr><td colspan="6" class="text-center text-secondary py-4">No roles defined yet.</td></tr>
+        <tr><td colspan="5" class="text-center text-secondary py-4">No roles defined yet.</td></tr>
         {% endfor %}
       </tbody>
     </table>

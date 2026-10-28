@@ -72,12 +72,7 @@ async def _resolve_permissions(db: AsyncSession, full_names: tuple[str, ...]) ->
     return resolved
 
 
-async def make_role(
-    name: str,
-    *permissions: str,
-    description: str = "",
-    is_system: bool = False,
-) -> Role:
+async def make_role(name: str, *permissions: str) -> Role:
     """Create (or update) a role holding the given permissions.
 
     ``permissions`` are ``app_label.codename`` strings, e.g.
@@ -93,8 +88,6 @@ async def make_role(
             db.add(role)
             await db.flush()
         await db.refresh(role, ["permissions"])
-        role.description = description
-        role.is_system = is_system
         role.permissions = await _resolve_permissions(db, permissions)
         await db.flush()
         return role
