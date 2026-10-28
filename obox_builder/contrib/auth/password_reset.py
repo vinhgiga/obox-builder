@@ -31,9 +31,11 @@ def hash_reset_token(token: str) -> str:
 async def request_password_reset(db: AsyncSession, email: str) -> None:
     """Email a reset link when an active account exists; otherwise return quietly."""
     normalized = services.normalize_email(email)
-    if not normalized:
+    if not normalized or User.EMAIL_FIELD not in User.__table__.columns:
         return
-    users = await db.scalars(select(User).where(func.lower(User.email) == normalized))
+    users = await db.scalars(
+        select(User).where(func.lower(getattr(User, User.EMAIL_FIELD)) == normalized)
+    )
     for user in users:
         if user.is_active and is_usable_password(user.password_hash):
             await _send_reset(db, user)
@@ -75,7 +77,7 @@ async def _send_reset(db: AsyncSession, user: User) -> None:
             f"{link}\n\n"
             f"The link expires in {settings.PASSWORD_RESET_TIMEOUT // 60} minutes. "
             "If you did not request this change, you can ignore this email.",
-            user.email,
+            getattr(user, User.EMAIL_FIELD),
         )
         if sent != 1:
             raise RuntimeError("The configured email backend did not deliver the message.")

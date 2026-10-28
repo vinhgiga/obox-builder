@@ -11,11 +11,12 @@ from obox_builder.contrib.admin.api.problems import Problem
 from obox_builder.contrib.admin.api.serializers import api_specs
 from obox_builder.contrib.admin.context import AdminContext
 from obox_builder.contrib.admin.services import RecordService
+from obox_builder.contrib.auth.models import USER_MODEL_NAME, User
 from obox_builder.fields.types.choice import normalize_choices
 
 
 def model_context(request: Request, user: Any, db: Any, label: str) -> AdminContext:
-    if label in {"auth.user", "auth.role", "auth.permission"}:
+    if label in {f"{User._model_label}.{USER_MODEL_NAME}", "auth.role", "auth.permission"}:
         raise Problem(404, "not_found", "Use the dedicated account API for this resource.")
     site = request.state.admin_site
     admin = site.get_registry().get(label)

@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import logging
 from asyncio import to_thread
+from typing import Any, cast
 
 from fastapi import Request
-from sqlalchemy import delete, select
+from pydantic import TypeAdapter, ValidationError
+from sqlalchemy import String, delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from obox_builder.conf import settings
@@ -34,13 +36,28 @@ def normalize_email(email: str) -> str:
     return email.strip().lower()
 
 
+def _identifier_value(username: str) -> Any:
+    raw = normalize_username(username)
+    try:
+        return TypeAdapter(
+            User.__table__.columns[User.USERNAME_FIELD].type.python_type
+        ).validate_python(raw)
+    except (NotImplementedError, TypeError, ValidationError) as exc:
+        raise ValueError("Invalid user identifier.") from exc
+
+
 async def get_user_by_username(db: AsyncSession, username: str) -> User | None:
-    return await db.scalar(select(User).where(User.username == normalize_username(username)))
+    identifier = getattr(User, User.USERNAME_FIELD)
+    try:
+        value = _identifier_value(username)
+    except ValueError:
+        return None
+    return await db.scalar(select(User).where(identifier == value))
 
 
 async def create_user(
     db: AsyncSession,
-    username: str,
+    username: str = "",
     password: str | None = None,
     *,
     email: str = "",
@@ -48,19 +65,50 @@ async def create_user(
     is_superuser: bool = False,
     is_active: bool = True,
     validate: bool = True,
+    **extra_fields: Any,
 ) -> User:
-    normalized = normalize_username(username)
+    field_name = User.USERNAME_FIELD
+    supplied_identifier = extra_fields.pop(field_name, "")
+    if field_name == User.EMAIL_FIELD and email:
+        if supplied_identifier and normalize_username(str(supplied_identifier)) != normalize_email(
+            email
+        ):
+            raise ValueError(f"Conflicting values for {field_name!r}.")
+        supplied_identifier = email
+    supplied_identifier = "" if supplied_identifier is None else str(supplied_identifier)
+    if (
+        username
+        and supplied_identifier
+        and normalize_username(username) != normalize_username(supplied_identifier)
+    ):
+        raise ValueError(f"Conflicting values for {field_name!r}.")
+    normalized = normalize_username(username or supplied_identifier)
     if not normalized:
         raise ValueError("Username must not be empty.")
+    column_type = User.__table__.columns[field_name].type
+    if (
+        isinstance(column_type, String)
+        and column_type.length
+        and len(normalized) > column_type.length
+    ):
+        raise ValueError(f"{field_name!r} exceeds its maximum length.")
     if await get_user_by_username(db, normalized) is not None:
         raise ValueError(f"A user named {normalized!r} already exists.")
-    user = User(
-        username=normalized,
-        email=normalize_email(email),
-        full_name=full_name.strip(),
-        is_superuser=is_superuser,
-        is_active=is_active,
-    )
+    fields = {**extra_fields, field_name: _identifier_value(normalized)}
+    columns = User.__table__.columns
+    if email and User.EMAIL_FIELD not in columns:
+        raise ValueError("The user model has no email field.")
+    if (
+        User.EMAIL_FIELD in columns
+        and field_name != User.EMAIL_FIELD
+        and (email or User.EMAIL_FIELD not in fields)
+    ):
+        fields[User.EMAIL_FIELD] = normalize_email(email)
+    if "full_name" in columns:
+        fields["full_name"] = full_name.strip()
+    elif full_name:
+        raise ValueError("The user model has no full name field.")
+    user = User(**fields, is_superuser=is_superuser, is_active=is_active)
     db.add(user)
     await db.flush()
     if password is not None:
@@ -85,9 +133,14 @@ async def set_password(
 
 async def _authenticate_model(db: AsyncSession, username: str, password: str) -> User | None:
     """Return the user on success and perform a dummy hash for unknown users."""
+    try:
+        identifier = _identifier_value(username)
+    except ValueError:
+        await to_thread(verify_dummy, password)
+        return None
     user = await db.scalar(
         select(User)
-        .where(User.username == normalize_username(username))
+        .where(getattr(User, User.USERNAME_FIELD) == identifier)
         .with_for_update()
         .execution_options(populate_existing=True)
     )
@@ -107,20 +160,29 @@ async def _authenticate_model(db: AsyncSession, username: str, password: str) ->
 
 
 async def authenticate_with_backend(
-    db: AsyncSession, username: str, password: str, *, request: Request | None = None
+    db: AsyncSession,
+    username: str = "",
+    password: str = "",
+    *,
+    request: Request | None = None,
+    **credentials: Any,
 ) -> tuple[User | None, str | None]:
     """Try configured backends in order and return the successful backend path."""
     for path in settings.AUTHENTICATION_BACKENDS:
         backend = load_backend(path)
-        user = await backend.authenticate(db, request=request, username=username, password=password)
+        user = await backend.authenticate(
+            db, request=request, username=username, password=password, **credentials
+        )
         if user is not None:
-            return user, path
+            return cast(User, user), path
     return None, None
 
 
-async def authenticate(db: AsyncSession, username: str, password: str) -> User | None:
+async def authenticate(
+    db: AsyncSession, username: str = "", password: str = "", **credentials: Any
+) -> User | None:
     """Compatibility wrapper returning only the authenticated user."""
-    user, _ = await authenticate_with_backend(db, username, password)
+    user, _ = await authenticate_with_backend(db, username, password, **credentials)
     return user
 
 
@@ -129,7 +191,7 @@ async def get_user_for_session(db: AsyncSession, user_id: int, backend_path: str
     if backend_path not in settings.AUTHENTICATION_BACKENDS:
         return None
     user = await load_backend(backend_path).get_user(db, user_id)
-    return user if user is not None and user.is_active else None
+    return cast(User, user) if user is not None and user.is_active else None
 
 
 async def change_password(

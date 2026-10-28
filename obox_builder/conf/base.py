@@ -99,6 +99,7 @@ class BaseSettings(PydanticBaseSettings):
     PASSWORD_RESET_COOLDOWN: int = Field(default=60, ge=0)
     PASSWORD_MIN_LENGTH: int = 8
     SUPERUSER_PASSWORD: SecretStr | None = None
+    SUPERUSER_FIELDS: dict[str, str] = Field(default_factory=dict)
     HISTORY_ENABLED: bool = True
     #: ``closed`` fails the transaction when history cannot be written;
     #: ``open`` logs the failure and lets the data change commit.

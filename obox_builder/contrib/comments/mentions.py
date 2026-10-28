@@ -44,7 +44,7 @@ def parse_mentions(body: str) -> tuple[int, ...]:
 
 
 def display_name(user: User) -> str:
-    return (user.full_name or user.username or f"user #{user.id}")[:150]
+    return (getattr(user, "full_name", "") or user.username or f"user #{user.id}")[:150]
 
 
 async def resolve_mentions(
@@ -121,7 +121,7 @@ async def mentionable_users(
             ),
             sa.or_(
                 User.username.ilike(pattern, escape="\\"),
-                User.full_name.ilike(pattern, escape="\\"),
+                getattr(User, "full_name", sa.literal("")).ilike(pattern, escape="\\"),
             ),
         )
         .order_by(User.username)

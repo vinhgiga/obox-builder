@@ -265,8 +265,10 @@ class ModelAdmin:
 
     def _has_write_permission(self, ctx: AdminContext, action: str) -> bool:
         # Account writes must use the dedicated administration policy and password helpers.
-        return self.model_label not in {"auth.user", "auth.role", "auth.permission"} and bool(
-            ctx.user.has_perm(self.permission_name(action))
+        return (
+            not getattr(self.model, "__auth_model__", False)
+            and self.model_label not in {"auth.role", "auth.permission"}
+            and bool(ctx.user.has_perm(self.permission_name(action)))
         )
 
     def check_permission(self, ctx: AdminContext, action: str, obj: Any = None) -> None:

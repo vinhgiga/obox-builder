@@ -84,9 +84,9 @@ async def user_list(
     statement = select(User).order_by(User.username)
     counter = select(func.count()).select_from(User)
     if query_text:
-        condition = User.username.icontains(query_text, autoescape=True) | User.email.icontains(
-            query_text, autoescape=True
-        )
+        condition = User.username.icontains(query_text, autoescape=True)
+        if User.EMAIL_FIELD in User.__table__.columns:
+            condition |= getattr(User, User.EMAIL_FIELD).icontains(query_text, autoescape=True)
         statement = statement.where(condition)
         counter = counter.where(condition)
 
@@ -288,15 +288,21 @@ async def user_edit_submit(
         errors.append("The two password fields do not match.")
 
     if not errors:
-        previous_email, previous_full_name = target.email, target.full_name
-        target.email = services.normalize_email(email)
-        target.full_name = full_name.strip()
+        previous_email = getattr(target, User.EMAIL_FIELD, None)
+        previous_full_name = getattr(target, "full_name", None)
+        if User.EMAIL_FIELD in User.__table__.columns:
+            setattr(target, User.EMAIL_FIELD, services.normalize_email(email))
+        if "full_name" in User.__table__.columns:
+            target.full_name = full_name.strip()
         if password:
             try:
                 await services.set_password(db, target, password)
             except PasswordValidationError as exc:
                 errors = exc.errors
-                target.email, target.full_name = previous_email, previous_full_name
+                if previous_email is not None:
+                    setattr(target, User.EMAIL_FIELD, previous_email)
+                if previous_full_name is not None:
+                    target.full_name = previous_full_name
         if not errors:
             target.is_active = is_active
             if user.is_superuser:

@@ -18,7 +18,7 @@ from obox_builder.contrib.auth.validators import PasswordValidationError
 
 class Login(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    username: str = Field(min_length=1, max_length=150, strict=True)
+    username: str = Field(min_length=1, max_length=4096, strict=True)
     password: str = Field(min_length=1, max_length=4096, strict=True)
 
 
@@ -40,7 +40,7 @@ def identity(user: Any, auth_session: Any) -> dict[str, Any]:
         "user": {
             "id": str(user.id),
             "username": user.username,
-            "full_name": user.full_name,
+            "full_name": getattr(user, "full_name", ""),
             "is_superuser": user.is_superuser,
         },
         "csrf_token": csrf.get_csrf_token(auth_session),
@@ -101,7 +101,7 @@ def register_auth(router: APIRouter) -> None:
                 "user": {
                     "id": str(user.id),
                     "username": user.username,
-                    "full_name": user.full_name,
+                    "full_name": getattr(user, "full_name", ""),
                     "is_superuser": user.is_superuser,
                 },
                 "csrf_token": "",

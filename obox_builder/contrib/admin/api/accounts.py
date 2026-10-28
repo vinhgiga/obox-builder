@@ -18,7 +18,7 @@ from obox_builder.contrib.admin.api.problems import Problem
 from obox_builder.contrib.admin.api.records import body_schema
 from obox_builder.contrib.auth import administration, services, sessions
 from obox_builder.contrib.auth.models import Permission, Role, User
-from obox_builder.contrib.auth.permissions import collect_permissions
+from obox_builder.contrib.auth.permissions import collect_permissions, model_identifier
 from obox_builder.contrib.auth.tokens import scope_allows
 from obox_builder.contrib.auth.validators import PasswordValidationError
 from obox_builder.core.exceptions import PermissionDenied
@@ -29,7 +29,7 @@ AccountID = Annotated[int, Path(ge=1, le=2**63 - 1)]
 
 class UserInput(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
-    username: str = Field(min_length=1, max_length=150)
+    username: str = Field(min_length=1, max_length=4096)
     password: str = Field(min_length=1, max_length=4096)
     email: str = Field(default="", max_length=254)
     full_name: str = Field(default="", max_length=255)
@@ -76,8 +76,11 @@ def account_access(request: Request, user: User, kind: str, action: str) -> User
         raise Problem(404, "not_found", "Account API is unavailable.")
     token = getattr(request.state, "api_token", None)
     operation = {"view": "read", "add": "write", "change": "write", "delete": "delete"}[action]
-    if not user.has_perm(f"auth.{action}_{kind}") or (
-        token is not None and not scope_allows(token.scopes, f"auth.{kind}", operation)
+    model_label = User._model_label if kind == "user" else "auth"
+    label = f"{model_label}.{model_identifier(User) if kind == 'user' else 'role'}"
+    permission = f"{model_label}.{action}_{model_identifier(User) if kind == 'user' else 'role'}"
+    if not user.has_perm(permission) or (
+        token is not None and not scope_allows(token.scopes, label, operation)
     ):
         raise PermissionDenied("You cannot administer this resource.")
     if token is None:
@@ -108,9 +111,10 @@ def account_access(request: Request, user: User, kind: str, action: str) -> User
 def account_data(row: Any) -> dict[str, Any]:
     if isinstance(row, User):
         data = {
-            name: getattr(row, name)
+            name: getattr(row, name, "")
             for name in ("username", "email", "full_name", "is_active", "is_superuser")
         }
+        data["email"] = getattr(row, User.EMAIL_FIELD, "")
         data["role_ids"] = sorted(str(role.id) for role in row.roles)
         # Password changes invalidate validators without exposing credentials.
         revision = [
@@ -170,12 +174,10 @@ def register_accounts(router: APIRouter) -> None:
         account_access(request, user, "user", "view")
         stmt = sa.select(User).options(selectinload(User.roles)).order_by(User.username, User.id)
         if q:
-            stmt = stmt.where(
-                sa.or_(
-                    User.username.icontains(q, autoescape=True),
-                    User.email.icontains(q, autoescape=True),
-                )
-            )
+            condition = User.username.icontains(q, autoescape=True)
+            if User.EMAIL_FIELD in User.__table__.columns:
+                condition |= getattr(User, User.EMAIL_FIELD).icontains(q, autoescape=True)
+            stmt = stmt.where(condition)
         rows = list(await db.scalars(stmt.offset((page - 1) * size).limit(size + 1)))
         return {"users": [account_data(row) for row in rows[:size]], "has_next": len(rows) > size}
 
@@ -228,7 +230,12 @@ def register_accounts(router: APIRouter) -> None:
             target.roles = await roles_for(db, actor, data.pop("role_ids"))
         password = data.pop("password", None)
         for name, value in data.items():
-            setattr(target, name, services.normalize_email(value) if name == "email" else value)
+            field_name = User.EMAIL_FIELD if name == "email" else name
+            if field_name not in User.__table__.columns:
+                raise Problem(422, "validation_error", f"User field {name!r} is unavailable.")
+            setattr(
+                target, field_name, services.normalize_email(value) if name == "email" else value
+            )
         if password:
             try:
                 await services.set_password(db, target, password)

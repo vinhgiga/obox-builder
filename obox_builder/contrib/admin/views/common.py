@@ -66,6 +66,11 @@ async def page_context(request: Request, **extra: Any) -> dict[str, Any]:
         "language_code": getattr(request.state, "language_code", settings.LANGUAGE_CODE),
         "available_languages": get_language_choices(),
         "current_path": request.url.path,
+        "username_label": User.USERNAME_FIELD.replace("_", " ").capitalize(),
+        "username_field": User.USERNAME_FIELD,
+        "user_email_field": User.EMAIL_FIELD,
+        "user_has_email": User.EMAIL_FIELD in User.__table__.columns,
+        "user_has_full_name": "full_name" in User.__table__.columns,
         "csrf_token": csrf_token_for(request),
         "messages": (
             []

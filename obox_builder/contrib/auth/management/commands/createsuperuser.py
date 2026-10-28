@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import getpass
 from types import SimpleNamespace
+from typing import Any
 
 import typer
+from pydantic import TypeAdapter, ValidationError
 
 from obox_builder.core.management import CommandError, utils
 from obox_builder.core.management.base import command
@@ -19,6 +21,7 @@ def handle(
 ) -> None:
     import obox_builder
     from obox_builder.conf import settings
+    from obox_builder.contrib.auth.models import User
     from obox_builder.contrib.auth.services import (
         create_user,
         get_user_by_username,
@@ -29,24 +32,53 @@ def handle(
     from obox_builder.db.session import session_scope
 
     async def run() -> None:
-        name = username
+        name = username or (email if User.USERNAME_FIELD == User.EMAIL_FIELD else "")
         if not name:
             if noinput:
                 raise CommandError("--noinput requires --username.")
-            try:
-                default_name = normalize_username(getpass.getuser())
-            except (KeyError, OSError):
-                default_name = ""
+            default_name = ""
+            if User.USERNAME_FIELD == "username":
+                try:
+                    default_name = normalize_username(getpass.getuser())
+                except (KeyError, OSError):
+                    default_name = ""
             async with session_scope() as db:
                 if default_name and await get_user_by_username(db, default_name) is not None:
                     default_name = ""
-            label = "Username"
+            label = User.USERNAME_FIELD.replace("_", " ").capitalize()
             if default_name:
                 label += f" (leave blank to use '{default_name}')"
             name = typer.prompt(label, default=default_name or None, show_default=False)
         address = email
-        if not address and not noinput:
+        if (
+            User.USERNAME_FIELD != User.EMAIL_FIELD
+            and User.EMAIL_FIELD in User.__table__.columns
+            and not address
+            and not noinput
+        ):
             address = typer.prompt("Email address", default="", show_default=False)
+        extra_fields: dict[str, Any] = {}
+        for field_name in User.REQUIRED_FIELDS:
+            if field_name == User.EMAIL_FIELD and address:
+                continue
+            if noinput:
+                raw = settings.SUPERUSER_FIELDS.get(field_name)
+                if not raw:
+                    raise CommandError(
+                        f"--noinput requires {field_name!r} in OBOX_SUPERUSER_FIELDS."
+                    )
+            else:
+                raw = typer.prompt(field_name.replace("_", " ").capitalize())
+            try:
+                value = TypeAdapter(
+                    User.__table__.columns[field_name].type.python_type
+                ).validate_python(raw)
+            except (KeyError, NotImplementedError, ValidationError) as exc:
+                raise CommandError(f"Invalid value for {field_name!r}.") from exc
+            if field_name == User.EMAIL_FIELD:
+                address = str(value)
+            else:
+                extra_fields[field_name] = value
         bypass = False
         if noinput:
             secret = settings.SUPERUSER_PASSWORD
@@ -85,7 +117,13 @@ def handle(
         async with session_scope() as db:
             try:
                 user = await create_user(
-                    db, name, password, email=address, is_superuser=True, validate=not bypass
+                    db,
+                    name,
+                    password,
+                    email=address,
+                    is_superuser=True,
+                    validate=not bypass,
+                    **extra_fields,
                 )
             except PasswordValidationError as exc:
                 raise CommandError(" ".join(exc.errors)) from exc

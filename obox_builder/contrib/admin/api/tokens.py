@@ -78,7 +78,9 @@ def register_tokens(router: APIRouter) -> None:
                     if inline.api_enabled
                 )
         if request.state.admin_site.api_auth_enabled:
-            labels.extend(("auth.user", "auth.role"))
+            from obox_builder.contrib.auth.models import USER_MODEL_NAME, User
+
+            labels.extend((f"{User._model_label}.{USER_MODEL_NAME}", "auth.role"))
         if any(
             not SCOPE.fullmatch(scope)
             or not any(

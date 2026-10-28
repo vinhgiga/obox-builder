@@ -8,7 +8,7 @@ from typing import Any, Protocol
 from fastapi import Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from obox_builder.contrib.auth.base_user import AbstractUser
+from obox_builder.contrib.auth.base_user import AbstractBaseUser
 from obox_builder.core.exceptions import ImproperlyConfigured
 
 
@@ -19,9 +19,9 @@ class AuthenticationBackend(Protocol):
         *,
         request: Request | None = None,
         **credentials: Any,
-    ) -> AbstractUser | None: ...
+    ) -> AbstractBaseUser | None: ...
 
-    async def get_user(self, db: AsyncSession, user_id: int) -> AbstractUser | None: ...
+    async def get_user(self, db: AsyncSession, user_id: int) -> AbstractBaseUser | None: ...
 
 
 class ModelBackend:
@@ -33,16 +33,16 @@ class ModelBackend:
         *,
         request: Request | None = None,
         **credentials: Any,
-    ) -> AbstractUser | None:
+    ) -> AbstractBaseUser | None:
         del request
+        from obox_builder.contrib.auth.models import User
         from obox_builder.contrib.auth.services import _authenticate_model
 
-        user = await _authenticate_model(
-            db, str(credentials.get("username", "")), str(credentials.get("password", ""))
-        )
+        identifier = credentials.get("username") or credentials.get(User.USERNAME_FIELD, "")
+        user = await _authenticate_model(db, str(identifier), str(credentials.get("password", "")))
         return user if user is not None and user.is_active else None
 
-    async def get_user(self, db: AsyncSession, user_id: int) -> AbstractUser | None:
+    async def get_user(self, db: AsyncSession, user_id: int) -> AbstractBaseUser | None:
         from obox_builder.contrib.auth.models import User
 
         user = await db.get(User, user_id)

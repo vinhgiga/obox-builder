@@ -193,7 +193,7 @@ async def _mention_names(db: AsyncSession, comment_ids: list[int]) -> dict[int, 
             CommentMention.comment_id,
             User.id,
             User.username,
-            User.full_name,
+            getattr(User, "full_name", sa.literal("")),
         )
         .join(User, User.id == CommentMention.user_id)
         .where(CommentMention.comment_id.in_(comment_ids))

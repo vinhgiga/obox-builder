@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, ClassVar, cast
 
 import sqlalchemy as sa
 from sqlalchemy.orm import Mapped, mapped_column
 
 from obox_builder.apps import apps
 from obox_builder.conf import settings
-from obox_builder.contrib.auth.base_user import AbstractUser
+from obox_builder.contrib.auth.base_user import AbstractBaseUser, AbstractUser
 from obox_builder.core.exceptions import ImproperlyConfigured
 from obox_builder.db import Model, TimestampMixin, VersionedMixin, relationship
 from obox_builder.db.base import ModelBase
@@ -20,7 +21,7 @@ from obox_builder.utils.strings import camel_to_snake
 USER_MODEL = settings.AUTH_USER_MODEL if settings.configured else "auth.User"
 
 
-def _resolve_user_model() -> type[AbstractUser]:
+def _resolve_user_model() -> type[AbstractBaseUser]:
     app_label, _, model_name = USER_MODEL.partition(".")
     try:
         app_config = apps.get_app_config(app_label)
@@ -32,8 +33,55 @@ def _resolve_user_model() -> type[AbstractUser]:
     model = apps.all_models.get(app_label, {}).get(camel_to_snake(model_name))
     if model is None:
         raise ImproperlyConfigured(f"AUTH_USER_MODEL refers to missing model {USER_MODEL!r}.")
-    if not issubclass(model, AbstractUser):
-        raise ImproperlyConfigured(f"AUTH_USER_MODEL {USER_MODEL!r} must subclass AbstractUser.")
+    if not issubclass(model, AbstractBaseUser):
+        raise ImproperlyConfigured(
+            f"AUTH_USER_MODEL {USER_MODEL!r} must subclass AbstractBaseUser."
+        )
+    mapper = sa.inspect(model)
+    columns = mapper.columns
+    if (
+        len(mapper.primary_key) != 1
+        or mapper.primary_key[0].key != "id"
+        or mapper.primary_key[0].type.python_type is not int
+    ):
+        raise ImproperlyConfigured(f"{USER_MODEL!r} must have an integer 'id' primary key.")
+    if not isinstance(model.USERNAME_FIELD, str) or model.USERNAME_FIELD not in columns:
+        raise ImproperlyConfigured(f"{USER_MODEL!r} has an invalid USERNAME_FIELD.")
+    identifier = columns[model.USERNAME_FIELD]
+    table = cast("sa.Table", model.__table__)
+    unique = (
+        identifier.unique
+        or identifier.primary_key
+        or any(
+            isinstance(constraint, sa.UniqueConstraint) and list(constraint.columns) == [identifier]
+            for constraint in table.constraints
+        )
+        or any(
+            index.unique
+            and len(index.expressions) == 1
+            and index.expressions[0] is identifier
+            and not any(
+                name.endswith("_where") and value is not None
+                for name, value in index.dialect_kwargs.items()
+            )
+            for index in table.indexes
+        )
+    )
+    if (
+        not unique
+        and "obox_builder.contrib.auth.backends.ModelBackend" in settings.AUTHENTICATION_BACKENDS
+    ):
+        raise ImproperlyConfigured(
+            f"{USER_MODEL!r} USERNAME_FIELD must be unique for ModelBackend."
+        )
+    if (
+        not isinstance(model.REQUIRED_FIELDS, Sequence)
+        or isinstance(model.REQUIRED_FIELDS, str)
+        or any(not isinstance(name, str) or name not in columns for name in model.REQUIRED_FIELDS)
+        or model.USERNAME_FIELD in model.REQUIRED_FIELDS
+        or "password_hash" in model.REQUIRED_FIELDS
+    ):
+        raise ImproperlyConfigured(f"{USER_MODEL!r} has invalid REQUIRED_FIELDS.")
     return model
 
 
@@ -201,6 +249,7 @@ class AnonymousUser:
     is_active = False
     is_superuser = False
     is_authenticated = False
+    is_anonymous = True
     permissions: ClassVar[frozenset[str]] = frozenset()
 
     def has_perm(self, perm: str) -> bool:

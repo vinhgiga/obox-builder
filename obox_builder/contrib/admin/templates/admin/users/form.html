@@ -28,10 +28,14 @@
       <div class="card mb-3">
         <div class="card-body">
           {% if not target %}
-            {{ field("username", "Username", values.get("username", ""), required=True) }}
+            {{ field("username", username_label, values.get("username", ""), required=True) }}
           {% endif %}
-          {{ field("email", "Email", values.get("email", target.email if target else ""), type="email") }}
+          {% if user_has_email and (target or username_field != user_email_field) %}
+          {{ field("email", "Email", values.get("email", target | attr(user_email_field) if target else ""), type="email") }}
+          {% endif %}
+          {% if user_has_full_name %}
           {{ field("full_name", "Full name", values.get("full_name", target.full_name if target else "")) }}
+          {% endif %}
           <div class="row">
             <div class="col-md-6">
               {{ field("password", "Password" if not target else "New password", "",
