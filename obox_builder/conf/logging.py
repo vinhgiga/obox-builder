@@ -16,14 +16,16 @@ def default_logging_config(*, debug: bool = False) -> dict[str, Any]:
         "handlers": {
             "console": {
                 "class": "logging.StreamHandler",
+                "level": "INFO",
                 "formatter": "default",
             },
         },
-        "root": {
-            "handlers": ["console"],
-            "level": "DEBUG" if debug else "INFO",
-        },
         "loggers": {
+            "obox": {"handlers": ["console"], "level": "INFO"},
+            "obox_builder": {
+                "handlers": ["console"],
+                "level": "INFO" if debug else "WARNING",
+            },
             "alembic": {"level": "WARNING"},
         },
     }
