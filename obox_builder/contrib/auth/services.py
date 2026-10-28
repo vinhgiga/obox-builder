@@ -47,6 +47,7 @@ async def create_user(
     full_name: str = "",
     is_superuser: bool = False,
     is_active: bool = True,
+    validate: bool = True,
 ) -> User:
     normalized = normalize_username(username)
     if not normalized:
@@ -63,15 +64,18 @@ async def create_user(
     db.add(user)
     await db.flush()
     if password is not None:
-        await set_password(db, user, password)
+        await set_password(db, user, password, validate=validate)
     return user
 
 
-async def set_password(db: AsyncSession, user: User, raw_password: str) -> int:
-    """Validate, hash and store a new password; revokes all the user's sessions."""
-    errors = validate_password(raw_password, username=user.username)
-    if errors:
-        raise PasswordValidationError(errors)
+async def set_password(
+    db: AsyncSession, user: User, raw_password: str, *, validate: bool = True
+) -> int:
+    """Hash and store a password, validating by default; revokes the user's sessions."""
+    if validate:
+        errors = validate_password(raw_password, username=user.username)
+        if errors:
+            raise PasswordValidationError(errors)
     user.password_hash = hash_password(raw_password)
     user.password_changed_at = utcnow()
     user.failed_login_count = 0

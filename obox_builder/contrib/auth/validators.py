@@ -41,9 +41,13 @@ def validate_password(
     if not password:
         return ["Password must not be empty."]
     if len(password) < min_length:
-        errors.append(f"Password must be at least {min_length} characters long.")
+        errors.append(
+            f"This password is too short. It must contain at least {min_length} characters."
+        )
     if password.lower() in COMMON_PASSWORDS:
-        errors.append("Password is too common.")
+        errors.append("This password is too common.")
+    if password.isdigit():
+        errors.append("This password is entirely numeric.")
     if username and password.lower() == username.lower():
         errors.append("Password must not be the same as the username.")
     if username and username.lower() in password.lower() and len(username) >= 4:

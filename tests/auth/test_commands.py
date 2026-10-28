@@ -60,16 +60,92 @@ def test_createsuperuser_noinput_requires_password(env: None) -> None:
     assert "OBOX_SUPERUSER_PASSWORD" in result.output
 
 
-def test_createsuperuser_interactive(env: None) -> None:
+def test_createsuperuser_interactive(env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("getpass.getuser", lambda: "Root")
     run_async(create_tables())
     runner = CliRunner()
     result = runner.invoke(
         create_typer_app(),
         ["createsuperuser"],
-        input="root\n\ns3cure-password\ns3cure-password\n",
+        input="\n\ns3cure-password\ns3cure-password\n",
     )
     assert result.exit_code == 0, result.output
     assert "Superuser 'root' created." in result.output
+    assert "Username (leave blank to use 'root')" in result.output
+
+
+@pytest.mark.parametrize(
+    ("entered", "password", "message"),
+    [
+        ("123456\n123456\ny\n", "123456", "Bypass password validation"),
+        ("123456\n123456\nY\n", "123456", "Bypass password validation"),
+        (
+            "123456\n123456\nn\ns3cure-password\ns3cure-password\n",
+            "s3cure-password",
+            "Bypass password validation",
+        ),
+        (
+            "123456\n123456\n\ns3cure-password\ns3cure-password\n",
+            "s3cure-password",
+            "Bypass password validation",
+        ),
+        (
+            "123456\n123456\nyes\ns3cure-password\ns3cure-password\n",
+            "s3cure-password",
+            "Bypass password validation",
+        ),
+        ("\n\ns3cure-password\ns3cure-password\n", "s3cure-password", "Blank passwords"),
+        ("   \n   \ns3cure-password\ns3cure-password\n", "s3cure-password", "Blank passwords"),
+        (
+            "first\nsecond\ns3cure-password\ns3cure-password\n",
+            "s3cure-password",
+            "Your passwords didn't match",
+        ),
+    ],
+)
+def test_createsuperuser_password_prompt(
+    env: None, entered: str, password: str, message: str
+) -> None:
+    from obox_builder.contrib.auth.services import authenticate
+
+    run_async(create_tables())
+    result = CliRunner().invoke(
+        create_typer_app(),
+        ["createsuperuser", "--username", "Root", "--email", "root@example.com"],
+        input=entered,
+    )
+    assert result.exit_code == 0, result.output
+    assert message in result.output
+    assert password not in result.output
+
+    async def check() -> None:
+        async with session_scope() as db:
+            user = await authenticate(db, "root", password)
+            assert user is not None
+            assert user.is_superuser
+            assert user.email == "root@example.com"
+
+    run_async(check())
+
+
+@pytest.mark.parametrize("noinput", [False, True])
+def test_createsuperuser_does_not_save_an_unconfirmed_weak_password(
+    env: None, monkeypatch: pytest.MonkeyPatch, noinput: bool
+) -> None:
+    monkeypatch.setenv("OBOX_SUPERUSER_PASSWORD", "123456")
+    run_async(create_tables())
+    args = ["createsuperuser", "--username", "root", "--email", "root@example.com"]
+    if noinput:
+        args.append("--noinput")
+    result = CliRunner().invoke(create_typer_app(), args, input="123456\n123456\n")
+    assert result.exit_code == 1, result.output
+    assert ("Bypass password validation" in result.output) is not noinput
+
+    async def check() -> None:
+        async with session_scope() as db:
+            assert await db.scalar(sa.select(User)) is None
+
+    run_async(check())
 
 
 def test_createsuperuser_rejects_duplicates(env: None, monkeypatch: pytest.MonkeyPatch) -> None:
