@@ -1,8 +1,7 @@
 from pathlib import Path
 
-from pydantic import SecretStr
-
 from obox_builder.conf import BaseSettings
+from pydantic import SecretStr
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -11,6 +10,7 @@ class Settings(BaseSettings):
     # Provide a production secret through the OBOX_SECRET_KEY environment variable.
     SECRET_KEY: SecretStr = SecretStr("$secret_key")
 
+    DEBUG: bool = True
     DATABASE_URL: str = f"sqlite+aiosqlite:///{BASE_DIR / 'db.sqlite3'}"
     ALLOWED_HOSTS: list[str] = ["localhost", "127.0.0.1", "[::1]", "testserver"]
 

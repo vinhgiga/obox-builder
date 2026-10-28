@@ -1,4 +1,5 @@
 from fastapi import APIRouter
+from obox_builder.contrib.admin.site import site as admin_site
 from obox_builder.http.i18n import router as i18n_router
 
 router = APIRouter()
@@ -9,4 +10,4 @@ def index() -> dict[str, str]:
     return {"message": "Hello from $project_name"}
 
 
-routers = [router, i18n_router]
+routers = [router, i18n_router, (admin_site.get_router(), "/admin")]
