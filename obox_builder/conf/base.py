@@ -57,7 +57,6 @@ class BaseSettings(PydanticBaseSettings):
     ADMIN_API_MAX_BODY_BYTES: int = Field(default=1024 * 1024, ge=1)
     ADMIN_API_REQUIRE_IF_MATCH: bool = True
     ADMIN_API_RATE_LIMIT: int = Field(default=300, ge=1)
-    ADMIN_API_LOGIN_RATE_LIMIT: int = Field(default=10, ge=1)
     ADMIN_API_TRUSTED_ORIGINS: list[str] = Field(default_factory=list)
     ADMIN_API_QUERY_TIMEOUT_MS: int = Field(default=5000, ge=1)
     ADMIN_API_IDEMPOTENCY_TTL_SECONDS: int = Field(default=86400, ge=1)
@@ -98,10 +97,7 @@ class BaseSettings(PydanticBaseSettings):
     PASSWORD_RESET_BASE_URL: str = "http://localhost:8000"  # noqa: S105
     PASSWORD_RESET_TIMEOUT: int = Field(default=3600, ge=60)
     PASSWORD_RESET_COOLDOWN: int = Field(default=60, ge=0)
-    LOGIN_MAX_ATTEMPTS: int = 5
-    LOGIN_LOCKOUT_SECONDS: int = 900
     PASSWORD_MIN_LENGTH: int = 8
-    PASSWORD_MIN_UNIQUE_CHARACTERS: int = Field(default=3, ge=1)
     SUPERUSER_PASSWORD: SecretStr | None = None
     HISTORY_ENABLED: bool = True
     #: ``closed`` fails the transaction when history cannot be written;

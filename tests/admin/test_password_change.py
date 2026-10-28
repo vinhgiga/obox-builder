@@ -108,3 +108,33 @@ async def test_password_change_rejects_weak_and_mismatched(
     )
     assert weak.status_code == 200
     assert "at least" in weak.text
+
+
+async def test_password_change_preserves_custom_backend(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from obox_builder.conf import settings
+
+    from tests.admin.conftest import form_login
+
+    assert settings._wrapped is not None
+    model = "obox_builder.contrib.auth.backends.ModelBackend"
+    custom = "tests.support.auth_backend.PasswordBackend"
+    monkeypatch.setattr(settings._wrapped, "AUTHENTICATION_BACKENDS", [model, custom])
+    await make_user("alice")
+    login = await form_login(client, "alice", "backend-secret")
+    assert login.status_code == 303
+    token = await csrf_for("alice", client.cookies.get(settings.SESSION_COOKIE_NAME))
+    changed = await client.post(
+        "/admin/password_change",
+        data={
+            "csrf_token": token,
+            "current_password": "s3cure-password",
+            "new_password": "brand-new-secret",
+            "confirm_password": "brand-new-secret",
+        },
+    )
+    assert changed.status_code == 303
+    assert (await client.get("/admin/", headers={"accept": "text/html"})).status_code == 200
+    monkeypatch.setattr(settings._wrapped, "AUTHENTICATION_BACKENDS", [model])
+    assert (await client.get("/admin/", headers={"accept": "text/html"})).status_code == 303

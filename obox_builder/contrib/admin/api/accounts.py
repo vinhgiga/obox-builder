@@ -83,7 +83,7 @@ def account_access(request: Request, user: User, kind: str, action: str) -> User
     if token is None:
         return user
     # A bearer may delegate only permissions represented by its own scopes.
-    actor = User(is_superuser=False)
+    actor = User(is_active=user.is_active, is_superuser=False)
     effective = set()
     held = (
         {f"{p.app_label}.{p.codename}" for p in collect_permissions()}

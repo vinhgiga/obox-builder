@@ -2,32 +2,15 @@
 
 from __future__ import annotations
 
-import gzip
 import re
 from collections.abc import Sequence
 from difflib import SequenceMatcher
-from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Protocol, cast
 
 from obox_builder.conf import settings
 from obox_builder.core.exceptions import ImproperlyConfigured
 from obox_builder.utils.module_loading import import_string
-
-COMMON_PASSWORDS = frozenset(
-    {
-        "123456",
-        "12345678",
-        "123456789",
-        "admin",
-        "changeme",
-        "letmein",
-        "password",
-        "password1",
-        "qwerty",
-        "welcome",
-    }
-)
 
 
 class PasswordValidationError(ValueError):
@@ -98,27 +81,6 @@ class UserAttributeSimilarityValidator:
         return "Your password can't be too similar to your other personal information."
 
 
-class CommonPasswordValidator:
-    def __init__(self, password_list_path: str | Path | None = None) -> None:
-        self.passwords = COMMON_PASSWORDS
-        if password_list_path is not None:
-            path = Path(password_list_path)
-            try:
-                with gzip.open(path, "rt", encoding="utf-8") as source:
-                    self.passwords = frozenset(line.strip().lower() for line in source)
-            except gzip.BadGzipFile:
-                self.passwords = frozenset(
-                    line.strip().lower() for line in path.read_text(encoding="utf-8").splitlines()
-                )
-
-    def validate(self, password: str, user: object | None = None) -> None:
-        if password.lower().strip() in self.passwords:
-            raise PasswordValidationError(["This password is too common."])
-
-    def get_help_text(self) -> str:
-        return "Your password can't be a commonly used password."
-
-
 class NumericPasswordValidator:
     def validate(self, password: str, user: object | None = None) -> None:
         if password.isdigit():
@@ -173,14 +135,10 @@ def validate_password(
         errors.append(
             f"This password is too short. It must contain at least {min_length} characters."
         )
-    if password.lower() in COMMON_PASSWORDS:
-        errors.append("This password is too common.")
     if password.isdigit():
         errors.append("This password is entirely numeric.")
     if username and password.lower() == username.lower():
         errors.append("Password must not be the same as the username.")
     if username and username.lower() in password.lower() and len(username) >= 4:
         errors.append("Password must not contain the username.")
-    if len(set(password)) < settings.PASSWORD_MIN_UNIQUE_CHARACTERS:
-        errors.append("Password is too simple.")
     return errors

@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
+import secrets
 
 from fastapi import Depends, Form, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from obox_builder.conf import settings
 from obox_builder.contrib.admin.rendering import render
 from obox_builder.contrib.admin.views.common import page_context
 from obox_builder.contrib.auth import csrf, password_reset
@@ -15,6 +18,11 @@ from obox_builder.db.session import get_db
 from obox_builder.http.shortcuts import redirect
 
 logger = logging.getLogger(__name__)
+RESET_COOKIE = "obox_reset"
+
+
+def reset_csrf(token: str) -> str:
+    return hashlib.sha256(f"reset-csrf:{token}".encode()).hexdigest()
 
 
 async def password_reset_request_view(request: Request) -> Response:
@@ -57,29 +65,59 @@ async def password_reset_confirm_view(
     token: str = "",
     db: AsyncSession = Depends(get_db),
 ) -> Response:
-    valid = await password_reset.is_valid_reset_token(db, token)
-    return render(
-        request,
-        "admin/auth/password_reset_confirm.html",
-        await page_context(request, token=token, valid=valid),
-        status_code=200 if valid else 400,
-    )
+    response: Response
+    if token:
+        if await password_reset.is_valid_reset_token(db, token):
+            response = redirect("/admin/password_reset/confirm", status_code=303)
+            response.set_cookie(
+                RESET_COOKIE,
+                token,
+                max_age=settings.PASSWORD_RESET_TIMEOUT,
+                httponly=True,
+                secure=settings.SESSION_COOKIE_SECURE and not settings.DEBUG,
+                samesite="lax",
+                path="/admin/password_reset/confirm",
+            )
+        else:
+            response = render(
+                request,
+                "admin/auth/password_reset_confirm.html",
+                await page_context(request, valid=False),
+                status_code=400,
+            )
+    else:
+        token = request.cookies.get(RESET_COOKIE, "")
+        valid = await password_reset.is_valid_reset_token(db, token)
+        response = render(
+            request,
+            "admin/auth/password_reset_confirm.html",
+            await page_context(request, valid=valid, csrf_token=reset_csrf(token)),
+            status_code=200 if valid else 400,
+        )
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return response
 
 
 async def password_reset_confirm_submit(
     request: Request,
-    token: str = Form(""),
+    csrf_token: str = Form(""),
     new_password: str = Form(""),
     confirm_password: str = Form(""),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
-    if not csrf.check_origin(request):
+    token = request.cookies.get(RESET_COOKIE, "")
+    if (
+        not token
+        or not secrets.compare_digest(csrf_token.encode(), reset_csrf(token).encode())
+        or not csrf.check_origin(request)
+    ):
         return render(
             request,
             "admin/auth/password_reset_confirm.html",
             await page_context(
                 request,
-                token=token,
+                csrf_token=reset_csrf(token),
                 valid=True,
                 errors=["Cross-origin request rejected."],
             ),
@@ -90,7 +128,10 @@ async def password_reset_confirm_submit(
             request,
             "admin/auth/password_reset_confirm.html",
             await page_context(
-                request, token=token, valid=True, errors=["The two password fields do not match."]
+                request,
+                csrf_token=reset_csrf(token),
+                valid=True,
+                errors=["The two password fields do not match."],
             ),
         )
     try:
@@ -99,13 +140,19 @@ async def password_reset_confirm_submit(
         return render(
             request,
             "admin/auth/password_reset_confirm.html",
-            await page_context(request, token=token, valid=True, errors=exc.errors),
+            await page_context(
+                request, csrf_token=reset_csrf(token), valid=True, errors=exc.errors
+            ),
         )
     if not reset:
         return render(
             request,
             "admin/auth/password_reset_confirm.html",
-            await page_context(request, token=token, valid=False),
+            await page_context(request, valid=False),
             status_code=400,
         )
-    return redirect("/admin/login", status_code=303)
+    response = redirect("/admin/login", status_code=303)
+    response.delete_cookie(RESET_COOKIE, path="/admin/password_reset/confirm")
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return response

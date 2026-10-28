@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from obox_builder.conf import settings
 from obox_builder.contrib.admin.api.problems import Problem
-from obox_builder.contrib.auth import csrf, sessions
+from obox_builder.contrib.auth import csrf, services, sessions
 from obox_builder.contrib.auth.models import User
 from obox_builder.contrib.auth.permissions import get_user_permissions
 from obox_builder.contrib.auth.tokens import verify_token
@@ -73,7 +73,12 @@ async def current_user(
                 credential.last_used_ip = request.client.host[:45] if request.client else None
         return user
     row = await sessions.get_session(db, token) if token else None
-    user = await db.get(User, row.user_id) if row else None
+    backend = row.data.get("backend", settings.AUTHENTICATION_BACKENDS[0]) if row else None
+    user = (
+        await services.get_user_for_session(db, row.user_id, backend)
+        if row and isinstance(backend, str)
+        else None
+    )
     if row is None or user is None or not user.is_active:
         raise Problem(401, "not_authenticated", "Authentication required.")
     if token and await sessions.touch_session(db, row):

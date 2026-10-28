@@ -4,7 +4,6 @@ import httpx
 import pytest
 import sqlalchemy as sa
 from obox_builder.conf import settings
-from obox_builder.db.session import session_scope
 from tests.admin.api.conftest import sign_in, site_for
 from tests.admin.api.test_records import BASE, ITEMS, PRODUCTS, create_item
 from tests.admin.conftest import grant_permissions, make_user
@@ -39,24 +38,20 @@ async def test_login_session_rotation_me_logout_and_password(api: httpx.AsyncCli
     assert (await api.get(f"{BASE}/auth/me")).status_code == 401
 
 
-async def test_login_failure_persists_lockout_and_rejects_inactive(api: httpx.AsyncClient) -> None:
-    from obox_builder.contrib.auth.models import User
-
-    await make_user("locked")
-    for _ in range(settings.LOGIN_MAX_ATTEMPTS):
+async def test_login_failure_does_not_lock_account_and_rejects_inactive(
+    api: httpx.AsyncClient,
+) -> None:
+    await make_user("alice")
+    for _ in range(6):
         response = await api.post(
-            f"{BASE}/auth/login", json={"username": "locked", "password": "wrong"}
+            f"{BASE}/auth/login", json={"username": "alice", "password": "wrong"}
         )
         assert response.status_code == 401
-    async with session_scope() as db:
-        user = await db.scalar(sa.select(User).where(User.username == "locked"))
-        assert user is not None
-        assert user.locked_until is not None
     assert (
         await api.post(
-            f"{BASE}/auth/login", json={"username": "locked", "password": "s3cure-password"}
+            f"{BASE}/auth/login", json={"username": "alice", "password": "s3cure-password"}
         )
-    ).status_code == 401
+    ).status_code == 200
     await make_user("inactive", is_active=False)
     assert (
         await api.post(
@@ -248,13 +243,7 @@ async def test_rate_limits_and_body_limits(
     api: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     assert settings._wrapped is not None
-    monkeypatch.setattr(settings._wrapped, "ADMIN_API_LOGIN_RATE_LIMIT", 1)
     await sign_in(api)
-    limited = await api.post(
-        f"{BASE}/auth/login", json={"username": "api-user", "password": "s3cure-password"}
-    )
-    assert limited.status_code == 429
-    assert int(limited.headers["retry-after"]) >= 1
     monkeypatch.setattr(settings._wrapped, "ADMIN_API_MAX_BODY_BYTES", 10)
     csrf = (await api.get(f"{BASE}/auth/me")).json()["csrf_token"]
     oversized = await api.post(
@@ -281,3 +270,27 @@ async def test_invalid_bodies(
         ITEMS, content=body, headers={**headers, "Content-Type": content_type}
     )
     assert response.status_code == status
+
+
+async def test_custom_backend_persists_across_api_and_password_change(
+    api: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert settings._wrapped is not None
+    model = "obox_builder.contrib.auth.backends.ModelBackend"
+    custom = "tests.support.auth_backend.PasswordBackend"
+    monkeypatch.setattr(settings._wrapped, "AUTHENTICATION_BACKENDS", [model, custom])
+    await make_user("alice")
+    login = await api.post(
+        f"{BASE}/auth/login", json={"username": "alice", "password": "backend-secret"}
+    )
+    assert login.status_code == 200
+    assert (await api.get(f"{BASE}/auth/me")).status_code == 200
+    changed = await api.post(
+        f"{BASE}/auth/password",
+        headers={"X-CSRF-Token": login.json()["csrf_token"]},
+        json={"current_password": "s3cure-password", "new_password": "another-secure-password"},
+    )
+    assert changed.status_code == 200
+    assert (await api.get(f"{BASE}/auth/me")).status_code == 200
+    monkeypatch.setattr(settings._wrapped, "AUTHENTICATION_BACKENDS", [model])
+    assert (await api.get(f"{BASE}/auth/me")).status_code == 401

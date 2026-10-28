@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from urllib.parse import parse_qs, urlsplit
 
 import httpx
@@ -38,5 +39,21 @@ async def test_reset_request_response_does_not_reveal_account_existence(
     assert len(email_backend.MESSAGES) == 1
 
     page = await client.get("/admin/password_reset/confirm", params={"token": token})
+    assert page.status_code == 303
+    assert token not in page.headers["location"]
+    page = await client.get(page.headers["location"])
     assert page.status_code == 200
+    assert token not in page.text
     assert "Choose a new password" in page.text
+    match = re.search(r'name="csrf_token" value="([^"]+)"', page.text)
+    assert match is not None
+    data = {
+        "csrf_token": match.group(1),
+        "new_password": "brand-new-secret",
+        "confirm_password": "brand-new-secret",
+    }
+    assert (
+        await client.post("/admin/password_reset/confirm", data={**data, "csrf_token": "invalid"})
+    ).status_code == 403
+    response = await client.post("/admin/password_reset/confirm", data=data)
+    assert response.status_code == 303

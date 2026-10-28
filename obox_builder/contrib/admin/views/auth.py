@@ -123,6 +123,7 @@ async def password_change_submit(
     token, new_session = await sessions.create_session(  # change_password revoked every session
         db,
         user.id,
+        backend=request.state.auth_session.data.get("backend"),
         ip=request.client.host if request.client else None,
         user_agent=request.headers.get("user-agent"),
     )

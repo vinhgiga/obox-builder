@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from obox_builder.conf import settings
 from obox_builder.contrib.auth import services
+from obox_builder.contrib.auth.hashers import is_usable_password
 from obox_builder.contrib.auth.models import PasswordResetToken, User
 from obox_builder.contrib.auth.validators import PasswordValidationError, validate_password
 from obox_builder.contrib.email import send_mail
@@ -32,10 +33,13 @@ async def request_password_reset(db: AsyncSession, email: str) -> None:
     normalized = services.normalize_email(email)
     if not normalized:
         return
-    user = await db.scalar(select(User).where(func.lower(User.email) == normalized))
-    if user is None or not user.is_active or not user.email:
-        return
+    users = await db.scalars(select(User).where(func.lower(User.email) == normalized))
+    for user in users:
+        if user.is_active and is_usable_password(user.password_hash):
+            await _send_reset(db, user)
 
+
+async def _send_reset(db: AsyncSession, user: User) -> None:
     now = utcnow()
     recent = await db.scalar(
         select(PasswordResetToken)

@@ -1,13 +1,12 @@
-"""User creation, password management and login (with throttling)."""
+"""User creation, password management and login."""
 
 from __future__ import annotations
 
 import logging
 from asyncio import to_thread
-from datetime import timedelta
 
 from fastapi import Request
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from obox_builder.conf import settings
@@ -20,9 +19,9 @@ from obox_builder.contrib.auth.hashers import (
     verify_dummy,
     verify_password,
 )
-from obox_builder.contrib.auth.models import User
+from obox_builder.contrib.auth.models import PasswordResetToken, User
 from obox_builder.contrib.auth.validators import PasswordValidationError, validate_password
-from obox_builder.core.utils.time import ensure_aware, utcnow
+from obox_builder.core.utils.time import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -79,14 +78,13 @@ async def set_password(
             raise PasswordValidationError(errors)
     user.password_hash = await to_thread(hash_password, raw_password)
     user.password_changed_at = utcnow()
-    user.failed_login_count = 0
-    user.locked_until = None
+    await db.execute(delete(PasswordResetToken).where(PasswordResetToken.user_id == user.id))
     await db.flush()
     return await sessions.revoke_user_sessions(db, user.id)
 
 
 async def _authenticate_model(db: AsyncSession, username: str, password: str) -> User | None:
-    """Return the user on success; throttle and constant-time behaviour on failure."""
+    """Return the user on success and perform a dummy hash for unknown users."""
     user = await db.scalar(
         select(User)
         .where(User.username == normalize_username(username))
@@ -98,30 +96,14 @@ async def _authenticate_model(db: AsyncSession, username: str, password: str) ->
         await to_thread(verify_dummy, password)
         logger.info("Failed login for unknown username %r", username)
         return None
-    if user.locked_until is not None and ensure_aware(user.locked_until) > now:
-        await to_thread(verify_dummy, password)
-        logger.info("Login attempt for locked user %r", user.username)
-        return None
     valid, updated_hash = await to_thread(verify_and_update, password, user.password_hash)
     if not valid:
-        _record_password_failure(user)
-        await db.flush()
         return None
     if updated_hash is not None:
         user.password_hash = updated_hash
-    user.failed_login_count = 0
-    user.locked_until = None
     user.last_login_at = now
     await db.flush()
     return user
-
-
-def _record_password_failure(user: User) -> None:
-    user.failed_login_count += 1
-    if user.failed_login_count >= settings.LOGIN_MAX_ATTEMPTS:
-        user.locked_until = utcnow() + timedelta(seconds=settings.LOGIN_LOCKOUT_SECONDS)
-        user.failed_login_count = 0
-        logger.info("User %r locked until %s", user.username, user.locked_until)
 
 
 async def authenticate_with_backend(
@@ -155,12 +137,8 @@ async def change_password(
 ) -> int:
     """Change a password after checking the current one; revokes other sessions."""
     await db.refresh(user, with_for_update=True)
-    if user.locked_until is not None and ensure_aware(user.locked_until) > utcnow():
-        raise PasswordValidationError(["Too many incorrect attempts. Try again later."])
     if not is_usable_password(user.password_hash) or not await to_thread(
         verify_password, current_password, user.password_hash
     ):
-        _record_password_failure(user)
-        await db.flush()
         raise PasswordValidationError(["Current password is incorrect."])
     return await set_password(db, user, new_password)

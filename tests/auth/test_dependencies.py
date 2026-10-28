@@ -10,6 +10,7 @@ from fastapi import Depends, FastAPI, Request
 from obox_builder.conf import settings
 from obox_builder.contrib.auth import sessions
 from obox_builder.contrib.auth.dependencies import (
+    any_permission_required,
     get_current_user,
     login_required,
     permission_required,
@@ -34,6 +35,20 @@ def build_app() -> FastAPI:
         dependencies=[Depends(permission_required("shop.view_product"))],
     )
     async def products() -> dict[str, bool]:
+        return {"ok": True}
+
+    @application.get(
+        "/api/all",
+        dependencies=[Depends(permission_required("shop.view_product", "shop.delete_product"))],
+    )
+    async def all_permissions() -> dict[str, bool]:
+        return {"ok": True}
+
+    @application.get(
+        "/api/any",
+        dependencies=[Depends(any_permission_required("shop.view_product", "shop.delete_product"))],
+    )
+    async def any_permissions() -> dict[str, bool]:
         return {"ok": True}
 
     @application.get("/api/state")
@@ -184,3 +199,17 @@ async def test_context_processor_exposes_perms(client: httpx.AsyncClient, auth_e
     response = await client.get("/api/state")
     assert response.status_code == 200
     assert response.json() == {"username": "erin", "can_view": True, "can_delete": False}
+
+
+async def test_all_and_any_permissions_are_distinct(client: httpx.AsyncClient) -> None:
+    await ensure_permissions()
+    await login(client, "alice")
+    await grant(client, "alice", "shop.view_product")
+    assert (await client.get("/api/any")).status_code == 200
+    assert (await client.get("/api/all")).status_code == 403
+
+
+def test_inactive_user_has_no_permissions() -> None:
+    user = User(username="alice", is_active=False, is_superuser=True)
+    user.permissions = frozenset({"shop.view_product"})
+    assert not user.has_perm("shop.view_product")

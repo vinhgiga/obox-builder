@@ -73,13 +73,11 @@ def register_auth(router: APIRouter) -> None:
     async def login(request: Request, db: DB) -> Any:
         check_origin(request)
         peer = request.client.host if request.client else "unknown"
-        request.state.api_rate_headers = await request.state.api_limiter.check(
-            f"login:{peer}", settings.ADMIN_API_LOGIN_RATE_LIMIT
-        )
         payload = parse_body(Login, await json_body(request))
-        user = await services.authenticate(db, payload.username, payload.password)
+        user, backend = await services.authenticate_with_backend(
+            db, payload.username, payload.password, request=request
+        )
         if user is None or not user.is_active:
-            # A normal response lets the request transaction persist login lockout state.
             return problem_response(
                 request, Problem(401, "not_authenticated", "Invalid username or password.")
             )
@@ -87,7 +85,7 @@ def register_auth(router: APIRouter) -> None:
         if old:
             await sessions.delete_session_by_token(db, old)
         token, auth_session = await sessions.create_session(
-            db, user.id, ip=peer, user_agent=request.headers.get("user-agent")
+            db, user.id, backend=backend, ip=peer, user_agent=request.headers.get("user-agent")
         )
         user.permissions = await get_user_permissions(db, user.id)
         request.state.user = user
@@ -148,6 +146,7 @@ def register_auth(router: APIRouter) -> None:
         token, auth_session = await sessions.create_session(
             db,
             user.id,
+            backend=request.state.auth_session.data.get("backend"),
             ip=request.client.host if request.client else None,
             user_agent=request.headers.get("user-agent"),
         )

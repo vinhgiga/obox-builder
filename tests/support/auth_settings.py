@@ -17,8 +17,6 @@ class Settings(BaseSettings):
     LOGIN_REDIRECT_URL: str = "/admin/"
     SESSION_COOKIE_NAME: str = "obox_sid"
     SESSION_COOKIE_SECURE: bool = False
-    LOGIN_MAX_ATTEMPTS: int = 3
-    LOGIN_LOCKOUT_SECONDS: int = 900
     PASSWORD_MIN_LENGTH: int = 8
     ROOT_URLCONF: str = ""
     TEMPLATE_DIRS: list[Path] = []

@@ -14,7 +14,7 @@ from sqlalchemy.orm import aliased, defer
 from obox_builder.conf import settings
 from obox_builder.contrib.admin.rendering import render
 from obox_builder.contrib.admin.views.common import ensure_csrf, flash, page_context
-from obox_builder.contrib.auth.dependencies import permission_required
+from obox_builder.contrib.auth.dependencies import any_permission_required, permission_required
 from obox_builder.contrib.auth.models import User
 from obox_builder.contrib.jobs import services
 from obox_builder.contrib.jobs.models import Task, TaskAttempt, Worker
@@ -61,7 +61,7 @@ async def _render(request: Request, template: str, **values: Any) -> Response:
 
 
 async def job_index(
-    user: Annotated[User, Depends(permission_required("jobs.view_task", "jobs.view_worker"))],
+    user: Annotated[User, Depends(any_permission_required("jobs.view_task", "jobs.view_worker"))],
 ) -> Response:
     target = "tasks" if user.has_perm("jobs.view_task") else "workers"
     return redirect(f"/admin/jobs/{target}", status_code=303)

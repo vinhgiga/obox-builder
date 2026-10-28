@@ -66,14 +66,25 @@ async def login_required(user: User = Depends(get_current_user)) -> User:
 
 
 def permission_required(*permissions: str) -> Callable[..., Coroutine[Any, Any, User]]:
-    """Dependency factory: the user must hold at least one of ``permissions``."""
+    """Require every listed permission."""
+
+    async def dependency(user: User = Depends(get_current_user)) -> User:
+        if not all(user.has_perm(permission) for permission in permissions):
+            raise PermissionDenied(
+                "You do not have permission to perform this action "
+                f"(requires all of: {', '.join(permissions)})."
+            )
+        return user
+
+    return dependency
+
+
+def any_permission_required(*permissions: str) -> Callable[..., Coroutine[Any, Any, User]]:
+    """Require at least one of the listed permissions."""
 
     async def dependency(user: User = Depends(get_current_user)) -> User:
         if not any(user.has_perm(permission) for permission in permissions):
-            raise PermissionDenied(
-                "You do not have permission to perform this action "
-                f"(requires one of: {', '.join(permissions)})."
-            )
+            raise PermissionDenied("You do not have permission to perform this action.")
         return user
 
     return dependency

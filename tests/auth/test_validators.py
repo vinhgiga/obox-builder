@@ -13,14 +13,14 @@ def test_short_password_is_rejected() -> None:
     assert any("at least 8 characters" in error for error in errors)
 
 
-def test_common_password_is_rejected() -> None:
-    assert validate_password("password", min_length=8) != []
+def test_common_password_is_accepted_when_other_rules_pass() -> None:
+    assert validate_password("password", min_length=8) == []
+    assert validate_password("iloveyou", min_length=8) == []
 
 
 def test_numeric_password_reports_all_validation_errors() -> None:
     assert validate_password("123456", min_length=8) == [
         "This password is too short. It must contain at least 8 characters.",
-        "This password is too common.",
         "This password is entirely numeric.",
     ]
 
@@ -33,11 +33,6 @@ def test_password_equal_to_username_is_rejected() -> None:
 def test_password_containing_username_is_rejected() -> None:
     errors = validate_password("alice-secret-99", username="alice", min_length=8)
     assert any("contain the username" in error for error in errors)
-
-
-def test_simple_repeated_password_is_rejected() -> None:
-    errors = validate_password("aaaaaaaa", min_length=8)
-    assert any("too simple" in error for error in errors)
 
 
 def test_empty_password_is_rejected() -> None:

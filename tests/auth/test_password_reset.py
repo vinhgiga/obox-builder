@@ -95,3 +95,47 @@ async def test_expired_reset_token_cannot_change_password(db: AsyncSession) -> N
 
     assert not await password_reset.is_valid_reset_token(db, token)
     assert not await password_reset.reset_password(db, token, "brand-new-secret")
+
+
+async def test_password_change_revokes_previously_issued_reset_token(db: AsyncSession) -> None:
+    from datetime import timedelta
+
+    from obox_builder.core.utils.time import utcnow
+
+    user = await services.create_user(db, "alice", "s3cure-password")
+    token = "existing-reset-token"
+    db.add(
+        PasswordResetToken(
+            user_id=user.id,
+            token_hash=password_reset.hash_reset_token(token),
+            expires_at=utcnow() + timedelta(hours=1),
+        )
+    )
+    await db.flush()
+    await services.change_password(db, user, "s3cure-password", "brand-new-secret")
+    assert not await password_reset.is_valid_reset_token(db, token)
+    assert not await password_reset.reset_password(db, token, "another-secret-123")
+
+
+async def test_reset_shared_email_only_sends_to_active_usable_accounts(db: AsyncSession) -> None:
+    from tests.support import email_backend
+
+    email_backend.MESSAGES.clear()
+    config = settings.load()
+    settings.configure(
+        config.model_copy(update={"EMAIL_BACKEND": "tests.support.email_backend.MemoryBackend"})
+    )
+    await services.create_user(db, "alice", "s3cure-password", email="shared@example.org")
+    await services.create_user(db, "bob", "s3cure-password", email="shared@example.org")
+    await services.create_user(
+        db, "inactive", "s3cure-password", email="shared@example.org", is_active=False
+    )
+    await services.create_user(db, "no-password", email="shared@example.org")
+    await password_reset.request_password_reset(db, "shared@example.org")
+    assert len(email_backend.MESSAGES) == 2
+    tokens = [
+        parse_qs(urlsplit(message.body.splitlines()[2]).query)["token"][0]
+        for message in email_backend.MESSAGES
+    ]
+    assert tokens[0] != tokens[1]
+    assert all([await password_reset.is_valid_reset_token(db, token) for token in tokens])

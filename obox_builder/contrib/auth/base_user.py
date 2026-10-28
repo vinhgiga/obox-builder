@@ -40,6 +40,7 @@ class AbstractUser(Model, TimestampMixin, VersionedMixin):
     password_changed_at: Mapped[datetime | None] = mapped_column(
         TZDateTime, info={"admin": {"history": False}}
     )
+    # Retain legacy columns so existing databases can still insert users.
     failed_login_count: Mapped[int] = mapped_column(default=0, info={"admin": {"history": False}})
     locked_until: Mapped[datetime | None] = mapped_column(
         TZDateTime, info={"admin": {"history": False}}
@@ -56,11 +57,7 @@ class AbstractUser(Model, TimestampMixin, VersionedMixin):
 
     def has_perm(self, perm: str) -> bool:
         """Check an ``app_label.codename`` permission against the loaded set."""
-        return self.is_superuser or perm in self.permissions
-
-    @property
-    def is_locked(self) -> bool:
-        return self.locked_until is not None
+        return self.is_active and (self.is_superuser or perm in self.permissions)
 
     def __str__(self) -> str:
         return self.username
