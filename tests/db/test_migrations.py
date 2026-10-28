@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from runpy import run_path
 from string import Template
 
 import pytest
@@ -124,7 +125,7 @@ def test_migration_history_marks_applied_revisions(project: Path) -> None:
 
     path = make_migration("init")
     assert path is not None
-    revision = path.stem.split("_")[0]
+    revision = run_path(str(path))["revision"]
     assert migration_history() == [(revision, False)]
     upgrade()
     assert migration_history() == [(revision, True)]
@@ -174,8 +175,9 @@ def test_shared_migration_graph_filters_operations_per_database_alias(
     assert path.parent == project / "migrations" / "versions"
     assert "upgrade_db_" in source
     assert "obox_product" in source
-    assert migration_history("default") == [(path.stem.split("_")[0], False)]
-    assert migration_history("analytics") == [(path.stem.split("_")[0], False)]
+    revision = run_path(str(path))["revision"]
+    assert migration_history("default") == [(revision, False)]
+    assert migration_history("analytics") == [(revision, False)]
 
     result = runner.invoke(create_typer_app(), ["migrate", "--database", "analytics"])
     assert result.exit_code == 0, result.output
