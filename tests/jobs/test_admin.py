@@ -86,7 +86,7 @@ async def test_monitor_requires_authentication(client: httpx.AsyncClient, url: s
 
 
 async def test_permissions_and_navigation_are_separate(client: httpx.AsyncClient) -> None:
-    await sign_in(client, "jobs.view_worker")
+    await sign_in(client, "jobs.worker.read")
     assert (await client.get("/admin/jobs/tasks")).status_code == 403
     workers = await client.get("/admin/jobs/workers")
     assert workers.status_code == 200
@@ -96,7 +96,7 @@ async def test_permissions_and_navigation_are_separate(client: httpx.AsyncClient
 
 
 async def test_task_filters_search_sort_and_pagination(client: httpx.AsyncClient) -> None:
-    await sign_in(client, "jobs.view_task")
+    await sign_in(client, "jobs.task.read")
     target = await make_task("FAILURE", name="jobs.special", queue="cpu", worker="worker-a")
     other = await make_task(name="jobs.other", queue="emails")
     response = await client.get(
@@ -129,7 +129,7 @@ async def test_task_filters_search_sort_and_pagination(client: httpx.AsyncClient
 async def test_detail_payload_permissions_attempts_and_html_escaping(
     client: httpx.AsyncClient, can_payload: bool
 ) -> None:
-    permissions = ["jobs.view_task", *(["jobs.view_task_payload"] if can_payload else [])]
+    permissions = ["jobs.task.read", *(["jobs.task.readPayload"] if can_payload else [])]
     await sign_in(client, *permissions)
     task_id = await make_task(
         "FAILURE", name="<script>alert(1)</script>", traceback="<b>failure</b>"
@@ -162,11 +162,11 @@ async def test_detail_payload_permissions_attempts_and_html_escaping(
 async def test_actions_require_permission_and_csrf_and_reject_get(
     client: httpx.AsyncClient, action: str, status: str, expected: str
 ) -> None:
-    csrf = await sign_in(client, "jobs.view_task")
+    csrf = await sign_in(client, "jobs.task.read")
     task_id = await make_task(status)
     url = f"/admin/jobs/tasks/{task_id}/{action}"
     assert (await client.post(url, data={"csrf_token": csrf})).status_code == 403
-    await grant_permissions("operator", f"jobs.{action}_task")
+    await grant_permissions("operator", f"jobs.task.{action}")
     assert (await client.get(url)).status_code == 405
     assert (await client.post(url)).status_code == 403
     assert (await client.post(url, data={"csrf_token": "wrong"})).status_code == 403
@@ -177,7 +177,7 @@ async def test_actions_require_permission_and_csrf_and_reject_get(
 
 
 async def test_missing_and_terminal_task_actions(client: httpx.AsyncClient) -> None:
-    csrf = await sign_in(client, "jobs.view_task", "jobs.retry_task")
+    csrf = await sign_in(client, "jobs.task.read", "jobs.task.retry")
     task_id = await make_task("SUCCESS")
     assert (await client.get("/admin/jobs/tasks/missing")).status_code == 404
     assert (
@@ -189,7 +189,7 @@ async def test_missing_and_terminal_task_actions(client: httpx.AsyncClient) -> N
 
 
 async def test_workers_include_idle_stale_and_stopped_processes(client: httpx.AsyncClient) -> None:
-    await sign_in(client, "jobs.view_worker", "jobs.view_task")
+    await sign_in(client, "jobs.worker.read", "jobs.task.read")
     now = utcnow()
     async with session_scope() as db:
         for name, heartbeat, stopped in [
@@ -222,7 +222,7 @@ async def test_workers_include_idle_stale_and_stopped_processes(client: httpx.As
 
 
 async def test_attempt_history_uses_nonoverlapping_pages(client: httpx.AsyncClient) -> None:
-    await sign_in(client, "jobs.view_task")
+    await sign_in(client, "jobs.task.read")
     task_id = await make_task("FAILURE", retries=50, max_retries=50)
     async with session_scope() as db:
         db.add_all(
@@ -244,7 +244,7 @@ async def test_attempt_history_uses_nonoverlapping_pages(client: httpx.AsyncClie
 async def test_disabled_jobs_preserve_history_but_reject_actions(
     client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    csrf = await sign_in(client, "jobs.view_task", "jobs.retry_task")
+    csrf = await sign_in(client, "jobs.task.read", "jobs.task.retry")
     task_id = await make_task("FAILURE")
     monkeypatch.setattr(settings.load(), "JOBS_ENABLED", False)
     response = await client.get(f"/admin/jobs/tasks/{task_id}")

@@ -240,7 +240,7 @@ async def test_summary_permissions_and_private_views(client: httpx.AsyncClient) 
     await login_session(client, "reader")
     params = {"field": "name", "operation": "filled"}
     assert (await client.get(URL, params=params)).status_code == 403
-    await grant_permissions("reader", "shop.view_product")
+    await grant_permissions("reader", "shop.product.read")
     assert (await client.get(URL, params={**params, "view": "999"})).status_code == 404
     assert (await client.get(URL, params={**params, "f": "missing:eq:1"})).status_code == 400
 

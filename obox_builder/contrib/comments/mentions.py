@@ -56,7 +56,7 @@ async def resolve_mentions(
     """Load and authorise every mentioned user, or raise a field error.
 
     All users must exist, be active, and hold both the target model's ``view``
-    permission and ``comments.view_row_comment``. Nothing is silently dropped:
+    permission and ``comments.rowComment.read``. Nothing is silently dropped:
     a comment that names an unauthorised user fails with a 422-style error.
     """
     ids = {int(user_id) for user_id in user_ids}
@@ -132,10 +132,18 @@ async def mentionable_users(
 
 
 def _permission_ids(*permissions: str) -> sa.Select[tuple[int]]:
+    from obox_builder.contrib.auth.authz import PermissionName
+
     clauses = []
     for permission in permissions:
-        app_label, _, codename = permission.partition(".")
-        clauses.append(sa.and_(Permission.app_label == app_label, Permission.codename == codename))
+        name = PermissionName.parse(permission)
+        clauses.append(
+            sa.and_(
+                Permission.service == name.service,
+                Permission.resource == name.resource,
+                Permission.action == name.action,
+            )
+        )
     return sa.select(Permission.id).where(sa.or_(*clauses))
 
 

@@ -21,7 +21,7 @@ def test_default_navigation_filters_by_permissions() -> None:
     labels = [item.label for group in build_navigation(anonymous) for item in group.items]
     assert labels == ["Dashboard"]
 
-    viewer = _StubUser(frozenset({"auth.view_user"}))
+    viewer = _StubUser(frozenset({"auth.users.read"}))
     labels = [item.label for group in build_navigation(viewer) for item in group.items]
     assert labels == ["Dashboard", "Users"]
 
@@ -32,8 +32,8 @@ def test_empty_groups_are_dropped() -> None:
         NavGroup(
             label="Access",
             items=[
-                NavItem("Users", "/admin/users", required_perm="auth.view_user"),
-                NavItem("Roles", "/admin/roles", required_perm="auth.view_role"),
+                NavItem("Users", "/admin/users", required_perm="auth.users.read"),
+                NavItem("Roles", "/admin/roles", required_perm="auth.roles.read"),
             ],
         ),
     ]
@@ -46,10 +46,10 @@ def test_custom_navigation_extends_defaults() -> None:
     groups = [
         NavGroup(
             label="Blog",
-            items=[NavItem("Posts", "/admin/posts", required_perm="blog.view_post")],
+            items=[NavItem("Posts", "/admin/posts", required_perm="blog.post.read")],
         )
     ]
-    admin = _StubUser(frozenset({"blog.view_post"}))
+    admin = _StubUser(frozenset({"blog.post.read"}))
     built = build_navigation(admin, groups)
     assert [group.label for group in built] == ["Blog"]
     assert built[0].items[0].label == "Posts"

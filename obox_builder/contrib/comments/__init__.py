@@ -10,16 +10,16 @@ code and ``registry.is_commentable`` from checks and admin hooks.
 from obox_builder.contrib.comments.options import CommentOptions
 
 #: Permission required to read a row's comment threads.
-COMMENTS_VIEW_PERMISSION = "comments.view_row_comment"
+COMMENTS_VIEW_PERMISSION = "comments.rowComment.read"
 
 #: Permission required to post, reply, edit and delete one's own comments.
-COMMENTS_ADD_PERMISSION = "comments.add_row_comment"
+COMMENTS_ADD_PERMISSION = "comments.rowComment.create"
 
 #: Permission required to moderate any comment (delete, resolve, tombstones).
-COMMENTS_MODERATE_PERMISSION = "comments.moderate_row_comment"
+COMMENTS_MODERATE_PERMISSION = "comments.rowComment.moderate"
 
 #: Permission required to export comments (Phase 3).
-COMMENTS_EXPORT_PERMISSION = "comments.export_row_comment"
+COMMENTS_EXPORT_PERMISSION = "comments.rowComment.export"
 
 APP_NAME = "obox_builder.contrib.comments"
 

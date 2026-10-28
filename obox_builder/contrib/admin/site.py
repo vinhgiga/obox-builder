@@ -141,13 +141,13 @@ class AdminSite:
                             "Tasks",
                             "/admin/jobs/tasks",
                             icon="ti-list-check",
-                            required_perm="jobs.view_task",
+                            required_perm="jobs.task.read",
                         ),
                         NavItem(
                             "Workers",
                             "/admin/jobs/workers",
                             icon="ti-server",
-                            required_perm="jobs.view_worker",
+                            required_perm="jobs.worker.read",
                         ),
                     ],
                 )

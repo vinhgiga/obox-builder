@@ -7,7 +7,7 @@
 </div>
 <div class="card">
   <div class="card-header flex-wrap gap-2 py-2">
-    {% if user_admin_permissions["add_" ~ user_model_name] %}
+    {% if user_admin_permissions.manage %}
     <a href="/admin/users/new" class="btn btn-primary">New user</a>
     {% endif %}
     <form method="get" action="/admin/users" class="d-flex ms-auto">
@@ -34,7 +34,7 @@
         <tr{% if show_history %} data-history-url="/admin/users/{{ item.id }}/history"{% endif %}>
           <td class="text-end text-secondary">{{ start_index + loop.index0 }}</td>
           <td>
-            {% if user_admin_permissions["change_" ~ user_model_name] %}
+            {% if user_admin_permissions.manage %}
             <a href="/admin/users/{{ item.id }}" class="btn btn-sm">Edit</a>
             {% endif %}
           </td>

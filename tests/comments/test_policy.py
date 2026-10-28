@@ -11,8 +11,8 @@ from obox_builder.contrib.comments import (
 from obox_builder.contrib.comments.models import RowComment
 from obox_builder.contrib.comments.policy import CommentPolicy
 
-VIEW = "commentsdemo.view_ticket"
-CHANGE = "commentsdemo.change_ticket"
+VIEW = "commentsdemo.ticket.read"
+CHANGE = "commentsdemo.ticket.update"
 
 
 @dataclass

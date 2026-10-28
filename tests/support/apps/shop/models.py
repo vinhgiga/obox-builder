@@ -55,7 +55,7 @@ class Product(Model, TimestampMixin):
 
     category: Mapped[Category | None] = relationship(back_populates="products")
 
-    __permissions__ = [("publish", "Can publish product")]
+    __permissions__ = ["publish"]
 
     def __str__(self) -> str:
         return self.name

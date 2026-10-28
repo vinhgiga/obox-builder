@@ -10,6 +10,7 @@ import sqlalchemy as sa
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import Mapped, declared_attr, mapped_column
 
+from obox_builder.contrib.auth.authz import Actor
 from obox_builder.db import Model, TimestampMixin, VersionedMixin, relationship
 from obox_builder.db.types import JSONB, BigIntIdentity, JsonDict, TZDateTime
 
@@ -22,6 +23,8 @@ class AbstractBaseUser(Model, TimestampMixin, VersionedMixin):
 
     __abstract__ = True
     __auth_model__ = True
+    __permission_resource__ = "users"
+    __permission_actions__ = ("read", "manage")
     __history__: ClassVar[bool | Mapping[str, Any] | None] = {"relations": ["roles"]}
     permissions: frozenset[str] = frozenset()
     USERNAME_FIELD: ClassVar[str] = "username"
@@ -48,8 +51,16 @@ class AbstractBaseUser(Model, TimestampMixin, VersionedMixin):
         )
 
     def has_perm(self, perm: str) -> bool:
-        """Check an ``app_label.codename`` permission against the loaded set."""
         return self.is_active and (self.is_superuser or perm in self.permissions)
+
+    def actor(self) -> Actor:
+        """Snapshot loaded grants without reading ORM relationships."""
+        return Actor(
+            id=self.id,
+            permissions=self.permissions,
+            is_active=self.is_active,
+            is_superuser=self.is_superuser,
+        )
 
     def get_username(self) -> str:
         value = getattr(self, self.USERNAME_FIELD)

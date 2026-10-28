@@ -148,7 +148,7 @@ async def test_file_upload_and_download_require_record_view_permission(
             assert denied.status_code == 403
 
             await make_user("change_only")
-            await grant_permissions("change_only", "shop.change_product")
+            await grant_permissions("change_only", "shop.product.update")
             await login_session(http, "change_only")
             assert (await http.get(f"/admin/shop/product/{pk}/files/name")).content == image
     finally:

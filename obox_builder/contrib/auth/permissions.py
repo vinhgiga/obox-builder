@@ -1,4 +1,4 @@
-"""Permission naming, collection from the app registry, and sync."""
+"""Collect declared permissions, synchronize grants and resolve actors."""
 
 from __future__ import annotations
 
@@ -11,81 +11,52 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from obox_builder.apps import apps
-from obox_builder.contrib.auth.models import Permission, role_permissions, user_roles
-from obox_builder.db.base import camel_to_snake
+from obox_builder.contrib.auth.authz import (
+    Actor,
+    AuthorizationCatalog,
+    PermissionName,
+    authorization_catalog,
+    model_permission,
+)
+from obox_builder.contrib.auth.base_user import AbstractBaseUser
+from obox_builder.contrib.auth.models import Permission, Role, role_permissions, user_roles
+from obox_builder.core.exceptions import ImproperlyConfigured
+from obox_builder.utils.strings import camel_to_snake
 
 logger = logging.getLogger(__name__)
-
-DEFAULT_ACTIONS = ("view", "add", "change", "delete")
 
 
 def model_identifier(model: type[Any]) -> str:
     return camel_to_snake(model.__name__)
 
 
-def permission_codename(action: str, model_name: str) -> str:
-    return f"{action}_{model_name}"
-
-
-def permission_label(action: str, model_name: str) -> str:
-    return f"Can {action} {model_name.replace('_', ' ')}"
-
-
-@dataclass
-class PermissionEntry:
-    app_label: str
-    codename: str
-    name: str
-    model: str | None
-
-    @property
-    def full_name(self) -> str:
-        return f"{self.app_label}.{self.codename}"
-
-
-def collect_permissions() -> list[PermissionEntry]:
-    """Permissions wanted by the registry: model defaults, model extras, app extras."""
-    entries: list[PermissionEntry] = []
-    seen: set[tuple[str, str]] = set()
-
-    def add(entry: PermissionEntry) -> None:
-        key = (entry.app_label, entry.codename)
-        if key not in seen:
-            seen.add(key)
-            entries.append(entry)
-
+def collect_catalog() -> AuthorizationCatalog:
+    """Combine model defaults, app declarations and route/service declarations."""
+    catalog = AuthorizationCatalog()
+    services: dict[str, str] = {}
+    for config in apps.get_app_configs():
+        service = config.label.replace("_", "")
+        if service in services:
+            raise ImproperlyConfigured(
+                f"App labels {services[service]!r} and {config.label!r} share service {service!r}."
+            )
+        services[service] = config.label
+        for name in config.permissions:
+            permission = PermissionName.parse(name)
+            catalog.register_permission(permission.service, permission.resource, permission.action)
     for model in apps.get_models():
-        app_label = model._model_label
-        model_name = model_identifier(model)
-        for action in DEFAULT_ACTIONS:
-            add(
-                PermissionEntry(
-                    app_label=app_label,
-                    codename=permission_codename(action, model_name),
-                    name=permission_label(action, model_name),
-                    model=model_name,
-                )
-            )
-        for action, name in getattr(model, "__permissions__", []):
-            add(
-                PermissionEntry(
-                    app_label=app_label,
-                    codename=permission_codename(action, model_name),
-                    name=name,
-                    model=model_name,
-                )
-            )
-    for app_config in apps.get_app_configs():
-        for codename, name in app_config.permissions:
-            add(
-                PermissionEntry(
-                    app_label=app_config.label,
-                    codename=codename,
-                    name=name,
-                    model=None,
-                )
-            )
-    return entries
+        for action in (*model.__permission_actions__, *model.__permissions__):
+            permission = PermissionName.parse(model_permission(model, action))
+            catalog.register_permission(permission.service, permission.resource, permission.action)
+    declared = authorization_catalog
+    catalog.permissions.update(declared.permissions)
+    catalog.roles.update(declared.roles)
+    catalog.validate()
+    return catalog
+
+
+def collect_permissions() -> list[PermissionName]:
+    return list(collect_catalog().permissions.values())
 
 
 @dataclass
@@ -98,80 +69,89 @@ class SyncResult:
 async def sync_permissions(
     db: AsyncSession, *, prune: bool = False, dry_run: bool = False
 ) -> SyncResult:
-    """Create permissions missing from the database; idempotent."""
-    wanted = {(entry.app_label, entry.codename): entry for entry in collect_permissions()}
-    existing = {(row.app_label, row.codename): row for row in await db.scalars(select(Permission))}
+    """Sync permissions and create missing role templates, preserving existing grants."""
+    catalog = collect_catalog()
+    wanted = catalog.permissions
+    existing = {row.name: row for row in await db.scalars(select(Permission))}
     result = SyncResult()
-    for key, entry in wanted.items():
-        row = existing.get(key)
-        if row is None:
-            result.created.append(entry.full_name)
-            if not dry_run:
-                db.add(
-                    Permission(
-                        app_label=entry.app_label,
-                        codename=entry.codename,
-                        name=entry.name,
-                        model=entry.model,
-                    )
-                )
-        else:
+    for name, entry in wanted.items():
+        if name in existing:
             result.unchanged += 1
-            if not dry_run and (row.name != entry.name or row.model != entry.model):
-                row.name = entry.name
-                row.model = entry.model
+        else:
+            result.created.append(name)
+            if not dry_run:
+                row = Permission(
+                    service=entry.service, resource=entry.resource, action=entry.action
+                )
+                db.add(row)
+                existing[name] = row
     if prune:
-        for key, row in existing.items():
-            if key not in wanted:
-                result.pruned.append(f"{row.app_label}.{row.codename}")
+        for name, row in existing.items():
+            if name not in wanted:
+                result.pruned.append(name)
                 if not dry_run:
                     await db.execute(
                         delete(role_permissions).where(role_permissions.c.permission_id == row.id)
                     )
                     await db.delete(row)
+    if not dry_run:
+        for name, grants in catalog.roles.items():
+            if await db.scalar(select(Role.id).where(Role.name == name)) is None:
+                db.add(Role(name=name, permissions=[existing[grant] for grant in sorted(grants)]))
     await db.flush()
     return result
 
 
 async def get_user_permissions(db: AsyncSession, user_id: int) -> frozenset[str]:
-    """Effective permission strings (``app_label.codename``) of a user."""
-    statement = (
-        select(Permission.app_label, Permission.codename)
-        .join(role_permissions, Permission.id == role_permissions.c.permission_id)
-        .join(user_roles, role_permissions.c.role_id == user_roles.c.role_id)
-        .where(user_roles.c.user_id == user_id)
-    )
-    rows = (await db.execute(statement)).all()
-    return frozenset(f"{app_label}.{codename}" for app_label, codename in rows)
+    return (await get_users_permissions(db, [user_id]))[user_id]
 
 
 async def get_users_permissions(
     db: AsyncSession, user_ids: Iterable[int]
 ) -> dict[int, frozenset[str]]:
-    """Effective permissions for several users in one query.
-
-    Missing ids map to an empty set (inactive or deleted accounts). Superusers
-    still return their stored set; callers must check ``User.is_superuser``.
-    """
-    ids = {int(user_id) for user_id in user_ids}
-    result: dict[int, frozenset[str]] = {user_id: frozenset() for user_id in ids}
-    if not ids:
-        return result
-    statement = (
-        select(user_roles.c.user_id, Permission.app_label, Permission.codename)
-        .join(role_permissions, Permission.id == role_permissions.c.permission_id)
-        .join(user_roles, role_permissions.c.role_id == user_roles.c.role_id)
-        .where(user_roles.c.user_id.in_(ids))
-    )
+    """Stored role grants in one query; callers handle active status and superusers."""
+    ids = set(user_ids)
     grouped: dict[int, set[str]] = {user_id: set() for user_id in ids}
-    for user_id, app_label, codename in (await db.execute(statement)).all():
-        grouped[int(user_id)].add(f"{app_label}.{codename}")
+    if ids:
+        statement = (
+            select(user_roles.c.user_id, Permission.service, Permission.resource, Permission.action)
+            .join(role_permissions, Permission.id == role_permissions.c.permission_id)
+            .join(user_roles, role_permissions.c.role_id == user_roles.c.role_id)
+            .where(user_roles.c.user_id.in_(ids))
+        )
+        for user_id, service, resource, action in (await db.execute(statement)).all():
+            grouped[user_id].add(f"{service}.{resource}.{action}")
     return {user_id: frozenset(values) for user_id, values in grouped.items()}
 
 
+async def get_actor(db: AsyncSession, user: AbstractBaseUser) -> Actor:
+    """Resolve a fresh snapshot of role names and effective permission names."""
+    roles: set[str] = set()
+    permissions: set[str] = set()
+    if user.is_active:
+        statement = (
+            select(Role.name, Permission.service, Permission.resource, Permission.action)
+            .join(user_roles, user_roles.c.role_id == Role.id)
+            .outerjoin(role_permissions, role_permissions.c.role_id == Role.id)
+            .outerjoin(Permission, Permission.id == role_permissions.c.permission_id)
+            .where(user_roles.c.user_id == user.id)
+        )
+        for role, service, resource, action in (await db.execute(statement)).all():
+            roles.add(role)
+            if service is not None:
+                permissions.add(f"{service}.{resource}.{action}")
+        if user.is_superuser:
+            permissions = {permission.name for permission in collect_permissions()}
+    return Actor(
+        id=user.id,
+        roles=frozenset(roles),
+        permissions=frozenset(permissions),
+        is_active=user.is_active,
+        is_superuser=user.is_superuser,
+    )
+
+
 async def sync_permissions_receiver(sender: object, **kwargs: object) -> None:
-    """``post_migrate`` receiver: keep permissions in sync after migrations."""
-    from obox_builder.contrib.auth.models import Permission
     from obox_builder.db.router import router
     from obox_builder.db.session import session_scope
 

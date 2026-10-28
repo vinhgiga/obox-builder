@@ -68,7 +68,7 @@ async def test_fragments_keep_macro_widgets_csrf_and_permissions(client: httpx.A
     token = await login_session(client, "alice")
     denied = await client.get("/admin/shop/product/add", headers={**HX, "Accept": "text/html"})
     assert denied.status_code == 403
-    await grant_permissions("alice", "shop.add_product")
+    await grant_permissions("alice", "shop.product.create")
     response = await client.get("/admin/shop/product/add", headers=HX)
     assert response.status_code == 200
     assert "<!doctype html>" not in response.text

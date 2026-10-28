@@ -20,8 +20,8 @@
     </div>
   </div>
   <nav class="jobs-tabs" aria-label="Background job views">
-    {% if perms.jobs.view_task %}<a class="{{ 'active' if tab == 'tasks' }}" href="/admin/jobs/tasks" {{ 'aria-current=page' if tab == 'tasks' }}><i class="ti ti-list-check"></i>Tasks</a>{% endif %}
-    {% if perms.jobs.view_worker %}<a class="{{ 'active' if tab == 'workers' }}" href="/admin/jobs/workers" {{ 'aria-current=page' if tab == 'workers' }}><i class="ti ti-server"></i>Workers</a>{% endif %}
+    {% if perms.jobs.task.read %}<a class="{{ 'active' if tab == 'tasks' }}" href="/admin/jobs/tasks" {{ 'aria-current=page' if tab == 'tasks' }}><i class="ti ti-list-check"></i>Tasks</a>{% endif %}
+    {% if perms.jobs.worker.read %}<a class="{{ 'active' if tab == 'workers' }}" href="/admin/jobs/workers" {{ 'aria-current=page' if tab == 'workers' }}><i class="ti ti-server"></i>Workers</a>{% endif %}
   </nav>
   {% if not jobs_enabled %}<div class="alert alert-warning" role="status">Background jobs are disabled. History remains available.</div>{% endif %}
   {% block jobs_filters %}{% endblock %}

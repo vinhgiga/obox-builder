@@ -55,12 +55,12 @@
         <h3 class="card-title">Quick actions</h3>
       </div>
       <div class="list-group list-group-flush">
-        {% if user_admin_permissions["view_" ~ user_model_name] %}
+        {% if user_admin_permissions.read %}
           <a href="/admin/users" class="list-group-item list-group-item-action">
             <i class="ti ti-users me-2"></i>Manage users
           </a>
         {% endif %}
-        {% if perms.auth.view_role %}
+        {% if perms.auth.roles.read %}
           <a href="/admin/roles" class="list-group-item list-group-item-action">
             <i class="ti ti-shield-lock me-2"></i>Manage roles
           </a>

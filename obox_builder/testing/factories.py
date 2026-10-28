@@ -54,14 +54,17 @@ async def make_user(
 
 
 async def _resolve_permissions(db: AsyncSession, full_names: tuple[str, ...]) -> list[Permission]:
+    from obox_builder.contrib.auth.authz import PermissionName
     from obox_builder.contrib.auth.models import Permission
 
     resolved: list[Permission] = []
     for full_name in full_names:
-        app_label, _, codename = full_name.partition(".")
+        name = PermissionName.parse(full_name)
         permission = await db.scalar(
             sa.select(Permission).where(
-                Permission.app_label == app_label, Permission.codename == codename
+                Permission.service == name.service,
+                Permission.resource == name.resource,
+                Permission.action == name.action,
             )
         )
         if permission is None:
@@ -75,8 +78,8 @@ async def _resolve_permissions(db: AsyncSession, full_names: tuple[str, ...]) ->
 async def make_role(name: str, *permissions: str) -> Role:
     """Create (or update) a role holding the given permissions.
 
-    ``permissions`` are ``app_label.codename`` strings, e.g.
-    ``"auth.view_user"`` or ``"blog.publish_post"``.
+    ``permissions`` are ``service.resource.action`` strings, e.g.
+    ``"auth.users.read"`` or ``"blog.post.publish"``.
     """
     from obox_builder.contrib.auth.models import Role
     from obox_builder.db.session import session_scope

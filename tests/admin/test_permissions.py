@@ -230,7 +230,7 @@ async def test_related_choices_require_view_permission_for_non_superuser(
 ) -> None:
     await make_category("Private category")
     await make_user("writer")
-    await grant_permissions("writer", "shop.add_product", "shop.view_product")
+    await grant_permissions("writer", "shop.product.create", "shop.product.read")
     await login_session(client, "writer")
     response = await client.get(f"{LIST_URL}/add")
     assert response.status_code == 200

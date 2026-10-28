@@ -45,7 +45,7 @@ def test_request_context_processor(env: None, http_request: Request) -> None:
 def test_auth_context_processor_when_installed(env: None, http_request: Request) -> None:
     context = build_context(http_request)
     assert context["user"].username == ""
-    assert not context["perms"].shop.view_product
+    assert not context["perms"].shop.product.read
 
 
 def test_explicit_context_wins(env: None, http_request: Request) -> None:
@@ -62,13 +62,15 @@ def test_render_returns_html_response(env: None, http_request: Request) -> None:
 
 def test_static_global(env: None) -> None:
     environment = get_environment()
-    assert environment.globals["static"]("admin/css/admin.css") == "/static/admin/css/admin.css"
+    static = environment.globals["static"]
+    assert callable(static)
+    assert static("admin/css/admin.css") == "/static/admin/css/admin.css"
 
 
 def test_filters(env: None) -> None:
     environment = get_environment()
     assert environment.filters["format_datetime"](datetime(2026, 1, 2, 3, 4)) == "2026-01-02 03:04"
     assert environment.filters["filesizeformat"](1536) == "1.5 KB"
-    assert (
-        environment.globals["querystring"]({"page": 2, "q": "x"}, q="y", empty=None) == "page=2&q=y"
-    )
+    querystring = environment.globals["querystring"]
+    assert callable(querystring)
+    assert querystring({"page": 2, "q": "x"}, q="y", empty=None) == "page=2&q=y"

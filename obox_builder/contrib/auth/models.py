@@ -7,10 +7,11 @@ from datetime import datetime
 from typing import TYPE_CHECKING, ClassVar, cast
 
 import sqlalchemy as sa
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, validates
 
 from obox_builder.apps import apps
 from obox_builder.conf import settings
+from obox_builder.contrib.auth.authz import COMPONENT_PATTERN, SERVICE_PATTERN, model_permission
 from obox_builder.contrib.auth.base_user import AbstractBaseUser, AbstractUser
 from obox_builder.core.exceptions import ImproperlyConfigured
 from obox_builder.db import Model, TimestampMixin, VersionedMixin, relationship
@@ -100,9 +101,9 @@ else:
     User = _build_builtin_user() if USER_MODEL == "auth.User" else _resolve_user_model()
 
 USER_MODEL_NAME = camel_to_snake(User.__name__)
-USER_VIEW_PERMISSION = f"{User._model_label}.view_{USER_MODEL_NAME}"
-USER_ADD_PERMISSION = f"{User._model_label}.add_{USER_MODEL_NAME}"
-USER_CHANGE_PERMISSION = f"{User._model_label}.change_{USER_MODEL_NAME}"
+USER_VIEW_PERMISSION = model_permission(User, "read")
+USER_ADD_PERMISSION = model_permission(User, "manage")
+USER_CHANGE_PERMISSION = USER_ADD_PERMISSION
 
 
 user_roles = sa.Table(
@@ -140,6 +141,8 @@ class Role(Model, TimestampMixin, VersionedMixin):
     """Roles are assignable identities, so they are tracked as well."""
 
     __history__ = True
+    __permission_resource__ = "roles"
+    __permission_actions__ = ("read", "manage")
 
     id: Mapped[int] = mapped_column(BigIntIdentity, primary_key=True)
     name: Mapped[str] = mapped_column(sa.String(150), unique=True)
@@ -160,26 +163,46 @@ class Role(Model, TimestampMixin, VersionedMixin):
 
 class Permission(Model, TimestampMixin):
     id: Mapped[int] = mapped_column(BigIntIdentity, primary_key=True)
-    app_label: Mapped[str] = mapped_column(sa.String(100))  # type: ignore[misc]
-    codename: Mapped[str] = mapped_column(sa.String(100))
-    name: Mapped[str] = mapped_column(sa.String(255))
-    model: Mapped[str | None] = mapped_column(sa.String(100))
+    service: Mapped[str] = mapped_column(sa.String(100))
+    resource: Mapped[str] = mapped_column(sa.String(100))
+    action: Mapped[str] = mapped_column(sa.String(100))
 
     roles: Mapped[list[Role]] = relationship(
         secondary=role_permissions, back_populates="permissions"
     )
 
-    __table_args__ = (sa.UniqueConstraint("app_label", "codename"),)
+    __table_args__ = (
+        sa.UniqueConstraint("service", "resource", "action"),
+        *(
+            sa.CheckConstraint(
+                sa.column(key).regexp_match(r"\A" + pattern + r"\Z"), name=f"{key}_format"
+            )
+            for key, pattern in (
+                ("service", SERVICE_PATTERN),
+                ("resource", COMPONENT_PATTERN),
+                ("action", COMPONENT_PATTERN),
+            )
+        ),
+    )
+
+    @validates("service", "resource", "action")
+    def validate_component(self, key: str, value: str) -> str:
+        import re
+
+        pattern = SERVICE_PATTERN if key == "service" else COMPONENT_PATTERN
+        if not re.fullmatch(pattern, value):
+            raise ValueError(f"Invalid permission {key}.")
+        return value
 
     @property
-    def full_name(self) -> str:
-        return f"{self.app_label}.{self.codename}"
+    def name(self) -> str:
+        return f"{self.service}.{self.resource}.{self.action}"
 
     def __str__(self) -> str:
-        return self.full_name
+        return self.name
 
     def __repr__(self) -> str:
-        return f"<Permission {self.full_name!r}>"
+        return f"<Permission {self.name!r}>"
 
 
 class Session(Model, TimestampMixin):

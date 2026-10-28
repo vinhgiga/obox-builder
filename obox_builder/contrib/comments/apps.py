@@ -11,11 +11,11 @@ class CommentsConfig(AppConfig):
     name = "obox_builder.contrib.comments"
     label = "comments"
     verbose_name = "Comments"
-    permissions: ClassVar[list[tuple[str, str]]] = [
-        ("view_row_comment", "Can view row comments"),
-        ("add_row_comment", "Can add row comments"),
-        ("moderate_row_comment", "Can moderate row comments"),
-        ("export_row_comment", "Can export row comments"),
+    permissions: ClassVar[list[str]] = [
+        "comments.rowComment.read",
+        "comments.rowComment.create",
+        "comments.rowComment.moderate",
+        "comments.rowComment.export",
     ]
 
     def ready(self) -> None:

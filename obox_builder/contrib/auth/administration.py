@@ -8,20 +8,21 @@ import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from obox_builder.contrib.auth.authz import Actor
 from obox_builder.contrib.auth.models import Permission, Role, User
 from obox_builder.core.exceptions import PermissionDenied
 
 
-def check_permissions(actor: User, permissions: Sequence[Permission]) -> None:
-    if not actor.is_superuser and any(not actor.has_perm(p.full_name) for p in permissions):
+def check_permissions(actor: Actor, permissions: Sequence[Permission]) -> None:
+    if any(not actor.has_permission(p.name) for p in permissions):
         raise PermissionDenied("You cannot administer permissions you do not hold.")
 
 
-def check_role(actor: User, role: Role) -> None:
+def check_role(actor: Actor, role: Role) -> None:
     check_permissions(actor, role.permissions)
 
 
-async def selected_roles(db: AsyncSession, actor: User, ids: Sequence[int]) -> list[Role]:
+async def selected_roles(db: AsyncSession, actor: Actor, ids: Sequence[int]) -> list[Role]:
     roles = list(
         await db.scalars(
             sa.select(Role)
@@ -47,7 +48,7 @@ async def lock_superusers(db: AsyncSession) -> None:
 
 
 async def check_user(
-    db: AsyncSession, actor: User, target: User | None, *, active: bool, superuser: bool
+    db: AsyncSession, actor: Actor, target: User | None, *, active: bool, superuser: bool
 ) -> None:
     if not actor.is_superuser:
         if superuser or (target is not None and target.is_superuser):

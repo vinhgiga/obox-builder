@@ -234,7 +234,7 @@ async def test_saved_view_save_as_new_and_validation(client: httpx.AsyncClient) 
 
 async def test_saved_view_permissions_rechecked_after_saving(client: httpx.AsyncClient) -> None:
     await make_user("viewer")
-    await grant_permissions("viewer", "shop.view_product")
+    await grant_permissions("viewer", "shop.product.read")
     await login_session(client, "viewer")
     token = await csrf_for("viewer")
     saved = await client.post(f"{URL}/views", data={"name": "Mine", "csrf_token": token})
@@ -257,7 +257,7 @@ async def test_global_search_vietnamese_and_permission_filter(
     async with session_scope() as db:
         db.add(Order(reference="Điện thoại restricted"))
     await make_user("viewer")
-    await grant_permissions("viewer", "shop.view_product")
+    await grant_permissions("viewer", "shop.product.read")
     await login_session(client, "viewer")
     response = await client.get("/admin/search", params={"q": query})
     assert response.status_code == 200

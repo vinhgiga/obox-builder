@@ -231,8 +231,6 @@ def test_post_migrate_signal_syncs_permissions(env: None) -> None:
         await post_migrate.send_async(sender="migrate")
         async with session_scope() as db:
             rows = (await db.scalars(sa.select(Permission))).all()
-            assert {row.full_name for row in rows} == {
-                entry.full_name for entry in collect_permissions()
-            }
+            assert {row.name for row in rows} == {entry.name for entry in collect_permissions()}
 
     run_async(emit_and_check())

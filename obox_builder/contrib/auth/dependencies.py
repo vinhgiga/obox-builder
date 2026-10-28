@@ -3,16 +3,18 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Coroutine
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import Depends, Request, Response
+from fastapi.params import Depends as DependsParameter
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from obox_builder.conf import settings
 from obox_builder.contrib.auth import services, sessions
+from obox_builder.contrib.auth.authz import Actor, PermissionName, authorization_catalog
 from obox_builder.contrib.auth.models import Session as AuthSession
 from obox_builder.contrib.auth.models import User
-from obox_builder.contrib.auth.permissions import get_user_permissions
+from obox_builder.contrib.auth.permissions import get_actor
 from obox_builder.core.exceptions import NotAuthenticated, PermissionDenied
 from obox_builder.db.session import get_db
 
@@ -55,7 +57,8 @@ async def get_current_user(
         await sessions.delete_session(db, auth_session)
         await db.commit()
         raise NotAuthenticated("Authentication required.")
-    user.permissions = await get_user_permissions(db, user.id)
+    request.state.actor = await get_actor(db, user)
+    user.permissions = request.state.actor.permissions
     request.state.user = user
     return user
 
@@ -65,11 +68,30 @@ async def login_required(user: User = Depends(get_current_user)) -> User:
     return user
 
 
+async def get_current_actor(request: Request, user: User = Depends(get_current_user)) -> Actor:
+    return request.state.actor
+
+
+CurrentUser = Annotated[User, Depends(get_current_user)]
+CurrentActor = Annotated[Actor, Depends(get_current_actor)]
+
+
+def require_permission(name: str) -> DependsParameter:
+    return Depends(permission_required(name))
+
+
 def permission_required(*permissions: str) -> Callable[..., Coroutine[Any, Any, User]]:
     """Require every listed permission."""
+    for name in permissions:
+        permission = PermissionName.parse(name)
+        authorization_catalog.register_permission(
+            permission.service, permission.resource, permission.action
+        )
 
-    async def dependency(user: User = Depends(get_current_user)) -> User:
-        if not all(user.has_perm(permission) for permission in permissions):
+    async def dependency(
+        user: User = Depends(get_current_user), actor: Actor = Depends(get_current_actor)
+    ) -> User:
+        if not all(actor.has_permission(permission) for permission in permissions):
             raise PermissionDenied(
                 "You do not have permission to perform this action "
                 f"(requires all of: {', '.join(permissions)})."
@@ -81,9 +103,16 @@ def permission_required(*permissions: str) -> Callable[..., Coroutine[Any, Any, 
 
 def any_permission_required(*permissions: str) -> Callable[..., Coroutine[Any, Any, User]]:
     """Require at least one of the listed permissions."""
+    for name in permissions:
+        permission = PermissionName.parse(name)
+        authorization_catalog.register_permission(
+            permission.service, permission.resource, permission.action
+        )
 
-    async def dependency(user: User = Depends(get_current_user)) -> User:
-        if not any(user.has_perm(permission) for permission in permissions):
+    async def dependency(
+        user: User = Depends(get_current_user), actor: Actor = Depends(get_current_actor)
+    ) -> User:
+        if not any(actor.has_permission(permission) for permission in permissions):
             raise PermissionDenied("You do not have permission to perform this action.")
         return user
 

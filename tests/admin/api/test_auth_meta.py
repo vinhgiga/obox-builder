@@ -67,7 +67,7 @@ async def test_read_permissions(api: httpx.AsyncClient, role: str, expected: int
     if role != "anonymous":
         await sign_in(api, superuser=role == "superuser")
         if role == "view":
-            await grant_permissions("api-user", "shop.view_product")
+            await grant_permissions("api-user", "shop.product.read")
     for path in (PRODUCTS, f"{BASE}/models/shop.product/schema"):
         response = await api.get(path, headers={"Accept": "text/html"})
         assert response.status_code == expected, response.text
@@ -105,7 +105,7 @@ async def test_disabled_models_and_row_scope_are_hidden(
 
 async def test_view_only_cannot_write(api: httpx.AsyncClient) -> None:
     headers = await sign_in(api, superuser=False)
-    await grant_permissions("api-user", "shop.view_product")
+    await grant_permissions("api-user", "shop.product.read")
     response = await api.post(
         PRODUCTS, headers=headers, json={"fields": {"name": "No", "status": "draft"}}
     )

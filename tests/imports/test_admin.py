@@ -112,7 +112,7 @@ async def test_full_admin_flow_and_atomic_double_confirmation(client: httpx.Asyn
 async def test_auth_csrf_owner_isolation_and_model_permissions(client: httpx.AsyncClient) -> None:
     assert (await client.get(BASE, headers={"accept": "text/html"})).status_code == 303
     await make_user("viewer")
-    await grant_permissions("viewer", "shop.view_order")
+    await grant_permissions("viewer", "shop.order.read")
     await login_session(client, "viewer")
     assert "No import mode" in (await client.get(BASE)).text
     assert (

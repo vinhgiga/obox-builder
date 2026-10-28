@@ -8,6 +8,7 @@ import pytest
 from obox_builder import conf
 from obox_builder.apps import apps
 from obox_builder.apps.registry import Apps
+from obox_builder.contrib.auth.authz import authorization_catalog
 from obox_builder.contrib.history import context as history_context
 from obox_builder.contrib.history import tracker as history_tracker
 from obox_builder.core.checks import registry as checks_registry
@@ -36,6 +37,8 @@ def _purge_support_app_modules() -> None:
 
 @pytest.fixture(autouse=True)
 def guard_global_state() -> Iterator[None]:
+    saved_permission_catalog = dict(authorization_catalog.permissions)
+    saved_role_catalog = dict(authorization_catalog.roles)
     saved_settings = conf.settings._wrapped
     saved_apps = Apps()
     saved_apps.app_configs = dict(apps.app_configs)
@@ -58,6 +61,8 @@ def guard_global_state() -> Iterator[None]:
     try:
         yield
     finally:
+        authorization_catalog.permissions = saved_permission_catalog
+        authorization_catalog.roles = saved_role_catalog
         conf.settings._wrapped = saved_settings
         apps.app_configs = saved_apps.app_configs
         apps.all_models = saved_apps.all_models

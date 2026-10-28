@@ -91,12 +91,14 @@ class ImportResource:
         return sa.select(self.model)
 
     def can_add(self) -> bool:
-        app, _, name = self.label.partition(".")
-        return bool(self.user.has_perm(f"{app}.add_{name}"))
+        from obox_builder.contrib.auth.authz import model_permission
+
+        return bool(self.user.has_perm(model_permission(self.model, "create")))
 
     def can_change(self, obj: Any = None) -> bool:
-        app, _, name = self.label.partition(".")
-        return bool(self.user.has_perm(f"{app}.change_{name}"))
+        from obox_builder.contrib.auth.authz import model_permission
+
+        return bool(self.user.has_perm(model_permission(self.model, "update")))
 
     def check_permissions(self, mode: str) -> None:
         if not getattr(self.user, "is_active", False):

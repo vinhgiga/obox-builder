@@ -5,7 +5,7 @@
   <h2 class="page-title">Roles ({{ roles | length }})</h2>
 </div>
 <div class="card">
-  {% if perms.auth.add_role %}
+  {% if perms.auth.roles.manage %}
   <div class="card-header flex-wrap gap-2 py-2">
     <a href="/admin/roles/new" class="btn btn-primary">New role</a>
   </div>
@@ -27,10 +27,10 @@
           <td class="text-end text-secondary">{{ start_index + loop.index0 }}</td>
           <td>
             <div class="btn-list flex-nowrap">
-            {% if perms.auth.change_role %}
+            {% if perms.auth.roles.manage %}
             <a href="/admin/roles/{{ role.id }}" class="btn btn-sm">Edit</a>
             {% endif %}
-            {% if perms.auth.delete_role %}
+            {% if perms.auth.roles.manage %}
             <form method="post" action="/admin/roles/{{ role.id }}/delete" class="d-inline"
                   data-confirm="Delete role '{{ role.name }}'? This cannot be undone.">
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}"/>

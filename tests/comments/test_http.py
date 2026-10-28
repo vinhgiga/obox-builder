@@ -193,7 +193,7 @@ async def test_invalid_and_too_long_bodies_return_422(client: httpx.AsyncClient)
 async def test_read_only_user_can_view_but_not_post(client: httpx.AsyncClient) -> None:
     ticket_id = await make_ticket()
     await make_user("viewer")
-    await grant_permissions("viewer", "commentsdemo.view_ticket", "comments.view_row_comment")
+    await grant_permissions("viewer", "commentsdemo.ticket.read", "comments.rowComment.read")
     await login_session(client, "viewer")
     page = await client.get(f"{BASE}/{ticket_id}/comments")
     assert page.status_code == 200
@@ -207,7 +207,7 @@ async def test_read_only_user_can_view_but_not_post(client: httpx.AsyncClient) -
 async def test_user_without_comment_permission_is_denied(client: httpx.AsyncClient) -> None:
     ticket_id = await make_ticket()
     await make_user("viewer")
-    await grant_permissions("viewer", "commentsdemo.view_ticket")
+    await grant_permissions("viewer", "commentsdemo.ticket.read")
     await login_session(client, "viewer")
     assert (await client.get(f"{BASE}/{ticket_id}/comments")).status_code == 403
 
@@ -282,7 +282,7 @@ async def test_mention_autocomplete_and_tokens(client: httpx.AsyncClient) -> Non
     ticket_id = await make_ticket()
     token = await logged_in_superuser(client)
     bob_id = await make_user("bob")
-    await grant_permissions("bob", "commentsdemo.view_ticket", "comments.view_row_comment")
+    await grant_permissions("bob", "commentsdemo.ticket.read", "comments.rowComment.read")
     results = await client.get(
         "/admin/comments/mentionable",
         params={"model": "commentsdemo.ticket", "q": "bo"},

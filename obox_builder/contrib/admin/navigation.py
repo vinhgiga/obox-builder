@@ -9,7 +9,7 @@ from obox_builder.apps import apps
 
 
 class PermissionHolder(Protocol):
-    """Anything able to check ``app_label.codename`` permissions."""
+    """Anything able to check ``service.resource.action`` permissions."""
 
     def has_perm(self, perm: str) -> bool: ...
 
@@ -44,7 +44,7 @@ class NavGroup:
 
 
 def default_navigation() -> list[NavGroup]:
-    user_view_permission = "auth.view_user"
+    user_view_permission = "auth.users.read"
     if apps.models_ready:
         from obox_builder.contrib.auth.models import USER_VIEW_PERMISSION
 
@@ -61,7 +61,7 @@ def default_navigation() -> list[NavGroup]:
                     "Users", "/admin/users", icon="ti-users", required_perm=user_view_permission
                 ),
                 NavItem(
-                    "Roles", "/admin/roles", icon="ti-shield-lock", required_perm="auth.view_role"
+                    "Roles", "/admin/roles", icon="ti-shield-lock", required_perm="auth.roles.read"
                 ),
             ],
         ),

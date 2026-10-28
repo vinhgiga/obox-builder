@@ -94,7 +94,7 @@ async def test_pat_cannot_exceed_user_permissions_or_use_cookie_fallback(
     api: httpx.AsyncClient,
 ) -> None:
     headers = await sign_in(api, superuser=False)
-    await grant_permissions("api-user", "warehouse.view_item")
+    await grant_permissions("api-user", "warehouse.item.read")
     token = await mint(api, headers, ["warehouse.item:*"])
     bearer = {"Authorization": f"Bearer {token['token']}"}
     assert (await api.get(ITEMS, headers=bearer)).status_code == 200
@@ -400,7 +400,7 @@ async def test_action_permission_alternatives_intersect_token_scope(
     from tests.support.apps.warehouse.models import Item
 
     headers = await sign_in(api, superuser=False)
-    await grant_permissions("api-user", "warehouse.view_item", "warehouse.delete_item")
+    await grant_permissions("api-user", "warehouse.item.read", "warehouse.item.delete")
     admin = site_for(api).get_model_admin_for(Item)
 
     @action(api=True, permissions=("change", "delete"))

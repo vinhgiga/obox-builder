@@ -226,6 +226,6 @@ async def test_csv_checks_authentication_permissions_and_private_views(
     await make_user("reader")
     await login_session(client, "reader")
     assert (await client.get(f"{URL}/export.csv")).status_code == 403
-    await grant_permissions("reader", "shop.view_product")
+    await grant_permissions("reader", "shop.product.read")
     assert (await client.get(f"{URL}/export.csv?view=999")).status_code == 404
     assert (await client.get(f"{URL}/export.csv?sort=missing")).status_code == 400

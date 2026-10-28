@@ -80,13 +80,13 @@ def test_invalid_base_path_is_reported() -> None:
 
 def test_permission_names_follow_the_model() -> None:
     admin = ProductAdmin(Product, site)
-    assert admin.permission_name("view") == "shop.view_product"
-    assert admin.permission_name("add") == "shop.add_product"
+    assert admin.permission_name("view") == "shop.product.read"
+    assert admin.permission_name("add") == "shop.product.create"
 
 
 def test_permission_hooks_delegate_to_the_user() -> None:
     admin = ProductAdmin(Product, site)
-    ctx = admin_ctx("shop.view_product")
+    ctx = admin_ctx("shop.product.read")
     assert admin.has_view_permission(ctx) is True
     assert admin.has_add_permission(ctx) is False
     no_perms = admin_ctx()
@@ -210,7 +210,7 @@ def test_related_search_and_filter_fields_are_resolved() -> None:
         list_filter = ("category__name",)
 
     admin = RelatedAdmin(Product, site)
-    ctx = admin_ctx("shop.view_category", "shop.view_product")
+    ctx = admin_ctx("shop.category.read", "shop.product.read")
     assert admin.get_search_specs(ctx)[0].name == "category__name"
     assert admin.get_query_specs(ctx)["category__name"].options["relationship_path"]
     assert not {message.id for message in admin.validate()} & {
@@ -224,7 +224,7 @@ def test_related_many_to_many_search_uses_exists() -> None:
         search_fields = ("labels__title",)
 
     admin = RelatedAdmin(Order, site)
-    ctx = admin_ctx("shop.view_label", "shop.view_order")
+    ctx = admin_ctx("shop.label.read", "shop.order.read")
     specs = admin.get_query_specs(ctx)
     search_specs = admin.get_search_specs(ctx)
     statement = QuerySpec(q="news").apply(sa.select(Order), specs, search_specs=search_specs)

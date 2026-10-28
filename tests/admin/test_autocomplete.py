@@ -99,10 +99,10 @@ async def test_autocomplete_rejects_invalid_input(
 
 async def test_autocomplete_requires_target_view_permission(client: httpx.AsyncClient) -> None:
     await make_user("writer")
-    await grant_permissions("writer", "shop.add_product")
+    await grant_permissions("writer", "shop.product.create")
     await login_session(client, "writer")
     assert (await client.get(URL)).status_code == 403
-    await grant_permissions("writer", "shop.view_category")
+    await grant_permissions("writer", "shop.category.read")
     assert (await client.get(URL)).status_code == 200
 
 

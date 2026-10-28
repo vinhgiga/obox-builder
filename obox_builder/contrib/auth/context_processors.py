@@ -14,22 +14,25 @@ from obox_builder.contrib.auth.models import (
 
 
 class PermLookup:
-    """``perms.blog.add_post`` lookups within one app label."""
+    """Build service.resource.action lookups for templates."""
 
     def __init__(self, user: User | AnonymousUser, app_label: str) -> None:
         self._user = user
         self._app_label = app_label
 
-    def __getattr__(self, name: str) -> bool:
+    def __getattr__(self, name: str) -> PermLookup | bool:
         if name.startswith("_"):
             raise AttributeError(name)
-        return self._user.has_perm(f"{self._app_label}.{name}")
+        return self[name]
 
     def __contains__(self, name: str) -> bool:
         return self._user.has_perm(f"{self._app_label}.{name}")
 
-    def __getitem__(self, name: str) -> bool:
-        return self._user.has_perm(f"{self._app_label}.{name}")
+    def __getitem__(self, name: str) -> PermLookup | bool:
+        permission = f"{self._app_label}.{name}"
+        if permission.count(".") < 2:
+            return PermLookup(self._user, permission)
+        return self._user.has_perm(permission)
 
 
 class PermWrapper:
@@ -62,5 +65,5 @@ def auth(request: Request) -> dict[str, Any]:
         "user": user,
         "perms": PermWrapper(user),
         "user_model_name": USER_MODEL_NAME,
-        "user_admin_permissions": PermLookup(user, User._model_label),
+        "user_admin_permissions": PermLookup(user, f"{User._model_label.replace('_', '')}.users"),
     }

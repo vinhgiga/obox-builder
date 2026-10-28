@@ -41,7 +41,9 @@ async def test_create_and_edit_role_with_permissions(client: httpx.AsyncClient) 
         role_id = role.id
         permission = await db.scalar(
             sa.select(Permission).where(
-                Permission.app_label == "auth", Permission.codename == "view_user"
+                Permission.service == "auth",
+                Permission.resource == "users",
+                Permission.action == "read",
             )
         )
         assert permission is not None
@@ -70,7 +72,7 @@ async def test_create_and_edit_role_with_permissions(client: httpx.AsyncClient) 
         role = await db.scalar(sa.select(Role).where(Role.id == role_id).options())
         assert role is not None
         await db.refresh(role, ["permissions"])
-        assert [perm.codename for perm in role.permissions] == ["view_user"]
+        assert [perm.name for perm in role.permissions] == ["auth.users.read"]
 
 
 async def test_duplicate_role_name_rejected(client: httpx.AsyncClient) -> None:
@@ -95,15 +97,17 @@ async def test_delegate_deletes_only_roles_with_held_permissions(
     from obox_builder.db.session import session_scope
 
     await make_user("alice")
-    await grant_permissions("alice", "auth.delete_role")
+    await grant_permissions("alice", "auth.roles.manage")
     if holds_permission:
-        await grant_permissions("alice", "auth.view_user")
+        await grant_permissions("alice", "auth.users.read")
     await login_session(client, "alice")
     token = await csrf_for("alice")
     async with session_scope() as db:
         permission = await db.scalar(
             sa.select(Permission).where(
-                Permission.app_label == "auth", Permission.codename == "view_user"
+                Permission.service == "auth",
+                Permission.resource == "users",
+                Permission.action == "read",
             )
         )
         assert permission is not None
@@ -143,7 +147,7 @@ async def test_delete_custom_role(client: httpx.AsyncClient) -> None:
 
 async def test_role_list_requires_add_for_create(client: httpx.AsyncClient) -> None:
     await make_user("alice")
-    await grant_permissions("alice", "auth.view_role")
+    await grant_permissions("alice", "auth.roles.read")
     await login_session(client, "alice")
     listing = await client.get("/admin/roles", headers={"accept": "text/html"})
     assert listing.status_code == 200

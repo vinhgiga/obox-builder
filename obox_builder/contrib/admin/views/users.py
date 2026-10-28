@@ -148,10 +148,12 @@ async def user_create_submit(
     errors: list[str] = []
     selected = []
     try:
-        selected = await administration.selected_roles(db, user, role_ids)
+        selected = await administration.selected_roles(db, user.actor(), role_ids)
     except ValueError as exc:
         errors.append(str(exc))
-    await administration.check_user(db, user, None, active=is_active, superuser=is_superuser)
+    await administration.check_user(
+        db, user.actor(), None, active=is_active, superuser=is_superuser
+    )
     if not password:
         errors.append("A password is required.")
     elif password != confirm_password:
@@ -274,11 +276,13 @@ async def user_edit_submit(
     errors: list[str] = []
     selected = []
     try:
-        selected = await administration.selected_roles(db, user, role_ids)
+        selected = await administration.selected_roles(db, user.actor(), role_ids)
     except ValueError as exc:
         errors.append(str(exc))
     try:
-        await administration.check_user(db, user, target, active=is_active, superuser=is_superuser)
+        await administration.check_user(
+            db, user.actor(), target, active=is_active, superuser=is_superuser
+        )
     except PermissionDenied as exc:
         errors.append(str(exc))
 

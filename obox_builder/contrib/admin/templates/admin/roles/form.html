@@ -48,23 +48,24 @@
       <table class="table table-vcenter card-table">
         <thead>
           <tr>
-            <th>Model</th>
-            <th class="text-center">View</th>
-            <th class="text-center">Add</th>
-            <th class="text-center">Change</th>
+            <th>Resource</th>
+            <th class="text-center">Read</th>
+            <th class="text-center">Create</th>
+            <th class="text-center">Update</th>
             <th class="text-center">Delete</th>
+            <th class="text-center">Manage</th>
             <th>Other</th>
           </tr>
         </thead>
         <tbody>
           {% for app in matrix %}
             <tr class="table-primary">
-              <td colspan="6"><strong>{{ app.app_label }}</strong></td>
+              <td colspan="7"><strong>{{ app.service }}</strong></td>
             </tr>
             {% for model in app.models %}
             <tr>
               <td>{{ model.name }}</td>
-              {% for action in ("view", "add", "change", "delete") %}
+              {% for action in ("read", "create", "update", "delete", "manage") %}
                 {% set permission = model.crud[action] %}
                 <td class="text-center">
                   {% if permission %}
@@ -83,7 +84,7 @@
                     <input class="form-check-input" type="checkbox" name="permission_ids"
                            value="{{ permission.id }}"
                            {{ "checked" if permission.id in selected_permission_ids }}/>
-                    <span class="form-check-label">{{ permission.codename }}</span>
+                    <span class="form-check-label">{{ permission.action }}</span>
                   </label>
                 {% endfor %}
               </td>

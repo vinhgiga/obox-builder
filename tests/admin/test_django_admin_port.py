@@ -259,7 +259,7 @@ async def test_custom_model_routes_enforce_login_permissions_and_csrf(
     client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     await make_user("viewer")
-    await grant_permissions("viewer", "shop.view_product")
+    await grant_permissions("viewer", "shop.product.read")
     await login_session(client, "viewer")
     token = await csrf_for("viewer")
 

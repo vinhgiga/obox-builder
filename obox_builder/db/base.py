@@ -40,7 +40,9 @@ class Model(ModelBase):
     app_label: ClassVar[str] = ""
     _model_label: ClassVar[str] = ""
     __auth_model__: ClassVar[bool] = False
-    __permissions__: ClassVar[list[tuple[str, str]]] = []
+    __permissions__: ClassVar[list[str]] = []
+    __permission_resource__: ClassVar[str] = ""
+    __permission_actions__: ClassVar[tuple[str, ...]] = ("read", "create", "update", "delete")
     #: Row-history declaration: ``True`` for defaults, ``False``/``None`` to opt
     #: out, or a mapping with ``fields``/``exclude``/``relations``/``mask``/
     #: ``retention_days``.

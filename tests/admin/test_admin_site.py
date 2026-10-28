@@ -79,7 +79,7 @@ def test_nav_groups_include_registered_models(local_site: AdminSite) -> None:
     assert "Products" in labels
     product_item = next(item for item in groups["Shop"].items if item.label == "Products")
     assert product_item.url == "/admin/shop/product"
-    assert product_item.required_perm == "shop.view_product"
+    assert product_item.required_perm == "shop.product.read"
 
 
 def test_autodiscovery_registers_the_shop_admin() -> None:

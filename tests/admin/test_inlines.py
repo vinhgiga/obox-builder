@@ -507,7 +507,7 @@ async def test_view_only_parent_and_children_have_no_edit_controls(
     client = relation_client
     pk = await create_order("Readonly", "Readonly line")
     await make_user("reader")
-    await grant_permissions("reader", "shop.view_order", "shop.view_order_line")
+    await grant_permissions("reader", "shop.order.read", "shop.orderLine.read")
     await login_session(client, "reader")
     response = await client.get(f"{URL}/{pk}")
     assert response.status_code == 200

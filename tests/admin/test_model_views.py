@@ -69,7 +69,7 @@ async def test_list_redirects_anonymous_users_to_login(client: httpx.AsyncClient
 async def test_view_only_user_gets_denied_on_mutations(client: httpx.AsyncClient) -> None:
     product_id = await make_product("Widget")
     await make_user("viewer")
-    await grant_permissions("viewer", "shop.view_product")
+    await grant_permissions("viewer", "shop.product.read")
     await login_session(client, "viewer")
     listing = await client.get(LIST_URL, headers={"accept": "text/html"})
     assert listing.status_code == 200
@@ -101,10 +101,10 @@ async def test_user_with_crud_permissions_can_manage_products(client: httpx.Asyn
     await make_user("editor")
     await grant_permissions(
         "editor",
-        "shop.view_product",
-        "shop.add_product",
-        "shop.change_product",
-        "shop.delete_product",
+        "shop.product.read",
+        "shop.product.create",
+        "shop.product.update",
+        "shop.product.delete",
     )
     await login_session(client, "editor")
     token = await csrf_for("editor")
@@ -648,7 +648,7 @@ async def test_scroll_pages_enforce_permissions_and_handle_empty_results(
     await make_user("reader")
     await login_session(client, "reader")
     assert (await client.get(LIST_URL, headers=headers)).status_code == 403
-    await grant_permissions("reader", "shop.view_product")
+    await grant_permissions("reader", "shop.product.read")
     response = await client.get(LIST_URL, headers=headers)
     assert response.status_code == 200
     assert 'data-next-url=""' in response.text

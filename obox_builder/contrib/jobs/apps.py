@@ -8,9 +8,9 @@ class JobsConfig(AppConfig):
     label = "jobs"
     verbose_name = "Background jobs"
     permissions = [
-        ("retry_task", "Can retry background tasks"),
-        ("revoke_task", "Can revoke background tasks"),
-        ("view_task_payload", "Can view task arguments and results"),
+        "jobs.task.retry",
+        "jobs.task.revoke",
+        "jobs.task.readPayload",
     ]
 
     def ready(self) -> None:

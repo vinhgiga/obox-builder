@@ -11,12 +11,14 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import selectinload
 
+from obox_builder.apps import apps
 from obox_builder.contrib.admin.api.auth import parse_body
 from obox_builder.contrib.admin.api.deps import DB, USER, json_body
 from obox_builder.contrib.admin.api.etag import check_if_match, etag
 from obox_builder.contrib.admin.api.problems import Problem
 from obox_builder.contrib.admin.api.records import body_schema
 from obox_builder.contrib.auth import administration, services, sessions
+from obox_builder.contrib.auth.authz import Actor, PermissionName, model_permission
 from obox_builder.contrib.auth.models import Permission, Role, User
 from obox_builder.contrib.auth.permissions import collect_permissions, model_identifier
 from obox_builder.contrib.auth.tokens import scope_allows
@@ -70,41 +72,46 @@ def ids(values: list[str]) -> list[int]:
     return list(dict.fromkeys(int(value) for value in values))
 
 
-def account_access(request: Request, user: User, kind: str, action: str) -> User:
+def account_access(request: Request, user: User, kind: str, action: str) -> Actor:
     if not request.state.admin_site.api_auth_enabled:
         raise Problem(404, "not_found", "Account API is unavailable.")
     token = getattr(request.state, "api_token", None)
     operation = {"view": "read", "add": "write", "change": "write", "delete": "delete"}[action]
-    model_label = User._model_label if kind == "user" else "auth"
-    label = f"{model_label}.{model_identifier(User) if kind == 'user' else 'role'}"
-    permission = f"{model_label}.{action}_{model_identifier(User) if kind == 'user' else 'role'}"
+    model = User if kind == "user" else Role
+    label = f"{model._model_label}.{model_identifier(model)}"
+    permission = model_permission(model, action)
     if not user.has_perm(permission) or (
         token is not None and not scope_allows(token.scopes, label, operation)
     ):
         raise PermissionDenied("You cannot administer this resource.")
     if token is None:
-        return user
+        return user.actor()
     # A bearer may delegate only permissions represented by its own scopes.
-    actor = User(is_active=user.is_active, is_superuser=False)
     effective = set()
-    held = (
-        {f"{p.app_label}.{p.codename}" for p in collect_permissions()}
-        if user.is_superuser
-        else user.permissions
-    )
+    held = {p.name for p in collect_permissions()} if user.is_superuser else user.permissions
+    labels = {
+        model_permission(model, "read").rsplit(".", 1)[
+            0
+        ]: f"{model._model_label}.{model_identifier(model)}"
+        for model in apps.get_models()
+    }
     for permission in held:
-        app, _, codename = permission.partition(".")
-        action, _, model = codename.partition("_")
-        granted_operation = {
-            "view": "read",
-            "add": "write",
-            "change": "write",
-            "delete": "delete",
-        }.get(action)
-        if granted_operation and scope_allows(token.scopes, f"{app}.{model}", granted_operation):
+        name = PermissionName.parse(permission)
+        operations = {
+            "read": ("read",),
+            "create": ("write",),
+            "update": ("write",),
+            "delete": ("delete",),
+            "manage": ("write", "delete"),
+        }.get(name.action, ())
+        scope_label = labels.get(f"{name.service}.{name.resource}")
+        if (
+            scope_label
+            and operations
+            and all(scope_allows(token.scopes, scope_label, operation) for operation in operations)
+        ):
             effective.add(permission)
-    actor.permissions = frozenset(effective)
-    return actor
+    return Actor(id=user.id, is_active=user.is_active, permissions=frozenset(effective))
 
 
 def account_data(row: Any) -> dict[str, Any]:
@@ -151,7 +158,7 @@ def response(row: Any, status: int = 200) -> JSONResponse:
     return JSONResponse(data, status_code=status, headers={"ETag": data["etag"]})
 
 
-async def roles_for(db: Any, actor: User, values: list[str]) -> list[Role]:
+async def roles_for(db: Any, actor: Actor, values: list[str]) -> list[Role]:
     try:
         return await administration.selected_roles(db, actor, ids(values))
     except ValueError as exc:
@@ -267,12 +274,24 @@ def register_accounts(router: APIRouter) -> None:
     @router.get("/permissions")
     async def permissions(request: Request, user: USER, db: DB) -> Any:
         actor = account_access(request, user, "role", "view")
-        rows = list(await db.scalars(sa.select(Permission).order_by(Permission.id)))
+        rows = list(
+            await db.scalars(
+                sa.select(Permission).order_by(
+                    Permission.service, Permission.resource, Permission.action
+                )
+            )
+        )
         return {
             "permissions": [
-                {"id": str(p.id), "name": p.name, "permission": p.full_name}
+                {
+                    "id": str(p.id),
+                    "name": p.name,
+                    "service": p.service,
+                    "resource": p.resource,
+                    "action": p.action,
+                }
                 for p in rows
-                if actor.has_perm(p.full_name)
+                if actor.has_perm(p.name)
             ]
         }
 

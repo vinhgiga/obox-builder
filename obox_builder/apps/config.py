@@ -21,7 +21,7 @@ class AppConfig:
     label: str = ""
     verbose_name: str = ""
     default: bool = True
-    permissions: ClassVar[list[tuple[str, str]]] = []
+    permissions: ClassVar[list[str]] = []
 
     def __init__(self, name: str, module: ModuleType | None = None) -> None:
         if module is None:

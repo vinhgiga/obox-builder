@@ -79,7 +79,7 @@ async def latest_change_set() -> str:
 async def test_feed_requires_the_history_permission(client: httpx.AsyncClient) -> None:
     await make_item()
     await make_user("editor")
-    await grant_permissions("editor", "warehouse.view_item")
+    await grant_permissions("editor", "warehouse.item.read")
     await login_session(client, "editor")
 
     denied = await client.get(FEED_URL, headers={"accept": "text/html"})
@@ -90,7 +90,7 @@ async def test_feed_only_lists_models_the_viewer_can_view(client: httpx.AsyncCli
     await make_item("Anvil")
     await make_shelf("A-1")
     await make_user("auditor")
-    await grant_permissions("auditor", "warehouse.view_item", "history.view_row_change")
+    await grant_permissions("auditor", "warehouse.item.read", "history.rowChange.read")
     await login_session(client, "auditor")
 
     feed = await client.get(FEED_URL, headers={"accept": "text/html"})
@@ -108,13 +108,13 @@ async def test_feed_only_lists_models_the_viewer_can_view(client: httpx.AsyncCli
 
 async def test_nav_shows_the_audit_log_for_privileged_users(client: httpx.AsyncClient) -> None:
     await make_user("auditor")
-    await grant_permissions("auditor", "history.view_row_change")
+    await grant_permissions("auditor", "history.rowChange.read")
     await login_session(client, "auditor")
     dashboard = await client.get("/admin/", headers={"accept": "text/html"})
     assert 'href="/admin/history"' in dashboard.text
 
     await make_user("editor")
-    await grant_permissions("editor", "warehouse.view_item")
+    await grant_permissions("editor", "warehouse.item.read")
     await login_session(client, "editor")
     dashboard = await client.get("/admin/", headers={"accept": "text/html"})
     assert 'href="/admin/history"' not in dashboard.text
@@ -177,7 +177,7 @@ async def test_feed_filters_by_date_window(client: httpx.AsyncClient) -> None:
 async def test_unviewable_model_filter_shows_nothing(client: httpx.AsyncClient) -> None:
     await make_item("Anvil")
     await make_user("auditor")
-    await grant_permissions("auditor", "warehouse.view_item", "history.view_row_change")
+    await grant_permissions("auditor", "warehouse.item.read", "history.rowChange.read")
     await login_session(client, "auditor")
 
     feed = await client.get(f"{FEED_URL}?model=warehouse.shelf", headers={"accept": "text/html"})
@@ -238,7 +238,7 @@ async def test_change_set_detail_hides_unviewable_models(client: httpx.AsyncClie
     await make_shelf("A-1")
     change_set_id = await latest_change_set()
     await make_user("auditor")
-    await grant_permissions("auditor", "warehouse.view_item", "history.view_row_change")
+    await grant_permissions("auditor", "warehouse.item.read", "history.rowChange.read")
     await login_session(client, "auditor")
 
     hidden = await client.get(f"{FEED_URL}/{change_set_id}", headers={"accept": "text/html"})

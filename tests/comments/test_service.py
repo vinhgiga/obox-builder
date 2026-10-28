@@ -26,8 +26,8 @@ from obox_builder.contrib.comments.service import CommentService
 from obox_builder.contrib.comments.targets import CommentTarget
 from sqlalchemy.ext.asyncio import AsyncSession
 
-VIEW = "commentsdemo.view_ticket"
-CHANGE = "commentsdemo.change_ticket"
+VIEW = "commentsdemo.ticket.read"
+CHANGE = "commentsdemo.ticket.update"
 ALL = frozenset({VIEW, CHANGE, COMMENTS_VIEW_PERMISSION, COMMENTS_ADD_PERMISSION})
 TARGET = CommentTarget("commentsdemo.ticket", "1", "Ticket #1")
 
@@ -60,10 +60,12 @@ async def _grant(db: AsyncSession, user: User, *names: str) -> None:
     await db.flush()
     await db.refresh(role, ["permissions"])
     for name in names:
-        app_label, _, codename = name.partition(".")
+        service, resource, action = name.split(".")
         permission = await db.scalar(
             sa.select(Permission).where(
-                Permission.app_label == app_label, Permission.codename == codename
+                Permission.service == service,
+                Permission.resource == resource,
+                Permission.action == action,
             )
         )
         assert permission is not None

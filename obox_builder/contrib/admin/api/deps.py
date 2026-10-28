@@ -14,7 +14,7 @@ from obox_builder.conf import settings
 from obox_builder.contrib.admin.api.problems import Problem
 from obox_builder.contrib.auth import csrf, services, sessions
 from obox_builder.contrib.auth.models import User
-from obox_builder.contrib.auth.permissions import get_user_permissions
+from obox_builder.contrib.auth.permissions import get_actor
 from obox_builder.contrib.auth.tokens import verify_token
 from obox_builder.core.utils.time import ensure_aware, utcnow
 
@@ -54,7 +54,8 @@ async def current_user(
         request.state.auth_session = None
         request.state.api_principal = f"token:{credential.id}"
         request.state.user = user
-        user.permissions = await get_user_permissions(db, user.id)
+        request.state.actor = await get_actor(db, user)
+        user.permissions = request.state.actor.permissions
         request.state.api_rate_headers = await request.state.api_limiter.check(
             request.state.api_principal, settings.ADMIN_API_RATE_LIMIT
         )
@@ -86,7 +87,8 @@ async def current_user(
         request.state.api_renew_token = token
     request.state.auth_session = row
     request.state.user = user
-    user.permissions = await get_user_permissions(db, user.id)
+    request.state.actor = await get_actor(db, user)
+    user.permissions = request.state.actor.permissions
     if request.method not in csrf.SAFE_METHODS:
         check_origin(request)
         expected = csrf.get_csrf_token(row)

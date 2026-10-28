@@ -52,7 +52,7 @@
           <td class="jobs-date">{{ timestamp(task.eta) }}</td>
           <td>{{ task.retries }} <span class="text-secondary">/ {{ task.max_retries }}</span></td>
           <td class="font-monospace">{{ item.runtime }}</td>
-          <td class="jobs-worker-cell">{% if task.worker %}{% if perms.jobs.view_worker %}<a href="/admin/jobs/workers?{{ querystring({}, q=task.worker) }}">{{ task.worker }}</a>{% else %}{{ task.worker }}{% endif %}{% else %}<span class="text-secondary">Unassigned</span>{% endif %}</td>
+          <td class="jobs-worker-cell">{% if task.worker %}{% if perms.jobs.worker.read %}<a href="/admin/jobs/workers?{{ querystring({}, q=task.worker) }}">{{ task.worker }}</a>{% else %}{{ task.worker }}{% endif %}{% else %}<span class="text-secondary">Unassigned</span>{% endif %}</td>
         </tr>
       {% else %}<tr><td colspan="7"><div class="empty"><div class="empty-icon"><i class="ti ti-list-check"></i></div><p class="empty-title">No tasks match these filters</p><p class="empty-subtitle text-secondary">New jobs will appear here as they are queued.</p></div></td></tr>{% endfor %}
       </tbody>

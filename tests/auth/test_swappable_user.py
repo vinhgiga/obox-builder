@@ -35,7 +35,7 @@ assert User.__tablename__ == "customusers_account"
 assert {model.__tablename__ for model in (Role, Permission, Session, ApiToken)} == {
     "auth_role", "auth_permission", "auth_session", "auth_api_token"
 }
-assert USER_VIEW_PERMISSION == "customusers.view_account"
+assert USER_VIEW_PERMISSION == "customusers.users.read"
 user_item = next(
     item for group in default_navigation() for item in group.items if item.url == "/admin/users"
 )

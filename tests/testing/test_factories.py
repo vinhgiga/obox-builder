@@ -44,62 +44,58 @@ async def test_make_user_is_idempotent_and_updates_flags(db_ready: None) -> None
 
 
 async def test_make_role_resolves_permissions(db_ready: None) -> None:
-    await make_role("Editor", "auth.view_user", "auth.change_user")
+    await make_role("Editor", "auth.users.read", "auth.users.manage")
     async with session_scope() as db:
         row = await db.scalar(
             sa.select(Role).where(Role.name == "Editor").options(selectinload(Role.permissions))
         )
         assert row is not None
-        names = sorted(f"{p.app_label}.{p.codename}" for p in row.permissions)
-        assert names == ["auth.change_user", "auth.view_user"]
+        names = sorted(p.name for p in row.permissions)
+        assert names == ["auth.users.manage", "auth.users.read"]
 
 
 async def test_make_role_rejects_unknown_permission(db_ready: None) -> None:
     with pytest.raises(ValueError, match="does not exist"):
-        await make_role("Broken", "nope.not_a_perm")
+        await make_role("Broken", "nope.resource.missing")
 
 
 async def test_make_role_updates_existing_permissions(db_ready: None) -> None:
-    first = await make_role("Editor", "auth.view_user")
-    second = await make_role("Editor", "auth.change_user")
+    first = await make_role("Editor", "auth.users.read")
+    second = await make_role("Editor", "auth.users.manage")
     assert first.id == second.id
     async with session_scope() as db:
         row = await db.scalar(
             sa.select(Role).where(Role.id == first.id).options(selectinload(Role.permissions))
         )
         assert row is not None
-        assert [permission.full_name for permission in row.permissions] == ["auth.change_user"]
+        assert [permission.name for permission in row.permissions] == ["auth.users.manage"]
 
 
 async def test_grant_permissions_attaches_personal_role(db_ready: None) -> None:
     user = await make_user(nova)
-    await grant_permissions(user, "auth.view_user")
+    await grant_permissions(user, "auth.users.read")
     async with session_scope() as db:
         row = await db.get(User, user.id)
         assert row is not None
         await db.refresh(row, ["roles"])
         assert [role.name for role in row.roles] == [f"{nova}-role"]
-    assert await user_has_perm_permission(user.id, "auth", "view_user")
+    assert await user_has_perm_permission(user.id, "auth.users.read")
 
 
-async def user_has_perm_permission(user_id: int, app_label: str, codename: str) -> bool:
+async def user_has_perm_permission(user_id: int, name: str) -> bool:
     async with session_scope() as db:
         row = await db.get(User, user_id)
         assert row is not None
         await db.refresh(row, ["roles"])
         for role in row.roles:
             await db.refresh(role, ["permissions"])
-        return any(
-            permission.app_label == app_label and permission.codename == codename
-            for role in row.roles
-            for permission in role.permissions
-        )
+        return any(permission.name == name for role in row.roles for permission in role.permissions)
 
 
 async def test_duplicate_grant_permissions_does_not_duplicate(db_ready: None) -> None:
     user = await make_user(alice)
-    await grant_permissions(user, "auth.view_user")
-    await grant_permissions(user, "auth.view_user", "auth.change_user")
+    await grant_permissions(user, "auth.users.read")
+    await grant_permissions(user, "auth.users.read", "auth.users.manage")
 
     async def count_roles() -> int:
         from obox_builder.contrib.auth.models import Role
@@ -110,7 +106,7 @@ async def test_duplicate_grant_permissions_does_not_duplicate(db_ready: None) ->
             )
 
     assert await count_roles() == 1
-    assert await user_has_perm_permission(user.id, "auth", "change_user")
+    assert await user_has_perm_permission(user.id, "auth.users.manage")
 
 
 async def test_build_client_uses_asgi_transport(db_ready: None) -> None:

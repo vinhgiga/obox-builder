@@ -101,7 +101,7 @@ async def test_edit_assigns_roles_and_deactivation_revokes_sessions(
     from obox_builder.db.session import session_scope
 
     await make_user("alice", is_superuser=True)
-    await grant_permissions("alice", "auth.view_user", "auth.change_user")
+    await grant_permissions("alice", "auth.users.read", "auth.users.manage")
     await make_user("bob")
     async with session_scope() as db:
         db.add(Role(name="Editors"))
@@ -164,7 +164,7 @@ async def test_last_superuser_cannot_be_demoted(client: httpx.AsyncClient) -> No
 
 async def test_non_superuser_cannot_toggle_superuser_flag(client: httpx.AsyncClient) -> None:
     await make_user("alice")
-    await grant_permissions("alice", "auth.view_user", "auth.change_user")
+    await grant_permissions("alice", "auth.users.read", "auth.users.manage")
     await make_user("bob")
     await login_session(client, "alice")
     token = await csrf_for("alice")

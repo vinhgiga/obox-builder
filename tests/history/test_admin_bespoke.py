@@ -73,7 +73,7 @@ async def test_user_edit_shows_history_card_and_timeline(client: httpx.AsyncClie
 
 async def test_user_history_requires_the_history_permission(client: httpx.AsyncClient) -> None:
     await make_user("editor")
-    await grant_permissions("editor", "auth.view_user", "auth.change_user")
+    await grant_permissions("editor", "auth.users.read", "auth.users.manage")
     await login_session(client, "editor")
     target_id = await make_user("bob")
 
@@ -91,7 +91,7 @@ async def test_user_history_requires_the_history_permission(client: httpx.AsyncC
 
 async def test_user_history_permission_alone_is_not_enough(client: httpx.AsyncClient) -> None:
     await make_user("auditor")
-    await grant_permissions("auditor", "auth.change_user", "history.view_row_change")
+    await grant_permissions("auditor", "auth.users.manage", "history.rowChange.read")
     await login_session(client, "auditor")
     target_id = await make_user("bob")
 
@@ -163,7 +163,7 @@ async def test_role_edit_shows_history_card_and_timeline(client: httpx.AsyncClie
 
 async def test_role_history_requires_the_history_permission(client: httpx.AsyncClient) -> None:
     await make_user("editor")
-    await grant_permissions("editor", "auth.view_role", "auth.change_role")
+    await grant_permissions("editor", "auth.roles.read", "auth.roles.manage")
     await login_session(client, "editor")
     role_id = await make_role()
 

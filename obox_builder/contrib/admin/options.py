@@ -242,11 +242,10 @@ class ModelAdmin:
         return f"{self.comments_path(pk)}/{comment_id}/{action}"
 
     # -- permissions --------------------------------------------------------
-    def permission_codename(self, action: str) -> str:
-        return f"{action}_{self.model_name}"
-
     def permission_name(self, action: str) -> str:
-        return f"{self.app_label}.{self.permission_codename(action)}"
+        from obox_builder.contrib.auth.authz import model_permission
+
+        return model_permission(self.model, action)
 
     def has_view_permission(self, ctx: AdminContext, obj: Any = None) -> bool:
         return bool(

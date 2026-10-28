@@ -11,10 +11,10 @@ class HistoryConfig(AppConfig):
     name = "obox_builder.contrib.history"
     label = "history"
     verbose_name = "History"
-    permissions: ClassVar[list[tuple[str, str]]] = [
-        ("view_row_change", "Can view row changes"),
-        ("restore_row_change", "Can restore reverted row changes"),
-        ("export_row_change", "Can export row changes"),
+    permissions: ClassVar[list[str]] = [
+        "history.rowChange.read",
+        "history.rowChange.restore",
+        "history.rowChange.export",
     ]
 
     def ready(self) -> None:

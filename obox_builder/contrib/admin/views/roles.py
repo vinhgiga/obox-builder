@@ -30,19 +30,19 @@ from obox_builder.http.shortcuts import redirect
 
 logger = logging.getLogger(__name__)
 
-ViewRoles = Annotated[User, Depends(permission_required("auth.view_role"))]
-AddRoles = Annotated[User, Depends(permission_required("auth.add_role"))]
-ChangeRoles = Annotated[User, Depends(permission_required("auth.change_role"))]
-DeleteRoles = Annotated[User, Depends(permission_required("auth.delete_role"))]
+ViewRoles = Annotated[User, Depends(permission_required("auth.roles.read"))]
+AddRoles = Annotated[User, Depends(permission_required("auth.roles.manage"))]
+ChangeRoles = Annotated[User, Depends(permission_required("auth.roles.manage"))]
+DeleteRoles = Annotated[User, Depends(permission_required("auth.roles.manage"))]
 HistoryRoles = Annotated[User, Depends(permission_required(HISTORY_VIEW_PERMISSION))]
 
-CRUD_ACTIONS = ("view", "add", "change", "delete")
+CRUD_ACTIONS = ("read", "create", "update", "delete", "manage")
 
 
 def _history_visible(user: User) -> bool:
     return (
         model_timeline_available(Role)
-        and user.has_perm("auth.view_role")
+        and user.has_perm("auth.roles.read")
         and user.has_perm(HISTORY_VIEW_PERMISSION)
     )
 
@@ -60,35 +60,30 @@ async def _history_for(db: AsyncSession, user: User, target: Role) -> dict[str, 
 
 
 async def _permission_matrix(db: AsyncSession) -> list[dict[str, object]]:
-    """Group permissions by app -> model with CRUD columns plus custom extras."""
-    rows = list(
-        await db.scalars(select(Permission).order_by(Permission.app_label, Permission.model))
+    """Group declared grants by service and resource."""
+    declared = {permission.name for permission in collect_permissions()}
+    rows = await db.scalars(
+        select(Permission).order_by(Permission.service, Permission.resource, Permission.action)
     )
-    by_id = {(row.app_label, row.codename): row for row in rows}
-    declared = collect_permissions()
-
-    apps: dict[str, dict[str, list[Permission]]] = {}
-    for entry in declared:
-        row = by_id.get((entry.app_label, entry.codename))
-        if row is None:
-            continue
-        apps.setdefault(entry.app_label, {}).setdefault(entry.model or "", []).append(row)
-
+    services: dict[str, dict[str, list[Permission]]] = {}
+    for permission in rows:
+        if permission.name in declared:
+            services.setdefault(permission.service, {}).setdefault(permission.resource, []).append(
+                permission
+            )
     matrix: list[dict[str, object]] = []
-    for app_label in sorted(apps):
+    for service, resources in services.items():
         models: list[dict[str, object]] = []
-        for model in sorted(apps[app_label]):
-            permissions = apps[app_label][model]
+        for resource, permissions in resources.items():
             crud: dict[str, Permission | None] = dict.fromkeys(CRUD_ACTIONS)
             extras: list[Permission] = []
             for permission in permissions:
-                action, _, subject = permission.codename.partition("_")
-                if model and action in CRUD_ACTIONS and subject == model:
-                    crud[action] = permission
+                if permission.action in CRUD_ACTIONS:
+                    crud[permission.action] = permission
                 else:
                     extras.append(permission)
-            models.append({"name": model or "(other)", "crud": crud, "extras": extras})
-        matrix.append({"app_label": app_label, "models": models})
+            models.append({"name": resource, "crud": crud, "extras": extras})
+        matrix.append({"service": service, "models": models})
     return matrix
 
 
@@ -214,13 +209,13 @@ async def role_edit_submit(
     )
     if role is None:
         return render(request, "admin/errors/404.html", {}, status_code=404)
-    administration.check_role(user, role)
+    administration.check_role(user.actor(), role)
     permissions = list(
         await db.scalars(select(Permission).where(Permission.id.in_(permission_ids)))
     )
     if {perm.id for perm in permissions} != set(permission_ids):
         raise PermissionDenied("Unknown permission.")
-    administration.check_permissions(user, permissions)
+    administration.check_permissions(user.actor(), permissions)
     errors: list[str] = []
     cleaned = name.strip()
     if not cleaned:
@@ -269,7 +264,7 @@ async def role_delete(
     )
     if role is None:
         return render(request, "admin/errors/404.html", {}, status_code=404)
-    administration.check_role(user, role)
+    administration.check_role(user.actor(), role)
     await db.delete(role)
     logger.info("Admin %r deleted role %r", user.username, role.name)
     await flash(request, f"Role {role.name!r} deleted.")

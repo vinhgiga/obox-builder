@@ -22,8 +22,8 @@ from obox_builder.core.utils.time import utcnow
 from obox_builder.db.session import get_db
 from obox_builder.http.shortcuts import redirect
 
-TaskReaders = Annotated[User, Depends(permission_required("jobs.view_task"))]
-WorkerReaders = Annotated[User, Depends(permission_required("jobs.view_worker"))]
+TaskReaders = Annotated[User, Depends(permission_required("jobs.task.read"))]
+WorkerReaders = Annotated[User, Depends(permission_required("jobs.worker.read"))]
 PAGE_SIZE = 50
 STATES = {
     "PENDING": ("Queued", "yellow"),
@@ -61,9 +61,9 @@ async def _render(request: Request, template: str, **values: Any) -> Response:
 
 
 async def job_index(
-    user: Annotated[User, Depends(any_permission_required("jobs.view_task", "jobs.view_worker"))],
+    user: Annotated[User, Depends(any_permission_required("jobs.task.read", "jobs.worker.read"))],
 ) -> Response:
-    target = "tasks" if user.has_perm("jobs.view_task") else "workers"
+    target = "tasks" if user.has_perm("jobs.task.read") else "workers"
     return redirect(f"/admin/jobs/{target}", status_code=303)
 
 
@@ -189,7 +189,7 @@ async def task_detail(
     )
     older = attempts[PAGE_SIZE - 1].retries if len(attempts) > PAGE_SIZE else None
     payload = None
-    if user.has_perm("jobs.view_task_payload"):
+    if user.has_perm("jobs.task.readPayload"):
         payload = {
             key: json.dumps(getattr(row, key), indent=2, ensure_ascii=False)
             for key in ("args", "kwargs", "result")
@@ -208,8 +208,8 @@ async def task_detail(
         older=older,
         before=before,
         terminal=row.status in ("SUCCESS", "FAILURE", "REVOKED"),
-        can_retry=user.has_perm("jobs.retry_task") and row.status in ("FAILURE", "REVOKED"),
-        can_revoke=user.has_perm("jobs.revoke_task")
+        can_retry=user.has_perm("jobs.task.retry") and row.status in ("FAILURE", "REVOKED"),
+        can_revoke=user.has_perm("jobs.task.revoke")
         and row.status in ("PENDING", "STARTED", "RETRY"),
     )
 
@@ -223,7 +223,7 @@ async def task_action(
 ) -> Response:
     if action not in ("retry", "revoke"):
         raise HTTPException(404, "Unknown task action.")
-    if not user.has_perm(f"jobs.{action}_task"):
+    if not user.has_perm(f"jobs.task.{action}"):
         raise HTTPException(403, "You do not have permission to perform this action.")
     form = await request.form()
     await ensure_csrf(request, str(form.get("csrf_token", "")))

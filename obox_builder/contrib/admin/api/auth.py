@@ -12,7 +12,7 @@ from obox_builder.conf import settings
 from obox_builder.contrib.admin.api.deps import DB, USER, check_origin, json_body, session_only
 from obox_builder.contrib.admin.api.problems import Problem, problem_response
 from obox_builder.contrib.auth import csrf, services, sessions
-from obox_builder.contrib.auth.permissions import get_user_permissions
+from obox_builder.contrib.auth.permissions import get_actor
 from obox_builder.contrib.auth.validators import PasswordValidationError
 
 
@@ -87,7 +87,8 @@ def register_auth(router: APIRouter) -> None:
         token, auth_session = await sessions.create_session(
             db, user.id, backend=backend, ip=peer, user_agent=request.headers.get("user-agent")
         )
-        user.permissions = await get_user_permissions(db, user.id)
+        request.state.actor = await get_actor(db, user)
+        user.permissions = request.state.actor.permissions
         request.state.user = user
         response = JSONResponse(identity(user, auth_session))
         sessions.set_session_cookie(response, token)

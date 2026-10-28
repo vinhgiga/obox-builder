@@ -24,11 +24,13 @@ def admin_env(monkeypatch: pytest.MonkeyPatch) -> None:
 async def permission_id(name: str) -> str:
     from obox_builder.contrib.auth.models import Permission
 
-    app, codename = name.split(".")
+    service, resource, action = name.split(".")
     async with session_scope() as db:
         value = await db.scalar(
             sa.select(Permission.id).where(
-                Permission.app_label == app, Permission.codename == codename
+                Permission.service == service,
+                Permission.resource == resource,
+                Permission.action == action,
             )
         )
         assert value is not None
@@ -42,7 +44,7 @@ async def test_accounts_switch_crud_etags_and_secret_redaction(api: httpx.AsyncC
     headers = await sign_in(api)
     assert (await api.get(f"{BASE}/users")).status_code == 404
     site_for(api).api_auth_enabled = True
-    permission = await permission_id("shop.view_product")
+    permission = await permission_id("shop.product.read")
     role = await api.post(
         f"{BASE}/roles", headers=headers, json={"name": "Reader", "permission_ids": [permission]}
     )
@@ -131,7 +133,7 @@ async def test_delegation_policy_applies_to_api_and_html(api: httpx.AsyncClient)
     privileged = await api.post(
         f"{BASE}/roles",
         headers=headers,
-        json={"name": "Privileged", "permission_ids": [await permission_id("shop.delete_product")]},
+        json={"name": "Privileged", "permission_ids": [await permission_id("shop.product.delete")]},
     )
     role = privileged.json()
     target = (
@@ -148,13 +150,12 @@ async def test_delegation_policy_applies_to_api_and_html(api: httpx.AsyncClient)
     headers = await sign_in(api, username="delegate", superuser=False)
     await grant_permissions(
         "delegate",
-        "auth.view_user",
-        "auth.add_user",
-        "auth.change_user",
-        "auth.view_role",
-        "auth.change_role",
-        "auth.delete_role",
-        "shop.view_product",
+        "auth.users.read",
+        "auth.users.manage",
+        "auth.roles.read",
+        "auth.roles.manage",
+        "auth.roles.manage",
+        "shop.product.read",
     )
     assert (
         await api.post(
@@ -226,7 +227,7 @@ async def test_last_superuser_and_pat_cannot_escalate(api: httpx.AsyncClient) ->
             headers=bearer,
             json={
                 "name": "Too broad",
-                "permission_ids": [await permission_id("shop.delete_product")],
+                "permission_ids": [await permission_id("shop.product.delete")],
             },
         )
     ).status_code == 403
@@ -234,7 +235,7 @@ async def test_last_superuser_and_pat_cannot_escalate(api: httpx.AsyncClient) ->
         await api.post(
             f"{BASE}/roles",
             headers=bearer,
-            json={"name": "Scoped", "permission_ids": [await permission_id("shop.view_product")]},
+            json={"name": "Scoped", "permission_ids": [await permission_id("shop.product.read")]},
         )
     ).status_code == 201
     assert (
@@ -244,6 +245,31 @@ async def test_last_superuser_and_pat_cannot_escalate(api: httpx.AsyncClient) ->
             json={"password": "reset-secure-password"},
         )
     ).status_code == 403
+
+
+@pytest.mark.parametrize(
+    "scopes,status",
+    [
+        (["auth.user:write"], 403),
+        (["auth.user:delete"], 403),
+        (["auth.user:write", "auth.user:delete"], 201),
+    ],
+)
+async def test_pat_needs_all_manage_operations_to_delegate(
+    api: httpx.AsyncClient, scopes: list[str], status: int
+) -> None:
+    headers = await sign_in(api)
+    site_for(api).api_auth_enabled = True
+    token = await mint(api, headers, ["auth.role:write", *scopes])
+    response = await api.post(
+        f"{BASE}/roles",
+        headers={"Authorization": f"Bearer {token['token']}"},
+        json={
+            "name": "User administrators",
+            "permission_ids": [await permission_id("auth.users.manage")],
+        },
+    )
+    assert response.status_code == status, response.text
 
 
 async def test_history_scoping_masks_and_revert_hooks(
@@ -337,10 +363,10 @@ async def test_deleted_history_superuser_only_and_restore(
     await sign_in(api, superuser=False, username="reader")
     await grant_permissions(
         "reader",
-        "warehouse.view_shelf",
-        "history.view_row_change",
-        "history.restore_row_change",
-        "warehouse.add_shelf",
+        "warehouse.shelf.read",
+        "history.rowChange.read",
+        "history.rowChange.restore",
+        "warehouse.shelf.create",
     )
     assert (await api.get(f"{path}/history")).status_code == 404
     assert (await api.get(f"{BASE}/history")).json()["entries"] == []
@@ -601,9 +627,9 @@ async def test_history_revert_conflicts_force_and_permissions(api: httpx.AsyncCl
     bearer = {"Authorization": f"Bearer {token['token']}", "If-Match": forced.headers["etag"]}
     assert (await api.post(revert, headers=bearer, json={"force": True})).status_code == 403
     await sign_in(api, username="viewer", superuser=False)
-    await grant_permissions("viewer", "warehouse.view_item")
+    await grant_permissions("viewer", "warehouse.item.read")
     assert (await api.get(path + "/history")).status_code == 403
-    await grant_permissions("viewer", "history.view_row_change")
+    await grant_permissions("viewer", "history.rowChange.read")
     assert (await api.get(path + "/history")).status_code == 200
     assert (
         await api.post(revert, headers={**headers, "If-Match": forced.headers["etag"]}, json={})
@@ -632,7 +658,7 @@ async def test_comment_author_deleted_redaction_validation_and_rate_limit(
     ).status_code == 204
     other = await sign_in(api, username="commenter", superuser=False)
     await grant_permissions(
-        "commenter", "warehouse.view_item", "comments.view_row_comment", "comments.add_row_comment"
+        "commenter", "warehouse.item.read", "comments.rowComment.read", "comments.rowComment.create"
     )
     listing = await api.get(path)
     assert listing.status_code == 200, listing.text

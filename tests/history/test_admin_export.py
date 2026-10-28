@@ -109,12 +109,12 @@ async def test_export_masks_fields_and_marks_them(client: httpx.AsyncClient) -> 
 
 async def test_export_requires_the_export_permission(client: httpx.AsyncClient) -> None:
     await make_user("viewer")
-    await grant_permissions("viewer", "history.view_row_change")
+    await grant_permissions("viewer", "history.rowChange.read")
     await login_session(client, "viewer")
     denied = await client.get(EXPORT_URL)
     assert denied.status_code == 403
 
-    await grant_permissions("viewer", "history.export_row_change")
+    await grant_permissions("viewer", "history.rowChange.export")
     allowed = await client.get(EXPORT_URL)
     assert allowed.status_code == 200
     assert "auth.user" not in allowed.text

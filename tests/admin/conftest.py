@@ -194,10 +194,12 @@ async def grant_permissions(username: str, *permissions: str) -> None:
             await db.flush()
         await db.refresh(role, ["permissions"])
         for name in permissions:
-            app_label, _, codename = name.partition(".")
+            service, resource, action = name.split(".")
             perm = await db.scalar(
                 sa.select(Permission).where(
-                    Permission.app_label == app_label, Permission.codename == codename
+                    Permission.service == service,
+                    Permission.resource == resource,
+                    Permission.action == action,
                 )
             )
             assert perm is not None

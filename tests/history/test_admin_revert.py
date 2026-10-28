@@ -138,9 +138,9 @@ async def test_revert_update_requires_restore_and_change_permissions(
     await make_user("editor")
     await grant_permissions(
         "editor",
-        "warehouse.view_item",
-        "warehouse.change_item",
-        "history.view_row_change",
+        "warehouse.item.read",
+        "warehouse.item.update",
+        "history.rowChange.read",
     )
     await login_session(client, "editor")
     await edit_item(client, "editor", item_id, quantity="9")
@@ -153,7 +153,7 @@ async def test_revert_update_requires_restore_and_change_permissions(
     denied = await revert(client, "editor", item_id, update_id)
     assert denied.status_code == 403
 
-    await grant_permissions("editor", "history.restore_row_change")
+    await grant_permissions("editor", "history.rowChange.restore")
     restored = await revert(client, "editor", item_id, update_id)
     assert restored.status_code == 303
 
@@ -238,17 +238,17 @@ async def test_revert_create_needs_delete_permission(client: httpx.AsyncClient) 
     await make_user("keeper")
     await grant_permissions(
         "keeper",
-        "warehouse.view_item",
-        "warehouse.change_item",
-        "warehouse.add_item",
-        "history.view_row_change",
-        "history.restore_row_change",
+        "warehouse.item.read",
+        "warehouse.item.update",
+        "warehouse.item.create",
+        "history.rowChange.read",
+        "history.rowChange.restore",
     )
     await login_session(client, "keeper")
 
     response = await revert(client, "keeper", item_id, create_id)
     assert response.status_code == 403
-    assert "warehouse.delete_item" in response.text
+    assert "warehouse.item.delete" in response.text
 
 
 async def test_revert_delete_restores_the_same_primary_key(client: httpx.AsyncClient) -> None:
