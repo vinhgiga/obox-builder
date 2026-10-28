@@ -36,6 +36,7 @@ from obox_builder.contrib.admin.options import AdminRoute, ModelAdmin
 from obox_builder.contrib.admin.relations import build_cells, relation_choices
 from obox_builder.contrib.admin.rendering import render
 from obox_builder.contrib.admin.services import RecordService
+from obox_builder.contrib.admin.services.records import record_values
 from obox_builder.contrib.admin.site import AdminSite
 from obox_builder.contrib.admin.summaries import summary_choices
 from obox_builder.contrib.admin.uniqueness import validate_model_uniqueness
@@ -168,9 +169,14 @@ def _register_one(router: APIRouter, site: AdminSite, admin: ModelAdmin) -> None
             return _not_found(ctx, str(exc))
         if not (admin.has_view_permission(ctx, target) or admin.has_change_permission(ctx, target)):
             admin.check_permission(ctx, "view", target)
-        spec = next(
-            (field for field in admin.get_form_fields(ctx) if field.name == field_name), None
-        )
+        specs = [field for field in admin.get_form_fields(ctx) if not field.secret]
+        spec = next((field for field in specs if field.name == field_name), None)
+        if (
+            spec is not None
+            and spec.show_if is not None
+            and not spec.show_if(ctx.record_context(record_values(target, specs)))
+        ):
+            return _not_found(ctx, "File not found.")
         relative = str(getattr(target, field_name, ""))
         file_obj = open_upload(relative) if spec is not None and spec.type.name == "file" else None
         if file_obj is None:

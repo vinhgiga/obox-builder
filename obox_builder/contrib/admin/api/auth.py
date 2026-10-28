@@ -136,12 +136,15 @@ def register_auth(router: APIRouter) -> None:
         try:
             await services.change_password(db, user, payload.current_password, payload.new_password)
         except PasswordValidationError as exc:
-            raise Problem(
-                422,
-                "validation_error",
-                "Password change failed.",
-                errors={"new_password": exc.errors},
-            ) from exc
+            return problem_response(
+                request,
+                Problem(
+                    422,
+                    "validation_error",
+                    "Password change failed.",
+                    errors={"new_password": exc.errors},
+                ),
+            )
         token, auth_session = await sessions.create_session(
             db,
             user.id,

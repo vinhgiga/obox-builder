@@ -84,7 +84,7 @@ class FeedFilters:
                 return [false()]
             clauses.append(RowChange.model_label.in_(self.model_labels))
         if self.actor:
-            clauses.append(RowChange.actor_label.ilike(f"%{self.actor}%"))
+            clauses.append(RowChange.actor_label.icontains(self.actor, autoescape=True))
         if self.source:
             clauses.append(RowChange.source == self.source)
         if self.op:

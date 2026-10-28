@@ -15,6 +15,8 @@ from obox_builder.contrib.admin.api.problems import Problem
 from obox_builder.contrib.admin.context import AdminContext
 from obox_builder.contrib.admin.relations import related_key, related_objects
 from obox_builder.contrib.admin.services import RecordService
+from obox_builder.contrib.admin.services.records import field_value as field_value
+from obox_builder.contrib.admin.services.records import record_values as record_values
 from obox_builder.fields import FieldSpec
 
 
@@ -32,24 +34,6 @@ def api_specs(ctx: AdminContext) -> list[FieldSpec]:
         for spec in ctx.admin.get_form_fields(ctx)
         if not spec.secret
     ]
-
-
-def field_value(obj: Any, spec: FieldSpec) -> Any:
-    attr = str(spec.options.get("value_attr") or spec.name)
-    if spec.type.name == "link" and spec.column is not None:
-        attr = str(spec.column.key)
-    return getattr(obj, attr, None)
-
-
-def record_values(obj: Any, specs: Sequence[FieldSpec]) -> dict[str, Any]:
-    values = {}
-    for spec in specs:
-        value = field_value(obj, spec)
-        if spec.type.name == "multi_link":
-            key = related_key(spec)
-            value = [getattr(item, key.key) for item in value or []]
-        values[spec.name] = value
-    return values
 
 
 async def serialize_records(

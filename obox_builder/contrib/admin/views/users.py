@@ -84,8 +84,9 @@ async def user_list(
     statement = select(User).order_by(User.username)
     counter = select(func.count()).select_from(User)
     if query_text:
-        pattern = f"%{query_text.lower()}%"
-        condition = func.lower(User.username).like(pattern) | func.lower(User.email).like(pattern)
+        condition = User.username.icontains(query_text, autoescape=True) | User.email.icontains(
+            query_text, autoescape=True
+        )
         statement = statement.where(condition)
         counter = counter.where(condition)
 

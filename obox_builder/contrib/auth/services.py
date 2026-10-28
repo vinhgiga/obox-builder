@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from asyncio import to_thread
 from datetime import timedelta
 
 from fastapi import Request
@@ -76,7 +77,7 @@ async def set_password(
         errors = validate_password(raw_password, username=user.username)
         if errors:
             raise PasswordValidationError(errors)
-    user.password_hash = hash_password(raw_password)
+    user.password_hash = await to_thread(hash_password, raw_password)
     user.password_changed_at = utcnow()
     user.failed_login_count = 0
     user.locked_until = None
@@ -86,23 +87,24 @@ async def set_password(
 
 async def _authenticate_model(db: AsyncSession, username: str, password: str) -> User | None:
     """Return the user on success; throttle and constant-time behaviour on failure."""
-    user = await get_user_by_username(db, username)
+    user = await db.scalar(
+        select(User)
+        .where(User.username == normalize_username(username))
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
     now = utcnow()
     if user is None:
-        verify_dummy(password)
+        await to_thread(verify_dummy, password)
         logger.info("Failed login for unknown username %r", username)
         return None
     if user.locked_until is not None and ensure_aware(user.locked_until) > now:
-        verify_dummy(password)
+        await to_thread(verify_dummy, password)
         logger.info("Login attempt for locked user %r", user.username)
         return None
-    valid, updated_hash = verify_and_update(password, user.password_hash)
+    valid, updated_hash = await to_thread(verify_and_update, password, user.password_hash)
     if not valid:
-        user.failed_login_count += 1
-        if user.failed_login_count >= settings.LOGIN_MAX_ATTEMPTS:
-            user.locked_until = now + timedelta(seconds=settings.LOGIN_LOCKOUT_SECONDS)
-            user.failed_login_count = 0
-            logger.info("User %r locked until %s", user.username, user.locked_until)
+        _record_password_failure(user)
         await db.flush()
         return None
     if updated_hash is not None:
@@ -112,6 +114,14 @@ async def _authenticate_model(db: AsyncSession, username: str, password: str) ->
     user.last_login_at = now
     await db.flush()
     return user
+
+
+def _record_password_failure(user: User) -> None:
+    user.failed_login_count += 1
+    if user.failed_login_count >= settings.LOGIN_MAX_ATTEMPTS:
+        user.locked_until = utcnow() + timedelta(seconds=settings.LOGIN_LOCKOUT_SECONDS)
+        user.failed_login_count = 0
+        logger.info("User %r locked until %s", user.username, user.locked_until)
 
 
 async def authenticate_with_backend(
@@ -144,8 +154,13 @@ async def change_password(
     db: AsyncSession, user: User, current_password: str, new_password: str
 ) -> int:
     """Change a password after checking the current one; revokes other sessions."""
-    if not is_usable_password(user.password_hash) or not verify_password(
-        current_password, user.password_hash
+    await db.refresh(user, with_for_update=True)
+    if user.locked_until is not None and ensure_aware(user.locked_until) > utcnow():
+        raise PasswordValidationError(["Too many incorrect attempts. Try again later."])
+    if not is_usable_password(user.password_hash) or not await to_thread(
+        verify_password, current_password, user.password_hash
     ):
+        _record_password_failure(user)
+        await db.flush()
         raise PasswordValidationError(["Current password is incorrect."])
     return await set_password(db, user, new_password)

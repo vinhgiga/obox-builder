@@ -32,6 +32,7 @@ async def get_auth_session(
         return None
     if await sessions.touch_session(db, row):
         sessions.set_session_cookie(response, token)
+        request.state.session_renewal_cookie = response.headers.getlist("set-cookie")[-1]
     request.state.auth_session = row
     return row
 

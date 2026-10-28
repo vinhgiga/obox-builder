@@ -13,13 +13,31 @@ from obox_builder.conf import settings
 from obox_builder.contrib.admin.context import AdminContext
 from obox_builder.contrib.admin.deletion import DeletionPlan, collect_deletion
 from obox_builder.contrib.admin.pagination import AdminPage
-from obox_builder.contrib.admin.relations import validate_relations
+from obox_builder.contrib.admin.relations import related_key, validate_relations
 from obox_builder.contrib.admin.uniqueness import validate_model_uniqueness
 from obox_builder.contrib.admin.uploads import discard_uploads, persist_uploads
 from obox_builder.contrib.auth.tokens import scope_allows
 from obox_builder.core.exceptions import PermissionDenied
 from obox_builder.fields import FieldSpec, QuerySpec
 from obox_builder.forms import BoundForm
+
+
+def field_value(obj: Any, spec: FieldSpec) -> Any:
+    attr = str(spec.options.get("value_attr") or spec.name)
+    if spec.type.name == "link" and spec.column is not None:
+        attr = str(spec.column.key)
+    return getattr(obj, attr, None)
+
+
+def record_values(obj: Any, specs: Sequence[FieldSpec]) -> dict[str, Any]:
+    values = {}
+    for spec in specs:
+        value = field_value(obj, spec)
+        if spec.type.name == "multi_link":
+            key = related_key(spec)
+            value = [getattr(item, key.key) for item in value or []]
+        values[spec.name] = value
+    return values
 
 
 class RecordService:

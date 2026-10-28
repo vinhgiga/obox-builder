@@ -1,6 +1,6 @@
 """Streaming export of history entries (NDJSON/CSV) for compliance hand-offs.
 
-CSV cells that start with ``=``, ``+``, ``-`` or ``@`` are prefixed with ``'``
+CSV cells that could start spreadsheet formulas are prefixed with ``'``
 to defuse spreadsheet formula injection. Exports are read-only and every run
 logs one line to the ``obox.history.audit`` logger.
 """
@@ -44,7 +44,11 @@ CSV_COLUMNS = (
 
 def guard_cell(value: str) -> str:
     """Prefix spreadsheet formula starters so CSV opens safely."""
-    return f"'{value}" if value.startswith(FORMULA_PREFIXES) else value
+    return (
+        f"'{value}"
+        if value.lstrip().startswith(FORMULA_PREFIXES) or value.startswith(("\t", "\r", "\n"))
+        else value
+    )
 
 
 def as_dict(entry: RowChange) -> dict[str, Any]:

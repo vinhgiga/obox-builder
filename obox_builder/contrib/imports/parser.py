@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import csv
 import io
+import math
 import re
+import zlib
 from collections.abc import Iterator
 from contextlib import suppress
 from datetime import date, datetime, time
@@ -65,7 +67,7 @@ def _check_archive(content: bytes) -> None:
             types = fromstring(archive.read("[Content_Types].xml"))
             if any("macroEnabled" in item.attrib.get("ContentType", "") for item in types):
                 raise ImportFileError("Macro-enabled workbooks are unsupported.")
-    except (BadZipFile, KeyError, RuntimeError) as exc:
+    except (BadZipFile, EOFError, KeyError, RuntimeError, zlib.error) as exc:
         raise ImportFileError("The workbook archive is invalid.") from exc
 
 
@@ -77,13 +79,15 @@ def _cell(cell: Any, cached: Any) -> Any:
     if cell.data_type == "e":
         return {"error": "The Excel cell contains an error."}
     value = cell.value
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ImportFileError("The worksheet contains a non-finite number.")
     if isinstance(value, (datetime, date, time)):
         return value.isoformat()
     if (
         isinstance(value, (int, float))
         and not isinstance(value, bool)
-        and value == int(value)
         and re.fullmatch(r"0{2,}", cell.number_format or "")
+        and value == int(value)
     ):
         return str(int(value)).zfill(len(cell.number_format))
     return value
@@ -115,6 +119,9 @@ class Spreadsheet:
                 ParseError,
                 KeyError,
                 ValueError,
+                OverflowError,
+                EOFError,
+                zlib.error,
             ) as exc:
                 self.__exit__(None, None, None)
                 raise ImportFileError("The workbook could not be read safely.") from exc
@@ -134,7 +141,19 @@ class Spreadsheet:
     def rows(self, sheet: str) -> Iterator[tuple[int, list[Any]]]:
         try:
             yield from self._rows(sheet)
-        except (csv.Error, BadZipFile, DefusedXmlException, ParseError) as exc:
+        except ImportFileError:
+            raise
+        except (
+            csv.Error,
+            BadZipFile,
+            DefusedXmlException,
+            ParseError,
+            KeyError,
+            ValueError,
+            OverflowError,
+            EOFError,
+            zlib.error,
+        ) as exc:
             raise ImportFileError("The worksheet could not be read safely.") from exc
 
     def _rows(self, sheet: str) -> Iterator[tuple[int, list[Any]]]:

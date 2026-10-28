@@ -3,15 +3,15 @@
 PostgreSQL only. The conversion from a plain table to a partitioned one is
 *printed* (``history_partition --sql``) rather than executed by the CLI: it is a
 maintenance-window operation that rearranges a live, append-only table, so an
-operator reviews and applies it (see ``docs/history.md``). Once partitioned:
+operator reviews and applies it. Once partitioned:
 
 * ``ensure`` creates the coming months plus a ``DEFAULT`` partition, so inserts
   never fail when the cron drifts;
 * ``drop_before`` applies retention with ``DROP TABLE`` on whole month
   partitions (O(1), no bloat), never touching ``obox_row_change_default``.
 
-Partition names are ``obox_row_change_YYYYMM``; only names this module minted
-are ever dropped.
+New partition names are ``obox_row_change_YYYYMM``. Retention covers all attached
+partitions with a recognized upper bound, including the legacy partition.
 """
 
 from __future__ import annotations
@@ -114,8 +114,7 @@ async def partition_infos(db: AsyncSession) -> list[PartitionInfo]:
         raise PartitionError(f"Table {TABLE} does not exist.")
     if kind != "p":
         raise PartitionError(
-            f"{TABLE} is not partitioned yet. Review and apply `history_partition --sql` "
-            "(see docs/history.md, Partitioning on PostgreSQL)."
+            f"{TABLE} is not partitioned yet. Review and apply `history_partition --sql`."
         )
     rows = await db.execute(
         sa.text(
@@ -191,10 +190,10 @@ async def drop_before(
         if info.is_default or info.upper is None or info.upper > cutoff:
             result.kept.append(info.name)
             continue
-        # Identifier is safe: partition_infos only returns our own names
-        # (NAME_RE) or the DEFAULT partition; unmanaged ones are ignored.
+        # Catalog names include legacy and manually attached partitions.
+        name = db.get_bind().dialect.identifier_preparer.quote(info.name)
         count = int(
-            await db.scalar(sa.text(f"SELECT count(*) FROM {info.name}")) or 0  # noqa: S608
+            await db.scalar(sa.text(f"SELECT count(*) FROM {name}")) or 0  # noqa: S608
         )
         logger.warning(
             "history_partition: drop %s (retention before %s, %d row(s)).",
@@ -203,7 +202,7 @@ async def drop_before(
             count,
         )
         if not dry_run:
-            await db.execute(sa.text(f"DROP TABLE {info.name}"))
+            await db.execute(sa.text(f"DROP TABLE {name}"))
         result.dropped.append(info.name)
         result.rows_dropped += count
     if not dry_run:

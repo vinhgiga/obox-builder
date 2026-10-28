@@ -43,7 +43,7 @@ class Model(ModelBase):
     __permissions__: ClassVar[list[tuple[str, str]]] = []
     #: Row-history declaration: ``True`` for defaults, ``False``/``None`` to opt
     #: out, or a mapping with ``fields``/``exclude``/``relations``/``mask``/
-    #: ``retention_days`` (see ``docs/history.md``).
+    #: ``retention_days``.
     __history__: ClassVar[bool | Mapping[str, Any] | None] = None
     #: Row-comments declaration: ``True`` for defaults, ``False``/``None`` to opt
     #: out, or a mapping with ``max_length``/``allow_replies``/

@@ -41,6 +41,7 @@ from obox_builder.contrib.admin.views.history import model_timeline_available
 from obox_builder.contrib.admin.views.model import register_model_routes
 from obox_builder.contrib.admin.views.search import global_search
 from obox_builder.contrib.auth.models import Role, User
+from obox_builder.contrib.auth.routing import SessionRenewalRoute
 
 if TYPE_CHECKING:
     from obox_builder.contrib.admin.site import AdminSite
@@ -50,7 +51,11 @@ def build_router(site: AdminSite) -> APIRouter:
     async def bind_site(request: Request) -> None:
         request.state.admin_site = site
 
-    router = APIRouter(tags=["admin"], dependencies=[Depends(bind_site), Depends(bind_history)])
+    router = APIRouter(
+        tags=["admin"],
+        dependencies=[Depends(bind_site), Depends(bind_history)],
+        route_class=SessionRenewalRoute,
+    )
 
     router.add_api_route("/search", global_search, methods=["GET"], name="admin:search")
     router.add_api_route("/", dashboard, methods=["GET"], name="admin:dashboard")
