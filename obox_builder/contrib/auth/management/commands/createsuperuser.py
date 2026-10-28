@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import getpass
+from types import SimpleNamespace
 
 import typer
 
@@ -64,7 +65,12 @@ def handle(
                 if not password.strip():
                     utils.echo("Error: Blank passwords aren't allowed.", err=True)
                     continue
-                errors = validate_password(password, username=normalize_username(name))
+                errors = validate_password(
+                    password,
+                    user=SimpleNamespace(
+                        username=normalize_username(name), email=address.strip().lower()
+                    ),
+                )
                 if errors:
                     utils.echo("\n".join(errors), err=True)
                     response = typer.prompt(

@@ -74,7 +74,7 @@ async def set_password(
 ) -> int:
     """Hash and store a password, validating by default; revokes the user's sessions."""
     if validate:
-        errors = validate_password(raw_password, username=user.username)
+        errors = validate_password(raw_password, user=user)
         if errors:
             raise PasswordValidationError(errors)
     user.password_hash = await to_thread(hash_password, raw_password)

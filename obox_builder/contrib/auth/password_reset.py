@@ -116,7 +116,7 @@ async def reset_password(db: AsyncSession, token: str, new_password: str) -> boo
     user = await db.get(User, row.user_id)
     if user is None or not user.is_active:
         return False
-    errors = validate_password(new_password, username=user.username)
+    errors = validate_password(new_password, user=user)
     if errors:
         raise PasswordValidationError(errors)
 

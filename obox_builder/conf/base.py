@@ -84,6 +84,8 @@ class BaseSettings(PydanticBaseSettings):
     AUTHENTICATION_BACKENDS: list[str] = Field(
         default_factory=lambda: ["obox_builder.contrib.auth.backends.ModelBackend"]
     )
+    #: None preserves the legacy policy; [] disables password strength checks.
+    AUTH_PASSWORD_VALIDATORS: list[dict[str, Any]] | None = None
     EMAIL_BACKEND: str = "obox_builder.contrib.email.backends.SMTPBackend"
     EMAIL_HOST: str = "localhost"
     EMAIL_PORT: int = Field(default=25, ge=1, le=65535)

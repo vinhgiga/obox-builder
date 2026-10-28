@@ -227,13 +227,13 @@ def register_accounts(router: APIRouter) -> None:
         if "role_ids" in data:
             target.roles = await roles_for(db, actor, data.pop("role_ids"))
         password = data.pop("password", None)
+        for name, value in data.items():
+            setattr(target, name, services.normalize_email(value) if name == "email" else value)
         if password:
             try:
                 await services.set_password(db, target, password)
             except PasswordValidationError as exc:
                 raise Problem(422, "validation_error", str(exc)) from exc
-        for name, value in data.items():
-            setattr(target, name, services.normalize_email(value) if name == "email" else value)
         target.updated_at = utcnow()
         if not target.is_active:
             await sessions.revoke_user_sessions(db, target.id)

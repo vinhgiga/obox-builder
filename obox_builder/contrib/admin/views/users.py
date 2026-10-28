@@ -287,22 +287,20 @@ async def user_edit_submit(
     if password and password != confirm_password:
         errors.append("The two password fields do not match.")
 
-    if password:
-        from obox_builder.contrib.auth.validators import validate_password
-
-        errors.extend(validate_password(password, username=target.username))
     if not errors:
+        previous_email, previous_full_name = target.email, target.full_name
         target.email = services.normalize_email(email)
         target.full_name = full_name.strip()
-        target.is_active = is_active
-        if user.is_superuser:
-            target.is_superuser = is_superuser
         if password:
             try:
                 await services.set_password(db, target, password)
             except PasswordValidationError as exc:
                 errors = exc.errors
+                target.email, target.full_name = previous_email, previous_full_name
         if not errors:
+            target.is_active = is_active
+            if user.is_superuser:
+                target.is_superuser = is_superuser
             target.roles = selected
             if not target.is_active:
                 from obox_builder.contrib.auth import sessions as auth_sessions
