@@ -49,6 +49,8 @@ async def test_dedup_returns_original_and_rejects_different_arguments(db: AsyncS
     assert duplicate.id == original.id
     with pytest.raises(ValueError, match="different"):
         await enqueue(db, "jobs.cpu", args=[11], dedup_key="same")
+    with pytest.raises(ValueError, match="different"):
+        await enqueue(db, "jobs.cpu", args=[10], priority=1, dedup_key="same")
     await db.commit()
     assert await read(sa.select(sa.func.count()).select_from(Task)) == 1
 
@@ -61,6 +63,10 @@ async def test_dedup_returns_original_and_rejects_different_arguments(db: AsyncS
         {"dedup_key": ""},
         {"dedup_key": "x" * 256},
         {"eta": utcnow().replace(tzinfo=None)},
+        {"expires": utcnow().replace(tzinfo=None)},
+        {"priority": -1},
+        {"priority": 256},
+        {"priority": True},
         {"args": "invalid"},
         {"kwargs": []},
         {"kwargs": {1: "invalid"}},
@@ -87,6 +93,15 @@ async def test_snapshot_payload_and_limit(
     monkeypatch.setattr(settings.load(), "JOBS_MAX_PAYLOAD_BYTES", 4)
     with pytest.raises(ValueError, match="MAX_PAYLOAD"):
         await enqueue(db, "jobs.cpu")
+
+
+async def test_enqueue_stores_expiry_and_priority(db: AsyncSession) -> None:
+    expires = utcnow() + timedelta(hours=1)
+    row = await enqueue(db, "jobs.cpu", expires=expires, priority=7)
+    await db.commit()
+    stored = await read(sa.select(Task).where(Task.id == row.id))
+    assert stored.priority == 7
+    assert stored.expires.replace(tzinfo=expires.tzinfo) == expires
 
 
 async def test_eta_queue_and_revoking_queued_work(db: AsyncSession) -> None:

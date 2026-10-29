@@ -27,7 +27,7 @@ from obox_builder.contrib.jobs.presence import presence
 from obox_builder.contrib.jobs.registry import NAME_RE, get_task
 from obox_builder.contrib.jobs.services import require_enabled
 from obox_builder.core.exceptions import ImproperlyConfigured
-from obox_builder.core.utils.time import utcnow
+from obox_builder.core.utils.time import ensure_aware, utcnow
 from obox_builder.db.session import session_scope
 
 logger = logging.getLogger("obox.jobs")
@@ -49,6 +49,16 @@ def _fence(task: Task) -> Any:
 async def claim(queues: tuple[str, ...], worker: str) -> Task | None:
     now = utcnow()
     async with session_scope() as db:
+        await db.execute(
+            sa.update(Task)
+            .where(
+                Task.queue.in_(queues),
+                Task.status.in_(("PENDING", "RETRY")),
+                Task.expires.is_not(None),
+                Task.expires <= now,
+            )
+            .values(status="REVOKED", date_done=now, traceback="Expired")
+        )
         exhausted = list(
             (
                 await db.scalars(
@@ -77,7 +87,11 @@ async def claim(queues: tuple[str, ...], worker: str) -> Task | None:
                 .values(status="ABANDONED", date_done=now, traceback="LeaseExpired")
             )
         eligible = sa.or_(
-            sa.and_(Task.status.in_(("PENDING", "RETRY")), Task.eta <= now),
+            sa.and_(
+                Task.status.in_(("PENDING", "RETRY")),
+                Task.eta <= now,
+                sa.or_(Task.expires.is_(None), Task.expires > now),
+            ),
             sa.and_(
                 Task.status == "STARTED", Task.locked_until <= now, Task.retries < Task.max_retries
             ),
@@ -85,7 +99,7 @@ async def claim(queues: tuple[str, ...], worker: str) -> Task | None:
         candidate = (
             sa.select(Task.id)
             .where(Task.queue.in_(queues), eligible)
-            .order_by(Task.eta, Task.date_created, Task.id)
+            .order_by(Task.priority.desc(), Task.eta, Task.date_created, Task.id)
             .limit(1)
             .with_for_update(skip_locked=True)
             .scalar_subquery()
@@ -150,6 +164,8 @@ async def _execute(task: Task) -> dict[str, Any]:
         "kwargs": task.kwargs,
         "retries": task.retries,
         "worker": task.worker,
+        "expires": ensure_aware(task.expires).isoformat() if task.expires is not None else None,
+        "priority": task.priority,
     }
     # Private files avoid exposing arguments in process listings or mixing
     # task stdout with the result protocol. The directory outlives the child.

@@ -29,6 +29,8 @@ class TaskRequest:
     name: str
     retries: int
     hostname: str
+    expires: datetime | None = None
+    priority: int = 0
 
 
 _request: ContextVar[TaskRequest] = ContextVar("obox.jobs.request")
@@ -52,6 +54,8 @@ class TaskDefinition:
     name: str
     queue: str
     max_retries: int
+    expires: datetime | None
+    priority: int | None
     time_limit: float
     autoretry_for: tuple[type[Exception], ...]
 
@@ -68,13 +72,23 @@ class TaskDefinition:
         args: Sequence[Any] = (),
         kwargs: dict[str, Any] | None = None,
         eta: datetime | None = None,
+        expires: datetime | None = None,
+        priority: int | None = None,
         queue: str | None = None,
         dedup_key: str | None = None,
     ) -> Task:
         from obox_builder.contrib.jobs.services import enqueue
 
         return await enqueue(
-            db, self.name, args=args, kwargs=kwargs, eta=eta, queue=queue, dedup_key=dedup_key
+            db,
+            self.name,
+            args=args,
+            kwargs=kwargs,
+            eta=eta,
+            expires=expires,
+            priority=priority,
+            queue=queue,
+            dedup_key=dedup_key,
         )
 
 
@@ -86,6 +100,8 @@ def task(
     name: str | None = None,
     queue: str = "default",
     max_retries: int = 3,
+    expires: datetime | None = None,
+    priority: int | None = None,
     time_limit: float = 300.0,
     autoretry_for: tuple[type[Exception], ...] = (Exception,),
 ) -> Callable[[Callable[..., Any]], TaskDefinition]:
@@ -98,6 +114,12 @@ def task(
         raise ImproperlyConfigured("Task and queue names must be 1–155 safe characters.")
     if isinstance(max_retries, bool) or not isinstance(max_retries, int) or max_retries < 0:
         raise ImproperlyConfigured("max_retries must be a nonnegative integer.")
+    if expires is not None and (expires.tzinfo is None or expires.utcoffset() is None):
+        raise ImproperlyConfigured("expires must be timezone-aware.")
+    if priority is not None and (
+        isinstance(priority, bool) or not isinstance(priority, int) or not 0 <= priority <= 255
+    ):
+        raise ImproperlyConfigured("priority must be an integer from 0 to 255.")
     if not math.isfinite(time_limit) or time_limit <= 0:
         raise ImproperlyConfigured("time_limit must be finite and positive.")
     if not isinstance(autoretry_for, tuple) or any(
@@ -119,7 +141,9 @@ def task(
         existing = _tasks.get(key)
         if existing is not None and existing.func is not func:
             raise ImproperlyConfigured(f"Duplicate task name {key!r}.")
-        definition = TaskDefinition(func, key, queue, max_retries, time_limit, autoretry_for)
+        definition = TaskDefinition(
+            func, key, queue, max_retries, expires, priority, time_limit, autoretry_for
+        )
         _tasks[key] = definition
         return definition
 

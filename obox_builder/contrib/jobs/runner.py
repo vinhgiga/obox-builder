@@ -10,6 +10,7 @@ import shutil
 import sys
 import threading
 import traceback
+from datetime import datetime
 from importlib import import_module
 from pathlib import Path
 from typing import Any
@@ -36,7 +37,14 @@ async def execute(data: dict[str, Any]) -> dict[str, Any]:
         import_module(data["module"])
         definition = get_task(data["name"])
         token = _request.set(
-            TaskRequest(data["task_id"], data["name"], data["retries"], data["worker"])
+            TaskRequest(
+                data["task_id"],
+                data["name"],
+                data["retries"],
+                data["worker"],
+                datetime.fromisoformat(data["expires"]) if data.get("expires") else None,
+                data["priority"],
+            )
         )
         try:
             try:

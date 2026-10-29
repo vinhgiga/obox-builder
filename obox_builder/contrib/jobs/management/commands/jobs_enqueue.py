@@ -16,6 +16,10 @@ async def handle(
     eta: datetime | None = typer.Option(
         None, "--eta", help="Earliest execution, including timezone."
     ),
+    expires: datetime | None = typer.Option(
+        None, "--expires", help="Latest execution time, including timezone."
+    ),
+    priority: int = typer.Option(0, "--priority", min=0, max=255),
     queue: str | None = typer.Option(None, "--queue"),
     dedup_key: str | None = typer.Option(None, "--dedup-key"),
 ) -> None:
@@ -35,6 +39,8 @@ async def handle(
                 args=positional,
                 kwargs=keywords,
                 eta=eta,
+                expires=expires,
+                priority=priority,
                 queue=queue,
                 dedup_key=dedup_key,
             )

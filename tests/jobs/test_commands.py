@@ -26,7 +26,14 @@ async def test_cli_lifecycle_purge_and_cascade(
     db: AsyncSession, capsys: pytest.CaptureFixture[str]
 ) -> None:
     await jobs_enqueue.handle.func(
-        name="jobs.cpu", args="[100]", kwargs="{}", eta=None, queue=None, dedup_key=None
+        name="jobs.cpu",
+        args="[100]",
+        kwargs="{}",
+        eta=None,
+        expires=None,
+        priority=0,
+        queue=None,
+        dedup_key=None,
     )
     row = await read(sa.select(Task))
     await jobs_revoke.handle.func(row.id)
@@ -48,7 +55,14 @@ async def test_cli_lifecycle_purge_and_cascade(
 async def test_enqueue_command_rejects_invalid_arguments(db: AsyncSession, args: str) -> None:
     with pytest.raises(CommandError):
         await jobs_enqueue.handle.func(
-            name="jobs.cpu", args=args, kwargs="{}", eta=None, queue=None, dedup_key=None
+            name="jobs.cpu",
+            args=args,
+            kwargs="{}",
+            eta=None,
+            expires=None,
+            priority=0,
+            queue=None,
+            dedup_key=None,
         )
 
 

@@ -19,7 +19,7 @@ from obox_builder.conf import settings
 from obox_builder.contrib.jobs.models import Task, TaskAttempt
 from obox_builder.contrib.jobs.registry import NAME_RE, encode_json, get_task
 from obox_builder.core.exceptions import ImproperlyConfigured
-from obox_builder.core.utils.time import utcnow
+from obox_builder.core.utils.time import ensure_aware, utcnow
 
 
 def require_enabled() -> None:
@@ -36,18 +36,28 @@ async def enqueue(
     args: Sequence[Any] = (),
     kwargs: dict[str, Any] | None = None,
     eta: datetime | None = None,
+    expires: datetime | None = None,
+    priority: int | None = None,
     queue: str | None = None,
     dedup_key: str | None = None,
 ) -> Task:
     require_enabled()
     definition = get_task(name)
     queue = definition.queue if queue is None else queue
+    expires = definition.expires if expires is None else expires
+    priority = definition.priority if priority is None else priority
+    priority = 0 if priority is None else priority
     if not NAME_RE.fullmatch(queue):
         raise ValueError("Queue names must be 1–155 safe characters.")
     if dedup_key is not None and (not dedup_key or len(dedup_key) > 255):
         raise ValueError("dedup_key must contain 1–255 characters.")
     if eta is not None and (eta.tzinfo is None or eta.utcoffset() is None):
         raise ValueError("eta must be timezone-aware.")
+    if expires is not None and (expires.tzinfo is None or expires.utcoffset() is None):
+        raise ValueError("expires must be timezone-aware.")
+    expires = expires.astimezone(timezone.utc) if expires is not None else None
+    if isinstance(priority, bool) or not isinstance(priority, int) or not 0 <= priority <= 255:
+        raise ValueError("priority must be an integer from 0 to 255.")
     if not isinstance(args, (list, tuple)) or (kwargs is not None and not isinstance(kwargs, dict)):
         raise ValueError("Use a list/tuple of args and a dictionary of kwargs.")
     kwargs = {} if kwargs is None else kwargs
@@ -67,6 +77,8 @@ async def enqueue(
                 kwargs=arguments[1],
                 max_retries=definition.max_retries,
                 eta=eta.astimezone(timezone.utc) if eta is not None else utcnow(),
+                expires=expires,
+                priority=priority,
                 dedup_key=dedup_key,
             )
             .on_conflict_do_nothing(index_elements=["dedup_key"])
@@ -75,7 +87,15 @@ async def enqueue(
     ).one_or_none()
     if row is None:
         row = (await db.scalars(sa.select(Task).where(Task.dedup_key == dedup_key))).one()
-        if (row.name, row.queue, row.args, row.kwargs) != (name, queue, arguments[0], arguments[1]):
+        stored_expires = ensure_aware(row.expires) if row.expires is not None else None
+        if (row.name, row.queue, row.args, row.kwargs, stored_expires, row.priority) != (
+            name,
+            queue,
+            arguments[0],
+            arguments[1],
+            expires,
+            priority,
+        ):
             raise ValueError("dedup_key already belongs to a different task or arguments.")
     return row
 

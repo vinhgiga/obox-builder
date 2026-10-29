@@ -65,6 +65,28 @@ async def test_run_once_presence_is_offline_after_exit(db: AsyncSession) -> None
     assert await read(sa.select(sa.func.count()).select_from(WorkerRecord)) == 1
 
 
+async def test_expired_tasks_are_revoked_without_running(db: AsyncSession) -> None:
+    row = await enqueue(db, "jobs.cpu", expires=utcnow() - timedelta(seconds=1))
+    await db.commit()
+    assert not await Worker().run_once()
+    stored = await read(sa.select(Task).where(Task.id == row.id))
+    assert (stored.status, stored.traceback, stored.date_done is not None) == (
+        "REVOKED",
+        "Expired",
+        True,
+    )
+
+
+async def test_claim_prefers_higher_priority(db: AsyncSession) -> None:
+    low = await enqueue(db, "jobs.cpu", priority=1)
+    high = await enqueue(db, "jobs.cpu", priority=9)
+    await db.commit()
+    claimed = await claim(("default",), "priority-worker")
+    assert claimed is not None
+    assert claimed.id == high.id
+    assert (await read(sa.select(Task).where(Task.id == low.id))).status == "PENDING"
+
+
 @pytest.fixture
 def children(monkeypatch: pytest.MonkeyPatch) -> list[asyncio.subprocess.Process]:
     processes: list[asyncio.subprocess.Process] = []

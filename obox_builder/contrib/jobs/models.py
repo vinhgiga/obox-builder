@@ -2,7 +2,8 @@
 
 Metadata names and VARCHAR lengths follow Celery's SQLAlchemy TaskExtended model.
 JSON replaces PickleType/LargeBinary; dates are timezone-aware UTC. Queue,
-lease and attempt fields belong to this implementation, not Celery's backend.
+scheduling, lease and attempt fields belong to this implementation, not Celery's
+result backend.
 """
 
 from __future__ import annotations
@@ -34,6 +35,8 @@ class Task(Model):
     retries: Mapped[int] = mapped_column(sa.Integer, default=0)
     max_retries: Mapped[int] = mapped_column(sa.Integer, default=3)
     eta: Mapped[datetime] = mapped_column(TZDateTime, default=utcnow)
+    expires: Mapped[datetime | None] = mapped_column(TZDateTime)
+    priority: Mapped[int] = mapped_column(sa.Integer, default=0)
     date_created: Mapped[datetime] = mapped_column(TZDateTime, default=utcnow, index=True)
     date_done: Mapped[datetime | None] = mapped_column(TZDateTime, index=True)
     lock_token: Mapped[uuid.UUID | None] = mapped_column(sa.Uuid)
@@ -46,12 +49,14 @@ class Task(Model):
             name="status",
         ),
         sa.CheckConstraint("retries >= 0 AND max_retries >= retries", name="retries"),
+        sa.CheckConstraint("priority BETWEEN 0 AND 255", name="priority"),
         sa.CheckConstraint(
             "(status = 'STARTED' AND lock_token IS NOT NULL AND locked_until IS NOT NULL) OR "
             "(status <> 'STARTED' AND lock_token IS NULL AND locked_until IS NULL)",
             name="lease",
         ),
-        sa.Index("ix_jobs_task_due", "queue", "status", "eta", "date_created", "id"),
+        sa.Index("ix_jobs_task_due", "queue", "status", "priority", "eta", "date_created", "id"),
+        sa.Index("ix_jobs_task_expiry", "queue", "status", "expires"),
         sa.Index("ix_jobs_task_lease", "status", "locked_until"),
     )
 
