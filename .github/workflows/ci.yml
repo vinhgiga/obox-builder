@@ -86,6 +86,27 @@ jobs:
         env:
           OBOX_DATABASE_URL: postgresql+psycopg_async://obox:obox@localhost:5432/obox
 
+  wheel:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.13"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.0
+        with:
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+      - run: uv build
+      - name: Install the wheel in a clean environment
+        run: |
+          uv venv "$RUNNER_TEMP/wheel-env"
+          wheels=(dist/*.whl)
+          uv pip install --python "$RUNNER_TEMP/wheel-env/bin/python" "${wheels[0]}[sqlite]"
+      - name: Exercise the installed package outside the checkout
+        working-directory: ${{ runner.temp }}
+        run: '"$RUNNER_TEMP/wheel-env/bin/python" -I "$GITHUB_WORKSPACE/tests/packaging/smoke_wheel.py"'
+
   jobs-windows:
     runs-on: windows-latest
     strategy:

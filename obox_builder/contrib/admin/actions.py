@@ -63,7 +63,8 @@ async def delete_selected(
     Rows are deleted through the ORM one at a time so per-row side effects
     (row history, signals) observe each change individually.
     """
-    from obox_builder.contrib.admin.deletion import collect_deletion, confirmed, deletion_page
+    from obox_builder.contrib.admin.services.deletion import collect_deletion, confirmed
+    from obox_builder.contrib.admin.views.deletion import deletion_page
 
     objects = list((await ctx.db.scalars(queryset)).unique())
     pks = [admin.get_pk(obj) for obj in objects]

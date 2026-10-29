@@ -9,7 +9,7 @@ from fastapi import Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from obox_builder.contrib.auth.base_user import AbstractBaseUser
-from obox_builder.core.exceptions import ImproperlyConfigured
+from obox_builder.exceptions import ImproperlyConfigured
 
 
 class AuthenticationBackend(Protocol):

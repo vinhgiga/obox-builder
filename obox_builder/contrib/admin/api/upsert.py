@@ -23,7 +23,7 @@ from obox_builder.contrib.admin.api.records import (
 from obox_builder.contrib.admin.api.serializers import api_specs
 from obox_builder.contrib.admin.services import RecordService
 from obox_builder.contrib.imports.resources import ImportResource
-from obox_builder.core.exceptions import ImproperlyConfigured
+from obox_builder.exceptions import ImproperlyConfigured
 from obox_builder.forms import BoundForm
 
 

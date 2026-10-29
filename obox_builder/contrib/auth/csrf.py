@@ -8,7 +8,7 @@ from urllib.parse import urlsplit
 from fastapi import Request
 
 from obox_builder.contrib.auth.models import Session as AuthSession
-from obox_builder.core.exceptions import PermissionDenied
+from obox_builder.exceptions import PermissionDenied
 
 CSRF_FIELD_NAME = "csrf_token"
 CSRF_HEADER_NAME = "x-csrf-token"

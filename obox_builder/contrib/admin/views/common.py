@@ -2,32 +2,29 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from fastapi import Request
 
 from obox_builder.conf import settings
+from obox_builder.contrib.admin.context import (
+    csrf_token_for as csrf_token_for,
+)
+from obox_builder.contrib.admin.context import (
+    current_site as current_site,
+)
 from obox_builder.contrib.admin.navigation import build_navigation
-from obox_builder.contrib.auth.csrf import get_csrf_token, validate_csrf
+from obox_builder.contrib.auth.csrf import validate_csrf
 from obox_builder.contrib.auth.models import AnonymousUser, User
 from obox_builder.contrib.i18n import get_language_choices
-from obox_builder.core.exceptions import ImproperlyConfigured
+from obox_builder.exceptions import ImproperlyConfigured
 from obox_builder.http.messages import add_message, get_and_clear_messages
-
-if TYPE_CHECKING:
-    from obox_builder.contrib.admin.site import AdminSite
 
 PAGE_SIZE = 20
 
 
 def current_user(request: Request) -> User | AnonymousUser:
     return getattr(request.state, "user", None) or AnonymousUser()
-
-
-def csrf_token_for(request: Request) -> str:
-    """The session-bound CSRF token (empty when there is no session)."""
-    session = getattr(request.state, "auth_session", None)
-    return get_csrf_token(session) if session is not None else ""
 
 
 async def ensure_csrf(request: Request, provided: str | None) -> None:
@@ -44,13 +41,6 @@ async def ensure_csrf(request: Request, provided: str | None) -> None:
 
 async def flash(request: Request, message: str, level: str = "success") -> None:
     await add_message(request, message, level)
-
-
-def current_site(request: Request) -> AdminSite:
-    """The AdminSite bound to this router, with the global site as fallback."""
-    from obox_builder.contrib.admin.site import site as default_site
-
-    return getattr(request.state, "admin_site", None) or default_site
 
 
 async def page_context(request: Request, **extra: Any) -> dict[str, Any]:

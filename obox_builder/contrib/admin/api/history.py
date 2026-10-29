@@ -24,13 +24,13 @@ from obox_builder.contrib.admin.api.records import (
 )
 from obox_builder.contrib.admin.api.serializers import api_specs, record_values
 from obox_builder.contrib.admin.services import RecordService
-from obox_builder.contrib.admin.views.history import (
+from obox_builder.contrib.admin.services.history import (
     DiffMask,
     diff_mask,
     entry_view,
     timeline_available,
 )
-from obox_builder.contrib.admin.views.revert import OP_PERMISSION, blocked_fields, build_plan
+from obox_builder.contrib.admin.services.revert import OP_PERMISSION, blocked_fields, build_plan
 from obox_builder.contrib.history import HISTORY_RESTORE_PERMISSION
 from obox_builder.contrib.history.context import CTX_KEY, from_request
 from obox_builder.contrib.history.models import RowChange

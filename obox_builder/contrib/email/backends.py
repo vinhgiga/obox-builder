@@ -12,7 +12,7 @@ from email.message import EmailMessage as MIMEEmailMessage
 from typing import Protocol
 
 from obox_builder.conf import settings
-from obox_builder.core.exceptions import ImproperlyConfigured
+from obox_builder.exceptions import ImproperlyConfigured
 
 logger = logging.getLogger(__name__)
 

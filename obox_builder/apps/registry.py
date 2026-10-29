@@ -5,7 +5,7 @@ from collections.abc import Iterable
 from typing import Any
 
 from obox_builder.apps.config import AppConfig
-from obox_builder.core.exceptions import ImproperlyConfigured
+from obox_builder.exceptions import ImproperlyConfigured
 from obox_builder.utils.strings import camel_to_snake
 
 

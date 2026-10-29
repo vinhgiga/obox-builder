@@ -15,7 +15,7 @@ from obox_builder.conf import settings
 from obox_builder.contrib.imports.models import ImportRow, ImportSession
 from obox_builder.contrib.imports.parser import ImportFileError, Spreadsheet, check_file
 from obox_builder.contrib.imports.resources import ImportResource, digest
-from obox_builder.core.exceptions import ImproperlyConfigured, PermissionDenied
+from obox_builder.exceptions import ImproperlyConfigured, PermissionDenied
 from obox_builder.fields import RecordContext
 from obox_builder.forms import BoundForm
 

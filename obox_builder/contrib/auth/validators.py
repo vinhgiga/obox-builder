@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from typing import Any, Protocol, cast
 
 from obox_builder.conf import settings
-from obox_builder.core.exceptions import ImproperlyConfigured
+from obox_builder.exceptions import ImproperlyConfigured
 from obox_builder.utils.module_loading import import_string
 
 

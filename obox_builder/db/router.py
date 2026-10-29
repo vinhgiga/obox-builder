@@ -4,7 +4,7 @@ from functools import lru_cache
 from typing import Any
 
 from obox_builder.conf import settings
-from obox_builder.core.exceptions import ImproperlyConfigured
+from obox_builder.exceptions import ImproperlyConfigured
 from obox_builder.utils import import_string
 
 

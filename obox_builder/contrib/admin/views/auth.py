@@ -17,8 +17,8 @@ from obox_builder.contrib.auth.dependencies import (
 from obox_builder.contrib.auth.models import Session as AuthSession
 from obox_builder.contrib.auth.models import User
 from obox_builder.contrib.auth.validators import PasswordValidationError
-from obox_builder.core.exceptions import ImproperlyConfigured
 from obox_builder.db.session import get_db
+from obox_builder.exceptions import ImproperlyConfigured
 from obox_builder.http.messages import add_session_message
 from obox_builder.http.shortcuts import redirect
 

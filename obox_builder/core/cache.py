@@ -14,7 +14,7 @@ from datetime import timedelta
 from typing import Any, Protocol, TypeAlias
 
 from obox_builder.conf import settings
-from obox_builder.core.exceptions import ImproperlyConfigured
+from obox_builder.exceptions import ImproperlyConfigured
 
 
 class _DefaultTimeout:

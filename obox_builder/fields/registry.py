@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from obox_builder.core.exceptions import ImproperlyConfigured
+from obox_builder.exceptions import ImproperlyConfigured
 from obox_builder.fields.base import FieldType
 
 

@@ -17,14 +17,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from obox_builder.contrib.admin.context import AdminContext
 from obox_builder.contrib.admin.rendering import render
-from obox_builder.contrib.admin.views.common import current_site, page_context
-from obox_builder.contrib.admin.views.history import (
+from obox_builder.contrib.admin.services.history import (
     DiffMask,
     before_cursor,
     diff_mask,
     entry_view,
     model_timeline_available,
 )
+from obox_builder.contrib.admin.views.common import current_site, page_context
 from obox_builder.contrib.admin.views.revert import revert_change_set
 from obox_builder.contrib.auth.dependencies import permission_required
 from obox_builder.contrib.auth.models import User

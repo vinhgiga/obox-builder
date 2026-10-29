@@ -8,7 +8,7 @@ from typing import Any
 
 from obox_builder.conf import settings
 from obox_builder.contrib.email.backends import EmailBackend, EmailMessage
-from obox_builder.core.exceptions import ImproperlyConfigured
+from obox_builder.exceptions import ImproperlyConfigured
 
 
 def get_email_backend() -> EmailBackend:

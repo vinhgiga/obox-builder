@@ -18,7 +18,7 @@ QUERY_KEYS = frozenset({"q", "f", "filter", "sort", "group", "size", "page"})
 def view_scope(ctx: AdminContext) -> sa.Select[tuple[SavedView]]:
     assert ctx.admin is not None  # noqa: S101
     if not ctx.admin.has_view_permission(ctx):
-        from obox_builder.core.exceptions import PermissionDenied
+        from obox_builder.exceptions import PermissionDenied
 
         raise PermissionDenied("You do not have permission to view this model.")
     return sa.select(SavedView).where(

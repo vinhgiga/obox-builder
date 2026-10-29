@@ -133,11 +133,10 @@ name = "Layered architecture"
 type = "layers"
 layers = [
     "obox_builder.contrib.admin",
-    "obox_builder.contrib.imports",
-    "obox_builder.contrib.jobs",
-    "obox_builder.contrib.events",
+    "obox_builder.contrib.imports | obox_builder.contrib.jobs | obox_builder.contrib.events",
     "obox_builder.contrib.history | obox_builder.contrib.comments",
     "obox_builder.contrib.auth",
+    "obox_builder.contrib.email",
     "obox_builder.core",
     "obox_builder.http",
     "obox_builder.templating",
@@ -149,23 +148,41 @@ layers = [
     "obox_builder.apps",
     "obox_builder.conf",
     "obox_builder.utils",
+    "obox_builder.exceptions",
 ]
 ignore_imports = [
-    "obox_builder.apps.* -> obox_builder.core.exceptions",
-    "obox_builder.conf -> obox_builder.core.exceptions",
-    "obox_builder.db.* -> obox_builder.core.exceptions",
-    "obox_builder.db.migrations.* -> obox_builder.core.exceptions",
-    # Bottom layer: shared utilities may raise framework exceptions.
-    "obox_builder.utils.* -> obox_builder.core.exceptions",
-    "obox_builder.staticfiles.* -> obox_builder.core.exceptions",
-    # Field types raise ImproperlyConfigured for bad declarations; the dependency
-    # is exception-only, like the other low layers above.
-    "obox_builder.fields.* -> obox_builder.core.exceptions",
-    # The registry scans models.py for Model subclasses / bare tables; the import is
-    # function-level so no import cycle is created.
+    # Model discovery inspects registered SQLAlchemy model classes after startup.
     "obox_builder.apps.config -> obox_builder.db.base",
-    # Migrations bootstrap through the public obox_builder.setup() entry point, which
-    # only touches conf/apps/core.exceptions; the root package re-exports
-    # ImproperlyConfigured as part of its public API.
-    "obox_builder -> obox_builder.core.exceptions",
 ]
+
+[[tool.importlinter.contracts]]
+name = "Production does not depend on testing helpers"
+type = "forbidden"
+source_modules = [
+    "obox_builder.apps", "obox_builder.conf", "obox_builder.contrib", "obox_builder.core",
+    "obox_builder.db", "obox_builder.exceptions", "obox_builder.fields", "obox_builder.forms",
+    "obox_builder.http", "obox_builder.staticfiles", "obox_builder.templating", "obox_builder.utils",
+]
+forbidden_modules = ["obox_builder.testing"]
+
+[[tool.importlinter.contracts]]
+name = "Admin services do not import presentation adapters"
+type = "forbidden"
+source_modules = ["obox_builder.contrib.admin.services"]
+forbidden_modules = ["obox_builder.contrib.admin.views", "obox_builder.contrib.admin.api"]
+# AdminSite remains the public router factory; type references can reach its adapters.
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "Admin API does not import HTML views"
+type = "forbidden"
+source_modules = ["obox_builder.contrib.admin.api"]
+forbidden_modules = ["obox_builder.contrib.admin.views"]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "Admin HTML views do not import API adapters"
+type = "forbidden"
+source_modules = ["obox_builder.contrib.admin.views"]
+forbidden_modules = ["obox_builder.contrib.admin.api"]
+allow_indirect_imports = true

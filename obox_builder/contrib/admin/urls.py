@@ -8,6 +8,8 @@ from fastapi import APIRouter, Depends, Request
 
 from obox_builder.apps import apps
 from obox_builder.contrib.admin.deps import COMMENTS_APP, HISTORY_APP, bind_history
+from obox_builder.contrib.admin.routing import AdminPageRoute
+from obox_builder.contrib.admin.services.history import model_timeline_available
 from obox_builder.contrib.admin.views import (
     dashboard,
     history_change_set,
@@ -37,11 +39,9 @@ from obox_builder.contrib.admin.views import (
     user_history,
     user_list,
 )
-from obox_builder.contrib.admin.views.history import model_timeline_available
 from obox_builder.contrib.admin.views.model import register_model_routes
 from obox_builder.contrib.admin.views.search import global_search
 from obox_builder.contrib.auth.models import Role, User
-from obox_builder.contrib.auth.routing import SessionRenewalRoute
 
 if TYPE_CHECKING:
     from obox_builder.contrib.admin.site import AdminSite
@@ -54,7 +54,7 @@ def build_router(site: AdminSite) -> APIRouter:
     router = APIRouter(
         tags=["admin"],
         dependencies=[Depends(bind_site), Depends(bind_history)],
-        route_class=SessionRenewalRoute,
+        route_class=AdminPageRoute,
     )
 
     router.add_api_route("/search", global_search, methods=["GET"], name="admin:search")

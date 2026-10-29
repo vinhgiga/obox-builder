@@ -18,7 +18,7 @@ from starlette.responses import Response
 from obox_builder import __version__
 from obox_builder.conf import settings
 from obox_builder.contrib.i18n.urls import I18nPatterns
-from obox_builder.core.exceptions import ImproperlyConfigured, NotAuthenticated, PermissionDenied
+from obox_builder.exceptions import ImproperlyConfigured, NotAuthenticated, PermissionDenied
 from obox_builder.utils import import_string
 
 logger = logging.getLogger(__name__)
@@ -59,29 +59,6 @@ async def not_authenticated_handler(request: Request, exc: Exception) -> Respons
 
 async def permission_denied_handler(request: Request, exc: Exception) -> Response:
     if _wants_html(request):
-        try:
-            from jinja2 import TemplateNotFound
-
-            from obox_builder.templating import render
-
-            try:
-                admin_site = getattr(request.state, "admin_site", None)
-                site_header = getattr(admin_site, "site_header", "obox admin")
-                return render(
-                    request,
-                    "admin/errors/403.html",
-                    {
-                        "site_name": site_header,
-                        "site_header": site_header,
-                        "site_title": getattr(admin_site, "site_title", site_header),
-                        "reason": str(exc),
-                    },
-                    status_code=403,
-                )
-            except TemplateNotFound:
-                pass
-        except ImportError:
-            pass
         return HTMLResponse(
             "<!doctype html><html><head><title>403 Forbidden</title></head>"
             "<body><h1>403 Forbidden</h1></body></html>",

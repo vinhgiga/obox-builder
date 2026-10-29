@@ -14,6 +14,7 @@ from obox_builder.contrib.admin.api.accounts import register_accounts
 from obox_builder.contrib.admin.api.actions import register_actions
 from obox_builder.contrib.admin.api.auth import register_auth
 from obox_builder.contrib.admin.api.comments import register_comments
+from obox_builder.contrib.admin.api.custom import api_route_context
 from obox_builder.contrib.admin.api.deps import DB
 from obox_builder.contrib.admin.api.forms import register_forms
 from obox_builder.contrib.admin.api.history import register_history
@@ -25,6 +26,7 @@ from obox_builder.contrib.admin.api.tokens import register_tokens
 from obox_builder.contrib.admin.api.uploads import register_uploads
 from obox_builder.contrib.admin.api.upsert import register_upsert
 from obox_builder.contrib.admin.api.views import register_views
+from obox_builder.contrib.admin.routing import register_custom_routes
 
 if TYPE_CHECKING:
     from obox_builder.contrib.admin.site import AdminSite
@@ -70,11 +72,16 @@ def build_api_router(site: AdminSite, *, rate_limiter: RateLimiter | None = None
     register_history(router)
     register_comments(router)
     register_inlines(router)
-    from obox_builder.contrib.admin.views.model import _register_custom_routes
 
     for admin in site.get_registry().values():
         if admin.api_enabled:
-            _register_custom_routes(router, site, admin, f"/models/{admin.model_label}", api=True)
+            register_custom_routes(
+                router,
+                admin,
+                f"/models/{admin.model_label}",
+                context_factory=api_route_context,
+                api=True,
+            )
 
     @router.options("/{path:path}", include_in_schema=False)
     async def preflight(request: Request, path: str) -> Response:

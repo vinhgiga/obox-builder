@@ -14,8 +14,8 @@ from obox_builder.contrib.admin.options import ModelAdmin
 from obox_builder.contrib.admin.relations import related_admin, related_key
 from obox_builder.contrib.admin.site import AdminSite
 from obox_builder.contrib.auth.dependencies import login_required
-from obox_builder.core.exceptions import PermissionDenied
 from obox_builder.db.session import get_db
+from obox_builder.exceptions import PermissionDenied
 from obox_builder.fields import QuerySpec, QuerySpecError
 
 PAGE_SIZE = 20

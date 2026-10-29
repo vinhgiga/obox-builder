@@ -15,7 +15,6 @@ from typer.main import get_command_from_info
 from typer.models import CommandInfo
 
 from obox_builder.core.checks import run_checks
-from obox_builder.core.exceptions import ImproperlyConfigured
 from obox_builder.core.management import utils
 from obox_builder.core.management.base import CommandError, CommandSpec
 from obox_builder.core.management.loader import (
@@ -29,6 +28,7 @@ from obox_builder.core.management.options import (
     common_params,
     extract_common_options,
 )
+from obox_builder.exceptions import ImproperlyConfigured
 
 
 def _scan_locations() -> dict[str, CommandLocation]:

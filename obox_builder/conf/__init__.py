@@ -8,7 +8,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from obox_builder.conf.base import BaseSettings
-from obox_builder.core.exceptions import ImproperlyConfigured
+from obox_builder.exceptions import ImproperlyConfigured
 
 SETTINGS_MODULE_ENV = "OBOX_SETTINGS_MODULE"
 

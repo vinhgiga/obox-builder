@@ -20,9 +20,9 @@ from obox_builder.contrib.events.models import Delivery, DeliveryAttempt, Event
 from obox_builder.contrib.events.wake import listen
 from obox_builder.contrib.history.context import use
 from obox_builder.core.events import Lineage, Subscription, enabled, lineage, subscriptions
-from obox_builder.core.exceptions import ImproperlyConfigured
 from obox_builder.core.utils.time import utcnow
 from obox_builder.db.session import session_scope
+from obox_builder.exceptions import ImproperlyConfigured
 
 logger = logging.getLogger("obox.events")
 

@@ -35,3 +35,18 @@ class AdminContext:
             user=self.user,
             extra=self.extra,
         )
+
+
+def csrf_token_for(request: Request) -> str:
+    """The session-bound CSRF token (empty when there is no session)."""
+    from obox_builder.contrib.auth.csrf import get_csrf_token
+
+    session = getattr(request.state, "auth_session", None)
+    return get_csrf_token(session) if session is not None else ""
+
+
+def current_site(request: Request) -> AdminSite:
+    """The AdminSite bound to this router, with the global site as fallback."""
+    from obox_builder.contrib.admin.site import site as default_site
+
+    return getattr(request.state, "admin_site", None) or default_site

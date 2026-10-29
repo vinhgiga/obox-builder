@@ -34,7 +34,7 @@ from obox_builder.contrib.admin.inlines import InlineRow
 from obox_builder.contrib.admin.services import RecordService
 from obox_builder.contrib.admin.uniqueness import validate_inline_uniqueness
 from obox_builder.contrib.admin.uploads import persist_uploads
-from obox_builder.core.exceptions import ImproperlyConfigured
+from obox_builder.exceptions import ImproperlyConfigured
 
 
 class InlineInput(BaseModel):
@@ -266,7 +266,7 @@ def register_inlines(router: APIRouter) -> None:
         # Enforce the API's cascade confirmation contract before InlineFormSet deletes.
         if deleted:
             from obox_builder.contrib.admin.api.records import plan_data
-            from obox_builder.contrib.admin.deletion import confirmed
+            from obox_builder.contrib.admin.services.deletion import confirmed
 
             plan = await RecordService(child).plan_delete(deleted, lock=True)
             if not plan.allowed:

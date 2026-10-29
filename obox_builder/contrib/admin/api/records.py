@@ -26,9 +26,9 @@ from obox_builder.contrib.admin.api.serializers import (
     serialize_records,
 )
 from obox_builder.contrib.admin.context import AdminContext
-from obox_builder.contrib.admin.deletion import DeletionPlan, confirmation_token, confirmed
 from obox_builder.contrib.admin.relations import related_admin, related_key, related_objects
 from obox_builder.contrib.admin.services import RecordService
+from obox_builder.contrib.admin.services.deletion import DeletionPlan, confirmation_token, confirmed
 from obox_builder.contrib.admin.uploads import open_upload
 from obox_builder.fields.types.choice import normalize_choices
 

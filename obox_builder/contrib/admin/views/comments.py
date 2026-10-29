@@ -40,8 +40,8 @@ from obox_builder.contrib.comments.queries import latest_object_repr, thread_pag
 from obox_builder.contrib.comments.registry import get_options
 from obox_builder.contrib.comments.service import CommentService
 from obox_builder.contrib.comments.targets import CommentTarget
-from obox_builder.core.exceptions import ImproperlyConfigured, PermissionDenied
 from obox_builder.db.session import get_db
+from obox_builder.exceptions import ImproperlyConfigured, PermissionDenied
 
 __all__ = ["register_comment_routes", "mentionable"]
 

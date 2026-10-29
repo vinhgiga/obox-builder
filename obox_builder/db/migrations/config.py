@@ -12,7 +12,7 @@ from typing import Any, Literal
 from alembic.config import Config
 
 from obox_builder.conf import SETTINGS_MODULE_ENV, settings
-from obox_builder.core.exceptions import ImproperlyConfigured
+from obox_builder.exceptions import ImproperlyConfigured
 
 MIGRATIONS_DIR_NAME = "migrations"
 

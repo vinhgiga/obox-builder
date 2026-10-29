@@ -9,7 +9,7 @@ from pathlib import Path, PurePosixPath
 from typing import BinaryIO, Protocol
 
 from obox_builder.conf import settings
-from obox_builder.core.exceptions import ImproperlyConfigured
+from obox_builder.exceptions import ImproperlyConfigured
 
 
 class Storage(Protocol):

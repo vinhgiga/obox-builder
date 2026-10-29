@@ -11,7 +11,7 @@ from typing import Any
 
 import sqlalchemy as sa
 
-from obox_builder.core.exceptions import ImproperlyConfigured, PermissionDenied
+from obox_builder.exceptions import ImproperlyConfigured, PermissionDenied
 from obox_builder.fields import FieldSpec, RecordContext, introspect_model
 from obox_builder.forms import BoundForm, build_schema
 from obox_builder.utils.strings import camel_to_snake

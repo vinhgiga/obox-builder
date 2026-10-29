@@ -135,8 +135,8 @@ def get_language_from_request(request: Request, *, check_path: bool = False) -> 
     )
 
 
-def _localize_admin_redirect(url: str, language: str) -> str:
-    """Keep admin redirects beneath the locale prefix of the current request."""
+def _localize_redirect(request: Request, url: str, language: str) -> str:
+    """Localize local redirects only when the destination has a translated route."""
     try:
         parts = urlsplit(url)
     except ValueError:
@@ -144,12 +144,13 @@ def _localize_admin_redirect(url: str, language: str) -> str:
     if (
         parts.scheme
         or parts.netloc
+        or not parts.path.startswith("/")
         or get_language_from_path(parts.path, languages=get_language_choices())
     ):
         return url
-    if parts.path != "/admin" and not parts.path.startswith("/admin/"):
-        return url
-    return urlunsplit(parts._replace(path=f"/{language}{parts.path}"))
+    scope = {**request.scope, "path": parts.path}
+    path = _localized_redirect_path(Request(scope), language)
+    return urlunsplit(parts._replace(path=path)) if path is not None else url
 
 
 class LocaleMiddleware:
@@ -204,7 +205,7 @@ class LocaleMiddleware:
                     for name in ("location", "hx-redirect"):
                         destination = headers.get(name)
                         if destination:
-                            headers[name] = _localize_admin_redirect(destination, path_language)
+                            headers[name] = _localize_redirect(request, destination, path_language)
                 vary = [
                     value.strip() for value in headers.get("vary", "").split(",") if value.strip()
                 ]

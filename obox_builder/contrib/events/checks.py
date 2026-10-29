@@ -8,8 +8,8 @@ from obox_builder.contrib.events.options import parse_events
 from obox_builder.core.checks import register
 from obox_builder.core.checks.messages import CheckMessage, Error, Warning
 from obox_builder.core.events import subscriptions
-from obox_builder.core.exceptions import ImproperlyConfigured
 from obox_builder.db.router import router
+from obox_builder.exceptions import ImproperlyConfigured
 
 
 @register(tags=("events",))

@@ -197,8 +197,19 @@ async def test_locale_middleware_is_request_scoped_and_sets_response_headers(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("fragment_target", "expected_target"),
+    [
+        ("main#admin-main", "#admin-main"),
+        ("section#article-content", "#article-content"),
+        ("#content", "#content"),
+        (".results", ".results"),
+    ],
+)
 async def test_set_language_persists_supported_choice_and_rejects_unsafe_requests(
     i18n_settings: None,
+    fragment_target: str,
+    expected_target: str,
 ) -> None:
     app = FastAPI()
     app.add_middleware(LocaleMiddleware)
@@ -216,7 +227,7 @@ async def test_set_language_persists_supported_choice_and_rejects_unsafe_request
             data={"language": "vi", "next": "/admin/"},
             headers={
                 "HX-Request": "true",
-                "HX-Target": "main#admin-main",
+                "HX-Target": fragment_target,
                 "HX-Request-Type": "partial",
             },
             follow_redirects=False,
@@ -245,7 +256,7 @@ async def test_set_language_persists_supported_choice_and_rejects_unsafe_request
     assert smooth.status_code == 200
     assert json.loads(smooth.headers["hx-location"]) == {
         "path": "/admin/",
-        "target": "#admin-main",
+        "target": expected_target,
         "swap": "outerHTML",
         "push": "/admin/",
     }
@@ -296,8 +307,9 @@ async def test_set_language_updates_i18n_url_prefix(
     ("header", "expected_header"),
     [("Location", "location"), ("HX-Redirect", "hx-redirect")],
 )
-async def test_localized_admin_redirect_keeps_url_language(
-    i18n_settings: None, header: str, expected_header: str
+@pytest.mark.parametrize("section", ["admin", "articles"])
+async def test_localized_redirect_keeps_url_language(
+    i18n_settings: None, header: str, expected_header: str, section: str
 ) -> None:
     from starlette.responses import RedirectResponse, Response
 
@@ -306,11 +318,15 @@ async def test_localized_admin_redirect_keeps_url_language(
     app.state.i18n_prefix_default_language = False
     app.add_middleware(LocaleMiddleware)
 
+    @app.get(f"/vi/{section}/login")
+    async def destination() -> None:
+        pass
+
     @app.get("/vi/redirect")
     async def redirect() -> Response:
         if header == "Location":
-            return RedirectResponse("/admin/login")
-        return Response(status_code=401, headers={header: "/admin/login?next=/admin/"})
+            return RedirectResponse(f"/{section}/login")
+        return Response(status_code=401, headers={header: f"/{section}/login?next=/{section}/"})
 
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://testserver"
@@ -318,8 +334,96 @@ async def test_localized_admin_redirect_keeps_url_language(
         response = await client.get("/vi/redirect")
 
     assert response.headers[expected_header] == (
-        "/vi/admin/login" if header == "Location" else "/vi/admin/login?next=/admin/"
+        f"/vi/{section}/login" if header == "Location" else f"/vi/{section}/login?next=/{section}/"
     )
+
+
+@pytest.mark.parametrize("header", ["location", "hx-redirect"])
+@pytest.mark.parametrize(
+    ("destination", "expected"),
+    [
+        ("/articles?sort=name#top", "/vi/articles?sort=name#top"),
+        ("/api/items", "/api/items"),
+        ("/static/app.js", "/static/app.js"),
+        ("/missing", "/missing"),
+        ("/en/articles", "/en/articles"),
+        ("/vi/articles", "/vi/articles"),
+        ("https://elsewhere.example/articles", "https://elsewhere.example/articles"),
+        ("//elsewhere.example/articles", "//elsewhere.example/articles"),
+        ("articles", "articles"),
+    ],
+)
+async def test_redirect_localization_requires_a_matching_local_route(
+    i18n_settings: None, header: str, destination: str, expected: str
+) -> None:
+    from starlette.responses import Response
+
+    app = FastAPI()
+    app.state.i18n_patterns_used = True
+    app.add_middleware(LocaleMiddleware)
+
+    @app.get("/vi/articles")
+    async def articles() -> None:
+        pass
+
+    @app.get("/vi/redirect")
+    async def redirect() -> Response:
+        return Response(status_code=303, headers={header: destination})
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://testserver"
+    ) as client:
+        response = await client.get("/vi/redirect")
+    assert response.headers[header] == expected
+
+
+async def test_localized_redirect_preserves_the_application_mount(i18n_settings: None) -> None:
+    from starlette.responses import RedirectResponse
+
+    app = FastAPI()
+    localized = FastAPI()
+    localized.state.i18n_patterns_used = True
+    localized.add_middleware(LocaleMiddleware)
+
+    @localized.get("/vi/articles/")
+    async def articles() -> None:
+        pass
+
+    @localized.get("/vi/redirect")
+    async def redirect() -> RedirectResponse:
+        return RedirectResponse("/portal/articles/?page=2")
+
+    app.mount("/portal", localized)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://testserver"
+    ) as client:
+        response = await client.get("/portal/vi/redirect")
+    assert response.headers["location"] == "/portal/vi/articles/?page=2"
+
+
+@pytest.mark.parametrize(
+    "headers",
+    [
+        {"HX-Request": "true"},
+        {"HX-Request": "true", "HX-Target": "#content", "HX-Request-Type": "full"},
+    ],
+)
+async def test_language_switch_without_a_fragment_target_redirects_the_document(
+    i18n_settings: None, headers: dict[str, str]
+) -> None:
+    app = FastAPI()
+    app.include_router(i18n_router)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://testserver"
+    ) as client:
+        response = await client.post(
+            "/i18n/set-language",
+            headers=headers,
+            data={"language": "vi", "next": "/articles"},
+        )
+    assert response.status_code == 303
+    assert response.headers["location"] == "/articles"
+    assert "hx-location" not in response.headers
 
 
 def test_gettext_and_jinja_use_the_active_locale(i18n_settings: None) -> None:

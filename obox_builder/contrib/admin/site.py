@@ -11,7 +11,7 @@ from fastapi import APIRouter, Request
 
 from obox_builder.conf import settings
 from obox_builder.contrib.admin.navigation import NavGroup, NavItem, default_navigation
-from obox_builder.core.exceptions import ImproperlyConfigured
+from obox_builder.exceptions import ImproperlyConfigured
 from obox_builder.http.urls import is_safe_url
 from obox_builder.utils.strings import camel_to_snake
 

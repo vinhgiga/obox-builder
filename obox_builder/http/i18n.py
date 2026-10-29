@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from urllib.parse import urlsplit, urlunsplit
 
 from fastapi import APIRouter, Form, Request, Response
@@ -83,9 +84,12 @@ async def set_language(
         return Response(status_code=400)
 
     target = _localized_next_url(request, safe_next_url(next), language)
+    fragment_target = re.sub(
+        r"^[A-Za-z][\w-]*(?=#[\w-]+$)", "", request.headers.get("hx-target", "")
+    )
     if (
         request.headers.get("hx-request") == "true"
-        and request.headers.get("hx-target") == "main#admin-main"
+        and fragment_target
         and request.headers.get("hx-request-type") != "full"
     ):
         response: Response = Response(
@@ -94,7 +98,7 @@ async def set_language(
                 "HX-Location": json.dumps(
                     {
                         "path": target,
-                        "target": "#admin-main",
+                        "target": fragment_target,
                         "swap": "outerHTML",
                         "push": target,
                     }

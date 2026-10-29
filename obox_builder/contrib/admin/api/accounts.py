@@ -23,8 +23,8 @@ from obox_builder.contrib.auth.models import Permission, Role, User
 from obox_builder.contrib.auth.permissions import collect_permissions, model_identifier
 from obox_builder.contrib.auth.tokens import scope_allows
 from obox_builder.contrib.auth.validators import PasswordValidationError
-from obox_builder.core.exceptions import PermissionDenied
 from obox_builder.core.utils.time import ensure_aware, utcnow
+from obox_builder.exceptions import PermissionDenied
 
 AccountID = Annotated[int, Path(ge=1, le=2**63 - 1)]
 

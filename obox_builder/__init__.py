@@ -5,7 +5,7 @@ from __future__ import annotations
 from obox_builder.apps import apps
 from obox_builder.conf import BaseSettings, LazySettings, settings
 from obox_builder.conf.logging import configure_logging
-from obox_builder.core.exceptions import ImproperlyConfigured
+from obox_builder.exceptions import ImproperlyConfigured
 
 __version__ = "0.3.0"
 

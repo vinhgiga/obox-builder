@@ -3,7 +3,7 @@ from __future__ import annotations
 from obox_builder.conf import settings
 from obox_builder.core.checks.messages import CheckMessage, Error, Info, Warning
 from obox_builder.core.checks.registry import register
-from obox_builder.core.exceptions import ImproperlyConfigured
+from obox_builder.exceptions import ImproperlyConfigured
 from obox_builder.utils import import_string
 
 SECURITY = "security"

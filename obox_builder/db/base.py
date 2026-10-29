@@ -8,7 +8,7 @@ from sqlalchemy.orm import DeclarativeBase, Relationship
 from sqlalchemy.orm import relationship as _relationship
 
 from obox_builder.apps import apps
-from obox_builder.core.exceptions import ImproperlyConfigured
+from obox_builder.exceptions import ImproperlyConfigured
 from obox_builder.utils.strings import camel_to_snake
 
 NAMING_CONVENTION = {

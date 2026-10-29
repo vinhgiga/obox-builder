@@ -19,7 +19,7 @@ from typing import Any
 
 from obox_builder.apps import apps
 from obox_builder.conf import settings
-from obox_builder.core.exceptions import ImproperlyConfigured
+from obox_builder.exceptions import ImproperlyConfigured
 
 DRAFTS_KEY = "obox.events.drafts"
 NAME_RE = re.compile(r"^[a-zA-Z0-9_][a-zA-Z0-9_.:-]{0,149}$")

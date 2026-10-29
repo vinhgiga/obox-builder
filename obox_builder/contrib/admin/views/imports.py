@@ -28,8 +28,8 @@ from obox_builder.contrib.imports.models import ImportRow, ImportSession
 from obox_builder.contrib.imports.parser import ImportFileError
 from obox_builder.contrib.jobs.models import Task
 from obox_builder.contrib.jobs.services import retry
-from obox_builder.core.exceptions import ImproperlyConfigured, PermissionDenied
 from obox_builder.db.session import get_db, session_scope
+from obox_builder.exceptions import ImproperlyConfigured, PermissionDenied
 from obox_builder.utils.module_loading import import_string
 
 BUSY = {"uploaded", "parsing", "validating", "queued", "committing"}

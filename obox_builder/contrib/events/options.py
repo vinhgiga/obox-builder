@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 from obox_builder.contrib.history.options import HistoryOptions, parse_history
 from obox_builder.contrib.history.tracker import Tracker
-from obox_builder.core.exceptions import ImproperlyConfigured
+from obox_builder.exceptions import ImproperlyConfigured
 
 
 @dataclass(frozen=True)

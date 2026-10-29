@@ -13,9 +13,9 @@ from sqlalchemy import Connection
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from obox_builder.conf import settings
-from obox_builder.core.exceptions import ImproperlyConfigured
 from obox_builder.db.base import ModelBase
 from obox_builder.db.migrations.config import build_config, make_include_object, version_dir
+from obox_builder.exceptions import ImproperlyConfigured
 
 T = TypeVar("T")
 

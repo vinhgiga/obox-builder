@@ -10,7 +10,7 @@ import sqlalchemy as sa
 from obox_builder.contrib.admin.context import AdminContext
 from obox_builder.contrib.admin.options import ModelAdmin
 from obox_builder.contrib.admin.relations import build_cells, relation_choices, validate_relations
-from obox_builder.core.exceptions import ImproperlyConfigured, PermissionDenied
+from obox_builder.exceptions import ImproperlyConfigured, PermissionDenied
 from obox_builder.fields import FieldSpec
 from obox_builder.forms import BoundForm, render_values
 
@@ -142,7 +142,7 @@ class InlineFormSet:
         """Validate constraints shared by multiple child rows after binding."""
 
     async def save(self, parent: Any) -> None:
-        from obox_builder.contrib.admin.deletion import collect_deletion
+        from obox_builder.contrib.admin.services.deletion import collect_deletion
 
         for row in self.rows:
             if row.delete and row.obj is not None:
@@ -300,7 +300,7 @@ class InlineFormSet:
 async def load_inlines(
     ctx: AdminContext, parent: Any, data: dict[str, Any] | None = None
 ) -> list[InlineFormSet]:
-    from obox_builder.contrib.admin.deletion import collect_deletion
+    from obox_builder.contrib.admin.services.deletion import collect_deletion
     from obox_builder.contrib.admin.uniqueness import validate_inline_uniqueness
 
     if ctx.admin is None:

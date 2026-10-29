@@ -18,8 +18,8 @@ from obox_builder.apps import apps
 from obox_builder.conf import settings
 from obox_builder.contrib.jobs.models import Task, TaskAttempt
 from obox_builder.contrib.jobs.registry import NAME_RE, encode_json, get_task
-from obox_builder.core.exceptions import ImproperlyConfigured
 from obox_builder.core.utils.time import ensure_aware, utcnow
+from obox_builder.exceptions import ImproperlyConfigured
 
 
 def require_enabled() -> None:

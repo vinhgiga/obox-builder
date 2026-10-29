@@ -11,7 +11,7 @@ from typing import ClassVar
 
 import sqlalchemy as sa
 
-from obox_builder.core.exceptions import ImproperlyConfigured
+from obox_builder.exceptions import ImproperlyConfigured
 
 LABEL_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
 

@@ -15,8 +15,8 @@ from obox_builder.contrib.auth.authz import Actor, PermissionName, authorization
 from obox_builder.contrib.auth.models import Session as AuthSession
 from obox_builder.contrib.auth.models import User
 from obox_builder.contrib.auth.permissions import get_actor
-from obox_builder.core.exceptions import NotAuthenticated, PermissionDenied
 from obox_builder.db.session import get_db
+from obox_builder.exceptions import NotAuthenticated, PermissionDenied
 
 
 async def get_auth_session(

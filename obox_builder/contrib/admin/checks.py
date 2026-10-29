@@ -7,7 +7,7 @@ from obox_builder.conf import settings
 from obox_builder.contrib.admin.site import site
 from obox_builder.core.checks.messages import CheckMessage, Error, Warning
 from obox_builder.core.checks.registry import register
-from obox_builder.core.exceptions import ImproperlyConfigured
+from obox_builder.exceptions import ImproperlyConfigured
 
 ADMIN = "admin"
 COMMENTS_APP = "obox_builder.contrib.comments"

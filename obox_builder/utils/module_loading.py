@@ -5,7 +5,7 @@ from importlib import import_module
 from importlib.util import find_spec
 from typing import Any
 
-from obox_builder.core.exceptions import ImproperlyConfigured
+from obox_builder.exceptions import ImproperlyConfigured
 
 
 def import_string(dotted_path: str) -> Any:

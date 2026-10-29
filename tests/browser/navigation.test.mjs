@@ -160,8 +160,10 @@ test("localized lists keep their language when scrolling and loading summaries",
     await page.locator("[data-list-table]").evaluate((element) => { element.scrollTop = element.scrollHeight; });
     await page.waitForFunction(() => document.querySelector("[data-list-table]").adminList.rows.length >= 40);
     await page.locator('[data-summary-field="name"] > summary').click();
-    await page.locator('[data-summary-field="name"] [data-summary-operation="filled"]').click();
-    await page.waitForFunction(() => document.querySelector('[data-summary-field="name"] [data-summary-value]').textContent === "Filled 70");
+    const filled = page.locator('[data-summary-field="name"] [data-summary-operation="filled"]');
+    const label = await filled.textContent();
+    await filled.click();
+    await page.waitForFunction((label) => document.querySelector('[data-summary-field="name"] [data-summary-value]').textContent === `${label} 70`, label);
     assert.ok(requests.length >= 2);
     assert.ok(requests.every((request) => new URL(request.url()).pathname.startsWith("/vi/admin/")));
     assert.equal(await page.locator("html").getAttribute("lang"), "vi");

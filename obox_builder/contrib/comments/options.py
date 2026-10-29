@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from obox_builder.core.exceptions import ImproperlyConfigured
+from obox_builder.exceptions import ImproperlyConfigured
 
 KNOWN_KEYS = frozenset({"max_length", "allow_replies", "edit_window_seconds"})
 DB_MAX_LENGTH = 20_000

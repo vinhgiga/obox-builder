@@ -14,7 +14,7 @@ from obox_builder.apps import apps
 from obox_builder.contrib.comments.options import parse_comments
 from obox_builder.core.checks import register
 from obox_builder.core.checks.messages import CheckMessage, Error
-from obox_builder.core.exceptions import ImproperlyConfigured
+from obox_builder.exceptions import ImproperlyConfigured
 
 TAG = "comments"
 AUTH_APP = "obox_builder.contrib.auth"

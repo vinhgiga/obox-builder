@@ -18,7 +18,7 @@ def render(
     *,
     status_code: int = 200,
 ) -> HTMLResponse:
-    from obox_builder.contrib.admin.views.common import current_site
+    from obox_builder.contrib.admin.context import current_site
 
     headers = request.headers
     admin_site = current_site(request)

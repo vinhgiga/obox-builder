@@ -14,8 +14,8 @@ from obox_builder.contrib.history.context import use
 from obox_builder.contrib.imports import services
 from obox_builder.contrib.imports.models import ImportSession
 from obox_builder.contrib.jobs import task
-from obox_builder.core.exceptions import PermissionDenied
 from obox_builder.db.session import session_scope
+from obox_builder.exceptions import PermissionDenied
 from obox_builder.utils.module_loading import import_string
 
 STATES = {

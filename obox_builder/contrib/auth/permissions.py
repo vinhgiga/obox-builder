@@ -20,7 +20,7 @@ from obox_builder.contrib.auth.authz import (
 )
 from obox_builder.contrib.auth.base_user import AbstractBaseUser
 from obox_builder.contrib.auth.models import Permission, Role, role_permissions, user_roles
-from obox_builder.core.exceptions import ImproperlyConfigured
+from obox_builder.exceptions import ImproperlyConfigured
 from obox_builder.utils.strings import camel_to_snake
 
 logger = logging.getLogger(__name__)

@@ -21,8 +21,8 @@ from sqlalchemy.sql.elements import ClauseElement
 
 from obox_builder.apps import apps
 from obox_builder.conf import settings
-from obox_builder.core.exceptions import ImproperlyConfigured
 from obox_builder.db.router import router
+from obox_builder.exceptions import ImproperlyConfigured
 
 T = TypeVar("T")
 

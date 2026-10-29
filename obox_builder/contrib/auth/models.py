@@ -13,10 +13,10 @@ from obox_builder.apps import apps
 from obox_builder.conf import settings
 from obox_builder.contrib.auth.authz import COMPONENT_PATTERN, SERVICE_PATTERN, model_permission
 from obox_builder.contrib.auth.base_user import AbstractBaseUser, AbstractUser
-from obox_builder.core.exceptions import ImproperlyConfigured
 from obox_builder.db import Model, TimestampMixin, VersionedMixin, relationship
 from obox_builder.db.base import ModelBase
 from obox_builder.db.types import JSONB, BigIntIdentity, JsonDict, TZDateTime
+from obox_builder.exceptions import ImproperlyConfigured
 from obox_builder.utils.strings import camel_to_snake
 
 USER_MODEL = settings.AUTH_USER_MODEL if settings.configured else "auth.User"

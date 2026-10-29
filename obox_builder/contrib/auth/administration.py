@@ -10,7 +10,7 @@ from sqlalchemy.orm import selectinload
 
 from obox_builder.contrib.auth.authz import Actor
 from obox_builder.contrib.auth.models import Permission, Role, User
-from obox_builder.core.exceptions import PermissionDenied
+from obox_builder.exceptions import PermissionDenied
 
 
 def check_permissions(actor: Actor, permissions: Sequence[Permission]) -> None:

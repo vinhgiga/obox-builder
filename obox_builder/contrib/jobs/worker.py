@@ -26,9 +26,9 @@ from obox_builder.contrib.jobs.models import Task, TaskAttempt
 from obox_builder.contrib.jobs.presence import presence
 from obox_builder.contrib.jobs.registry import NAME_RE, get_task
 from obox_builder.contrib.jobs.services import require_enabled
-from obox_builder.core.exceptions import ImproperlyConfigured
 from obox_builder.core.utils.time import ensure_aware, utcnow
 from obox_builder.db.session import session_scope
+from obox_builder.exceptions import ImproperlyConfigured
 
 logger = logging.getLogger("obox.jobs")
 

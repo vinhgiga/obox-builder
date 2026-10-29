@@ -10,7 +10,7 @@ from obox_builder.contrib.admin.api.deps import DB, USER
 from obox_builder.contrib.admin.api.meta import model_context
 from obox_builder.contrib.admin.services import RecordService
 from obox_builder.contrib.auth.tokens import scope_allows
-from obox_builder.core.exceptions import PermissionDenied
+from obox_builder.exceptions import PermissionDenied
 
 
 def api_route_context(admin: Any, permission: str | None) -> Any:
