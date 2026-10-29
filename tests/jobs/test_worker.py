@@ -23,7 +23,7 @@ from tests.jobs import read
 
 async def update(task_id: str, **values: Any) -> None:
     async with session_scope() as db:
-        await db.execute(sa.update(Task).where(Task.task_id == task_id).values(**values))
+        await db.execute(sa.update(Task).where(Task.id == task_id).values(**values))
 
 
 async def wait_for_file(path: Path) -> None:
@@ -85,17 +85,17 @@ async def test_cpu_process_result_context_and_delay_api(db: AsyncSession) -> Non
     row = await cpu.delay(db, 1000)
     await db.commit()
     assert await Worker().run_once()
-    row = await read(sa.select(Task).where(Task.task_id == row.task_id))
+    row = await read(sa.select(Task).where(Task.id == row.id))
     assert row.status == "SUCCESS"
     assert row.result == {
         "sum": sum(i * i for i in range(1000)),
         "pid": row.result["pid"],
-        "id": row.task_id,
+        "id": row.id,
         "retries": 0,
         "worker": row.worker,
     }
     assert row.result["pid"] != os.getpid()
-    attempt = await read(sa.select(TaskAttempt).where(TaskAttempt.task_id == row.task_id))
+    attempt = await read(sa.select(TaskAttempt).where(TaskAttempt.task_id == row.id))
     assert (attempt.status, attempt.retries, attempt.worker) == ("SUCCESS", 0, row.worker)
     assert attempt.date_done is not None
     assert row.date_done is not None
@@ -108,21 +108,21 @@ async def test_retry_budget_history_and_redacted_errors(
     db: AsyncSession, name: str, expected: str
 ) -> None:
     row = await enqueue(db, name)
-    task_id = row.task_id
+    task_id = row.id
     await db.commit()
     await Worker().run_once()
-    row = await read(sa.select(Task).where(Task.task_id == task_id))
+    row = await read(sa.select(Task).where(Task.id == task_id))
     assert (row.status, row.retries, row.date_done) == ("RETRY", 1, None)
     assert "private-error-message" not in row.traceback
     await update(task_id, eta=utcnow() - timedelta(seconds=1))
     await Worker().run_once()
-    row = await read(sa.select(Task).where(Task.task_id == task_id))
+    row = await read(sa.select(Task).where(Task.id == task_id))
     assert (row.status, row.retries) == (expected, 1)
     assert await read(sa.select(sa.func.count()).select_from(TaskAttempt)) == 2
     if expected == "FAILURE":
         assert await retry(db, task_id)
         await db.commit()
-        row = await read(sa.select(Task).where(Task.task_id == task_id))
+        row = await read(sa.select(Task).where(Task.id == task_id))
         assert (row.status, row.retries, row.max_retries) == ("RETRY", 2, 3)
 
 
@@ -140,7 +140,7 @@ async def test_async_tasks_retry_filter_and_result_serialization(
     row = await enqueue(db, name, args=args)
     await db.commit()
     await Worker().run_once()
-    row = await read(sa.select(Task).where(Task.task_id == row.task_id))
+    row = await read(sa.select(Task).where(Task.id == row.id))
     assert (row.status, row.retries) == (status, 0)
     if name == "jobs.async":
         assert row.result == "ok"
@@ -170,7 +170,7 @@ async def test_crash_recovery_fences_old_worker_and_bounds_retries(
     values: dict[str, Any] = {"locked_until": utcnow() - timedelta(seconds=1)}
     if exhausted:
         values["max_retries"] = 0
-    await update(row.task_id, **values)
+    await update(row.id, **values)
     replacement = await claim(("default",), "replacement")
     await execute(original)
     if exhausted:
@@ -211,7 +211,7 @@ async def test_heartbeat_and_running_revoke(
         await wait_for_file(marker)
         initial = (await read(sa.select(Task))).locked_until
         if cancel:
-            assert await revoke(db, row.task_id)
+            assert await revoke(db, row.id)
             await db.commit()
         else:
             with anyio.fail_after(10):

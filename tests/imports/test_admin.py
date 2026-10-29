@@ -190,7 +190,7 @@ async def test_retry_failed_job_preserves_checkpoint(client: httpx.AsyncClient) 
         session = await db.get(ImportSession, session_id)
         assert session is not None
         await db.execute(
-            sa.update(Task).where(Task.task_id == session.task_id).values(status="FAILURE")
+            sa.update(Task).where(Task.id == session.task_id).values(status="FAILURE")
         )
     page = await client.get(f"{BASE}/{session_id}")
     assert "Retry processing" in page.text

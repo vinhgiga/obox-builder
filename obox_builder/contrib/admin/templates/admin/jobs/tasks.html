@@ -46,7 +46,7 @@
       <tbody>
       {% for item in tasks %}{% set task = item.task %}
         <tr>
-          <td class="jobs-task-cell"><a class="jobs-task-name" href="/admin/jobs/tasks/{{ task.task_id | urlencode }}">{{ task.name }}</a><code class="jobs-task-id">{{ task.task_id }}</code><span class="text-secondary small">{{ task.queue }}</span></td>
+          <td class="jobs-task-cell"><a class="jobs-task-name" href="/admin/jobs/tasks/{{ task.id | urlencode }}">{{ task.name }}</a><code class="jobs-task-id">{{ task.id }}</code><span class="text-secondary small">{{ task.queue }}</span></td>
           <td>{{ badge(task.status, states) }}</td>
           <td class="jobs-date">{{ timestamp(task.date_created) }}</td>
           <td class="jobs-date">{{ timestamp(task.eta) }}</td>

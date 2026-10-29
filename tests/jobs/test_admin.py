@@ -62,7 +62,7 @@ async def sign_in(client: httpx.AsyncClient, *permissions: str) -> str:
 async def make_task(status: str = "PENDING", **values: Any) -> str:
     task_id = str(uuid.uuid4())
     defaults: dict[str, Any] = {
-        "task_id": task_id,
+        "id": task_id,
         "name": "jobs.cpu",
         "status": status,
         "args": ["private-payload"],
@@ -118,7 +118,7 @@ async def test_task_filters_search_sort_and_pagination(client: httpx.AsyncClient
     assert (await client.get("/admin/jobs/tasks?q=%25")).status_code == 200
     assert target not in (await client.get("/admin/jobs/tasks?q=%25")).text
     async with session_scope() as db:
-        db.add_all([Task(task_id=f"page-task-{i}", name="jobs.cpu") for i in range(51)])
+        db.add_all([Task(id=f"page-task-{i}", name="jobs.cpu") for i in range(51)])
     page = await client.get("/admin/jobs/tasks?page=2")
     assert "Page 2 of 2" in page.text
     assert "page-task-50" not in page.text
@@ -173,7 +173,7 @@ async def test_actions_require_permission_and_csrf_and_reject_get(
     response = await client.post(url, data={"csrf_token": csrf})
     assert response.status_code == 303
     assert response.headers["location"] == f"/admin/jobs/tasks/{task_id}"
-    assert (await read(sa.select(Task).where(Task.task_id == task_id))).status == expected
+    assert (await read(sa.select(Task).where(Task.id == task_id))).status == expected
 
 
 async def test_missing_and_terminal_task_actions(client: httpx.AsyncClient) -> None:
@@ -254,7 +254,7 @@ async def test_disabled_jobs_preserve_history_but_reject_actions(
     assert (
         await client.post(f"/admin/jobs/tasks/{task_id}/retry", data={"csrf_token": csrf})
     ).status_code == 409
-    assert (await read(sa.select(Task).where(Task.task_id == task_id))).status == "FAILURE"
+    assert (await read(sa.select(Task).where(Task.id == task_id))).status == "FAILURE"
 
 
 async def test_sqlite_request_transactions_serialize_read_then_write(db: AsyncSession) -> None:
@@ -264,10 +264,10 @@ async def test_sqlite_request_transactions_serialize_read_then_write(db: AsyncSe
 
     async def increment() -> None:
         async with asynccontextmanager(get_db)() as request_db:
-            row = await request_db.scalar(sa.select(Task).where(Task.task_id == task_id))
+            row = await request_db.scalar(sa.select(Task).where(Task.id == task_id))
             assert row is not None
             await asyncio.sleep(0)  # Allow competing requests between the read and write.
             row.retries += 1
 
     await asyncio.gather(*(increment() for _ in range(10)))
-    assert (await read(sa.select(Task).where(Task.task_id == task_id))).retries == 10
+    assert (await read(sa.select(Task).where(Task.id == task_id))).retries == 10

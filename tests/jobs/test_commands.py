@@ -29,8 +29,8 @@ async def test_cli_lifecycle_purge_and_cascade(
         name="jobs.cpu", args="[100]", kwargs="{}", eta=None, queue=None, dedup_key=None
     )
     row = await read(sa.select(Task))
-    await jobs_revoke.handle.func(row.task_id)
-    await jobs_retry.handle.func(row.task_id)
+    await jobs_revoke.handle.func(row.id)
+    await jobs_retry.handle.func(row.id)
     await jobs_worker.handle.func(queue=["default"], concurrency=1, once=True)
     await jobs_status.handle.func()
     assert (await read(sa.select(Task))).status == "SUCCESS"

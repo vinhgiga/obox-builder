@@ -39,7 +39,7 @@ class LeaseLost(RuntimeError):
 
 def _fence(task: Task) -> Any:
     return sa.and_(
-        Task.task_id == task.task_id,
+        Task.id == task.id,
         Task.status == "STARTED",
         Task.lock_token == task.lock_token,
         Task.locked_until > utcnow(),
@@ -66,7 +66,7 @@ async def claim(queues: tuple[str, ...], worker: str) -> Task | None:
                         locked_until=None,
                         traceback="LeaseExpired",
                     )
-                    .returning(Task.task_id)
+                    .returning(Task.id)
                 )
             ).all()
         )
@@ -85,7 +85,7 @@ async def claim(queues: tuple[str, ...], worker: str) -> Task | None:
         candidate = (
             sa.select(Task.id)
             .where(Task.queue.in_(queues), eligible)
-            .order_by(Task.eta, Task.id)
+            .order_by(Task.eta, Task.date_created, Task.id)
             .limit(1)
             .with_for_update(skip_locked=True)
             .scalar_subquery()
@@ -110,10 +110,10 @@ async def claim(queues: tuple[str, ...], worker: str) -> Task | None:
         if row is not None:
             await db.execute(
                 sa.update(TaskAttempt)
-                .where(TaskAttempt.task_id == row.task_id, TaskAttempt.status == "STARTED")
+                .where(TaskAttempt.task_id == row.id, TaskAttempt.status == "STARTED")
                 .values(status="ABANDONED", date_done=now, traceback="LeaseExpired")
             )
-            db.add(TaskAttempt(task_id=row.task_id, retries=row.retries, worker=worker))
+            db.add(TaskAttempt(task_id=row.id, retries=row.retries, worker=worker))
         return row
 
 
@@ -129,7 +129,7 @@ async def _heartbeat(task: Task) -> None:
                 .execution_options(synchronize_session=False)
             )
             if owned is None:
-                raise LeaseLost(task.task_id)
+                raise LeaseLost(task.id)
 
 
 async def _execute(task: Task) -> dict[str, Any]:
@@ -144,7 +144,7 @@ async def _execute(task: Task) -> dict[str, Any]:
         "settings_class": f"{type(config).__module__}.{type(config).__qualname__}",
         "settings": config_data,
         "module": definition.func.__module__,
-        "task_id": task.task_id,
+        "task_id": task.id,
         "name": task.name,
         "args": task.args,
         "kwargs": task.kwargs,
@@ -219,10 +219,10 @@ async def _finish(task: Task, response: dict[str, Any]) -> None:
             .execution_options(synchronize_session=False)
         )
         if owned is None:
-            raise LeaseLost(task.task_id)
+            raise LeaseLost(task.id)
         await db.execute(
             sa.update(TaskAttempt)
-            .where(TaskAttempt.task_id == task.task_id, TaskAttempt.retries == task.retries)
+            .where(TaskAttempt.task_id == task.id, TaskAttempt.retries == task.retries)
             .values(
                 status="SUCCESS" if succeeded else "FAILURE",
                 date_done=now,
@@ -251,7 +251,7 @@ async def execute(task: Task) -> None:
                 await heartbeat  # Lease loss or a DB error must stop the child.
             response = await execution
     except LeaseLost:
-        logger.info("Task %s lost its lease; execution stopped.", task.task_id)
+        logger.info("Task %s lost its lease; execution stopped.", task.id)
         return
     except Exception as exc:
         response = {"status": "FAILURE", "traceback": type(exc).__name__, "retryable": True}
@@ -263,9 +263,9 @@ async def execute(task: Task) -> None:
                 await pending
     try:
         await _finish(task, response)
-        logger.info("Task %s attempt %s: %s.", task.task_id, task.retries, response["status"])
+        logger.info("Task %s attempt %s: %s.", task.id, task.retries, response["status"])
     except LeaseLost:
-        logger.info("Task %s lost its lease; result ignored.", task.task_id)
+        logger.info("Task %s lost its lease; result ignored.", task.id)
 
 
 class Worker:

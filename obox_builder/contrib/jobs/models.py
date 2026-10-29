@@ -1,6 +1,6 @@
 """Celery-style task metadata with durable queue and lease extensions.
 
-Names and VARCHAR lengths follow Celery's SQLAlchemy TaskExtended model.
+Metadata names and VARCHAR lengths follow Celery's SQLAlchemy TaskExtended model.
 JSON replaces PickleType/LargeBinary; dates are timezone-aware UTC. Queue,
 lease and attempt fields belong to this implementation, not Celery's backend.
 """
@@ -22,8 +22,7 @@ from obox_builder.db.types import JSONB, TZDateTime
 class Task(Model):
     app_label = "jobs"
 
-    id: Mapped[int] = mapped_column(sa.Integer, primary_key=True)
-    task_id: Mapped[str] = mapped_column(sa.String(155), unique=True)
+    id: Mapped[str] = mapped_column(sa.String(155), primary_key=True)
     name: Mapped[str] = mapped_column(sa.String(155))
     queue: Mapped[str] = mapped_column(sa.String(155), default="default")
     args: Mapped[list[Any]] = mapped_column(JSONB, default=list)
@@ -52,7 +51,7 @@ class Task(Model):
             "(status <> 'STARTED' AND lock_token IS NULL AND locked_until IS NULL)",
             name="lease",
         ),
-        sa.Index("ix_jobs_task_due", "queue", "status", "eta", "id"),
+        sa.Index("ix_jobs_task_due", "queue", "status", "eta", "date_created", "id"),
         sa.Index("ix_jobs_task_lease", "status", "locked_until"),
     )
 
@@ -62,7 +61,7 @@ class TaskAttempt(Model):
 
     id: Mapped[int] = mapped_column(sa.Integer, primary_key=True)
     task_id: Mapped[str] = mapped_column(
-        sa.String(155), sa.ForeignKey("obox_task.task_id", ondelete="CASCADE")
+        sa.String(155), sa.ForeignKey("obox_task.id", ondelete="CASCADE")
     )
     retries: Mapped[int] = mapped_column(sa.Integer)
     worker: Mapped[str] = mapped_column(sa.String(155))

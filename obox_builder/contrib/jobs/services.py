@@ -60,7 +60,7 @@ async def enqueue(
         await db.scalars(
             insert(Task)
             .values(
-                task_id=str(uuid.uuid4()),
+                id=str(uuid.uuid4()),
                 name=name,
                 queue=queue,
                 args=arguments[0],
@@ -83,13 +83,13 @@ async def enqueue(
 async def retry(db: AsyncSession, task_id: str) -> bool:
     """Requeue FAILURE/REVOKED tasks with a fresh retry budget and the same id."""
     require_enabled()
-    row = (await db.scalars(sa.select(Task).where(Task.task_id == task_id))).one_or_none()
+    row = (await db.scalars(sa.select(Task).where(Task.id == task_id))).one_or_none()
     if row is None:
         return False
     definition = get_task(row.name)
     updated = await db.scalar(
         sa.update(Task)
-        .where(Task.task_id == task_id, Task.status.in_(("FAILURE", "REVOKED")))
+        .where(Task.id == task_id, Task.status.in_(("FAILURE", "REVOKED")))
         .values(
             status="RETRY",
             retries=Task.retries + 1,
@@ -112,7 +112,7 @@ async def revoke(db: AsyncSession, task_id: str) -> bool:
     now = utcnow()
     updated = await db.scalar(
         sa.update(Task)
-        .where(Task.task_id == task_id, Task.status.in_(("PENDING", "RETRY", "STARTED")))
+        .where(Task.id == task_id, Task.status.in_(("PENDING", "RETRY", "STARTED")))
         .values(status="REVOKED", date_done=now, lock_token=None, locked_until=None)
         .returning(Task.id)
         .execution_options(synchronize_session=False)

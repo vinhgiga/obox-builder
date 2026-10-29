@@ -80,7 +80,7 @@ async def task_list(
         scope.append(
             sa.or_(
                 Task.name.icontains(filters["q"], autoescape=True),
-                Task.task_id.icontains(filters["q"], autoescape=True),
+                Task.id.icontains(filters["q"], autoescape=True),
             )
         )
     for key in ("queue", "worker"):
@@ -115,7 +115,7 @@ async def task_list(
     order = column.desc() if sort.startswith("-") else column.asc()
     latest = (
         sa.select(sa.func.max(TaskAttempt.retries))
-        .where(TaskAttempt.task_id == Task.task_id)
+        .where(TaskAttempt.task_id == Task.id)
         .correlate(Task)
         .scalar_subquery()
     )
@@ -124,7 +124,7 @@ async def task_list(
         await db.execute(
             sa.select(Task, attempt.date_started, attempt.date_done)
             .options(defer(Task.args), defer(Task.kwargs), defer(Task.result))
-            .outerjoin(attempt, sa.and_(attempt.task_id == Task.task_id, attempt.retries == latest))
+            .outerjoin(attempt, sa.and_(attempt.task_id == Task.id, attempt.retries == latest))
             .where(*scope)
             .order_by(order, Task.id.desc())
             .offset((page - 1) * PAGE_SIZE)
@@ -178,7 +178,7 @@ async def task_detail(
     db: AsyncSession = Depends(get_db),
     before: int | None = Query(None, ge=0),
 ) -> Response:
-    row = await db.scalar(sa.select(Task).where(Task.task_id == task_id))
+    row = await db.scalar(sa.select(Task).where(Task.id == task_id))
     if row is None:
         raise HTTPException(404, "Task not found.")
     query = sa.select(TaskAttempt).where(TaskAttempt.task_id == task_id)
@@ -229,7 +229,7 @@ async def task_action(
     await ensure_csrf(request, str(form.get("csrf_token", "")))
     if not settings.JOBS_ENABLED:
         raise HTTPException(409, "Background jobs are disabled.")
-    if await db.scalar(sa.select(Task.id).where(Task.task_id == task_id)) is None:
+    if await db.scalar(sa.select(Task.id).where(Task.id == task_id)) is None:
         raise HTTPException(404, "Task not found.")
     try:
         changed = await (

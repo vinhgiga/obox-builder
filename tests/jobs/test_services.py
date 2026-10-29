@@ -19,34 +19,34 @@ from tests.jobs import read
 
 async def test_enqueue_and_savepoints_follow_caller_transaction(db: AsyncSession) -> None:
     row = await enqueue(db, "jobs.cpu")
-    task_id = row.task_id
+    task_id = row.id
     await db.rollback()
-    assert await read(sa.select(Task).where(Task.task_id == task_id)) is None
+    assert await read(sa.select(Task).where(Task.id == task_id)) is None
     async with db.begin_nested():
         row = await enqueue(db, "jobs.cpu")
-        task_id = row.task_id
+        task_id = row.id
     await db.rollback()
-    assert await read(sa.select(Task).where(Task.task_id == task_id)) is None
+    assert await read(sa.select(Task).where(Task.id == task_id)) is None
     row = await enqueue(db, "jobs.cpu")
     await db.commit()
-    assert (await read(sa.select(Task).where(Task.task_id == row.task_id))).status == "PENDING"
+    assert (await read(sa.select(Task).where(Task.id == row.id))).status == "PENDING"
 
 
 async def test_rolled_back_savepoint_preserves_other_jobs(db: AsyncSession) -> None:
     kept = await enqueue(db, "jobs.cpu")
     nested = await db.begin_nested()
     removed = await enqueue(db, "jobs.cpu")
-    removed_id = removed.task_id
+    removed_id = removed.id
     await nested.rollback()
     await db.commit()
-    assert await read(sa.select(Task).where(Task.task_id == kept.task_id)) is not None
-    assert await read(sa.select(Task).where(Task.task_id == removed_id)) is None
+    assert await read(sa.select(Task).where(Task.id == kept.id)) is not None
+    assert await read(sa.select(Task).where(Task.id == removed_id)) is None
 
 
 async def test_dedup_returns_original_and_rejects_different_arguments(db: AsyncSession) -> None:
     original = await enqueue(db, "jobs.cpu", args=[10], dedup_key="same")
     duplicate = await enqueue(db, "jobs.cpu", args=[10], dedup_key="same")
-    assert duplicate.task_id == original.task_id
+    assert duplicate.id == original.id
     with pytest.raises(ValueError, match="different"):
         await enqueue(db, "jobs.cpu", args=[11], dedup_key="same")
     await db.commit()
@@ -83,7 +83,7 @@ async def test_snapshot_payload_and_limit(
     row = await enqueue(db, "jobs.cpu", args=args)
     args[0] = 200
     await db.commit()
-    assert (await read(sa.select(Task).where(Task.task_id == row.task_id))).args == [100]
+    assert (await read(sa.select(Task).where(Task.id == row.id))).args == [100]
     monkeypatch.setattr(settings.load(), "JOBS_MAX_PAYLOAD_BYTES", 4)
     with pytest.raises(ValueError, match="MAX_PAYLOAD"):
         await enqueue(db, "jobs.cpu")
@@ -94,10 +94,10 @@ async def test_eta_queue_and_revoking_queued_work(db: AsyncSession) -> None:
     await db.commit()
     assert not await Worker().run_once()
     assert not await Worker(queues=("scheduled",)).run_once()
-    assert await revoke(db, row.task_id)
+    assert await revoke(db, row.id)
     await db.commit()
-    assert not await revoke(db, row.task_id)
-    assert (await read(sa.select(Task).where(Task.task_id == row.task_id))).status == "REVOKED"
+    assert not await revoke(db, row.id)
+    assert (await read(sa.select(Task).where(Task.id == row.id))).status == "REVOKED"
 
 
 @pytest.mark.parametrize(

@@ -40,4 +40,4 @@ async def handle(
             )
     except (TypeError, ValueError) as exc:
         raise CommandError(str(exc)) from exc
-    echo(row.task_id)
+    echo(row.id)

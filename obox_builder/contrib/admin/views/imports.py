@@ -207,7 +207,7 @@ async def _enqueue(ctx: AdminContext, session: ImportSession, phase: str) -> Non
         args=(session.id, session.revision, phase, path),
         dedup_key=f"import:{session.id}:{session.revision}:{phase}",
     )
-    session.task_id = task.task_id
+    session.task_id = task.id
 
 
 @asynccontextmanager
@@ -279,8 +279,8 @@ async def _page(
     if session is not None and session.status in BUSY and session.task_id:
         task_failed = bool(
             await ctx.db.scalar(
-                sa.select(Task.task_id).where(
-                    Task.task_id == session.task_id, Task.status.in_(("FAILURE", "REVOKED"))
+                sa.select(Task.id).where(
+                    Task.id == session.task_id, Task.status.in_(("FAILURE", "REVOKED"))
                 )
             )
         )
