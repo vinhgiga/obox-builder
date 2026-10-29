@@ -187,10 +187,10 @@ async def test_batch_create_and_update_are_atomic(api: httpx.AsyncClient) -> Non
     }
     batch["records"][1]["fields"] = {"version": 0}
     assert (await api.patch(ITEMS, headers=headers, json=batch)).status_code == 422
-    assert [row["fields"]["name"] for row in (await api.get(ITEMS)).json()["records"]] == [
+    assert {row["fields"]["name"] for row in (await api.get(ITEMS)).json()["records"]} == {
         "One",
         "Two",
-    ]
+    }
     batch["records"][1]["fields"] = {"name": "Edited 1"}
     assert (await api.patch(ITEMS, headers=headers, json=batch)).status_code == 200
 

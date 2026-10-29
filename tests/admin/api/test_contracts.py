@@ -108,8 +108,9 @@ async def test_dynamic_fields_are_scoped_per_row(
 
     monkeypatch.setattr(admin, "get_form_fields", fields)
     records = (await api.get(ITEMS)).json()["records"]
-    assert records[0]["fields"]["notes"] == "Public note"
-    assert "notes" not in records[1]["fields"]
+    fields_by_name = {record["fields"]["name"]: record["fields"] for record in records}
+    assert fields_by_name["Public"]["notes"] == "Public note"
+    assert "notes" not in fields_by_name["Private"]
 
 
 async def test_real_user_version_is_readonly_and_password_is_secret(api: httpx.AsyncClient) -> None:

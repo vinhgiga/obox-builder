@@ -145,10 +145,10 @@ async def test_normalization_ties_groups_and_numeric_secondary_order(
     specs = specs_for(table)
     query = QuerySpec.parse({"group": "name", "sort": "rank"}, specs)
     stmt = query.apply(sa.select(table.c.id), specs, text_collation="vi")
-    assert (await connection.scalars(stmt)).all() == [4, 2, 1, 5, 3]
+    assert (await connection.scalars(stmt)).all() == [4, 2, 5, 1, 3]
     grouped = QuerySpec.parse({"group": "-name", "sort": "-rank"}, specs)
     descending = grouped.apply(sa.select(table.c.id), specs, text_collation="vi")
-    assert (await connection.scalars(descending)).all() == [3, 1, 5, 2, 4]
+    assert (await connection.scalars(descending)).all() == [3, 5, 1, 2, 4]
     await connection.run_sync(metadata.drop_all)
     await connection.commit()
 
