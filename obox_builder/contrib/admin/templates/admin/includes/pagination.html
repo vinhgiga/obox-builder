@@ -1,7 +1,7 @@
 {% if pages is not none and pages > 1 %}
 <ul class="pagination">
   {% if has_previous %}
-  <li class="page-item"><a class="page-link" href="?{{ querystring(request.query_params, page=page - 1) }}">Previous</a></li>
+  <li class="page-item"><a class="page-link" href="?{{ querystring(request.query_params, page=page - 1) }}">{{ _('Previous') }}</a></li>
   {% endif %}
   {% for number in range(1, pages + 1) %}
     <li class="page-item {{ 'active' if number == page }}">
@@ -9,17 +9,17 @@
     </li>
   {% endfor %}
   {% if has_next %}
-  <li class="page-item"><a class="page-link" href="?{{ querystring(request.query_params, page=page + 1) }}">Next</a></li>
+  <li class="page-item"><a class="page-link" href="?{{ querystring(request.query_params, page=page + 1) }}">{{ _('Next') }}</a></li>
   {% endif %}
 </ul>
 {% elif has_previous or has_next %}
 <ul class="pagination">
   {% if has_previous %}
-  <li class="page-item"><a class="page-link" href="?{{ querystring(request.query_params, page=page - 1) }}">Previous</a></li>
+  <li class="page-item"><a class="page-link" href="?{{ querystring(request.query_params, page=page - 1) }}">{{ _('Previous') }}</a></li>
   {% endif %}
   <li class="page-item active"><span class="page-link">Page {{ page }}</span></li>
   {% if has_next %}
-  <li class="page-item"><a class="page-link" href="?{{ querystring(request.query_params, page=page + 1) }}">Next</a></li>
+  <li class="page-item"><a class="page-link" href="?{{ querystring(request.query_params, page=page + 1) }}">{{ _('Next') }}</a></li>
   {% endif %}
 </ul>
 {% endif %}

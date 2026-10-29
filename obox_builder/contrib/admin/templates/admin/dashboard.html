@@ -1,11 +1,11 @@
 {% extends "admin/base.html" %}
-{% block title %}{{ index_title }}{% endblock %}
+{% block title %}{{ index_title | gettext }}{% endblock %}
 {% block content %}
 <div class="page-header d-print-none">
   <div class="row g-2 align-items-center">
     <div class="col">
-      <h2 class="page-title">{{ index_title }}</h2>
-      <div class="text-secondary mt-1">Welcome back, {{ user.full_name or user.username }}.</div>
+      <h2 class="page-title">{{ index_title | gettext }}</h2>
+      <div class="text-secondary mt-1">{{ _('Welcome back, %(name)s.', name=user.full_name or user.username) }}</div>
     </div>
   </div>
 </div>
@@ -14,11 +14,11 @@
     <div class="card">
       <div class="card-body">
         <div class="d-flex align-items-center">
-          <div class="subheader">Users</div>
+          <div class="subheader">{{ _('Users') }}</div>
         </div>
         <div class="d-flex align-items-baseline">
           <div class="h1 mb-0 me-2">{{ stats.users }}</div>
-          <div class="text-secondary">{{ stats.active_users }} active</div>
+          <div class="text-secondary">{{ _('%(count)s active', count=stats.active_users) }}</div>
         </div>
       </div>
     </div>
@@ -26,7 +26,7 @@
   <div class="col-sm-6 col-lg-3">
     <div class="card">
       <div class="card-body">
-        <div class="subheader">Roles</div>
+        <div class="subheader">{{ _('Roles') }}</div>
         <div class="h1 mb-0">{{ stats.roles }}</div>
       </div>
     </div>
@@ -34,7 +34,7 @@
   <div class="col-sm-6 col-lg-3">
     <div class="card">
       <div class="card-body">
-        <div class="subheader">Permissions</div>
+        <div class="subheader">{{ _('Permissions') }}</div>
         <div class="h1 mb-0">{{ stats.permissions }}</div>
       </div>
     </div>
@@ -42,7 +42,7 @@
   <div class="col-sm-6 col-lg-3">
     <div class="card">
       <div class="card-body">
-        <div class="subheader">Active sessions</div>
+        <div class="subheader">{{ _('Active sessions') }}</div>
         <div class="h1 mb-0">{{ stats.sessions }}</div>
       </div>
     </div>
@@ -52,21 +52,21 @@
   <div class="col-12">
     <div class="card">
       <div class="card-header">
-        <h3 class="card-title">Quick actions</h3>
+        <h3 class="card-title">{{ _('Quick actions') }}</h3>
       </div>
       <div class="list-group list-group-flush">
         {% if user_admin_permissions.read %}
           <a href="/admin/users" class="list-group-item list-group-item-action">
-            <i class="ti ti-users me-2"></i>Manage users
+            <i class="ti ti-users me-2"></i>{{ _('Manage users') }}
           </a>
         {% endif %}
         {% if perms.auth.roles.read %}
           <a href="/admin/roles" class="list-group-item list-group-item-action">
-            <i class="ti ti-shield-lock me-2"></i>Manage roles
+            <i class="ti ti-shield-lock me-2"></i>{{ _('Manage roles') }}
           </a>
         {% endif %}
         <a href="/admin/password_change" class="list-group-item list-group-item-action">
-          <i class="ti ti-key me-2"></i>Change your password
+          <i class="ti ti-key me-2"></i>{{ _('Change your password') }}
         </a>
       </div>
     </div>

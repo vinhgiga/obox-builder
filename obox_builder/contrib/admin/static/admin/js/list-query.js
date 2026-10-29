@@ -1,5 +1,6 @@
 (function initListQuery() {
   "use strict";
+  const gettext = window.oboxGettext;
   document.addEventListener("admin:load", initListQuery);
   const form = document.querySelector("#list-query");
   const config = document.querySelector("#list-query-config");
@@ -37,7 +38,7 @@
   const element = (tag, className, text) => {
     const node = document.createElement(tag);
     if (className) node.className = className;
-    if (text) node.textContent = text;
+    if (text) node.textContent = gettext(text);
     return node;
   };
   const button = (label, action) => {
@@ -53,8 +54,8 @@
   const iconButton = (icon, label, action, className = "") => {
     const node = element("button", `btn btn-sm admin-filter-icon-button ${className}`.trim());
     node.type = "button";
-    node.setAttribute("aria-label", label);
-    node.title = label;
+    node.setAttribute("aria-label", gettext(label));
+    node.title = gettext(label);
     const glyph = element("i", `ti ti-${icon}`);
     glyph.setAttribute("aria-hidden", "true");
     node.append(glyph);
@@ -67,9 +68,9 @@
   };
   const select = (label, options, value, update) => {
     const node = element("select", "form-select w-auto");
-    node.setAttribute("aria-label", label);
+    node.setAttribute("aria-label", gettext(label));
     options.forEach(([key, text]) => {
-      const option = new Option(text, key);
+      const option = new Option(gettext(text), key);
       option.selected = String(key) === String(value);
       node.add(option);
     });
@@ -173,7 +174,7 @@
     const summary = element("summary", "admin-filter-field-trigger");
     summary.setAttribute("aria-controls", `${id}-options`);
     summary.setAttribute("aria-expanded", "false");
-    summary.setAttribute("aria-label", `Filter by ${field(term.field).label}`);
+    summary.setAttribute("aria-label", gettext("Filter by %(field)s", {field: field(term.field).label}));
     const glyph = element("i", `ti ti-${fieldIcon(field(term.field).type)}`);
     glyph.setAttribute("aria-hidden", "true");
     summary.append(glyph, element("span", "admin-filter-field-label", field(term.field).label));
@@ -184,13 +185,13 @@
     const menu = element("div", "admin-filter-field-menu");
     const search = element("input", "form-control form-control-sm");
     search.type = "search";
-    search.placeholder = "Find a field";
-    search.setAttribute("aria-label", "Find a field");
+    search.placeholder = gettext("Find a field");
+    search.setAttribute("aria-label", gettext("Find a field"));
     search.autocomplete = "off";
     const options = element("div", "admin-filter-field-options");
     options.id = `${id}-options`;
     options.setAttribute("role", "group");
-    options.setAttribute("aria-label", "Filter fields");
+    options.setAttribute("aria-label", gettext("Filter fields"));
     const available = fields.filter((item) => item.operators.length);
     const optionButtons = available.map((spec) => {
       const option = element("button", "admin-filter-field-option");
@@ -293,11 +294,11 @@
       value.value = Array.isArray(term.value) ? term.value.join(",") : term.value;
       value.placeholder =
         term.op === "in"
-          ? "Values, separated by commas"
+          ? gettext("Values, separated by commas")
           : spec.type === "datetime"
             ? "2026-10-23T09:30:00+07:00"
-            : "Value";
-      value.setAttribute("aria-label", "Filter value");
+            : gettext("Value");
+      value.setAttribute("aria-label", gettext("Filter value"));
       value.addEventListener("input", () => {
         term.value = value.value;
         if (value.value !== "") term.draft = false;
@@ -309,8 +310,8 @@
     }
     const handle = element("button", "btn btn-sm admin-filter-icon-button admin-filter-grip");
     handle.type = "button";
-    handle.setAttribute("aria-label", "Move condition with Alt+Up or Alt+Down");
-    handle.title = "Drag to reorder; use Alt+Up or Alt+Down";
+    handle.setAttribute("aria-label", gettext("Move condition with Alt+Up or Alt+Down"));
+    handle.title = gettext("Drag to reorder; use Alt+Up or Alt+Down");
     const gripIcon = element("i", "ti ti-grip-vertical");
     gripIcon.setAttribute("aria-hidden", "true");
     handle.append(gripIcon);
@@ -402,14 +403,14 @@
     glyph.setAttribute("aria-hidden", "true");
     const search = element("input", "form-control form-control-sm admin-sort-search");
     search.type = "search";
-    search.placeholder = "Find a field";
-    search.setAttribute("aria-label", "Find a sort field");
+    search.placeholder = gettext("Find a field");
+    search.setAttribute("aria-label", gettext("Find a sort field"));
     search.autocomplete = "off";
     const list = element("div", "admin-sort-field-list");
     list.id = `sort-field-options-${current || "new"}`;
     search.setAttribute("aria-controls", list.id);
     list.setAttribute("role", "group");
-    list.setAttribute("aria-label", "Fields available for sorting");
+    list.setAttribute("aria-label", gettext("Fields available for sorting"));
     fields.filter((spec) => spec.sortable &&
       (spec.name === current || !state.sort.some((term) => term.field === spec.name))
     ).forEach((spec) => {
@@ -446,7 +447,7 @@
   const sortPicker = (label, current, choose, add = false) => {
     const picker = element("details", "admin-filter-field-picker admin-sort-field-picker");
     const summary = element("summary", add ? "admin-sort-add" : "admin-filter-field-trigger");
-    summary.setAttribute("aria-label", label);
+    summary.setAttribute("aria-label", gettext(label));
     summary.setAttribute("aria-expanded", "false");
     if (add) {
       const plus = element("i", "ti ti-plus");
@@ -476,7 +477,7 @@
     });
     sortPanel.classList.toggle("is-sorted", state.sort.length > 0);
     sortPanel.querySelector("[data-sort-label]").textContent = state.sort.length
-      ? `Sorted by ${state.sort.length} field${state.sort.length === 1 ? "" : "s"}` : "Sort";
+      ? gettext(state.sort.length === 1 ? "Sorted by %(count)s field" : "Sorted by %(count)s fields", {count: state.sort.length}) : gettext("Sort");
     if (!state.sort.length) {
       box.append(available.length
         ? sortFields(null, (name) => state.sort.push({field: name, descending: false}))
@@ -491,7 +492,7 @@
       const labels = ["integer", "decimal"].includes(spec.type) ? ["1 → 9", "9 → 1"]
         : ["date", "datetime", "time"].includes(spec.type) ? ["Earliest → Latest", "Latest → Earliest"]
           : spec.type === "checkbox" ? ["Unchecked → Checked", "Checked → Unchecked"] : ["A → Z", "Z → A"];
-      const direction = select(`Sort direction for ${spec.label}`,
+      const direction = select(gettext("Sort direction for %(field)s", {field: spec.label}),
         [["asc", labels[0]], ["desc", labels[1]]], term.descending ? "desc" : "asc",
         (value) => { term.descending = value === "desc"; });
       direction.addEventListener("change", () => { if (automaticSort) applySort(); });
@@ -506,8 +507,8 @@
       };
       const grip = element("button", "admin-sort-icon admin-sort-grip");
       grip.type = "button";
-      grip.setAttribute("aria-label", `Move ${spec.label} sort with Alt+Up or Alt+Down`);
-      grip.title = "Drag to reorder; use Alt+Up or Alt+Down";
+      grip.setAttribute("aria-label", gettext("Move %(field)s sort with Alt+Up or Alt+Down", {field: spec.label}));
+      grip.title = gettext("Drag to reorder; use Alt+Up or Alt+Down");
       const glyph = element("i", "ti ti-grip-vertical");
       glyph.setAttribute("aria-hidden", "true");
       grip.append(glyph);
@@ -532,7 +533,7 @@
       });
       const remove = element("button", "admin-sort-icon");
       remove.type = "button";
-      remove.setAttribute("aria-label", `Remove ${spec.label} sort`);
+      remove.setAttribute("aria-label", gettext("Remove %(field)s sort", {field: spec.label}));
       const cross = element("i", "ti ti-x");
       cross.setAttribute("aria-hidden", "true");
       remove.append(cross);
@@ -607,7 +608,7 @@
         row.append(glyph, element("span", "admin-group-selected-label", spec.label));
         row.append(
           select(
-            `Group direction for ${spec.label}`,
+            gettext("Group direction for %(field)s", {field: spec.label}),
             [
               ["asc", "Ascending"],
               ["desc", "Descending"],
@@ -619,16 +620,16 @@
           ),
         );
         if (index > 0) {
-          row.append(iconButton("chevron-up", `Move ${spec.label} group up`, () => {
+          row.append(iconButton("chevron-up", gettext("Move %(field)s group up", {field: spec.label}), () => {
             [state.group[index - 1], state.group[index]] = [term, state.group[index - 1]];
           }, "admin-group-icon-button"));
         }
         if (index < state.group.length - 1) {
-          row.append(iconButton("chevron-down", `Move ${spec.label} group down`, () => {
+          row.append(iconButton("chevron-down", gettext("Move %(field)s group down", {field: spec.label}), () => {
             [state.group[index + 1], state.group[index]] = [term, state.group[index + 1]];
           }, "admin-group-icon-button"));
         }
-        row.append(iconButton("trash", `Remove ${spec.label} grouping`, () => {
+        row.append(iconButton("trash", gettext("Remove %(field)s grouping", {field: spec.label}), () => {
           state.group.splice(index, 1);
         }, "admin-group-icon-button admin-filter-delete"));
         box.append(row);
@@ -641,7 +642,7 @@
     const list = element("div", "admin-group-field-list");
     list.id = "group-field-options";
     list.setAttribute("role", "group");
-    list.setAttribute("aria-label", "Fields available for grouping");
+    list.setAttribute("aria-label", gettext("Fields available for grouping"));
     visible.forEach((spec) => {
       const option = element("button", "admin-group-field-option", spec.label);
       option.type = "button";
@@ -665,8 +666,8 @@
       searchIcon.setAttribute("aria-hidden", "true");
       const search = element("input", "form-control form-control-sm admin-group-search");
       search.type = "search";
-      search.placeholder = "Find a field";
-      search.setAttribute("aria-label", "Find a grouping field");
+      search.placeholder = gettext("Find a field");
+      search.setAttribute("aria-label", gettext("Find a grouping field"));
       search.setAttribute("aria-controls", list.id);
       search.autocomplete = "off";
       search.value = groupFieldSearch;

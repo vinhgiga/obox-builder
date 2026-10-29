@@ -24,24 +24,24 @@
           onsubmit="return confirm('Revert anyway? Newer edits to the same fields will be overwritten and recorded in a new history entry.');">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
           <input type="hidden" name="force" value="1" />
-          <button type="submit" class="btn btn-danger">Revert anyway</button>
+          <button type="submit" class="btn btn-danger">{{ _('Revert anyway') }}</button>
         </form>
         {% endif %}
-        <a href="{{ back_url }}" class="btn">Back</a>
+        <a href="{{ back_url }}" class="btn">{{ _('Back') }}</a>
       </div>
     </div>
   </div>
 </div>
 {% if blocked %}
 <div class="card mb-3">
-  <div class="card-header"><h3 class="card-title">Cannot be restored</h3></div>
+  <div class="card-header"><h3 class="card-title">{{ _('Cannot be restored') }}</h3></div>
   <div class="table-responsive">
     <table class="table table-vcenter card-table">
       <thead>
         <tr>
-          <th>Entry</th>
-          <th>Field</th>
-          <th>Reason</th>
+          <th>{{ _('Entry') }}</th>
+          <th>{{ _('Field') }}</th>
+          <th>{{ _('Reason') }}</th>
         </tr>
       </thead>
       <tbody>
@@ -65,16 +65,16 @@
 {% endif %}
 {% if conflicts %}
 <div class="card">
-  <div class="card-header"><h3 class="card-title">Conflicts with newer edits</h3></div>
+  <div class="card-header"><h3 class="card-title">{{ _('Conflicts with newer edits') }}</h3></div>
   <div class="table-responsive">
     <table class="table table-vcenter card-table">
       <thead>
         <tr>
-          <th>Entry</th>
-          <th>Field</th>
-          <th>Recorded before</th>
-          <th>Recorded after</th>
-          <th>Current value</th>
+          <th>{{ _('Entry') }}</th>
+          <th>{{ _('Field') }}</th>
+          <th>{{ _('Recorded before') }}</th>
+          <th>{{ _('Recorded after') }}</th>
+          <th>{{ _('Current value') }}</th>
         </tr>
       </thead>
       <tbody>

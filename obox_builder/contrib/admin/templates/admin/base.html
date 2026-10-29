@@ -5,7 +5,7 @@
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
 {% endif %}
-  <title>{% block title %}Admin{% endblock %} &middot; {{ site_title }}</title>
+  <title>{% block title %}{{ _('Admin') }}{% endblock %} &middot; {{ site_title }}</title>
 {% if not admin_fragment %}
   <link rel="stylesheet" href="{{ static('admin/vendor/tabler/tabler.min.css') }}"/>
   <link rel="stylesheet" href="{{ static('admin/vendor/tabler-icons/tabler-icons.min.css') }}"/>
@@ -45,6 +45,7 @@
 {% endif %}
     {% include "admin/includes/navbar.html" %}
     <main id="admin-main" class="page-body" tabindex="-1" hx-history-elt>
+      {% include "admin/includes/i18n.html" %}
       <div class="container-xl">
         {% include "admin/includes/flash.html" %}
         {% block content %}{% endblock %}

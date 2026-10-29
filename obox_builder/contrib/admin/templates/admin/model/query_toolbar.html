@@ -7,56 +7,56 @@
     <input type="hidden" name="sort" value="{{ query_state.get('sort', '') }}"/>
     <input type="hidden" name="group" value="{{ query_state.get('group', '') }}"/>
     <input type="hidden" name="size" value="{{ size }}"/>
-    <button class="visually-hidden" type="submit" tabindex="-1">Search</button>
+    <button class="visually-hidden" type="submit" tabindex="-1">{{ _('Search') }}</button>
       <div class="admin-list-controls" data-list-toolbar>
         {% if columns %}
         <details class="admin-toolbar-popover admin-fields-popover" data-fields-panel>
           <summary class="btn btn-sm">
-            <i class="ti ti-eye-off" aria-hidden="true"></i><span>Hide fields</span>
+            <i class="ti ti-eye-off" aria-hidden="true"></i><span>{{ _('Hide fields') }}</span>
           </summary>
           <div class="admin-toolbar-panel admin-fields-panel">
-            <label class="visually-hidden" for="field-search">Find a field</label>
+            <label class="visually-hidden" for="field-search">{{ _('Find a field') }}</label>
             <input id="field-search" type="search" class="form-control form-control-sm"
-                   placeholder="Find a field" autocomplete="off" data-field-search/>
-            <div class="admin-field-list" role="group" aria-label="Fields">
+                   placeholder="{{ _('Find a field') }}" autocomplete="off" data-field-search/>
+            <div class="admin-field-list" role="group" aria-label="{{ _('Fields') }}">
               {% for column in columns %}
               <div class="admin-field-option" data-field-option="{{ column.name }}"
                    data-field-label="{{ column.label | lower }}">
                 <label class="form-check form-switch admin-field-toggle">
                   <input class="form-check-input" type="checkbox" checked
                          data-field-toggle="{{ column.name }}"/>
-                  <span>{{ column.label }}</span>
+                  <span>{{ column.label | gettext }}</span>
                 </label>
                 <button class="admin-field-reorder" type="button"
                         data-field-reorder="{{ column.name }}"
-                        aria-label="Reorder {{ column.label }}"
-                        title="Drag anywhere on this row to reorder; use Alt+Up or Alt+Down">
+                        aria-label="Reorder {{ column.label | gettext }}"
+                        title="{{ _('Drag anywhere on this row to reorder; use Alt+Up or Alt+Down') }}">
                   <i class="ti ti-grip-vertical" aria-hidden="true"></i>
                 </button>
               </div>
               {% endfor %}
-              <p class="text-secondary small mb-0 d-none" data-field-empty>No fields found.</p>
+              <p class="text-secondary small mb-0 d-none" data-field-empty>{{ _('No fields found.') }}</p>
             </div>
             <div class="admin-fields-actions">
-              <button class="btn btn-sm" type="button" data-hide-all>Hide all</button>
-              <button class="btn btn-sm" type="button" data-show-all>Show all</button>
+              <button class="btn btn-sm" type="button" data-hide-all>{{ _('Hide all') }}</button>
+              <button class="btn btn-sm" type="button" data-show-all>{{ _('Show all') }}</button>
             </div>
           </div>
         </details>
         {% endif %}
         <details class="admin-toolbar-popover" data-query-panel="filter">
           <summary class="btn btn-sm">
-            <i class="ti ti-filter" aria-hidden="true"></i><span>Filter</span>
+            <i class="ti ti-filter" aria-hidden="true"></i><span>{{ _('Filter') }}</span>
             <span class="badge bg-secondary-lt" data-query-count>0</span>
           </summary>
           <div class="admin-toolbar-panel admin-query-panel">
             <div class="admin-query-panel-header">
-              <h3>Filter</h3>
+              <h3>{{ _('Filter') }}</h3>
               <details class="admin-query-help">
-                <summary class="btn btn-sm btn-icon" aria-label="Filter help">
+                <summary class="btn btn-sm btn-icon" aria-label="{{ _('Filter help') }}">
                   <i class="ti ti-help-circle" aria-hidden="true"></i>
                 </summary>
-                <p>Choose a field, operator and value. Add conditions or groups to narrow this view.</p>
+                <p>{{ _('Choose a field, operator and value. Add conditions or groups to narrow this view.') }}</p>
               </details>
             </div>
             {% if simple_filters %}
@@ -64,9 +64,9 @@
               {% for filter in simple_filters %}
               <label class="form-label">{{ filter.title }}
                 <select name="{{ filter.parameter_name }}" class="form-select form-select-sm">
-                  <option value="">All</option>
+                  <option value="">{{ _('All') }}</option>
                   {% for value, label in filter.lookups %}
-                  <option value="{{ value }}" {{ 'selected' if filter.value == value }}>{{ label }}</option>
+                  <option value="{{ value }}" {{ 'selected' if filter.value == value }}>{{ label | gettext }}</option>
                   {% endfor %}
                 </select>
               </label>
@@ -75,45 +75,45 @@
             {% endif %}
             <div data-query-filters></div>
             <div class="admin-query-panel-actions">
-              <button class="btn btn-sm btn-primary" type="submit">Apply</button>
-              <a href="{{ admin.list_path() }}" class="btn btn-sm">Reset</a>
+              <button class="btn btn-sm btn-primary" type="submit">{{ _('Apply') }}</button>
+              <a href="{{ admin.list_path() }}" class="btn btn-sm">{{ _('Reset') }}</a>
             </div>
           </div>
         </details>
         <details class="admin-toolbar-popover" data-query-panel="group">
           <summary class="btn btn-sm">
-            <i class="ti ti-layout-list" aria-hidden="true"></i><span>Group</span>
+            <i class="ti ti-layout-list" aria-hidden="true"></i><span>{{ _('Group') }}</span>
             <span class="badge bg-secondary-lt" data-query-count>0</span>
           </summary>
           <div class="admin-toolbar-panel admin-query-panel">
             <div class="admin-query-panel-header">
-              <h3>Group by</h3>
+              <h3>{{ _('Group by') }}</h3>
               <details class="admin-query-help">
-                <summary class="btn btn-sm btn-icon" aria-label="Group help">
+                <summary class="btn btn-sm btn-icon" aria-label="{{ _('Group help') }}">
                   <i class="ti ti-help-circle" aria-hidden="true"></i>
                 </summary>
-                <p>Choose fields to organize records into groups.</p>
+                <p>{{ _('Choose fields to organize records into groups.') }}</p>
               </details>
             </div>
             <div data-query-group></div>
             <div class="admin-query-panel-actions">
-              <button class="btn btn-sm btn-primary" type="submit">Apply</button>
+              <button class="btn btn-sm btn-primary" type="submit">{{ _('Apply') }}</button>
             </div>
           </div>
         </details>
         <details class="admin-toolbar-popover" data-query-panel="sort">
           <summary class="btn btn-sm">
-            <i class="ti ti-arrows-sort" aria-hidden="true"></i><span data-sort-label>Sort</span>
+            <i class="ti ti-arrows-sort" aria-hidden="true"></i><span data-sort-label>{{ _('Sort') }}</span>
             <span class="d-none" data-query-count>0</span>
           </summary>
           <div class="admin-toolbar-panel admin-query-panel">
             <div class="admin-query-panel-header">
-              <h3>Sort by</h3>
+              <h3>{{ _('Sort by') }}</h3>
               <details class="admin-query-help">
-                <summary class="btn btn-sm btn-icon" aria-label="Sort help">
+                <summary class="btn btn-sm btn-icon" aria-label="{{ _('Sort help') }}">
                   <i class="ti ti-help-circle" aria-hidden="true"></i>
                 </summary>
-                <p>Sort records by one or more fields. Fields higher in the list take priority.</p>
+                <p>{{ _('Sort records by one or more fields. Fields higher in the list take priority.') }}</p>
               </details>
             </div>
             <div data-query-sort></div>
@@ -121,10 +121,10 @@
         </details>
         <details class="admin-toolbar-popover" data-row-height-panel>
           <summary class="btn btn-sm">
-            <i class="ti ti-arrows-vertical" aria-hidden="true"></i><span>Row height</span>
+            <i class="ti ti-arrows-vertical" aria-hidden="true"></i><span>{{ _('Row height') }}</span>
           </summary>
           <div class="admin-toolbar-panel admin-row-height-panel">
-            <div class="admin-row-height-options" role="group" aria-label="Row height">
+            <div class="admin-row-height-options" role="group" aria-label="{{ _('Row height') }}">
               {% for value, label, path in [
                 ('compact', 'Short', 'M3 6h11M3 12h11M3 18h11'),
                 ('medium', 'Medium', 'M3 3h11v6H3zM3 15h11M3 21h11'),
@@ -138,13 +138,13 @@
                      stroke-linejoin="round" aria-hidden="true">
                   <path d="{{ path }}M20 4v16m-2-2 2 2 2-2M18 6l2-2 2 2"/>
                 </svg>
-                <span>{{ label }}</span><i class="ti ti-check" aria-hidden="true"></i>
+                <span>{{ label | gettext }}</span><i class="ti ti-check" aria-hidden="true"></i>
               </button>
               {% endfor %}
             </div>
             <div class="admin-row-height-divider"></div>
             <button class="admin-row-height-option" type="button" data-wrap-headers aria-pressed="false">
-              <i class="ti ti-text-wrap" aria-hidden="true"></i><span>Wrap headers</span>
+              <i class="ti ti-text-wrap" aria-hidden="true"></i><span>{{ _('Wrap headers') }}</span>
               <i class="ti ti-check" aria-hidden="true"></i>
             </button>
           </div>
@@ -152,15 +152,15 @@
         {% if searchable %}
         <div class="input-group input-group-sm admin-list-search">
           <input type="search" name="q" value="{{ q }}" class="form-control" maxlength="200"
-                 placeholder="Search {{ admin.plural_name | lower }}"
-                 aria-label="Search {{ admin.plural_name | lower }}"/>
-          <button class="btn" type="submit" aria-label="Search records">
+                 placeholder="{{ _('Search %(models)s', models=admin.plural_name | lower) }}"
+                 aria-label="{{ _('Search %(models)s', models=admin.plural_name | lower) }}"/>
+          <button class="btn" type="submit" aria-label="{{ _('Search records') }}">
             <i class="ti ti-search" aria-hidden="true"></i>
           </button>
         </div>
         {% endif %}
       </div>
-    <noscript><p class="text-secondary small mb-0 mt-2">Enable JavaScript to hide fields and edit filters, sort order and groups.</p></noscript>
+    <noscript><p class="text-secondary small mb-0 mt-2">{{ _('Enable JavaScript to hide fields and edit filters, sort order and groups.') }}</p></noscript>
   </form>
   </div>
 </div>

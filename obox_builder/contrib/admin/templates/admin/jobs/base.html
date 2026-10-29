@@ -1,33 +1,33 @@
 {% extends "admin/base.html" %}
-{% block title %}Background jobs{% endblock %}
+{% block title %}{{ _('Background jobs') }}{% endblock %}
 
 
 {% block content %}
 <section class="jobs-monitor" data-jobs-monitor>
   <div class="page-header jobs-header">
     <div>
-      <div class="page-pretitle">Operations</div>
-      <h2 class="page-title">Background jobs</h2>
-      <p class="text-secondary mt-1 mb-0">Task execution, queues and worker health.</p>
+      <div class="page-pretitle">{{ _('Operations') }}</div>
+      <h2 class="page-title">{{ _('Background jobs') }}</h2>
+      <p class="text-secondary mt-1 mb-0">{{ _('Task execution, queues and worker health.') }}</p>
     </div>
     <div class="jobs-refresh">
       <span class="small text-secondary" data-refresh-status role="status">Updated {{ generated_at | format_datetime('%H:%M:%S') }} UTC</span>
       <label class="form-check form-switch mb-0">
         <input class="form-check-input" type="checkbox" data-auto-refresh checked/>
-        <span class="form-check-label">Live · 5s</span>
+        <span class="form-check-label">{{ _('Live · 5s') }}</span>
       </label>
-      <a href="{{ request.url }}" class="btn btn-icon" hx-boost="false" data-refresh-now aria-label="Refresh monitor"><i class="ti ti-refresh"></i></a>
+      <a href="{{ request.url }}" class="btn btn-icon" hx-boost="false" data-refresh-now aria-label="{{ _('Refresh monitor') }}"><i class="ti ti-refresh"></i></a>
     </div>
   </div>
-  <nav class="jobs-tabs" aria-label="Background job views">
-    {% if perms.jobs.task.read %}<a class="{{ 'active' if tab == 'tasks' }}" href="/admin/jobs/tasks" {{ 'aria-current=page' if tab == 'tasks' }}><i class="ti ti-list-check"></i>Tasks</a>{% endif %}
-    {% if perms.jobs.worker.read %}<a class="{{ 'active' if tab == 'workers' }}" href="/admin/jobs/workers" {{ 'aria-current=page' if tab == 'workers' }}><i class="ti ti-server"></i>Workers</a>{% endif %}
+  <nav class="jobs-tabs" aria-label="{{ _('Background job views') }}">
+    {% if perms.jobs.task.read %}<a class="{{ 'active' if tab == 'tasks' }}" href="/admin/jobs/tasks" {{ 'aria-current=page' if tab == 'tasks' }}><i class="ti ti-list-check"></i>{{ _('Tasks') }}</a>{% endif %}
+    {% if perms.jobs.worker.read %}<a class="{{ 'active' if tab == 'workers' }}" href="/admin/jobs/workers" {{ 'aria-current=page' if tab == 'workers' }}><i class="ti ti-server"></i>{{ _('Workers') }}</a>{% endif %}
   </nav>
-  {% if not jobs_enabled %}<div class="alert alert-warning" role="status">Background jobs are disabled. History remains available.</div>{% endif %}
+  {% if not jobs_enabled %}<div class="alert alert-warning" role="status">{{ _('Background jobs are disabled. History remains available.') }}</div>{% endif %}
   {% block jobs_filters %}{% endblock %}
   <div id="jobs-content" data-jobs-content data-terminal="{{ 'true' if terminal else 'false' }}">
     {% block jobs_content %}{% endblock %}
   </div>
-  <p class="jobs-footnote text-secondary small">Times are shown in UTC. Live updates pause while you inspect or edit this page.</p>
+  <p class="jobs-footnote text-secondary small">{{ _('Times are shown in UTC. Live updates pause while you inspect or edit this page.') }}</p>
 </section>
 {% endblock %}

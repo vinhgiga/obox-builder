@@ -80,3 +80,1406 @@ msgstr "Trang chủ"
 msgid "%(num)d item"
 msgid_plural "%(num)d items"
 msgstr[0] "%(num)d mục"
+
+#, python-format
+msgid "%(count)s active"
+msgstr "%(count)s đang hoạt động"
+
+#, python-format
+msgid "%(count)s of %(total)s selected"
+msgstr "Đã chọn %(count)s / %(total)s"
+
+#, python-format
+msgid "%(count)s records"
+msgstr "%(count)s bản ghi"
+
+#, python-format
+msgid "%(count)s records loaded"
+msgstr "Đã tải %(count)s bản ghi"
+
+#, python-format
+msgid "%(count)s records loaded · page %(page)s"
+msgstr "Đã tải %(count)s bản ghi · trang %(page)s"
+
+#, python-format
+msgid "%(model)s %(object)s was created."
+msgstr "Đã tạo %(model)s %(object)s."
+
+#, python-format
+msgid "%(model)s %(object)s was deleted."
+msgstr "Đã xóa %(model)s %(object)s."
+
+#, python-format
+msgid "%(model)s %(object)s was updated."
+msgstr "Đã cập nhật %(model)s %(object)s."
+
+#, python-format
+msgid "%(model)s was copied into a new record."
+msgstr "Đã sao chép %(model)s thành bản ghi mới."
+
+msgid "+ Add condition"
+msgstr "+ Thêm điều kiện"
+
+msgid "+ Add group"
+msgstr "+ Thêm nhóm"
+
+msgid "Action"
+msgstr "Thao tác"
+
+msgid "Actions"
+msgstr "Thao tác"
+
+msgid "Active"
+msgstr "Đang hoạt động"
+
+msgid "Active / Slots"
+msgstr "Đang chạy / Số chỗ"
+
+msgid "Active sessions"
+msgstr "Phiên đang hoạt động"
+
+msgid "Actor"
+msgstr "Người thực hiện"
+
+#, python-format
+msgid "Add %(model)s"
+msgstr "Thêm %(model)s"
+
+msgid "Add a comment"
+msgstr "Thêm bình luận"
+
+msgid "Admin"
+msgstr "Quản trị"
+
+msgid "After"
+msgstr "Sau"
+
+msgid "All"
+msgstr "Tất cả"
+
+#, python-format
+msgid "All %(total)s selected"
+msgstr "Đã chọn tất cả %(total)s"
+
+msgid "All models"
+msgstr "Tất cả mô hình"
+
+msgid "All other sessions will be signed out when you save."
+msgstr "Các phiên khác sẽ được đăng xuất khi bạn lưu."
+
+msgid "All queues"
+msgstr "Tất cả hàng đợi"
+
+msgid "All queues · Last 24 hours · UTC"
+msgstr "Tất cả hàng đợi · 24 giờ qua · UTC"
+
+msgid "All records loaded"
+msgstr "Đã tải tất cả bản ghi"
+
+msgid "All rows"
+msgstr "Tất cả dòng"
+
+msgid "All tasks"
+msgstr "Tất cả tác vụ"
+
+msgid "All workers"
+msgstr "Tất cả worker"
+
+msgid "And"
+msgstr "Và"
+
+msgid "Any operation"
+msgstr "Mọi thao tác"
+
+msgid "Any source"
+msgstr "Mọi nguồn"
+
+msgid "Apply"
+msgstr "Áp dụng"
+
+msgid "Are you sure?"
+msgstr "Bạn có chắc không?"
+
+msgid "Arguments and results require permission to view task payloads."
+msgstr "Cần quyền xem dữ liệu tác vụ để xem tham số và kết quả."
+
+msgid "Attempt"
+msgstr "Lần thử"
+
+msgid "Audit log"
+msgstr "Nhật ký kiểm toán"
+
+msgid "Back"
+msgstr "Quay lại"
+
+#, python-format
+msgid "Back to %(models)s"
+msgstr "Quay lại %(models)s"
+
+msgid "Back to dashboard"
+msgstr "Quay lại bảng điều khiển"
+
+msgid "Back to login"
+msgstr "Quay lại đăng nhập"
+
+msgid "Back to roles"
+msgstr "Quay lại vai trò"
+
+msgid "Back to users"
+msgstr "Quay lại người dùng"
+
+msgid "Background job views"
+msgstr "Các trang tác vụ nền"
+
+msgid "Background jobs"
+msgstr "Tác vụ nền"
+
+msgid "Background jobs are disabled. History remains available."
+msgstr "Tác vụ nền đang tắt. Bạn vẫn có thể xem lịch sử."
+
+msgid "Bad request"
+msgstr "Yêu cầu không hợp lệ"
+
+msgid "Before"
+msgstr "Trước"
+
+msgid "Blank mapped cells clear optional fields. Columns you skip keep existing values when updating. Keys must be unique within this file."
+msgstr "Ô trống đã ánh xạ sẽ xóa giá trị trường không bắt buộc. Cột bỏ qua giữ nguyên giá trị khi cập nhật. Khóa phải duy nhất trong tệp."
+
+msgid "Bulk selection"
+msgstr "Chọn hàng loạt"
+
+msgid "Cancel"
+msgstr "Hủy"
+
+msgid "Cancel import"
+msgstr "Hủy nhập"
+
+msgid "Cannot be restored"
+msgstr "Không thể khôi phục"
+
+msgid "Change your password"
+msgstr "Đổi mật khẩu của bạn"
+
+msgid "Checked → Unchecked"
+msgstr "Đã chọn → Chưa chọn"
+
+msgid "Choose a field, operator and value. Add conditions or groups to narrow this view."
+msgstr "Chọn trường, toán tử và giá trị. Thêm điều kiện hoặc nhóm để thu hẹp kết quả."
+
+msgid "Choose a new password"
+msgstr "Chọn mật khẩu mới"
+
+msgid "Choose a value"
+msgstr "Chọn giá trị"
+
+msgid "Choose fields to organize records into groups."
+msgstr "Chọn các trường để chia bản ghi thành nhóm."
+
+msgid "Clear"
+msgstr "Xóa"
+
+msgid "Clear selection"
+msgstr "Bỏ chọn"
+
+msgid "Column summaries"
+msgstr "Thống kê cột"
+
+msgid "Comments"
+msgstr "Bình luận"
+
+msgid "Condition join"
+msgstr "Kết hợp điều kiện"
+
+msgid "Confirm deletion"
+msgstr "Xác nhận xóa"
+
+msgid "Confirm import"
+msgstr "Xác nhận nhập"
+
+msgid "Confirm new password"
+msgstr "Xác nhận mật khẩu mới"
+
+msgid "Confirm password"
+msgstr "Xác nhận mật khẩu"
+
+msgid "Conflicts with newer edits"
+msgstr "Xung đột với thay đổi mới hơn"
+
+msgid "Copy"
+msgstr "Sao chép"
+
+msgid "Could not load records."
+msgstr "Không thể tải bản ghi."
+
+msgid "Create"
+msgstr "Tạo"
+
+msgid "Create role"
+msgstr "Tạo vai trò"
+
+msgid "Create user"
+msgstr "Tạo người dùng"
+
+msgid "Ctrl+Enter sends. Markdown is not interpreted."
+msgstr "Nhấn Ctrl+Enter để gửi. Không xử lý Markdown."
+
+#, python-format
+msgid "Current file: %(name)s"
+msgstr "Tệp hiện tại: %(name)s"
+
+msgid "Current value"
+msgstr "Giá trị hiện tại"
+
+msgid "Delete"
+msgstr "Xóa"
+
+msgid "Delete condition"
+msgstr "Xóa điều kiện"
+
+msgid "Delete group"
+msgstr "Xóa nhóm"
+
+msgid "Delete row"
+msgstr "Xóa dòng"
+
+#, python-format
+msgid "Delete saved view %(name)s?"
+msgstr "Xóa chế độ xem %(name)s?"
+
+msgid "Delete view"
+msgstr "Xóa chế độ xem"
+
+msgid "Deleted records cannot be recovered through this form."
+msgstr "Không thể khôi phục bản ghi đã xóa qua biểu mẫu này."
+
+msgid "Download CSV"
+msgstr "Tải CSV"
+
+msgid "Download errors (CSV)"
+msgstr "Tải lỗi (CSV)"
+
+msgid "Drag anywhere on this row to reorder; use Alt+Up or Alt+Down"
+msgstr "Kéo dòng để đổi thứ tự; dùng Alt+↑ hoặc Alt+↓"
+
+msgid "Drag to reorder; use Alt+Up or Alt+Down"
+msgstr "Kéo để đổi thứ tự; dùng Alt+↑ hoặc Alt+↓"
+
+msgid "Duplicate view"
+msgstr "Nhân bản chế độ xem"
+
+msgid "Earliest → Latest"
+msgstr "Cũ nhất → Mới nhất"
+
+msgid "Edit"
+msgstr "Sửa"
+
+#, python-format
+msgid "Edit %(model)s"
+msgstr "Sửa %(model)s"
+
+msgid "Edit role"
+msgstr "Sửa vai trò"
+
+#, python-format
+msgid "Edit role: %(name)s"
+msgstr "Sửa vai trò: %(name)s"
+
+msgid "Edit user"
+msgstr "Sửa người dùng"
+
+#, python-format
+msgid "Edit user: %(name)s"
+msgstr "Sửa người dùng: %(name)s"
+
+msgid "Email"
+msgstr "Email"
+
+msgid "Empty value"
+msgstr "Giá trị trống"
+
+msgid "Enable JavaScript to hide fields and edit filters, sort order and groups."
+msgstr "Bật JavaScript để ẩn trường, chỉnh bộ lọc, thứ tự sắp xếp và nhóm."
+
+msgid "Enter your account email address and we will send a reset link if it matches an active account."
+msgstr "Nhập email tài khoản. Chúng tôi sẽ gửi liên kết đặt lại nếu email thuộc một tài khoản đang hoạt động."
+
+msgid "Entry"
+msgstr "Mục"
+
+msgid "Errors"
+msgstr "Lỗi"
+
+msgid "Errors only"
+msgstr "Chỉ xem lỗi"
+
+msgid "Execution history"
+msgstr "Lịch sử thực thi"
+
+msgid "Expand record"
+msgstr "Mở rộng bản ghi"
+
+msgid "Export CSV"
+msgstr "Xuất CSV"
+
+msgid "Extra Tall"
+msgstr "Rất cao"
+
+msgid "Failed"
+msgstr "Thất bại"
+
+msgid "Field"
+msgstr "Trường"
+
+msgid "Fields"
+msgstr "Các trường"
+
+msgid "Fields available for grouping"
+msgstr "Các trường có thể nhóm"
+
+msgid "Fields available for sorting"
+msgstr "Các trường có thể sắp xếp"
+
+msgid "Filter"
+msgstr "Lọc"
+
+#, python-format
+msgid "Filter by %(field)s"
+msgstr "Lọc theo %(field)s"
+
+msgid "Filter fields"
+msgstr "Các trường lọc"
+
+msgid "Filter help"
+msgstr "Hướng dẫn lọc"
+
+msgid "Filter operator"
+msgstr "Toán tử lọc"
+
+msgid "Filter tasks by state"
+msgstr "Lọc tác vụ theo trạng thái"
+
+msgid "Filter value"
+msgstr "Giá trị lọc"
+
+msgid "Find a field"
+msgstr "Tìm trường"
+
+msgid "Find a grouping field"
+msgstr "Tìm trường nhóm"
+
+msgid "Find a sort field"
+msgstr "Tìm trường sắp xếp"
+
+msgid "Find a view"
+msgstr "Tìm chế độ xem"
+
+msgid "Finished"
+msgstr "Hoàn tất"
+
+msgid "Forgot your password?"
+msgstr "Quên mật khẩu?"
+
+msgid "Full history"
+msgstr "Toàn bộ lịch sử"
+
+msgid "Full name"
+msgstr "Họ tên"
+
+msgid "Generated IDs identify existing records. Leave generated IDs blank for new records."
+msgstr "ID tự sinh dùng để xác định bản ghi hiện có. Để trống ID khi tạo bản ghi mới."
+
+msgid "Grid view"
+msgstr "Dạng bảng"
+
+msgid "Grid view copy"
+msgstr "Bản sao dạng bảng"
+
+msgid "Group"
+msgstr "Nhóm"
+
+msgid "Group by"
+msgstr "Nhóm theo"
+
+msgid "Group conditions"
+msgstr "Nhóm điều kiện"
+
+msgid "Group help"
+msgstr "Hướng dẫn nhóm"
+
+msgid "Header row"
+msgstr "Dòng tiêu đề"
+
+msgid "Hide all"
+msgstr "Ẩn tất cả"
+
+msgid "Hide fields"
+msgstr "Ẩn trường"
+
+msgid "How to import"
+msgstr "Cách nhập"
+
+msgid "Import spreadsheet"
+msgstr "Nhập bảng tính"
+
+msgid "In this view, show records"
+msgstr "Trong chế độ xem này, hiển thị các bản ghi"
+
+msgid "Including idle workers"
+msgstr "Bao gồm worker đang rảnh"
+
+msgid "Invalid username or password."
+msgstr "Tên đăng nhập hoặc mật khẩu không đúng."
+
+msgid "Is empty"
+msgstr "Trống"
+
+msgid "Is not empty"
+msgstr "Không trống"
+
+msgid "Large values were truncated in this entry."
+msgstr "Giá trị lớn đã được rút gọn trong mục này."
+
+msgid "Last heartbeat"
+msgstr "Tín hiệu hoạt động gần nhất"
+
+msgid "Last login"
+msgstr "Đăng nhập gần nhất"
+
+msgid "Latest attempts"
+msgstr "Các lần thử gần nhất"
+
+msgid "Latest error"
+msgstr "Lỗi gần nhất"
+
+msgid "Latest → Earliest"
+msgstr "Mới nhất → Cũ nhất"
+
+msgid "Leave empty to keep the current password."
+msgstr "Để trống để giữ mật khẩu hiện tại."
+
+msgid "Light mode"
+msgstr "Giao diện sáng"
+
+msgid "Live updates enabled"
+msgstr "Đã bật cập nhật trực tiếp"
+
+msgid "Live updates paused"
+msgstr "Đã tạm dừng cập nhật trực tiếp"
+
+msgid "Live · 5s"
+msgstr "Trực tiếp · 5 giây"
+
+msgid "Load more"
+msgstr "Tải thêm"
+
+msgid "Loading records…"
+msgstr "Đang tải bản ghi…"
+
+msgid "Loading…"
+msgstr "Đang tải…"
+
+msgid "Manage"
+msgstr "Quản lý"
+
+msgid "Manage roles"
+msgstr "Quản lý vai trò"
+
+msgid "Manage users"
+msgstr "Quản lý người dùng"
+
+msgid "Match columns"
+msgstr "Ghép cột"
+
+msgid "Medium"
+msgstr "Trung bình"
+
+msgid "Model"
+msgstr "Mô hình"
+
+msgid "More options"
+msgstr "Tùy chọn khác"
+
+msgid "Most recent attempt first"
+msgstr "Lần thử mới nhất trước"
+
+#, python-format
+msgid "Move %(field)s sort with Alt+Up or Alt+Down"
+msgstr "Di chuyển thứ tự %(field)s bằng Alt+↑ hoặc Alt+↓"
+
+msgid "Move condition with Alt+Up or Alt+Down"
+msgstr "Di chuyển điều kiện bằng Alt+↑ hoặc Alt+↓"
+
+msgid "My views"
+msgstr "Chế độ xem của tôi"
+
+msgid "Name"
+msgstr "Tên"
+
+#, python-format
+msgid "New %(model)s"
+msgstr "Thêm %(model)s"
+
+msgid "New jobs will appear here as they are queued."
+msgstr "Tác vụ mới sẽ xuất hiện ở đây khi được đưa vào hàng đợi."
+
+msgid "New password"
+msgstr "Mật khẩu mới"
+
+msgid "New role"
+msgstr "Thêm vai trò"
+
+msgid "New user"
+msgstr "Thêm người dùng"
+
+msgid "New view name"
+msgstr "Tên chế độ xem mới"
+
+msgid "Newest"
+msgstr "Mới nhất"
+
+msgid "Next"
+msgstr "Tiếp"
+
+msgid "No"
+msgstr "Không"
+
+msgid "No action selected."
+msgstr "Chưa chọn thao tác."
+
+msgid "No changes match these filters."
+msgstr "Không có thay đổi phù hợp với bộ lọc."
+
+msgid "No changes recorded yet."
+msgstr "Chưa có thay đổi nào được ghi lại."
+
+msgid "No changes recorded."
+msgstr "Không có thay đổi nào được ghi lại."
+
+msgid "No changes to save."
+msgstr "Không có thay đổi để lưu."
+
+msgid "No comments yet."
+msgstr "Chưa có bình luận."
+
+msgid "No conditions yet."
+msgstr "Chưa có điều kiện."
+
+msgid "No field changes recorded."
+msgstr "Không có thay đổi trường nào được ghi lại."
+
+msgid "No fields can be sorted."
+msgstr "Không có trường nào có thể sắp xếp."
+
+msgid "No fields found."
+msgstr "Không tìm thấy trường."
+
+msgid "No import mode is available with your current permissions and model configuration."
+msgstr "Không có chế độ nhập phù hợp với quyền và cấu hình mô hình hiện tại."
+
+msgid "No matching records."
+msgstr "Không có bản ghi phù hợp."
+
+msgid "No matching views."
+msgstr "Không có chế độ xem phù hợp."
+
+msgid "No roles defined yet."
+msgstr "Chưa có vai trò nào."
+
+msgid "No tasks match these filters"
+msgstr "Không có tác vụ phù hợp với bộ lọc"
+
+msgid "No users found."
+msgstr "Không tìm thấy người dùng."
+
+msgid "No workers match these filters"
+msgstr "Không có worker phù hợp với bộ lọc"
+
+msgid "None"
+msgstr "Không có"
+
+msgid "Offline"
+msgstr "Ngoại tuyến"
+
+msgid "Older"
+msgstr "Cũ hơn"
+
+msgid "Older attempts"
+msgstr "Các lần thử cũ hơn"
+
+msgid "Online"
+msgstr "Trực tuyến"
+
+msgid "Only valid rows will be applied. Rows with errors are skipped. Saved batches remain applied if processing is cancelled."
+msgstr "Chỉ áp dụng các dòng hợp lệ. Bỏ qua dòng có lỗi. Các lô đã lưu vẫn được giữ nếu hủy xử lý."
+
+msgid "Open comments"
+msgstr "Mở bình luận"
+
+msgid "Operation"
+msgstr "Thao tác"
+
+msgid "Operations"
+msgstr "Vận hành"
+
+msgid "Or"
+msgstr "Hoặc"
+
+msgid "Other"
+msgstr "Khác"
+
+msgid "Page not found"
+msgstr "Không tìm thấy trang"
+
+msgid "Permission denied"
+msgstr "Không có quyền truy cập"
+
+msgid "Permissions"
+msgstr "Quyền"
+
+msgid "Post comment"
+msgstr "Gửi bình luận"
+
+msgid "Previous"
+msgstr "Trước"
+
+msgid "Processing in the background. This page refreshes automatically. You can leave and return to this URL."
+msgstr "Đang xử lý nền. Trang tự làm mới. Bạn có thể rời trang và quay lại địa chỉ này."
+
+msgid "Processing stopped. Saved batches are preserved; retry continues from the saved progress."
+msgstr "Xử lý đã dừng. Các lô đã lưu được giữ nguyên; thử lại sẽ tiếp tục từ tiến độ đã lưu."
+
+msgid "Queue"
+msgstr "Hàng đợi"
+
+msgid "Queues"
+msgstr "Hàng đợi"
+
+msgid "Quick actions"
+msgstr "Thao tác nhanh"
+
+msgid "Read"
+msgstr "Xem"
+
+msgid "Read worksheet"
+msgstr "Đọc trang tính"
+
+msgid "Reason"
+msgstr "Lý do"
+
+msgid "Received"
+msgstr "Đã nhận"
+
+msgid "Recorded after"
+msgstr "Giá trị sau thay đổi"
+
+msgid "Recorded before"
+msgstr "Giá trị trước thay đổi"
+
+msgid "Refresh monitor"
+msgstr "Làm mới giám sát"
+
+msgid "Registered processes"
+msgstr "Tiến trình đã đăng ký"
+
+msgid "Remove"
+msgstr "Xóa"
+
+#, python-format
+msgid "Remove %(field)s sort"
+msgstr "Xóa sắp xếp theo %(field)s"
+
+#, python-format
+msgid "Remove %(name)s"
+msgstr "Xóa %(name)s"
+
+msgid "Rename view"
+msgstr "Đổi tên chế độ xem"
+
+msgid "Reply"
+msgstr "Trả lời"
+
+msgid "Request another link"
+msgstr "Yêu cầu liên kết khác"
+
+msgid "Reset"
+msgstr "Đặt lại"
+
+msgid "Reset password"
+msgstr "Đặt lại mật khẩu"
+
+msgid "Reset your password"
+msgstr "Đặt lại mật khẩu của bạn"
+
+msgid "Resource"
+msgstr "Tài nguyên"
+
+msgid "Retained history"
+msgstr "Lịch sử được lưu"
+
+msgid "Retries"
+msgstr "Số lần thử lại"
+
+msgid "Retry loading"
+msgstr "Thử tải lại"
+
+msgid "Retry processing"
+msgstr "Thử xử lý lại"
+
+msgid "Retry task"
+msgstr "Thử lại tác vụ"
+
+msgid "Revert"
+msgstr "Hoàn tác"
+
+msgid "Revert anyway"
+msgstr "Vẫn hoàn tác"
+
+msgid "Revert change set"
+msgstr "Hoàn tác nhóm thay đổi"
+
+msgid "Review deletion"
+msgstr "Xem lại trước khi xóa"
+
+msgid "Revoke task"
+msgstr "Thu hồi tác vụ"
+
+msgid "Row height"
+msgstr "Chiều cao dòng"
+
+msgid "Row history"
+msgstr "Lịch sử dòng"
+
+msgid "Row number"
+msgstr "Số dòng"
+
+msgid "Rows"
+msgstr "Các dòng"
+
+msgid "Run"
+msgstr "Thực hiện"
+
+msgid "Runtime"
+msgstr "Thời gian chạy"
+
+msgid "Sample from the first visible worksheet:"
+msgstr "Mẫu từ trang tính hiển thị đầu tiên:"
+
+msgid "Save"
+msgstr "Lưu"
+
+msgid "Save and add another"
+msgstr "Lưu và thêm mới"
+
+msgid "Save and continue editing"
+msgstr "Lưu và tiếp tục chỉnh sửa"
+
+msgid "Save as new"
+msgstr "Lưu thành bản mới"
+
+msgid "Save changes"
+msgstr "Lưu thay đổi"
+
+msgid "Save current view"
+msgstr "Lưu chế độ xem hiện tại"
+
+msgid "Save view"
+msgstr "Lưu chế độ xem"
+
+msgid "Saved views"
+msgstr "Chế độ xem đã lưu"
+
+#, python-format
+msgid "Search %(models)s"
+msgstr "Tìm %(models)s"
+
+msgid "Search failed. Try again."
+msgstr "Tìm kiếm thất bại. Vui lòng thử lại."
+
+msgid "Search records"
+msgstr "Tìm bản ghi"
+
+msgid "Search records…"
+msgstr "Tìm bản ghi…"
+
+msgid "Search task name or ID"
+msgstr "Tìm tên hoặc ID tác vụ"
+
+msgid "Search users&hellip;"
+msgstr "Tìm người dùng…"
+
+msgid "Search worker name"
+msgstr "Tìm tên worker"
+
+msgid "See all matches"
+msgstr "Xem tất cả kết quả"
+
+#, python-format
+msgid "Select all %(total)s %(models)s"
+msgstr "Chọn tất cả %(total)s %(models)s"
+
+msgid "Select all on this page"
+msgstr "Chọn tất cả trên trang này"
+
+msgid "Send reset link"
+msgstr "Gửi liên kết đặt lại"
+
+msgid "Set password"
+msgstr "Đặt mật khẩu"
+
+msgid "Short"
+msgstr "Thấp"
+
+msgid "Show all"
+msgstr "Hiện tất cả"
+
+msgid "Showing the most recent changes."
+msgstr "Đang hiển thị các thay đổi mới nhất."
+
+msgid "Showing the most recent matching changes."
+msgstr "Đang hiển thị các thay đổi phù hợp mới nhất."
+
+msgid "Showing the most recent threads."
+msgstr "Đang hiển thị các thảo luận mới nhất."
+
+msgid "Since"
+msgstr "Từ"
+
+msgid "Skip column"
+msgstr "Bỏ qua cột"
+
+msgid "Sort"
+msgstr "Sắp xếp"
+
+msgid "Sort by"
+msgstr "Sắp xếp theo"
+
+#, python-format
+msgid "Sort direction for %(field)s"
+msgstr "Chiều sắp xếp của %(field)s"
+
+msgid "Sort help"
+msgstr "Hướng dẫn sắp xếp"
+
+msgid "Sort records by one or more fields. Fields higher in the list take priority."
+msgstr "Sắp xếp bản ghi theo một hoặc nhiều trường. Trường ở trên được ưu tiên."
+
+#, python-format
+msgid "Sorted by %(count)s field"
+msgstr "Sắp xếp theo %(count)s trường"
+
+#, python-format
+msgid "Sorted by %(count)s fields"
+msgstr "Sắp xếp theo %(count)s trường"
+
+msgid "Source"
+msgstr "Nguồn"
+
+msgid "Source row"
+msgstr "Dòng nguồn"
+
+msgid "Spreadsheet"
+msgstr "Bảng tính"
+
+msgid "Spreadsheet column"
+msgstr "Cột bảng tính"
+
+msgid "Staff"
+msgstr "Nhân viên"
+
+msgid "Started"
+msgstr "Bắt đầu"
+
+msgid "Started / Stopped"
+msgstr "Bắt đầu / Dừng"
+
+msgid "State"
+msgstr "Trạng thái"
+
+msgid "Statistics for all filtered records"
+msgstr "Thống kê tất cả bản ghi đã lọc"
+
+msgid "Status"
+msgstr "Trạng thái"
+
+msgid "Stopped or missing heartbeat"
+msgstr "Đã dừng hoặc thiếu tín hiệu hoạt động"
+
+msgid "Succeeded"
+msgstr "Thành công"
+
+msgid "Summary"
+msgstr "Thống kê"
+
+msgid "Superuser"
+msgstr "Quản trị viên"
+
+msgid "Switch to light theme"
+msgstr "Chuyển sang giao diện sáng"
+
+msgid "Tall"
+msgstr "Cao"
+
+msgid "Task counts reflect retained jobs. An offline worker may still have an expired task awaiting recovery."
+msgstr "Số tác vụ phản ánh dữ liệu đang lưu. Worker ngoại tuyến có thể còn tác vụ hết hạn đang chờ khôi phục."
+
+msgid "Task execution, queues and worker health."
+msgstr "Thực thi tác vụ, hàng đợi và tình trạng worker."
+
+msgid "Task volume"
+msgstr "Số lượng tác vụ"
+
+msgid "Tasks"
+msgstr "Tác vụ"
+
+msgid "Tasks received each hour over the last 24 hours"
+msgstr "Số tác vụ nhận mỗi giờ trong 24 giờ qua"
+
+msgid "The default view cannot be deleted."
+msgstr "Không thể xóa chế độ xem mặc định."
+
+msgid "The two password fields do not match."
+msgstr "Hai mật khẩu không khớp."
+
+msgid "This field is required."
+msgstr "Trường này là bắt buộc."
+
+msgid "This reset link is invalid or has expired."
+msgstr "Liên kết đặt lại không hợp lệ hoặc đã hết hạn."
+
+msgid "This task has not started yet."
+msgstr "Tác vụ này chưa bắt đầu."
+
+msgid "Times are shown in UTC. Live updates pause while you inspect or edit this page."
+msgstr "Thời gian hiển thị theo UTC. Cập nhật trực tiếp tạm dừng khi bạn xem hoặc chỉnh sửa trang."
+
+msgid "Toggle saved views"
+msgstr "Ẩn/hiện chế độ xem đã lưu"
+
+msgid "Unassigned"
+msgstr "Chưa phân công"
+
+msgid "Unavailable · retry"
+msgstr "Không khả dụng · thử lại"
+
+msgid "Unchecked → Checked"
+msgstr "Chưa chọn → Đã chọn"
+
+msgid "Until"
+msgstr "Đến"
+
+msgid "Update"
+msgstr "Cập nhật"
+
+msgid "Update failed · use Refresh to retry"
+msgstr "Cập nhật thất bại · nhấn Làm mới để thử lại"
+
+msgid "Update view"
+msgstr "Cập nhật chế độ xem"
+
+#, python-format
+msgid "Updated %(time)s UTC"
+msgstr "Đã cập nhật lúc %(time)s UTC"
+
+msgid "Upload"
+msgstr "Tải lên"
+
+msgid "Validate and preview"
+msgstr "Kiểm tra và xem trước"
+
+msgid "Value"
+msgstr "Giá trị"
+
+msgid "Values, separated by commas"
+msgstr "Các giá trị, phân cách bằng dấu phẩy"
+
+#, python-format
+msgid "View %(model)s"
+msgstr "Xem %(model)s"
+
+msgid "View name"
+msgstr "Tên chế độ xem"
+
+msgid "View options"
+msgstr "Tùy chọn chế độ xem"
+
+msgid "View tasks"
+msgstr "Xem tác vụ"
+
+msgid "Views"
+msgstr "Chế độ xem"
+
+#, python-format
+msgid "Welcome back, %(name)s."
+msgstr "Chào mừng trở lại, %(name)s."
+
+msgid "Where"
+msgstr "Trong đó"
+
+msgid "Worker"
+msgstr "Worker"
+
+msgid "Worker / PID"
+msgstr "Worker / PID"
+
+msgid "Worker name"
+msgstr "Tên worker"
+
+msgid "Worker status"
+msgstr "Trạng thái worker"
+
+msgid "Workers"
+msgstr "Worker"
+
+msgid "Workers appear here when they start, even before receiving a task."
+msgstr "Worker xuất hiện khi khởi động, ngay cả khi chưa nhận tác vụ."
+
+msgid "Worksheet"
+msgstr "Trang tính"
+
+msgid "Wrap headers"
+msgstr "Xuống dòng tiêu đề"
+
+msgid "Write a comment. Use @ to mention someone."
+msgstr "Viết bình luận. Dùng @ để nhắc đến ai đó."
+
+msgid "Yes"
+msgstr "Có"
+
+msgid "Your password has been changed."
+msgstr "Mật khẩu của bạn đã được thay đổi."
+
+msgid "active"
+msgstr "đang hoạt động"
+
+msgid "change set"
+msgstr "nhóm thay đổi"
+
+msgid "close"
+msgstr "đóng"
+
+msgid "contains"
+msgstr "chứa"
+
+msgid "deleted"
+msgstr "đã xóa"
+
+msgid "does not contain"
+msgstr "không chứa"
+
+msgid "edited"
+msgstr "đã sửa"
+
+msgid "ends with"
+msgstr "kết thúc bằng"
+
+msgid "inactive"
+msgstr "không hoạt động"
+
+msgid "is"
+msgstr "là"
+
+msgid "is at least"
+msgstr "ít nhất"
+
+msgid "is at most"
+msgstr "nhiều nhất"
+
+msgid "is greater than"
+msgstr "lớn hơn"
+
+msgid "is less than"
+msgstr "nhỏ hơn"
+
+msgid "is not"
+msgstr "không là"
+
+msgid "masked"
+msgstr "đã che"
+
+msgid "previous value unknown"
+msgstr "không rõ giá trị trước đó"
+
+msgid "redacted"
+msgstr "đã ẩn"
+
+msgid "resolved"
+msgstr "đã xử lý"
+
+msgid "starts with"
+msgstr "bắt đầu bằng"
+
+msgid "superuser"
+msgstr "quản trị viên"
+
+msgid "username"
+msgstr "tên đăng nhập"
+
+msgid "This row has been deleted. Its history is retained for auditing. Reverting the deletion re-creates the row with its original ID when available."
+msgstr "Bản ghi này đã bị xóa. Lịch sử được giữ để kiểm toán. Hoàn tác việc xóa sẽ tạo lại bản ghi với ID cũ nếu ID đó còn trống."
+
+msgid "You can read this discussion but you do not have permission to post."
+msgstr "Bạn có thể đọc thảo luận này nhưng không có quyền gửi bình luận."
+
+#, python-format
+msgid "%(count)s change recorded"
+msgstr "Đã ghi nhận %(count)s thay đổi"
+
+#, python-format
+msgid "%(count)s changes recorded"
+msgstr "Đã ghi nhận %(count)s thay đổi"
+
+#, python-format
+msgid "%(total)s %(kind)s · Page %(page)s of %(pages)s"
+msgstr "%(total)s %(kind)s · Trang %(page)s / %(pages)s"
+
+msgid "Active processes"
+msgstr "Tiến trình đang hoạt động"
+
+msgid "Add another sort"
+msgstr "Thêm trường sắp xếp"
+
+#, python-format
+msgid "Additional permissions required: %(permissions)s."
+msgstr "Cần thêm quyền: %(permissions)s."
+
+msgid "All available fields are grouped."
+msgstr "Tất cả trường khả dụng đã được nhóm."
+
+#, python-format
+msgid "Are you sure you want to delete %(count)s %(model)s? Review all affected records below."
+msgstr "Bạn có chắc muốn xóa %(count)s %(model)s? Hãy xem tất cả bản ghi bị ảnh hưởng bên dưới."
+
+msgid "Arguments"
+msgstr "Tham số"
+
+msgid "Ascending"
+msgstr "Tăng dần"
+
+msgid "Automatically sort records"
+msgstr "Tự động sắp xếp bản ghi"
+
+msgid "Average"
+msgstr "Trung bình"
+
+msgid "Backoff before retry"
+msgstr "Đang chờ thử lại"
+
+msgid "Cancelled"
+msgstr "Đã hủy"
+
+msgid "Checked"
+msgstr "Đã chọn"
+
+msgid "Clear link"
+msgstr "Xóa liên kết"
+
+msgid "Completed"
+msgstr "Hoàn tất"
+
+msgid "Cross-origin request rejected."
+msgstr "Yêu cầu từ nguồn khác đã bị từ chối."
+
+#, python-format
+msgid "Delete %(name)s? This cannot be undone."
+msgstr "Xóa %(name)s? Thao tác này không thể hoàn tác."
+
+#, python-format
+msgid "Delete role %(name)s? This cannot be undone."
+msgstr "Xóa vai trò %(name)s? Thao tác này không thể hoàn tác."
+
+msgid "Delete this comment? The text is removed for everyone."
+msgstr "Xóa bình luận này? Nội dung sẽ bị xóa với tất cả mọi người."
+
+msgid "Descending"
+msgstr "Giảm dần"
+
+msgid "Earliest"
+msgstr "Sớm nhất"
+
+msgid "Empty"
+msgstr "Trống"
+
+msgid "Enter a search term to find records across your models."
+msgstr "Nhập từ khóa để tìm bản ghi trong các mô hình."
+
+msgid "Filled"
+msgstr "Có dữ liệu"
+
+#, python-format
+msgid "Group direction for %(field)s"
+msgstr "Chiều nhóm của %(field)s"
+
+msgid "Grouped by"
+msgstr "Đang nhóm theo"
+
+msgid "If an active account matches that email, a reset link will be sent."
+msgstr "Nếu có tài khoản đang hoạt động khớp với email, liên kết đặt lại sẽ được gửi."
+
+msgid "Initial execution"
+msgstr "Lần chạy đầu tiên"
+
+msgid "Keyword arguments"
+msgstr "Tham số theo tên"
+
+msgid "Latest"
+msgstr "Muộn nhất"
+
+msgid "Max"
+msgstr "Lớn nhất"
+
+msgid "Median"
+msgstr "Trung vị"
+
+msgid "Min"
+msgstr "Nhỏ nhất"
+
+#, python-format
+msgid "Move %(field)s group down"
+msgstr "Di chuyển nhóm %(field)s xuống"
+
+#, python-format
+msgid "Move %(field)s group up"
+msgstr "Di chuyển nhóm %(field)s lên"
+
+msgid "Needs attention"
+msgstr "Cần chú ý"
+
+msgid "No fields can be grouped."
+msgstr "Không có trường nào có thể nhóm."
+
+msgid "No matches found."
+msgstr "Không tìm thấy kết quả."
+
+msgid "Percent checked"
+msgstr "Tỷ lệ đã chọn"
+
+msgid "Percent empty"
+msgstr "Tỷ lệ trống"
+
+msgid "Percent filled"
+msgstr "Tỷ lệ có dữ liệu"
+
+msgid "Percent unique"
+msgstr "Tỷ lệ duy nhất"
+
+msgid "Pick a field to group by"
+msgstr "Chọn trường để nhóm"
+
+msgid "Protected"
+msgstr "Được bảo vệ"
+
+msgid "Queued"
+msgstr "Đang chờ"
+
+msgid "Range"
+msgstr "Khoảng giá trị"
+
+#, python-format
+msgid "Remove %(field)s grouping"
+msgstr "Bỏ nhóm theo %(field)s"
+
+msgid "Remove link"
+msgstr "Gỡ liên kết"
+
+msgid "Reopen"
+msgstr "Mở lại"
+
+msgid "Resolve"
+msgstr "Đánh dấu đã xử lý"
+
+msgid "Result"
+msgstr "Kết quả"
+
+#, python-format
+msgid "Retry %(number)s"
+msgstr "Lần thử lại %(number)s"
+
+msgid "Retrying"
+msgstr "Đang thử lại"
+
+msgid "Revert this change? A new history entry will record the revert."
+msgstr "Hoàn tác thay đổi này? Một mục lịch sử mới sẽ ghi lại việc hoàn tác."
+
+msgid "Revert this entire change set? Entries are reverted in reverse order and a new history entry records each revert."
+msgstr "Hoàn tác toàn bộ nhóm thay đổi này? Các mục được hoàn tác theo thứ tự ngược lại và mỗi lần hoàn tác đều được ghi vào lịch sử."
+
+msgid "Revoke this task? A running process will stop at its next lease check. Completed side effects cannot be undone."
+msgstr "Thu hồi tác vụ này? Tiến trình đang chạy sẽ dừng ở lần kiểm tra quyền xử lý tiếp theo. Không thể hoàn tác các thay đổi đã thực hiện."
+
+msgid "Revoked"
+msgstr "Đã thu hồi"
+
+msgid "Running"
+msgstr "Đang chạy"
+
+msgid "Standard deviation"
+msgstr "Độ lệch chuẩn"
+
+msgid "Sum"
+msgstr "Tổng"
+
+msgid "Unchecked"
+msgstr "Chưa chọn"
+
+msgid "Unique"
+msgstr "Duy nhất"
+
+msgid "View"
+msgstr "Xem"
+
+msgid "Waiting to execute"
+msgstr "Đang chờ thực thi"
+
+msgid "You can group by up to 3 fields."
+msgstr "Bạn có thể nhóm theo tối đa 3 trường."
+
+msgid "create"
+msgstr "tạo"
+
+msgid "delete"
+msgstr "xóa"
+
+msgid "is any of"
+msgstr "là một trong"
+
+msgid "is empty"
+msgstr "trống"
+
+msgid "task"
+msgstr "tác vụ"
+
+msgid "tasks"
+msgstr "tác vụ"
+
+msgid "update"
+msgstr "cập nhật"
+
+msgid "worker"
+msgstr "worker"
+
+msgid "workers"
+msgstr "worker"
+
+msgid "Apitoken"
+msgstr "Token API"
+
+msgid "Apitokens"
+msgstr "Token API"
+
+msgid "Authentication"
+msgstr "Xác thực"
+
+msgid "Date"
+msgstr "Ngày"
+
+#, python-format
+msgid "Delete role '%(name)s'? This cannot be undone."
+msgstr "Xóa vai trò '%(name)s'? Thao tác này không thể hoàn tác."
+
+msgid "Note"
+msgstr "Ghi chú"
+
+#, python-format
+msgid "This row has been deleted. The history below is kept for auditing; restoring a %(operation)s entry re-creates the row with its original id when free."
+msgstr "Bản ghi này đã bị xóa. Lịch sử bên dưới được giữ để kiểm toán; khôi phục mục %(operation)s sẽ tạo lại bản ghi với ID cũ nếu ID đó còn trống."

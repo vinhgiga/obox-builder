@@ -7,32 +7,32 @@
     {% if can_add or inline_columns or bulk_actions or admin.imports_available() %}
     <div class="admin-list-actions">
       {% if admin.imports_available() and (admin.permission_name('add') in perms or admin.permission_name('change') in perms) %}
-      <a href="{{ admin.import_path() }}" class="btn">Import spreadsheet</a>
+      <a href="{{ admin.import_path() }}" class="btn">{{ _('Import spreadsheet') }}</a>
       {% endif %}
       {% if can_add %}
-      <a href="{{ admin.add_path() }}" class="btn btn-primary">New {{ admin.name | lower }}</a>
+      <a href="{{ admin.add_path() }}" class="btn btn-primary">{{ _('New %(model)s', model=admin.name | lower) }}</a>
       {% endif %}
       {% if inline_columns %}
       <button type="submit" form="inline-edit" class="btn" data-inline-save disabled>
-        Save changes
+        {{ _('Save changes') }}
         <span class="badge bg-blue-lt ms-1 d-none" data-inline-count>0</span>
       </button>
-      <button type="button" class="btn d-none" data-inline-revert>Revert</button>
+      <button type="button" class="btn d-none" data-inline-revert>{{ _('Revert') }}</button>
       {% endif %}
       {% if bulk_actions %}
       <div class="d-flex align-items-center gap-2">
         <select name="action" form="bulk-form" class="form-select w-auto" data-bulk-action
-                aria-label="Action">
+                aria-label="{{ _('Action') }}">
           <option value="">---------</option>
           {% for bulk_action_spec in bulk_actions %}
           <option value="{{ bulk_action_spec.name }}">{{ bulk_action_spec.description }}</option>
           {% endfor %}
         </select>
-        <button type="submit" form="bulk-form" class="btn">Run</button>
-        <span class="text-secondary small" data-selection-counter>0 of {{ rows | length }} selected</span>
+        <button type="submit" form="bulk-form" class="btn">{{ _('Run') }}</button>
+        <span class="text-secondary small" data-selection-counter>{{ _('%(count)s of %(total)s selected', count=0, total=rows | length) }}</span>
         {% if displayed_total is not none and displayed_total > rows | length %}
-        <a href="#" class="small d-none" data-select-all data-total="{{ displayed_total }}">Select all {{ displayed_total }} {{ admin.plural_name | lower }}</a>
-        <a href="#" class="small d-none" data-select-clear>Clear selection</a>
+        <a href="#" class="small d-none" data-select-all data-total="{{ displayed_total }}">{{ _('Select all %(total)s %(models)s', total=displayed_total, models=admin.plural_name | lower) }}</a>
+        <a href="#" class="small d-none" data-select-clear>{{ _('Clear selection') }}</a>
         {% endif %}
       </div>
       {% endif %}
@@ -73,21 +73,21 @@
               <span class="admin-row-select">
                 {% if bulk_actions %}
                 <input type="checkbox" id="action-toggle" class="form-check-input m-0"
-                       form="bulk-form" aria-label="Select all on this page"/>
-                {% else %}<span aria-label="Row number">#</span>{% endif %}
+                       form="bulk-form" aria-label="{{ _('Select all on this page') }}"/>
+                {% else %}<span aria-label="{{ _('Row number') }}">#</span>{% endif %}
               </span>
             </div>
           </th>
-          <th class="w-1" scope="col">Actions</th>
+          <th class="w-1" scope="col">{{ _('Actions') }}</th>
           {% for column in columns %}
           <th scope="col" data-list-column="{{ column.name }}">
             <span class="admin-column-heading">
             {% if column.type.sortable and not column.options.get('relationship_path') %}
             <a href="{{ sort_href(column.name) }}" class="text-body">
-              {{ column.label }}
+              {{ column.label | gettext }}
               {% if sort_state(column.name) == 'asc' %}&uarr;{% elif sort_state(column.name) == 'desc' %}&darr;{% endif %}
             </a>
-            {% else %}{{ column.label }}{% endif %}
+            {% else %}{{ column.label | gettext }}{% endif %}
             </span>
           </th>
           {% endfor %}
@@ -99,31 +99,31 @@
     </table>
   </div>
   {% if can_add %}
-  <a href="{{ admin.add_path() }}" class="btn admin-list-add" aria-label="Add {{ admin.name | lower }}">
-    <i class="ti ti-plus" aria-hidden="true"></i><span>Add {{ admin.name | lower }}</span>
+  <a href="{{ admin.add_path() }}" class="btn admin-list-add" aria-label="{{ _('Add %(model)s', model=admin.name | lower) }}">
+    <i class="ti ti-plus" aria-hidden="true"></i><span>{{ _('Add %(model)s', model=admin.name | lower) }}</span>
   </a>
   {% endif %}
   </div>
   <div class="card-footer admin-list-footer">
-    <div class="admin-list-summary-scroll" data-list-summary aria-label="Column summaries">
+    <div class="admin-list-summary-scroll" data-list-summary aria-label="{{ _('Column summaries') }}">
       <table class="table card-table mb-0"><tfoot><tr>
         <td colspan="2" data-summary-status>
-          <span class="text-secondary small" data-list-total>{% if total is none %}{{ rows | length }} records loaded · page {{ page }}{% else %}{{ total }} records{% endif %}</span>
+          <span class="text-secondary small" data-list-total>{% if total is none %}{{ _('%(count)s records loaded · page %(page)s', count=rows | length, page=page) }}{% else %}{{ _('%(count)s records', count=total) }}{% endif %}</span>
           <span class="text-secondary small" role="status" data-list-status></span>
-          <button type="button" class="btn btn-sm d-none" data-list-retry>Retry loading</button>
+          <button type="button" class="btn btn-sm d-none" data-list-retry>{{ _('Retry loading') }}</button>
         </td>
         {% for column in columns %}
         <td data-list-column="{{ column.name }}">
           {% set choices = summary_choices(column) %}
           {% if choices %}
           <details class="admin-column-summary" data-summary-field="{{ column.name }}">
-            <summary aria-label="Summary for {{ column.label }}" title="Statistics for all filtered records">
-              <i class="ti ti-chevron-down" aria-hidden="true"></i><span data-summary-value>Summary</span>
+            <summary aria-label="Summary for {{ column.label | gettext }}" title="{{ _('Statistics for all filtered records') }}">
+              <i class="ti ti-chevron-down" aria-hidden="true"></i><span data-summary-value>{{ _('Summary') }}</span>
             </summary>
-            <div class="admin-summary-menu" role="menu" aria-label="{{ column.label }} statistics">
+            <div class="admin-summary-menu" role="menu" aria-label="{{ column.label | gettext }} statistics">
               {% for operation, label in choices %}
               <button type="button" role="menuitemradio" aria-checked="{{ 'true' if operation == 'none' else 'false' }}"
-                      data-summary-operation="{{ operation }}">{{ label }}</button>
+                      data-summary-operation="{{ operation }}">{{ label | gettext }}</button>
               {% endfor %}
             </div>
           </details>

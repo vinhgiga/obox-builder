@@ -62,6 +62,7 @@ from obox_builder.contrib.admin.views.revert import OP_PERMISSION, revert_entry
 from obox_builder.contrib.auth.dependencies import login_required, permission_required
 from obox_builder.contrib.history import HISTORY_RESTORE_PERMISSION, HISTORY_VIEW_PERMISSION
 from obox_builder.contrib.history.service import RowChangeEntry, entry_count
+from obox_builder.contrib.i18n import gettext
 from obox_builder.core.exceptions import ImproperlyConfigured, PermissionDenied
 from obox_builder.db.session import get_db
 from obox_builder.fields import FieldSpec, QuerySpec, QuerySpecError
@@ -632,11 +633,12 @@ async def _list(
         query_fields=[
             {
                 "name": spec.name,
-                "label": spec.label,
+                "label": gettext(spec.label),
                 "type": spec.type.name,
                 "sortable": spec.type.sortable and not spec.options.get("relationship_path"),
                 "operators": [
-                    {"name": op.name, "label": op.label} for op in spec.type.operators.values()
+                    {"name": op.name, "label": gettext(op.label)}
+                    for op in spec.type.operators.values()
                 ],
                 "choices": _spec_choices(spec),
             }
@@ -887,7 +889,10 @@ async def _render_form(
         delete_url=admin.delete_path(admin.get_pk(target)) if not is_add else None,
         is_add=is_add,
         action=admin.add_path() if is_add else admin.change_path(admin.get_pk(target)),
-        title=f"{'New' if is_add else 'View' if readonly else 'Edit'} {admin.name.lower()}",
+        title=gettext(
+            "New %(model)s" if is_add else "View %(model)s" if readonly else "Edit %(model)s"
+        )
+        % {"model": gettext(admin.name.lower())},
         subtitle="" if is_add else _object_label(admin, target),
         history=history,
         comments=comments,
@@ -913,7 +918,14 @@ async def _create(ctx: AdminContext) -> Response:
             ctx, values=_values_from_data(data, specs), errors=bound.errors, formsets=formsets
         )
     obj = await RecordService(ctx).save(bound, formsets=formsets, uploads=staged_uploads)
-    await flash(request, f"{admin.name} {_object_label(admin, obj)!r} was created.")
+    await flash(
+        request,
+        gettext("%(model)s %(object)s was created.")
+        % {
+            "model": admin.name,
+            "object": repr(_object_label(admin, obj)),
+        },
+    )
     return await admin.response_add(ctx, obj)
 
 
@@ -945,7 +957,14 @@ async def _update(ctx: AdminContext, target: Any) -> Response:
             formsets=formsets,
         )
     await RecordService(ctx).save(bound, target=target, formsets=formsets, uploads=staged_uploads)
-    await flash(request, f"{admin.name} {_object_label(admin, target)!r} was updated.")
+    await flash(
+        request,
+        gettext("%(model)s %(object)s was updated.")
+        % {
+            "model": admin.name,
+            "object": repr(_object_label(admin, target)),
+        },
+    )
     return await admin.response_change(ctx, target)
 
 
@@ -963,7 +982,9 @@ async def _save_as_new(ctx: AdminContext, data: dict[str, Any], source: Any) -> 
             ctx, values=_values_from_data(data, specs), errors=bound.errors, formsets=formsets
         )
     obj = await RecordService(ctx).save(bound, formsets=formsets, uploads=staged_uploads)
-    await flash(ctx.request, f"{admin.name} was copied into a new record.")
+    await flash(
+        ctx.request, gettext("%(model)s was copied into a new record.") % {"model": admin.name}
+    )
     return await admin.response_add(ctx, obj)
 
 
@@ -1246,7 +1267,14 @@ async def _delete(ctx: AdminContext, target: Any) -> Response:
     label = _object_label(admin, target)
     object_id = admin.get_pk(target)
     await RecordService(ctx).delete(target)
-    await flash(request, f"{admin.name} {label!r} was deleted.")
+    await flash(
+        request,
+        gettext("%(model)s %(object)s was deleted.")
+        % {
+            "model": admin.name,
+            "object": repr(label),
+        },
+    )
     return await admin.response_delete(ctx, object_id)
 
 

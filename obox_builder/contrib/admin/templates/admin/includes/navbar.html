@@ -12,7 +12,7 @@
           <span class="avatar avatar-sm bg-primary-lt">{{ (user.username or "?")[0] | upper }}</span>
           <div class="d-none d-xl-block ps-2">
             <div>{{ user.full_name or user.username }}</div>
-            <div class="mt-1 small text-secondary">{{ "Superuser" if user.is_superuser else "Staff" }}</div>
+            <div class="mt-1 small text-secondary">{{ _("Superuser") if user.is_superuser else _("Staff") }}</div>
           </div>
         </a>
         <div class="dropdown-menu dropdown-menu-end dropdown-menu-arrow">

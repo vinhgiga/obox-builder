@@ -10,9 +10,9 @@
 <div class="comment mb-3{{ ' comment-deleted' if comment.deleted }}" id="comment-{{ comment.id }}">
   <div class="d-flex align-items-center gap-2 flex-wrap">
     <strong>{{ comment.author_label }}</strong>
-    {% if root and comment.resolved_at %}<span class="badge bg-green-lt">resolved</span>{% endif %}
-    {% if comment.edited_at %}<span class="badge bg-secondary-lt" title="{{ comment.edited_at.isoformat() }}">edited</span>{% endif %}
-    {% if comment.deleted %}<span class="badge bg-red-lt">deleted</span>{% endif %}
+    {% if root and comment.resolved_at %}<span class="badge bg-green-lt">{{ _('resolved') }}</span>{% endif %}
+    {% if comment.edited_at %}<span class="badge bg-secondary-lt" title="{{ comment.edited_at.isoformat() }}">{{ _('edited') }}</span>{% endif %}
+    {% if comment.deleted %}<span class="badge bg-red-lt">{{ _('deleted') }}</span>{% endif %}
     <span class="ms-auto">{{ time(comment) }}</span>
   </div>
   {% if comment.deleted and not comment.body %}
@@ -29,27 +29,27 @@
   </div>
   {% endif %}
   {% if error and edit_comment_id and edit_comment_id == comment.id %}
-  <div class="text-danger small mt-1">{{ error }}</div>
+  <div class="text-danger small mt-1">{{ error | gettext }}</div>
   {% endif %}
   {% if not read_only %}
   <div class="d-flex align-items-center gap-3 mt-1">
     {% if comment.can_edit %}
-    <button type="button" class="btn btn-link btn-sm p-0" data-comment-edit-toggle="edit-{{ comment.id }}">Edit</button>
+    <button type="button" class="btn btn-link btn-sm p-0" data-comment-edit-toggle="edit-{{ comment.id }}">{{ _('Edit') }}</button>
     {% endif %}
     {% if root and can_add and allow_replies and not comment.deleted %}
-    <button type="button" class="btn btn-link btn-sm p-0" data-comment-reply-toggle="reply-{{ comment.id }}">Reply</button>
+    <button type="button" class="btn btn-link btn-sm p-0" data-comment-reply-toggle="reply-{{ comment.id }}">{{ _('Reply') }}</button>
     {% endif %}
     {% if comment.can_delete %}
     <form method="post" action="{{ comments_url }}/{{ comment.id }}/delete" class="d-inline"
-          data-confirm="Delete this comment? The text is removed for everyone.">
+          data-confirm="{{ _('Delete this comment? The text is removed for everyone.') }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}"/>
-      <button type="submit" class="btn btn-link btn-sm p-0 text-danger">Delete</button>
+      <button type="submit" class="btn btn-link btn-sm p-0 text-danger">{{ _('Delete') }}</button>
     </form>
     {% endif %}
     {% if root and comment.can_resolve %}
     <form method="post" action="{{ comments_url }}/{{ comment.id }}/{{ 'reopen' if comment.resolved_at else 'resolve' }}" class="d-inline">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}"/>
-      <button type="submit" class="btn btn-link btn-sm p-0">{{ 'Reopen' if comment.resolved_at else 'Resolve' }}</button>
+      <button type="submit" class="btn btn-link btn-sm p-0">{{ _('Reopen') if comment.resolved_at else _('Resolve') }}</button>
     </form>
     {% endif %}
   </div>
@@ -63,11 +63,11 @@
               data-comment-composer data-mention-url="{{ mention_url }}"
               data-mention-model="{{ mention_model }}">{{ edit_body if edit_comment_id == comment.id else comment.raw_body }}</textarea>
     {% if error and edit_comment_id == comment.id and error_field == 'body' %}
-    <div class="invalid-feedback">{{ error }}</div>
+    <div class="invalid-feedback">{{ error | gettext }}</div>
     {% endif %}
     <div class="btn-list mt-2">
-      <button type="submit" class="btn btn-sm btn-primary">Save</button>
-      <button type="button" class="btn btn-sm" data-comment-edit-cancel>Cancel</button>
+      <button type="submit" class="btn btn-sm btn-primary">{{ _('Save') }}</button>
+      <button type="button" class="btn btn-sm" data-comment-edit-cancel>{{ _('Cancel') }}</button>
     </div>
   </form>
   {% endif %}
@@ -87,11 +87,11 @@
               data-comment-composer data-mention-url="{{ mention_url }}"
               data-mention-model="{{ mention_model }}">{{ body_value if reply_parent == comment.id else '' }}</textarea>
     {% if error and reply_parent == comment.id %}
-    <div class="invalid-feedback">{{ error }}</div>
+    <div class="invalid-feedback">{{ error | gettext }}</div>
     {% endif %}
     <div class="btn-list mt-2">
-      <button type="submit" class="btn btn-sm btn-primary">Reply</button>
-      <button type="button" class="btn btn-sm" data-comment-reply-cancel>Cancel</button>
+      <button type="submit" class="btn btn-sm btn-primary">{{ _('Reply') }}</button>
+      <button type="button" class="btn btn-sm" data-comment-reply-cancel>{{ _('Cancel') }}</button>
     </div>
   </form>
   {% endif %}
@@ -122,20 +122,20 @@
 {% macro card(comments) %}
 <div class="card mb-3">
   <div class="card-header">
-    <h3 class="card-title">Comments <span class="badge bg-blue-lt ms-1">{{ comments.count }}</span></h3>
+    <h3 class="card-title">{{ _('Comments') }} <span class="badge bg-blue-lt ms-1">{{ comments.count }}</span></h3>
     <div class="card-options">
-      <a href="{{ comments.url }}" class="btn btn-sm">Open comments</a>
+      <a href="{{ comments.url }}" class="btn btn-sm">{{ _('Open comments') }}</a>
     </div>
   </div>
   <div class="card-body">
     {% if not comments.threads %}
-    <div class="text-secondary">No comments yet.</div>
+    <div class="text-secondary">{{ _('No comments yet.') }}</div>
     {% endif %}
     {% for thread in comments.threads %}
     <div class="mb-3">
       <div class="d-flex align-items-center gap-2 flex-wrap">
         <strong>{{ thread.root.author_label }}</strong>
-        {% if thread.root.resolved_at %}<span class="badge bg-green-lt">resolved</span>{% endif %}
+        {% if thread.root.resolved_at %}<span class="badge bg-green-lt">{{ _('resolved') }}</span>{% endif %}
         <span class="ms-auto">{{ time(thread.root) }}</span>
       </div>
       <div class="comment-body mt-1">{{ thread.root.body }}</div>

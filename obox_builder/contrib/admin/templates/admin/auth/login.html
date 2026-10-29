@@ -1,10 +1,10 @@
 {% extends "admin/base_auth.html" %}
-{% block title %}Log in{% endblock %}
+{% block title %}{{ _('Log in') }}{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-end mb-3">{% include "admin/includes/language_selector.html" %}</div>
 <h2 class="h3 text-center mb-3">{{ _("Log in to your account") }}</h2>
 {% if error %}
-<div class="alert alert-danger">{{ error }}</div>
+<div class="alert alert-danger">{{ error | gettext }}</div>
 {% endif %}
 <form method="post" action="/admin/login">
   <input type="hidden" name="next" value="{{ next }}"/>
@@ -20,7 +20,7 @@
     <button type="submit" class="btn btn-primary w-100">{{ _("Log in") }}</button>
   </div>
   <div class="text-center mt-3">
-    <a href="/admin/password_reset">Forgot your password?</a>
+    <a href="/admin/password_reset">{{ _('Forgot your password?') }}</a>
   </div>
 </form>
 {% endblock %}

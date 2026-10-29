@@ -11,7 +11,7 @@
       <div class="text-secondary mt-1">{{ count }} comment{{ '' if count == 1 else 's' }}</div>
     </div>
     <div class="col-auto ms-auto d-print-none">
-      <a href="{{ back_url }}" class="btn">Back</a>
+      <a href="{{ back_url }}" class="btn">{{ _('Back') }}</a>
     </div>
   </div>
 </div>
@@ -27,33 +27,33 @@
     <form method="post" action="{{ comments_url }}" data-comment-composer-form>
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}"/>
       <input type="hidden" name="idempotency_key" value="{{ idempotency_key }}"/>
-      <label class="form-label" for="comment-body">Add a comment</label>
+      <label class="form-label" for="comment-body">{{ _('Add a comment') }}</label>
       <textarea id="comment-body" name="body" rows="3" maxlength="{{ max_length }}"
                 class="form-control{{ ' is-invalid' if error and error_field == 'body' and not edit_comment_id and not reply_parent }}"
-                placeholder="Write a comment. Use @ to mention someone."
+                placeholder="{{ _('Write a comment. Use @ to mention someone.') }}"
                 data-comment-composer data-mention-url="{{ mention_url }}"
                 data-mention-model="{{ mention_model }}">{{ body_value if not edit_comment_id and not reply_parent else '' }}</textarea>
       {% if error and error_field == 'body' and not edit_comment_id and not reply_parent %}
-      <div class="invalid-feedback">{{ error }}</div>
+      <div class="invalid-feedback">{{ error | gettext }}</div>
       {% elif error and not edit_comment_id and not reply_parent %}
-      <div class="text-danger small mt-1">{{ error }}</div>
+      <div class="text-danger small mt-1">{{ error | gettext }}</div>
       {% endif %}
-      <div class="form-hint mt-1">Ctrl+Enter sends. Markdown is not interpreted.</div>
+      <div class="form-hint mt-1">{{ _('Ctrl+Enter sends. Markdown is not interpreted.') }}</div>
       <div class="btn-list mt-2">
-        <button type="submit" class="btn btn-primary">Post comment</button>
+        <button type="submit" class="btn btn-primary">{{ _('Post comment') }}</button>
       </div>
     </form>
   </div>
 </div>
 {% elif not deleted_target %}
 <div class="alert alert-secondary" role="alert">
-  You can read this discussion but you do not have permission to post.
+  {{ _('You can read this discussion but you do not have permission to post.') }}
 </div>
 {% endif %}
 <div class="card">
   <div class="card-body">
     {% if not threads %}
-    <div class="text-secondary">No comments yet.</div>
+    <div class="text-secondary">{{ _('No comments yet.') }}</div>
     {% endif %}
     {% for thread in threads %}
       {{ thread_item(thread, comments_url, csrf_token, can_add, allow_replies,
@@ -63,15 +63,15 @@
   </div>
   {% if older %}
   <div class="card-footer d-flex align-items-center">
-    <span class="text-secondary small">Showing the most recent threads.</span>
+    <span class="text-secondary small">{{ _('Showing the most recent threads.') }}</span>
     <div class="ms-auto btn-list">
-      {% if before %}<a href="{{ comments_url }}" class="btn btn-sm">Newest</a>{% endif %}
-      <a href="{{ comments_url }}?before={{ older }}" class="btn btn-sm">Older</a>
+      {% if before %}<a href="{{ comments_url }}" class="btn btn-sm">{{ _('Newest') }}</a>{% endif %}
+      <a href="{{ comments_url }}?before={{ older }}" class="btn btn-sm">{{ _('Older') }}</a>
     </div>
   </div>
   {% elif before %}
   <div class="card-footer">
-    <a href="{{ comments_url }}" class="btn btn-sm">Newest</a>
+    <a href="{{ comments_url }}" class="btn btn-sm">{{ _('Newest') }}</a>
   </div>
   {% endif %}
 </div>

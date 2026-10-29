@@ -1,5 +1,6 @@
 (function () {
   "use strict";
+  const gettext = window.oboxGettext;
   var cleanup = function () {};
   function initPage() {
     cleanup();
@@ -38,10 +39,10 @@
             (manual || !document.querySelector("details[open]"))) {
           content.replaceWith(document.importNode(replacement, true));
           if (window.htmx) htmx.process(monitor.querySelector("[data-jobs-content]"));
-          status.textContent = "Updated " + new Date().toISOString().slice(11, 19) + " UTC";
+          status.textContent = gettext("Updated %(time)s UTC", {time: new Date().toISOString().slice(11, 19)});
         }
       } catch (_) {
-        status.textContent = "Update failed · use Refresh to retry";
+        status.textContent = gettext("Update failed · use Refresh to retry");
       } finally {
         busy = false;
         schedule();
@@ -49,7 +50,7 @@
     }
 
     toggle.addEventListener("change", function () {
-      status.textContent = toggle.checked ? "Live updates enabled" : "Live updates paused";
+      status.textContent = gettext(toggle.checked ? "Live updates enabled" : "Live updates paused");
       schedule();
     });
     monitor.querySelector("[data-refresh-now]").addEventListener("click", function (event) {

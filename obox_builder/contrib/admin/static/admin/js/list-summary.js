@@ -1,5 +1,6 @@
 (function () {
   "use strict";
+  const gettext = window.oboxGettext;
   let dispose = () => {};
   document.addEventListener("admin:leave", () => dispose());
   window.addEventListener("pagehide", () => dispose());
@@ -56,14 +57,14 @@
         try { localStorage.setItem(storageKey, JSON.stringify(preferences)); } catch {}
       }
       if (operation === "none") {
-        output.textContent = "Summary";
+        output.textContent = gettext("Summary");
         menu.removeAttribute("aria-busy");
         return;
       }
       const controller = new AbortController();
       requests.set(field, controller);
       menu.setAttribute("aria-busy", "true");
-      output.textContent = "Loading…";
+      output.textContent = gettext("Loading…");
       const url = new URL(window.localizeAdminURL(`${viewport.dataset.listKey}/summary`), location.origin);
       url.search = location.search;
       url.searchParams.delete("page");
@@ -75,7 +76,7 @@
         const result = await response.json();
         if (!stopped && !controller.signal.aborted) output.textContent = `${selected.textContent} ${result.text}`;
       } catch {
-        if (!stopped && !controller.signal.aborted) output.textContent = "Unavailable · retry";
+        if (!stopped && !controller.signal.aborted) output.textContent = gettext("Unavailable · retry");
       } finally {
         if (requests.get(field) === controller) {
           requests.delete(field);

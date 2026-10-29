@@ -23,19 +23,19 @@
                 {% endif %}
               </span>
               <a href="{{ admin.change_path(row.pk) }}" class="btn btn-sm admin-row-expand"
-                 aria-label="Expand {{ row.label }}" title="Expand record">
+                 aria-label="Expand {{ row.label }}" title="{{ _('Expand record') }}">
                 <i class="ti ti-arrows-diagonal" aria-hidden="true"></i>
               </a>
             </div>
           </td>
           <td>
             <div class="btn-list flex-nowrap">
-            <a href="{{ admin.change_path(row.pk) }}" class="btn btn-sm">{{ 'Edit' if row.can_change else 'View' }}</a>
+            <a href="{{ admin.change_path(row.pk) }}" class="btn btn-sm">{{ _('Edit') if row.can_change else _('View') }}</a>
             {% if row.can_delete %}
             <form method="post" action="{{ delete_href(row.pk) }}" class="d-inline"
-                  data-confirm="Delete {{ row.label }}? This cannot be undone.">
+                  data-confirm="{{ _('Delete %(name)s? This cannot be undone.', name=row.label) }}">
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}"/>
-              <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+              <button type="submit" class="btn btn-sm btn-danger">{{ _('Delete') }}</button>
             </form>
             {% endif %}
             {% if row.comments_url %}

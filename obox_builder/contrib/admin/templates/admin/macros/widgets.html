@@ -3,7 +3,7 @@
 {% set widget_type = spec.options.get('widget', spec.type.widget) %}
 {% set placeholder = spec.options.get('placeholder') %}
 <div class="mb-3">
-  <label class="form-label {{ 'required' if spec.required and not readonly }}" for="id_{{ name }}">{{ spec.label }}</label>
+  <label class="form-label {{ 'required' if spec.required and not readonly }}" for="id_{{ name }}">{{ spec.label | gettext }}</label>
   {% if spec.options.get('widget_template') %}
     {% include spec.options.get('widget_template') %}
   {% elif widget_type == 'checkbox' %}
@@ -30,7 +30,7 @@
               {% if placeholder %}placeholder="{{ placeholder }}"{% endif %}
               {% if widget_type == 'json' %}spellcheck="false"{% endif %} {% if readonly %}disabled{% endif %}>{{ value or '' }}</textarea>
   {% elif widget_type == 'file' %}
-    {% if value and file_url %}<a class="d-block mb-2" href="{{ file_url }}">Current file: {{ value.split('/')[-1] }}</a>{% endif %}
+    {% if value and file_url %}<a class="d-block mb-2" href="{{ file_url }}">{{ _('Current file: %(name)s', name=value.split('/')[-1]) }}</a>{% endif %}
     <input type="file" name="{{ name }}" id="id_{{ name }}" class="form-control {{ 'is-invalid' if errors }}"
            accept="{{ spec.type.accept | join(',') }}" {% if readonly %}disabled{% endif %}/>
   {% elif widget_type == 'number' %}
@@ -46,7 +46,7 @@
            {% if placeholder %}placeholder="{{ placeholder }}"{% endif %}
            {% if spec.required and html_required %}required{% endif %} {% if readonly %}disabled{% endif %}/>
   {% endif %}
-  {% if spec.help_text %}<small class="form-hint">{{ spec.help_text }}</small>{% endif %}
-  {% for error in errors or [] %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+  {% if spec.help_text %}<small class="form-hint">{{ spec.help_text | gettext }}</small>{% endif %}
+  {% for error in errors or [] %}<div class="invalid-feedback d-block">{{ error | gettext }}</div>{% endfor %}
 </div>
 {% endmacro %}

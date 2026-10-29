@@ -1,5 +1,6 @@
 (function () {
   "use strict";
+  const gettext = window.oboxGettext;
   let dispose = () => {};
   document.addEventListener("admin:leave", () => dispose());
   window.addEventListener("pagehide", () => dispose());
@@ -119,7 +120,7 @@
       if (!nextURL || loading || stopped || failed) return;
       loading = true;
       viewport.setAttribute("aria-busy", "true");
-      status.textContent = "Loading records…";
+      status.textContent = gettext("Loading records…");
       try {
         const response = await fetch(window.localizeAdminURL(nextURL), {
           headers: {"X-Admin-Rows": "true"}, signal: controller.signal,
@@ -154,15 +155,15 @@
         viewport.dataset.nextUrl = nextURL;
         viewport.dispatchEvent(new Event("admin:rows", {bubbles: true}));
         if (!viewport.dataset.total) {
-          card.querySelector("[data-list-total]").textContent = `${rows.filter((row) => row.dataset.rowKey).length} records loaded`;
+          card.querySelector("[data-list-total]").textContent = gettext("%(count)s records loaded", {count: rows.filter((row) => row.dataset.rowKey).length});
         }
         if (window.htmx) htmx.process(body);
         layout();
-        status.textContent = nextURL ? "" : "All records loaded";
+        status.textContent = nextURL ? "" : gettext("All records loaded");
       } catch (error) {
         if (!controller.signal.aborted) {
           failed = true;
-          status.textContent = "Could not load records.";
+          status.textContent = gettext("Could not load records.");
           retry.classList.remove("d-none");
         }
       } finally {

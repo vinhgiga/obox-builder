@@ -52,6 +52,7 @@ def get_environment() -> Environment:
             gettext, ngettext, newstyle=True, pgettext=pgettext, npgettext=npgettext
         )
         environment.filters["format_datetime"] = format_datetime
+        environment.filters["gettext"] = gettext
         environment.filters["filesizeformat"] = filesizeformat
         environment.globals["querystring"] = querystring
 

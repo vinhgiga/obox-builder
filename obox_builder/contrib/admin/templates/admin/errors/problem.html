@@ -6,8 +6,8 @@
 </div>
 <div class="card">
   <div class="card-body">
-    <p class="mb-3">{{ message }}</p>
-    <a href="{{ back_url or '/admin/' }}" class="btn">Back</a>
+    <p class="mb-3">{{ message | gettext }}</p>
+    <a href="{{ back_url or '/admin/' }}" class="btn">{{ _('Back') }}</a>
   </div>
 </div>
 {% endblock %}

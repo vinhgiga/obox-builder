@@ -1,5 +1,5 @@
 {% extends "admin/base.html" %}
-{% block title %}Roles{% endblock %}
+{% block title %}{{ _('Roles') }}{% endblock %}
 {% block content %}
 <div class="page-header d-print-none">
   <h2 class="page-title">Roles ({{ roles | length }})</h2>
@@ -7,7 +7,7 @@
 <div class="card">
   {% if perms.auth.roles.manage %}
   <div class="card-header flex-wrap gap-2 py-2">
-    <a href="/admin/roles/new" class="btn btn-primary">New role</a>
+    <a href="/admin/roles/new" class="btn btn-primary">{{ _('New role') }}</a>
   </div>
   {% endif %}
   <div class="table-responsive">
@@ -15,10 +15,10 @@
       <thead>
         <tr>
           <th class="w-1 text-end">#</th>
-          <th class="w-1">Actions</th>
-          <th>Name</th>
-          <th>Users</th>
-          <th>Permissions</th>
+          <th class="w-1">{{ _('Actions') }}</th>
+          <th>{{ _('Name') }}</th>
+          <th>{{ _('Users') }}</th>
+          <th>{{ _('Permissions') }}</th>
         </tr>
       </thead>
       <tbody>
@@ -28,13 +28,13 @@
           <td>
             <div class="btn-list flex-nowrap">
             {% if perms.auth.roles.manage %}
-            <a href="/admin/roles/{{ role.id }}" class="btn btn-sm">Edit</a>
+            <a href="/admin/roles/{{ role.id }}" class="btn btn-sm">{{ _('Edit') }}</a>
             {% endif %}
             {% if perms.auth.roles.manage %}
             <form method="post" action="/admin/roles/{{ role.id }}/delete" class="d-inline"
-                  data-confirm="Delete role '{{ role.name }}'? This cannot be undone.">
+                  data-confirm="{{ _("Delete role '%(name)s'? This cannot be undone.", name=role.name) }}">
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}"/>
-              <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+              <button type="submit" class="btn btn-sm btn-danger">{{ _('Delete') }}</button>
             </form>
             {% endif %}
             </div>
@@ -46,7 +46,7 @@
           <td>{{ role.permissions | length }}</td>
         </tr>
         {% else %}
-        <tr><td colspan="5" class="text-center text-secondary py-4">No roles defined yet.</td></tr>
+        <tr><td colspan="5" class="text-center text-secondary py-4">{{ _('No roles defined yet.') }}</td></tr>
         {% endfor %}
       </tbody>
     </table>

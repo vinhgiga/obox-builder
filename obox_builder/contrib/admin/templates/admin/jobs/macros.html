@@ -1,6 +1,6 @@
 {% macro badge(status, states) -%}
 {% set state = states.get(status, (status, 'secondary')) %}
-<span class="badge bg-{{ state[1] }}-lt jobs-status"><span class="jobs-dot"></span>{{ state[0] }}</span>
+<span class="badge bg-{{ state[1] }}-lt jobs-status"><span class="jobs-dot"></span>{{ state[0] | gettext }}</span>
 {%- endmacro %}
 
 {% macro timestamp(value) -%}
@@ -9,10 +9,11 @@
 
 {% macro paging(page, pages, total, request) -%}
 <div class="card-footer d-flex align-items-center justify-content-between gap-2">
-  <span class="text-secondary small">{{ total }} {{ 'worker' if 'workers' in request.url.path else 'task' }}{{ 's' if total != 1 }} · Page {{ page }} of {{ pages }}</span>
+  {% set kind = ('worker' if 'workers' in request.url.path else 'task') ~ ('s' if total != 1 else '') %}
+  <span class="text-secondary small">{{ _('%(total)s %(kind)s · Page %(page)s of %(pages)s', total=total, kind=kind | gettext, page=page, pages=pages) }}</span>
   <div class="btn-list">
-    {% if page > 1 %}<a class="btn btn-sm" href="?{{ querystring(request.query_params, page=page-1) }}">Previous</a>{% endif %}
-    {% if page < pages %}<a class="btn btn-sm" href="?{{ querystring(request.query_params, page=page+1) }}">Next <i class="ti ti-arrow-right ms-1"></i></a>{% endif %}
+    {% if page > 1 %}<a class="btn btn-sm" href="?{{ querystring(request.query_params, page=page-1) }}">{{ _('Previous') }}</a>{% endif %}
+    {% if page < pages %}<a class="btn btn-sm" href="?{{ querystring(request.query_params, page=page+1) }}">{{ _('Next') }} <i class="ti ti-arrow-right ms-1"></i></a>{% endif %}
   </div>
 </div>
 {%- endmacro %}

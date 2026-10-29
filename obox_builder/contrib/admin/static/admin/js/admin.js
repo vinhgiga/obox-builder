@@ -1,6 +1,21 @@
 (function () {
   "use strict";
 
+  var catalogNode = null;
+  var catalog = {};
+  function gettext(message, values) {
+    var node = document.getElementById("admin-i18n");
+    if (node !== catalogNode) {
+      catalogNode = node;
+      catalog = node ? JSON.parse(node.textContent) : {};
+    }
+    var translated = Object.prototype.hasOwnProperty.call(catalog, message) ? catalog[message] : message;
+    return translated.replace(/%\((\w+)\)[sd]/g, function (match, key) {
+      return values && Object.prototype.hasOwnProperty.call(values, key) ? String(values[key]) : match;
+    });
+  }
+  window.oboxGettext = gettext;
+
   var confirmDialog = null;
   var pendingForm = null;
   var pendingSubmitter = null;
@@ -21,6 +36,9 @@
       '  <button type="button" class="btn btn-danger" data-confirm-ok>Delete</button>',
       '</div>',
     ].join("\n");
+    dialog.querySelector("#admin-confirm-title").textContent = gettext("Are you sure?");
+    dialog.querySelector("[data-confirm-cancel]").textContent = gettext("Cancel");
+    dialog.querySelector("[data-confirm-ok]").textContent = gettext("Delete");
     dialog.querySelector("[data-confirm-cancel]").addEventListener("click", function () {
       dialog.close();
     });
@@ -52,7 +70,7 @@
     pendingForm = form;
     confirmDialog.querySelector("[data-confirm-message]").textContent = message;
     confirmDialog.querySelector("[data-confirm-ok]").textContent =
-      form.getAttribute("data-confirm-label") || "Delete";
+      form.getAttribute("data-confirm-label") || gettext("Delete");
     confirmDialog.showModal();
   }
 
@@ -116,6 +134,12 @@
       '  <i class="ti ti-trash me-2"></i>Delete row',
       '</button>',
     ].join("\n");
+    [
+      ["history", "Row history"], ["comments", "Comments"],
+      ["copy", "Copy"], ["delete", "Delete row"],
+    ].forEach(function (item) {
+      menu.querySelector("[data-context-" + item[0] + "]").lastChild.textContent = gettext(item[1]);
+    });
     menu.querySelector("[data-context-history]").addEventListener("click", function () {
       var cell = contextCell;
       closeContextMenu();
@@ -527,8 +551,8 @@
       var count = selectedCount();
       if (counter) {
         counter.textContent = across
-          ? "All " + total + " selected"
-          : count + " of " + boxes().length + " selected";
+          ? gettext("All %(total)s selected", {total: total})
+          : gettext("%(count)s of %(total)s selected", {count: count, total: boxes().length});
       }
       if (toggle) {
         toggle.checked = boxes().length > 0 && count === boxes().length;
@@ -637,6 +661,12 @@
   });
 
   function initPage() {
+    if (catalogNode && !catalogNode.isConnected) {
+      if (confirmDialog) confirmDialog.remove();
+      if (contextMenu) contextMenu.remove();
+      confirmDialog = null;
+      contextMenu = null;
+    }
     if (confirmDialog && !confirmDialog.isConnected) confirmDialog = null;
     if (contextMenu && !contextMenu.isConnected) contextMenu = null;
     initInlineEditors();
@@ -656,8 +686,8 @@
     } catch (_error) {}
     root.setAttribute("data-bs-theme", theme);
     document.querySelectorAll("[data-theme-toggle]").forEach(function (button) {
-      button.textContent = theme === "dark" ? "Light mode" : "Dark mode";
-      button.setAttribute("aria-label", theme === "dark" ? "Switch to light theme" : "Switch to dark theme");
+      button.textContent = gettext(theme === "dark" ? "Light mode" : "Dark mode");
+      button.setAttribute("aria-label", gettext(theme === "dark" ? "Switch to light theme" : "Switch to dark theme"));
     });
   }
 

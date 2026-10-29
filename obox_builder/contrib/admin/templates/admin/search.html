@@ -1,14 +1,14 @@
 {% extends "admin/base.html" %}
-{% block title %}Search{% endblock %}
+{% block title %}{{ _('Search') }}{% endblock %}
 {% block content %}
-<h2 class="page-title mb-3">Search all models</h2>
+<h2 class="page-title mb-3">{{ _('Search all models') }}</h2>
 <form method="get" action="/admin/search" class="input-group mb-4">
-  <input type="search" name="q" value="{{ q }}" maxlength="200" class="form-control" placeholder="Search all models" aria-label="Search all models" autofocus/>
-  <button class="btn btn-primary" type="submit">Search</button>
+  <input type="search" name="q" value="{{ q }}" maxlength="200" class="form-control" placeholder="{{ _('Search all models') }}" aria-label="{{ _('Search all models') }}" autofocus/>
+  <button class="btn btn-primary" type="submit">{{ _('Search') }}</button>
 </form>
 {% for match in matches %}
 <div class="card mb-3">
-  <div class="card-header"><h3 class="card-title">{{ match.name }}</h3><a href="{{ match.url }}" class="ms-auto">See all matches</a></div>
+  <div class="card-header"><h3 class="card-title">{{ match.name }}</h3><a href="{{ match.url }}" class="ms-auto">{{ _('See all matches') }}</a></div>
   <div class="list-group list-group-flush">
     {% for result in match.results %}
     <a href="{{ result.url }}" class="list-group-item list-group-item-action">
@@ -19,6 +19,6 @@
   </div>
 </div>
 {% else %}
-<p class="text-secondary">{{ 'No matches found.' if q else 'Enter a search term to find records across your models.' }}</p>
+<p class="text-secondary">{{ _('No matches found.') if q else _('Enter a search term to find records across your models.') }}</p>
 {% endfor %}
 {% endblock %}

@@ -1,12 +1,13 @@
 (function () {
   "use strict";
+  const gettext = window.oboxGettext;
   var pending = new Set();
   var initialized = new WeakSet();
 
   function element(tag, className, text) {
     var node = document.createElement(tag);
     if (className) node.className = className;
-    if (text) node.textContent = text;
+    if (text) node.textContent = gettext(text);
     return node;
   }
 
@@ -21,7 +22,7 @@
     input.type = "search";
     input.id = select.id + "-search";
     input.autocomplete = "off";
-    input.placeholder = "Search records…";
+    input.placeholder = gettext("Search records…");
     input.setAttribute("role", "combobox");
     input.setAttribute("aria-autocomplete", "list");
     input.setAttribute("aria-expanded", "false");
@@ -67,7 +68,7 @@
         if (select.multiple || !required) {
           var remove = element("button", "btn-close", "");
           remove.type = "button";
-          remove.setAttribute("aria-label", "Remove " + option.textContent);
+          remove.setAttribute("aria-label", gettext("Remove %(name)s", {name: option.textContent}));
           remove.addEventListener("click", function () {
             option.selected = false;
             option.removeAttribute("selected");
@@ -111,9 +112,9 @@
       if (!append) { page = 1; list.replaceChildren(); active = -1; }
       menu.hidden = false;
       input.setAttribute("aria-expanded", "true");
-      status.textContent = "Loading…";
+      status.textContent = gettext("Loading…");
       if (!append) more.hidden = true;
-      else more.textContent = "Loading…";
+      else more.textContent = gettext("Loading…");
       var url = new URL(root.dataset.url, window.location.origin);
       url.searchParams.set("q", term);
       url.searchParams.set("page", page);
@@ -135,10 +136,10 @@
         if (!data.pagination.more && document.activeElement === more && list.lastElementChild) {
           list.lastElementChild.focus();
         }
-        more.textContent = "Load more";
+        more.textContent = gettext("Load more");
         more.hidden = !data.pagination.more;
       } catch (error) {
-        if (error.name !== "AbortError") status.textContent = "Search failed. Try again.";
+        if (error.name !== "AbortError") status.textContent = gettext("Search failed. Try again.");
       } finally { pending.delete(request); }
     }
     input.addEventListener("input", function () { clearTimeout(timer); timer = setTimeout(function () { search(false); }, 200); });
