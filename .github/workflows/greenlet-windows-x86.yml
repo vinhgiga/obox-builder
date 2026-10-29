@@ -1,0 +1,76 @@
+name: Build greenlet for Windows x86
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/greenlet-windows-x86.yml
+
+permissions:
+  contents: read
+
+jobs:
+  wheel:
+    runs-on: windows-latest
+    env:
+      GREENLET_STATIC_RUNTIME: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.0
+        with:
+          python-version: "3.10-x86"
+      - name: Download and verify upstream source
+        shell: pwsh
+        run: |
+          $url = "https://files.pythonhosted.org/packages/3e/6e/0091f175ccd02b02bc8811bbcbcc6ac2e980be116e3b2f7a736ca322bf84/greenlet-3.5.6.tar.gz"
+          Invoke-WebRequest $url -OutFile greenlet-3.5.6.tar.gz
+          $expected = "8e67c43bdfc88d5fee6db0d3e40175b362fc95fb85f0412d233b9b203c53a575"
+          if ((Get-FileHash greenlet-3.5.6.tar.gz -Algorithm SHA256).Hash -ne $expected) {
+            throw "Upstream source checksum mismatch"
+          }
+      - name: Build CPython 3.10 x86 wheel
+        run: uv build greenlet-3.5.6.tar.gz --wheel --python 3.10-x86 --out-dir dist
+      - run: uv venv --python 3.10-x86
+      - name: Install wheel without a compiler
+        run: uv pip install --no-build --no-index dist/greenlet-3.5.6-cp310-cp310-win32.whl
+      - name: Install async database dependencies
+        run: uv pip install --no-build "sqlalchemy[asyncio]>=2.0.54,<2.1" "aiosqlite>=0.22,<1"
+      - name: Verify x86 interpreter and async database access
+        shell: pwsh
+        run: |
+          @'
+          import asyncio
+          import struct
+
+          import greenlet
+          from sqlalchemy import text
+          from sqlalchemy.ext.asyncio import create_async_engine
+
+          assert struct.calcsize("P") == 4
+          assert greenlet.greenlet(lambda: 42).switch() == 42
+
+          async def main():
+              engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+              try:
+                  async with engine.begin() as connection:
+                      assert await connection.scalar(text("SELECT 42")) == 42
+                      assert await connection.run_sync(lambda c: c.scalar(text("SELECT 42"))) == 42
+              finally:
+                  await engine.dispose()
+
+          asyncio.run(main())
+          print("CPython 3.10 x86: greenlet and SQLAlchemy asyncio OK")
+          '@ | .venv/Scripts/python.exe -
+      - name: Record wheel checksum
+        shell: pwsh
+        run: |
+          $wheel = Get-Item dist/greenlet-3.5.6-cp310-cp310-win32.whl
+          $hash = (Get-FileHash $wheel.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $($wheel.Name)" | Set-Content dist/SHA256SUMS -Encoding utf8
+      - uses: actions/upload-artifact@v7
+        with:
+          name: greenlet-3.5.6-cp310-win32
+          path: |
+            dist/*.whl
+            dist/SHA256SUMS
+          if-no-files-found: error
