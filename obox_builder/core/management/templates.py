@@ -22,17 +22,17 @@ def validate_name(name: str, *, kind: str, source: str = "name") -> None:
         )
 
 
-def ensure_target_available(target: Path) -> None:
+def ensure_target_available(target: Path, *, allow_non_empty: bool = False) -> None:
     if target.is_file():
         raise CommandError(f"Target {str(target)!r} is a file.")
-    if target.is_dir() and any(target.iterdir()):
+    if not allow_non_empty and target.is_dir() and any(target.iterdir()):
         raise CommandError(f"Target directory {str(target)!r} already exists and is not empty.")
 
 
 def render_tree(source: Path, target: Path, context: Mapping[str, str]) -> list[Path]:
     if not source.is_dir():
         raise CommandError(f"Template directory {str(source)!r} does not exist.")
-    created: list[Path] = []
+    rendered_files: list[tuple[Path, str]] = []
     for path in sorted(source.rglob("*")):
         if path.is_dir():
             continue
@@ -44,13 +44,26 @@ def render_tree(source: Path, target: Path, context: Mapping[str, str]) -> list[
         if parts[-1].endswith(TEMPLATE_SUFFIX):
             parts[-1] = parts[-1][: -len(TEMPLATE_SUFFIX)]
         destination = target.joinpath(*parts)
-        destination.parent.mkdir(parents=True, exist_ok=True)
+        if destination.exists():
+            raise CommandError(f"Target path {str(destination)!r} already exists.")
+        blocking_parent = next(
+            (parent for parent in destination.parents if parent.exists() and not parent.is_dir()),
+            None,
+        )
+        if blocking_parent is not None:
+            raise CommandError(f"Target path component {str(blocking_parent)!r} is a file.")
         raw = path.read_text(encoding="utf-8")
         try:
             rendered = Template(raw).substitute(context)
         except ValueError as exc:
             raise CommandError(f"Invalid template {relative}: {exc}") from exc
-        destination.write_text(rendered, encoding="utf-8")
+        rendered_files.append((destination, rendered))
+
+    created: list[Path] = []
+    for destination, rendered in rendered_files:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        with destination.open("w", encoding="utf-8", newline="\n") as output:
+            output.write(rendered)
         created.append(destination)
     return created
 

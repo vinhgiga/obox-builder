@@ -41,6 +41,9 @@ def project_root() -> Path:
 
 
 def migrations_dir() -> Path:
+    configured = getattr(settings, "MIGRATIONS_DIR", None)
+    if configured is not None:
+        return Path(configured)
     return project_root() / MIGRATIONS_DIR_NAME
 
 
@@ -63,7 +66,7 @@ def build_config(database: str = "default", *, create_version_dir: bool = False)
     """Build an Alembic ``Config`` with one shared revision graph."""
     config = Config()
     root = project_root()
-    config.set_main_option("script_location", str(root / MIGRATIONS_DIR_NAME))
+    config.set_main_option("script_location", str(migrations_dir()))
     file_template = getattr(
         settings,
         "ALEMBIC_FILE_TEMPLATE",

@@ -3,7 +3,7 @@ import sys
 
 
 def main() -> None:
-    os.environ.setdefault("OBOX_SETTINGS_MODULE", "$project_name.settings")
+    os.environ.setdefault("OBOX_SETTINGS_MODULE", "config.settings")
     from obox_builder.core.management import execute_from_command_line
 
     execute_from_command_line(sys.argv)

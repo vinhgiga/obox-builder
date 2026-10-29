@@ -15,11 +15,15 @@ EXPECTED_PROJECT_FILES = [
     "manage.py",
     "pyproject.toml",
     ".env.example",
+    ".editorconfig",
+    "justfile",
     "config/__init__.py",
     "config/settings.py",
     "config/urls.py",
     "config/asgi.py",
     "apps/__init__.py",
+    "migrations/__init__.py",
+    "migrations/alembic.ini",
     "migrations/env.py",
     "migrations/script.py.mako",
     "migrations/versions/.gitkeep",
@@ -63,6 +67,7 @@ def test_startproject_creates_expected_tree(
     result = _run(runner, ["startproject", "myproj"])
     assert "Created project 'myproj'" in result.output
     project = tmp_path / "myproj"
+    assert not (project / "uv.lock").exists()
     for relative in EXPECTED_PROJECT_FILES:
         assert (project / relative).is_file(), relative
     assert not list(project.rglob("*-tpl"))
@@ -103,6 +108,19 @@ def test_startproject_custom_directory(
     target = tmp_path / "nested" / "place"
     _run(runner, ["startproject", "myproj", str(target)])
     assert (target / "manage.py").is_file()
+    assert (target / "config" / "settings.py").is_file()
+
+
+def test_startproject_dot_creates_project_in_current_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, runner: CliRunner
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    result = _run(runner, ["startproject", "."])
+    project_name = tmp_path.name
+    assert f"Created project '{project_name}'" in result.output
+    assert (tmp_path / "manage.py").is_file()
+    assert (tmp_path / "config" / "settings.py").is_file()
+    assert '"config.settings"' in (tmp_path / "manage.py").read_text()
 
 
 def test_startproject_rejects_existing_non_empty_target(
@@ -162,8 +180,20 @@ def test_startapp_defaults_to_package_name(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, runner: CliRunner
 ) -> None:
     monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("OBOX_SETTINGS_MODULE", raising=False)
     _run(runner, ["startapp", "blog"])
     assert (tmp_path / "blog" / "apps.py").is_file()
+
+
+def test_startapp_defaults_to_project_apps_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, runner: CliRunner
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("OBOX_SETTINGS_MODULE", raising=False)
+    _run(runner, ["startproject", "myproj"])
+    result = _run(runner, ["startapp", "polls"])
+    assert (tmp_path / "myproj" / "apps" / "polls" / "apps.py").is_file()
+    assert "apps.polls" in result.output
 
 
 def test_generated_project_manage_py_runs(
@@ -172,9 +202,10 @@ def test_generated_project_manage_py_runs(
     monkeypatch.chdir(tmp_path)
     _run(runner, ["startproject", "myproj"])
     project = tmp_path / "myproj"
+    manage = project / "manage.py"
     env = {key: value for key, value in os.environ.items() if not key.startswith("OBOX_")}
-    version = subprocess.run(
-        [sys.executable, "manage.py", "version"],
+    version = subprocess.run(  # noqa: S603
+        [sys.executable, str(manage), "version"],
         cwd=project,
         env=env,
         capture_output=True,
@@ -184,8 +215,8 @@ def test_generated_project_manage_py_runs(
     )
     assert version.returncode == 0, version.stderr
     assert "obox-builder" in version.stdout
-    check = subprocess.run(
-        [sys.executable, "manage.py", "check"],
+    check = subprocess.run(  # noqa: S603
+        [sys.executable, str(manage), "check"],
         cwd=project,
         env=env,
         capture_output=True,
