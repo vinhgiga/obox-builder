@@ -16,7 +16,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from obox_builder.core.utils.time import utcnow
 from obox_builder.db import Model
-from obox_builder.db.types import JSONB, TZDateTime
+from obox_builder.db.types import JSONB, BigIntIdentity, TZDateTime
 
 
 class Task(Model):
@@ -59,7 +59,7 @@ class Task(Model):
 class TaskAttempt(Model):
     app_label = "jobs"
 
-    id: Mapped[int] = mapped_column(sa.Integer, primary_key=True)
+    id: Mapped[int] = mapped_column(BigIntIdentity, primary_key=True)
     task_id: Mapped[str] = mapped_column(
         sa.String(155), sa.ForeignKey("obox_task.id", ondelete="CASCADE")
     )
