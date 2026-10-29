@@ -37,7 +37,10 @@ def render_tree(source: Path, target: Path, context: Mapping[str, str]) -> list[
         if path.is_dir():
             continue
         relative = path.relative_to(source)
-        parts = list(relative.parts)
+        try:
+            parts = [Template(part).substitute(context) for part in relative.parts]
+        except (KeyError, ValueError) as exc:
+            raise CommandError(f"Invalid template path {relative}: {exc}") from exc
         if parts[-1].endswith(TEMPLATE_SUFFIX):
             parts[-1] = parts[-1][: -len(TEMPLATE_SUFFIX)]
         destination = target.joinpath(*parts)

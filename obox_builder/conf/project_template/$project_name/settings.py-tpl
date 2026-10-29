@@ -24,8 +24,8 @@ class Settings(BaseSettings):
         "obox_builder.core.middleware.request_id.RequestIDMiddleware",
         "obox_builder.core.middleware.security_headers.SecurityHeadersMiddleware",
     ]
-    ROOT_URLCONF: str = "config.urls"
-    ASGI_APPLICATION: str = "config.asgi.application"
+    ROOT_URLCONF: str = "$project_name.urls"
+    ASGI_APPLICATION: str = "$project_name.asgi.application"
     TEMPLATE_DIRS: list[Path] = [BASE_DIR / "templates"]
     LOCALE_PATHS: list[Path] = [BASE_DIR / "locale"]
     STATIC_ROOT: Path = BASE_DIR / "static"
