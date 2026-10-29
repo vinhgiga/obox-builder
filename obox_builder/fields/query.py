@@ -224,7 +224,7 @@ class QuerySpec:
         names = {sort_term.field for sort_term in ordered_terms}
         for spec in specs.values():
             if spec.primary_key and spec.column is not None and spec.name not in names:
-                stmt = stmt.order_by(spec.column.asc())
+                stmt = stmt.order_by(spec.column.desc())
         return stmt
 
 

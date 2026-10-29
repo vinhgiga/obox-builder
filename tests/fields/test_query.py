@@ -319,8 +319,8 @@ def test_nulls_last_stable_sort_and_group_precedence() -> None:
         )
         query = QuerySpec(sort=[SortTerm("name")], group=[SortTerm("age")])
         stmt = query.apply(sa.select(table.c.id).order_by(table.c.id.desc()), specs)
-        assert connection.scalars(stmt).all() == [4, 2, 3, 1]
-        assert connection.scalars(stmt.limit(1).offset(1)).all() == [2]
+        assert connection.scalars(stmt).all() == [4, 3, 2, 1]
+        assert connection.scalars(stmt.limit(1).offset(1)).all() == [3]
     engine.dispose()
 
 

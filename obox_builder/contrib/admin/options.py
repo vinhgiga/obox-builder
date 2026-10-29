@@ -332,9 +332,7 @@ class ModelAdmin:
         return stmt
 
     def get_ordering(self, ctx: AdminContext) -> tuple[str, ...]:
-        if self.ordering:
-            return tuple(self.ordering)
-        return (self.pk_column().key or "id",)
+        return tuple(self.ordering or ())
 
     def get_list_display(
         self, ctx: AdminContext | None = None

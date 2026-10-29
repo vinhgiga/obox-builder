@@ -93,9 +93,9 @@ def test_permission_hooks_delegate_to_the_user() -> None:
     assert admin.has_view_permission(no_perms) is False
 
 
-def test_default_ordering_is_the_primary_key() -> None:
+def test_default_ordering_is_empty() -> None:
     admin = ModelAdmin(Product, site)
-    assert admin.get_ordering(cast(Any, None)) == ("id",)
+    assert admin.get_ordering(cast(Any, None)) == ()
     assert ProductAdmin(Product, site).get_ordering(cast(Any, None)) == ("-id",)
 
 
