@@ -4,7 +4,7 @@
 {% block title %}{{ "Edit role" if target else "New role" }}{% endblock %}
 {% set values = form or {} %}
 {% block content %}
-<div class="page-header d-print-none">
+<div class="page-header admin-form-header d-print-none">
   <div class="row g-2 align-items-center">
     <div class="col">
       <h2 class="page-title">{{ "Edit role: " + target.name if target else "New role" }}</h2>

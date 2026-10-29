@@ -81,6 +81,15 @@ mark {
   position: fixed;
 }
 
+.page-body:has(.admin-form-header) {
+  margin-top: 0.5rem;
+}
+
+.page-wrapper .admin-form-header {
+  margin: 0 0 0.5rem;
+  min-height: 0;
+}
+
 /* -- model list ------------------------------------------------------------ */
 
 .admin-list-titlebar,
