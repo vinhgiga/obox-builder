@@ -7,25 +7,34 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from obox_builder.conf import settings
 from obox_builder.contrib.admin.rendering import render
-from obox_builder.contrib.admin.views.common import ensure_csrf, page_context
+from obox_builder.contrib.admin.views.common import current_site, ensure_csrf, page_context
 from obox_builder.contrib.auth import csrf, services, sessions
-from obox_builder.contrib.auth.dependencies import get_auth_session, login_required
+from obox_builder.contrib.auth.dependencies import (
+    get_auth_session,
+    get_current_user,
+    login_required,
+)
 from obox_builder.contrib.auth.models import Session as AuthSession
 from obox_builder.contrib.auth.models import User
 from obox_builder.contrib.auth.validators import PasswordValidationError
+from obox_builder.core.exceptions import ImproperlyConfigured
 from obox_builder.db.session import get_db
 from obox_builder.http.messages import add_session_message
 from obox_builder.http.shortcuts import redirect
-from obox_builder.http.urls import safe_next_url
 
 
 async def login_view(
     request: Request,
     auth_session: AuthSession | None = Depends(get_auth_session),
+    db: AsyncSession = Depends(get_db),
 ) -> Response:
     """GET /login: redirect authenticated users, otherwise show the form."""
     if auth_session is not None:
-        return redirect(settings.LOGIN_REDIRECT_URL, status_code=303)
+        user = await get_current_user(request, auth_session, db)
+        target = await current_site(request).get_success_url(request, user)
+        if target == request.url.path:
+            raise ImproperlyConfigured("Login redirect points back to the login page.")
+        return redirect(target, status_code=303)
     context = await page_context(request, next=request.query_params.get("next", ""))
     return render(request, "admin/auth/login.html", context)
 
@@ -63,7 +72,7 @@ async def login_submit(
         ip=request.client.host if request.client else None,
         user_agent=request.headers.get("user-agent"),
     )
-    response = redirect(safe_next_url(next), status_code=303)
+    response = redirect(await current_site(request).get_success_url(request, user), status_code=303)
     sessions.set_session_cookie(response, token)
     return response
 

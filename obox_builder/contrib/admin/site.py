@@ -7,15 +7,18 @@ from importlib import import_module
 from importlib.util import find_spec
 from typing import TYPE_CHECKING, Any, TypeVar
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 
+from obox_builder.conf import settings
 from obox_builder.contrib.admin.navigation import NavGroup, NavItem, default_navigation
 from obox_builder.core.exceptions import ImproperlyConfigured
+from obox_builder.http.urls import is_safe_url
 from obox_builder.utils.strings import camel_to_snake
 
 if TYPE_CHECKING:
     from obox_builder.contrib.admin.api.ratelimit import RateLimiter
     from obox_builder.contrib.admin.options import ModelAdmin
+    from obox_builder.contrib.auth.models import User
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +63,18 @@ class AdminSite:
         self.navigation: list[NavGroup] = default_navigation()
         self._registry: dict[str, ModelAdmin] = {}
         self._discovered = False
+
+    async def get_default_redirect_url(self, request: Request, user: User) -> str:
+        """Return the landing page when login has no safe ``next`` target."""
+        return settings.LOGIN_REDIRECT_URL
+
+    async def get_success_url(self, request: Request, user: User) -> str:
+        """Prefer a safe POST/GET ``next``, then the per-user default."""
+        data = await request.form() if request.method == "POST" else request.query_params
+        candidate = data.get("next", request.query_params.get("next", ""))
+        if isinstance(candidate, str) and is_safe_url(candidate):
+            return candidate
+        return await self.get_default_redirect_url(request, user)
 
     # -- registration -------------------------------------------------------
     def register(self, model: type[Any], admin_class: type[ModelAdmin] | None = None) -> Any:
