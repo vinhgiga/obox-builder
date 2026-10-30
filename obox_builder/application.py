@@ -243,7 +243,7 @@ class Obox(FastAPI):
                         if b.form.enabled
                         else (),
                         "api_operations": b.api.operations if b.api.enabled else (),
-                        "view": b.view_columns if b.view.enabled else (),
+                        "view": b.view_list_display if b.view.enabled else (),
                         "related": b.view_related if b.view.enabled else (),
                         "conditional": type(b.policy).read_fields is not Policy.read_fields
                         or b.conditional_writes,

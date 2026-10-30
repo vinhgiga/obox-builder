@@ -82,7 +82,7 @@ class ModelBuilder(Generic[T]):
         self.form, self.view, self.api = self.Form(), self.View(), self.API()
         self.form._builder = self.view._builder = self
         self.form_fields = self._form_fields()
-        self.view_columns = self._projection(self.view.columns)
+        self.view_list_display = self._projection(self.view.list_display)
         self.view_details = self._projection(self.view.detail_fields)
         self.view_related = normalize(
             self.view.related,

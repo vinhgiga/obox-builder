@@ -70,7 +70,7 @@ class QuestionBuilder(builder.ModelBuilder[Question]):
         labels = {"question_text": "Question"}
 
     class View(builder.View):
-        columns = ("question_text", "pub_date")
+        list_display = ("question_text", "pub_date")
 
     class API(builder.API):
         operations = ("list", "retrieve", "create", "update")
@@ -259,7 +259,7 @@ class Form:
 | Property | Type | Default / meaning |
 | --- | --- | --- |
 | `enabled` | `bool` | `True` |
-| `columns` | `FieldRefs \| None` | Inherit readable builder fields |
+| `list_display` | `FieldRefs \| None` | Inherit readable builder fields |
 | `detail_fields` | `FieldRefs \| None` | Inherit readable builder fields |
 | `operations` | `tuple[str, ...]` | `("create", "update", "delete")`; UI visibility only |
 | `page_size` | `int \| None` | `None`; no forced pagination or maximum |
@@ -270,9 +270,9 @@ Searchable, filterable and sortable fields come from `ModelBuilder`, not `View`,
 
 ```python
 class View:
-    def get_columns(self, ctx: Context) -> Sequence[str]: ...
+    def get_list_display(self, ctx: Context) -> Sequence[str]: ...
 
-    def get_filters(self, ctx: Context) -> Sequence[FilterDefinition]: ...
+    def get_list_filter(self, ctx: Context) -> Sequence[FilterDefinition]: ...
 
     def get_operations(
         self,
@@ -429,7 +429,7 @@ FORM_CREATE  = resource_fields ∩ Form.fields ∩ policy.write_fields("create",
 FORM_UPDATE  = resource_fields ∩ Form.fields ∩ policy.read_fields(ctx, obj)
                ∩ policy.write_fields("update", ctx, obj)
                − read_only_fields − server_preset_fields
-VIEW_READ    = resource_fields ∩ View.columns/detail_fields ∩ policy.read_fields(ctx, obj)
+VIEW_READ    = resource_fields ∩ View.list_display/detail_fields ∩ policy.read_fields(ctx, obj)
 ```
 
 Rules:

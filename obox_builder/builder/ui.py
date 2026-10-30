@@ -207,11 +207,13 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
         if builder.view.page_size is not None:
             options.setdefault("limit", builder.view.page_size)
         objects = await service.list(ctx=ctx, **options)
-        columns = tuple(key for key in builder.view.get_columns(ctx) if key in builder.view_columns)
-        columns = builder.readable(ctx, fields=columns)
+        list_display = tuple(
+            key for key in builder.view.get_list_display(ctx) if key in builder.view_list_display
+        )
+        list_display = builder.readable(ctx, fields=list_display)
         rows = []
         for obj in objects:
-            visible = await service.serialize(obj, ctx=ctx, fields=columns)
+            visible = await service.serialize(obj, ctx=ctx, fields=list_display)
             can_detail = await invoke(builder.policy.allow, "retrieve", ctx, obj=obj)
             rows.append(
                 {
@@ -228,14 +230,14 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
             next_query.update(offset=str(offset + limit), limit=str(limit))
         filters = tuple(
             key
-            for key in builder.view.get_filters(ctx)
+            for key in builder.view.get_list_filter(ctx)
             if key in builder.filter_fields and key in builder.readable(ctx)
         )
         return render(
             "list.html",
             title=extra.get("title", builder.model.__name__),
             base=base(request),
-            columns=columns,
+            list_display=list_display,
             rows=rows,
             operations=await allowed_operations(builder, ctx),
             search=any(key in builder.readable(ctx) for key in builder.search_fields),
@@ -267,13 +269,13 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
                 continue
             records = await service.related(id, name, ctx=ctx)
             target_service = app.service(target.model)
-            columns = target.readable(ctx, fields=target.view_columns)
+            list_display = target.readable(ctx, fields=target.view_list_display)
             collections.append(
                 {
                     "name": name,
-                    "columns": columns,
+                    "list_display": list_display,
                     "rows": [
-                        await target_service.serialize(row, ctx=ctx, fields=columns)
+                        await target_service.serialize(row, ctx=ctx, fields=list_display)
                         for row in records
                     ],
                 }

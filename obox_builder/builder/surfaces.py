@@ -41,17 +41,17 @@ class Form:
 
 class View:
     enabled = True
-    columns: FieldRefs | None = None
+    list_display: FieldRefs | None = None
     detail_fields: FieldRefs | None = None
     related: FieldRefs = ()
     operations: tuple[str, ...] = ("create", "update", "delete")
     page_size: int | None = None
     _builder: Any
 
-    def get_columns(self, ctx: Context) -> Sequence[str]:
-        return self._builder.readable(ctx, fields=self._builder.view_columns)
+    def get_list_display(self, ctx: Context) -> Sequence[str]:
+        return self._builder.readable(ctx, fields=self._builder.view_list_display)
 
-    def get_filters(self, ctx: Context) -> Sequence[str]:
+    def get_list_filter(self, ctx: Context) -> Sequence[str]:
         allowed = self._builder.readable(ctx)
         return tuple(name for name in self._builder.filter_fields if name in allowed)
 
