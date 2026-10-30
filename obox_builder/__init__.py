@@ -1,60 +1,30 @@
-"""obox-builder: an internal FastAPI admin framework, Django-like at the mechanism level."""
+"""Model-driven CRUD applications built on native FastAPI and SQLAlchemy."""
 
-from __future__ import annotations
+__version__ = "0.4.0"
 
-from obox_builder.apps import apps
-from obox_builder.conf import BaseSettings, LazySettings, settings
-from obox_builder.conf.logging import configure_logging
-from obox_builder.exceptions import ImproperlyConfigured
-
-__version__ = "0.3.0"
-
-_setup_done = False
-
-
-def setup() -> BaseSettings:
-    """Load settings, configure logging and populate the app registry. Idempotent."""
-    global _setup_done
-    config = settings.load()
-    if _setup_done:
-        return config
-    configure_logging(logging_config=config.LOGGING, debug=config.DEBUG)
-    apps.populate(config.INSTALLED_APPS)
-    from obox_builder.resources.registry import initialize
-
-    initialize(app.name for app in apps.get_app_configs())
-    for app in apps.get_app_configs():
-        app.finalize()
-    _setup_done = True
-    return config
-
-
-def configure(config: BaseSettings | type[BaseSettings] | str | None = None) -> None:
-    """Configure settings programmatically (scripts and tests)."""
-    settings.configure(config)
-
-
-def _reset() -> None:
-    global _setup_done
-    _setup_done = False
-    apps._reset()
-    from obox_builder.resources.registry import reset
-
-    reset()
-    import sys
-
-    permissions = sys.modules.get("obox_builder.contrib.auth.permissions")
-    if permissions is not None:
-        setattr(permissions, "_catalog", None)
-
+from obox_builder import builder
+from obox_builder.application import Diagnostic, Obox, Registration
+from obox_builder.auth import Policy, Principal
+from obox_builder.builder import API, Form, ModelBuilder, View
+from obox_builder.builder.service import ResourceService
+from obox_builder.context import Context, DomainEvent
+from obox_builder.errors import BuilderValidationError, ImproperlyConfigured
 
 __all__ = [
-    "BaseSettings",
+    "API",
+    "BuilderValidationError",
+    "Context",
+    "DomainEvent",
+    "Diagnostic",
+    "Form",
     "ImproperlyConfigured",
-    "LazySettings",
+    "ModelBuilder",
+    "Obox",
+    "Policy",
+    "Principal",
+    "Registration",
+    "ResourceService",
+    "View",
     "__version__",
-    "apps",
-    "configure",
-    "settings",
-    "setup",
+    "builder",
 ]

@@ -1,5 +1,0 @@
-from $app_module.apps import $app_class
-
-
-def test_app_config_name() -> None:
-    assert $app_class.name == "$app_module"

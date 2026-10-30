@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block content %}
+<nav><a href="{{ base }}">Back to list</a>{% if "update" in actions %} · <a href="{{ url }}/edit">Edit</a>{% endif %}</nav>
+<dl>{% for field, value in values.items() %}<dt>{{ field.replace('_', ' ').capitalize() }}</dt><dd>{% if links.get(field) %}<a href="{{ links[field] }}">{{ value }}</a>{% else %}{{ value }}{% endif %}</dd>{% endfor %}</dl>
+{% for collection in collections %}
+<h2>{{ collection.name.replace('_', ' ').capitalize() }}</h2>
+<table><thead><tr>{% for field in collection.columns %}<th scope="col">{{ field }}</th>{% endfor %}</tr></thead><tbody>{% for row in collection.rows %}<tr>{% for field in collection.columns %}<td>{{ row.get(field, '') }}</td>{% endfor %}</tr>{% else %}<tr><td>No records.</td></tr>{% endfor %}</tbody></table>
+{% endfor %}
+{% if "delete" in actions %}<form method="post" action="{{ url }}/delete"><input type="hidden" name="csrf_token" value="{{ csrf }}"><label><input type="checkbox" required> Confirm deletion</label><button>Delete</button></form>{% endif %}
+{% endblock %}

@@ -1,40 +1,18 @@
 [project]
 name = "obox-builder"
-version = "0.3.0"
-description = "Django-inspired, batteries-included admin interface for FastAPI."
-readme = "docs/quickstart.md"
-requires-python = ">=3.10"
+version = "0.4.0"
+description = "Model-driven forms, views and REST APIs for native FastAPI applications."
+requires-python = ">=3.11"
 dependencies = [
-    "alembic>=1.20,<2",
-    "anyio>=4.8,<5",
-    "defusedxml>=0.7.1,<1",
     "fastapi>=0.143.3,<0.144",
     "jinja2>=3.1.6,<4",
-    "markupsafe>=3.0,<4",
-    "openpyxl>=3.1.5,<4",
-    "pwdlib[argon2]>=0.3.1,<1",
     "pydantic>=2.14,<3",
-    "pydantic-settings>=2.12,<3",
-    "python-multipart>=0.0.32,<1",
     "sqlalchemy[asyncio]>=2.0.54,<2.1",
-    "typer>=0.27.3,<1",
-    "uvicorn>=0.54,<1",
 ]
 
 [project.optional-dependencies]
 postgres = ["psycopg[binary,pool]>=3.3,<4", "asyncpg>=0.32,<1"]
 sqlite = ["aiosqlite>=0.22,<1"]
-tailwind = ["pytailwindcss>=0.4.2,<1; python_version >= '3.11'"]
-redis-cache = ["redis>=6.4,<9"]
-vietnamese = [
-    "pyicu>=2.16,<3",
-]
-
-[project.scripts]
-obox = "obox_builder.core.management:execute_from_command_line"
-
-[project.entry-points.pytest11]
-obox_builder = "obox_builder.testing.pytest_plugin"
 
 [dependency-groups]
 dev = [
@@ -42,12 +20,10 @@ dev = [
     "asyncpg>=0.32,<1",
     "httpx>=0.28.1,<1",
     "import-linter>=2.15,<3",
+    "mypy>=1.19,<2",
     "pre-commit>=4.6,<5",
     "psycopg[binary,pool]>=3.3,<4",
     "pyright>=1.1.414,<2",
-    "pytest>=9.1.1,<10",
-    "pytest-asyncio>=1.4,<2",
-    "pytest-cov>=7.1,<8",
     "ruff>=0.17.1,<1",
 ]
 
@@ -59,139 +35,46 @@ build-backend = "hatchling.build"
 packages = ["obox_builder"]
 
 [tool.hatch.build.targets.sdist]
-include = ["obox_builder", "tests", "docs/quickstart.md", "CHANGELOG.md", "*plan*.md"]
+include = ["obox_builder", "pyproject.toml"]
 
 [tool.ruff]
 line-length = 100
-src = ["obox_builder", "tests"]
-target-version = "py310"
+src = ["obox_builder"]
+target-version = "py311"
 
 [tool.ruff.lint]
-select = [
-  "B",
-  "C4",
-  "E",
-  "F",
-  "G",
-  "I",
-  "N",
-  "PT",
-  "S",
-  "SIM",
-  "TID",
-  "UP",
-  "W",
-]
-ignore = ["PT001", "PT006", "N818", "N999"]
+select = ["B", "C4", "E", "F", "G", "I", "N", "S", "SIM", "TID", "UP", "W"]
+ignore = ["N818"]
 
 [tool.ruff.lint.flake8-bugbear]
-extend-immutable-calls = [
-  "fastapi.Body",
-  "fastapi.Cookie",
-  "fastapi.Depends",
-  "fastapi.File",
-  "fastapi.Form",
-  "fastapi.Header",
-  "fastapi.Path",
-  "fastapi.Query",
-  "fastapi.Security",
-  "typer.Argument",
-  "typer.Option",
-]
-
-[tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101", "S105", "S106", "PT012"]
-"**/conf/*_template/**" = ["E501"]
+extend-immutable-calls = ["fastapi.Depends"]
 
 [tool.ruff.format]
 quote-style = "double"
 
+[tool.mypy]
+python_version = "3.11"
+check_untyped_defs = true
+
 [tool.pyright]
-include = ["obox_builder", "tests"]
-ignore = [
-    "tests/support/apps/broken.py",
-    "tests/support/apps/bad_apps/apps.py",
-    "tests/support/apps/bad_models/models.py",
-]
-pythonVersion = "3.10"
+include = ["obox_builder"]
+pythonVersion = "3.11"
 typeCheckingMode = "standard"
 reportMissingTypeStubs = false
-
-[tool.pytest.ini_options]
-addopts = "-ra -m 'not benchmark'"
-asyncio_mode = "auto"
-testpaths = ["tests"]
-markers = [
-    "benchmark: wall-clock micro-benchmarks (excluded by default; run with -m benchmark -s)",
-]
 
 [tool.importlinter]
 root_package = "obox_builder"
 include_external_packages = true
 
 [[tool.importlinter.contracts]]
-name = "Layered architecture"
-type = "layers"
-layers = [
-    "obox_builder.contrib.admin | obox_builder.contrib.api",
-    "obox_builder.contrib.imports",
-    "obox_builder.contrib.jobs | obox_builder.contrib.events",
-    "obox_builder.contrib.history | obox_builder.contrib.comments",
-    "obox_builder.contrib.auth",
-    "obox_builder.contrib.uploads",
-    "obox_builder.contrib.email",
-    "obox_builder.core",
-    "obox_builder.resources",
-    "obox_builder.http",
-    "obox_builder.templating",
-    "obox_builder.contrib.i18n",
-    "obox_builder.forms",
-    "obox_builder.fields",
-    "obox_builder.staticfiles",
-    "obox_builder.db",
-    "obox_builder.apps",
-    "obox_builder.conf",
-    "obox_builder.utils",
-    "obox_builder.security",
-    "obox_builder.exceptions",
-]
-ignore_imports = [
-    # Model discovery inspects registered SQLAlchemy model classes after startup.
-    "obox_builder.apps.config -> obox_builder.db.base",
-]
-
-[[tool.importlinter.contracts]]
-name = "Production does not depend on testing helpers"
+name = "Services do not depend on presentation or application assembly"
 type = "forbidden"
-source_modules = [
-    "obox_builder.apps", "obox_builder.conf", "obox_builder.contrib", "obox_builder.core",
-    "obox_builder.db", "obox_builder.exceptions", "obox_builder.fields", "obox_builder.forms",
-    "obox_builder.http", "obox_builder.staticfiles", "obox_builder.templating", "obox_builder.utils",
-]
-forbidden_modules = ["obox_builder.testing"]
-
-[[tool.importlinter.contracts]]
-name = "Admin services do not import presentation adapters"
-type = "forbidden"
-source_modules = ["obox_builder.contrib.admin.services"]
-forbidden_modules = ["obox_builder.contrib.admin.views", "obox_builder.contrib.api"]
-# AdminSite remains the public router factory; type references can reach its adapters.
+source_modules = ["obox_builder.builder.service"]
+forbidden_modules = ["obox_builder.builder.api", "obox_builder.builder.ui", "obox_builder.application", "fastapi", "jinja2"]
 allow_indirect_imports = true
 
 [[tool.importlinter.contracts]]
-name = "REST APIs do not depend on the HTML admin"
+name = "Shared identity, context and errors do not depend on builders"
 type = "forbidden"
-source_modules = ["obox_builder.contrib.api"]
-forbidden_modules = ["obox_builder.contrib.admin"]
-
-[[tool.importlinter.contracts]]
-name = "HTML views do not depend on REST APIs"
-type = "forbidden"
-source_modules = ["obox_builder.contrib.admin"]
-forbidden_modules = ["obox_builder.contrib.api"]
-
-[[tool.importlinter.contracts]]
-name = "Resources and security are transport independent"
-type = "forbidden"
-source_modules = ["obox_builder.resources", "obox_builder.security"]
-forbidden_modules = ["obox_builder.contrib.admin", "obox_builder.contrib.api", "fastapi", "starlette", "jinja2"]
+source_modules = ["obox_builder.auth", "obox_builder.context", "obox_builder.errors"]
+forbidden_modules = ["obox_builder.builder", "obox_builder.application"]

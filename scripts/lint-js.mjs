@@ -1,8 +1,5 @@
-import { readdirSync } from "node:fs";
+// Syntax checks for the JavaScript tooling retained by the core package.
 import { spawnSync } from "node:child_process";
 
-const directory = "obox_builder/contrib/admin/static/admin/js";
-for (const name of readdirSync(directory).filter((name) => name.endsWith(".js"))) {
-  const result = spawnSync(process.execPath, ["--check", `${directory}/${name}`], {stdio: "inherit"});
-  if (result.status) process.exit(result.status);
-}
+const result = spawnSync(process.execPath, ["--check", "commitlint.config.mjs"], { stdio: "inherit" });
+process.exitCode = result.status ?? 1;

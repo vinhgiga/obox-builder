@@ -1,3 +1,0 @@
-from obox_builder.contrib.admin import ModelView, register
-
-# Bind a resource with @register(YourResource), or site.register(YourResource).

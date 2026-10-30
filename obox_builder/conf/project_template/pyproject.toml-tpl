@@ -1,8 +1,0 @@
-[project]
-name = "$project_name"
-version = "0.1.0"
-requires-python = "$python_requirement"
-# SQLite works out of the box; use "obox-builder[postgres]" with a PostgreSQL DATABASE_URL.
-dependencies = ["obox-builder[sqlite]>=$obox_version"]
-
-$uv_source_config

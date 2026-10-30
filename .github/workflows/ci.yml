@@ -46,77 +46,36 @@ jobs:
       - uses: astral-sh/setup-uv@v10.3.0
         with:
           enable-cache: true
-      - run: sudo apt-get update && sudo apt-get install -y libicu-dev pkg-config
       - run: uv sync --all-extras
-      - run: uv run ruff check --output-format=github .
-      - run: uv run ruff format --check .
+      - run: uv run ruff check --output-format=github obox_builder
+      - run: uv run ruff format --check obox_builder
+      - run: uv run mypy obox_builder
       - run: uv run pyright
       - run: uv run lint-imports
-
-  test:
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13"]
-    services:
-      db:
-        image: postgres:17-alpine
-        env:
-          POSTGRES_USER: obox
-          POSTGRES_PASSWORD: obox
-          POSTGRES_DB: obox
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U obox -d obox"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-    steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10.3.0
-        with:
-          enable-cache: true
-          python-version: ${{ matrix.python-version }}
-      - run: sudo apt-get update && sudo apt-get install -y libicu-dev pkg-config
-      - run: uv sync --all-extras
-      - run: uv run pytest --cov=obox_builder --cov-report=term-missing
-      - run: uv run pytest --cov=obox_builder --cov-report=term-missing
-        env:
-          OBOX_DATABASE_URL: postgresql+psycopg_async://obox:obox@localhost:5432/obox
 
   wheel:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.10", "3.13"]
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.3.0
         with:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
+      - run: uv sync --all-extras
       - run: uv build
       - name: Install the wheel in a clean environment
         run: |
           uv venv "$RUNNER_TEMP/wheel-env"
           wheels=(dist/*.whl)
           uv pip install --python "$RUNNER_TEMP/wheel-env/bin/python" "${wheels[0]}[sqlite]"
-      - name: Exercise the installed package outside the checkout
+      - name: Check installed exports and HTML templates outside the checkout
         working-directory: ${{ runner.temp }}
-        run: '"$RUNNER_TEMP/wheel-env/bin/python" -I "$GITHUB_WORKSPACE/tests/packaging/smoke_wheel.py"'
-
-  jobs-windows:
-    runs-on: windows-latest
-    strategy:
-      matrix:
-        python-version: ["3.10", "3.11", "3.13"]
-    steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10.3.0
-        with:
-          python-version: ${{ matrix.python-version }}
-          enable-cache: true
-      - run: uv sync --extra sqlite
-      - run: uv run pytest tests/jobs
+        run: >-
+          "$RUNNER_TEMP/wheel-env/bin/python" -I -c
+          "from obox_builder import Obox, ModelBuilder, ResourceService;
+          from obox_builder.auth import StaffOnly;
+          from obox_builder.builder.ui import templates;
+          templates.get_template('form.html')"

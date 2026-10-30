@@ -1,7 +1,0 @@
-import os
-
-os.environ.setdefault("OBOX_SETTINGS_MODULE", "config.settings")
-
-from obox_builder.core.application import get_asgi_application
-
-application = get_asgi_application()

@@ -1,6 +1,0 @@
-import sqlalchemy as sa
-from sqlalchemy.orm import Mapped, mapped_column
-
-from obox_builder.db import Model
-
-# Define your models here by subclassing Model.
