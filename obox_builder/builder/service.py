@@ -162,7 +162,7 @@ class ResourceService(Generic[T]):
         allowed = self.builder.writable(ctx, action, obj=obj, surface=surface)
         if surface == "form":
             requested = self.builder.form.get_fields(ctx, action=action, instance=obj)
-            allowed = tuple(key for key in allowed if key in requested)
+            allowed = tuple(dict.fromkeys(key for key in requested if key in allowed))
         return allowed
 
     def _check_fields(self, data: Mapping[str, Any], allowed: Sequence[str]) -> None:
@@ -270,7 +270,13 @@ class ResourceService(Generic[T]):
         async with self._mutation(ctx):
             obj = self.builder.model(**values)
             ctx.session.add(obj)
-            await invoke(self.builder.before_create, obj, ctx)
+            await invoke(
+                self.builder.before_save,
+                obj,
+                MappingProxyType(values),
+                ctx,
+                created=True,
+            )
             await self._finish("create", obj, presets, ctx)
             return obj
 
@@ -283,7 +289,13 @@ class ResourceService(Generic[T]):
         async with self._mutation(ctx):
             for key, value in values.items():
                 setattr(obj, key, value)
-            await invoke(self.builder.before_update, obj, MappingProxyType(values), ctx)
+            await invoke(
+                self.builder.before_save,
+                obj,
+                MappingProxyType(values),
+                ctx,
+                created=False,
+            )
             await self._finish("update", obj, presets, ctx)
             return obj
 

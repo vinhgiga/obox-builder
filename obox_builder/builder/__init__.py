@@ -126,8 +126,6 @@ class ModelBuilder(Generic[T]):
         for mapping in (self.form.labels, self.form.help_texts, self.form.widgets):
             if set(mapping) - set(self.form_fields):
                 raise ImproperlyConfigured("Form configuration references unpublished fields.")
-        if self.form.layout is not None:
-            normalize(self.form.layout, model, {key: self.specs[key] for key in self.form_fields})
         self.conditional_writes = (
             type(self.policy).presets is not Policy.presets
             or type(self.policy).write_fields is not Policy.write_fields
@@ -197,10 +195,14 @@ class ModelBuilder(Generic[T]):
     ) -> Mapping[str, Any]:
         return changes
 
-    async def before_create(self, instance: T, ctx: Context) -> None:
-        pass
-
-    async def before_update(self, instance: T, changes: Mapping[str, Any], ctx: Context) -> None:
+    async def before_save(
+        self,
+        instance: T,
+        changes: Mapping[str, Any],
+        ctx: Context,
+        *,
+        created: bool,
+    ) -> None:
         pass
 
     async def before_delete(self, instance: T, ctx: Context) -> None:

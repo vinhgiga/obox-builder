@@ -67,11 +67,8 @@ async def reference(app: Any, spec: Any, value: Any, ctx: Context) -> str | None
 async def form_fields(builder: Any, service: Any, ctx: Context, obj: Any) -> list[dict[str, Any]]:
     action = "create" if obj is None else "update"
     allowed = service.write_fields(action, ctx, obj)
-    layout = builder.form.get_layout(ctx, action=action)
     result = []
-    for name in layout:
-        if name not in allowed:
-            continue
+    for name in allowed:
         spec = builder.specs[name]
         column = spec.column
         kind = column.type.python_type

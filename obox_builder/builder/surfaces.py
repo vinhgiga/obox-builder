@@ -17,7 +17,6 @@ class Form:
     labels: Mapping[str, str] = {}
     help_texts: Mapping[str, str] = {}
     widgets: Mapping[str, Mapping[str, Any]] = {}
-    layout: Sequence[str] | None = None
     _builder: Any
 
     def get_fields(
@@ -27,9 +26,6 @@ class Form:
 
     def get_initial(self, ctx: Context) -> Mapping[str, Any]:
         return {}
-
-    def get_layout(self, ctx: Context, *, action: Literal["create", "update"]) -> Sequence[str]:
-        return self.layout if self.layout is not None else self._builder.form_fields
 
     async def validate(
         self, data: Mapping[str, Any], ctx: Context, *, instance: Any = None

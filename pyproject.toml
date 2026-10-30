@@ -24,6 +24,7 @@ dev = [
     "pre-commit>=4.6,<5",
     "psycopg[binary,pool]>=3.3,<4",
     "pyright>=1.1.414,<2",
+    "pytest>=9.2.0",
     "ruff>=0.17.1,<1",
 ]
 
@@ -46,6 +47,9 @@ target-version = "py311"
 select = ["B", "C4", "E", "F", "G", "I", "N", "S", "SIM", "TID", "UP", "W"]
 ignore = ["N818"]
 
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101"]
+
 [tool.ruff.lint.flake8-bugbear]
 extend-immutable-calls = ["fastapi.Depends"]
 
@@ -55,6 +59,9 @@ quote-style = "double"
 [tool.mypy]
 python_version = "3.11"
 check_untyped_defs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
 
 [tool.pyright]
 include = ["obox_builder"]

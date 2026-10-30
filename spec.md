@@ -1,8 +1,8 @@
 # OBOX Builder — Core Specification v0.4
 
 **Status:** Proposed public API and implementation contract; not a description of a released library.
-**Target:** Python 3.11+, FastAPI, SQLAlchemy 2.x, Pydantic v2.  
-**Primary use case:** Model-driven internal CRUD applications with generated HTML Forms, Views, and REST APIs.  
+**Target:** Python 3.11+, FastAPI, SQLAlchemy 2.x, Pydantic v2.
+**Primary use case:** Model-driven internal CRUD applications with generated HTML Forms, Views, and REST APIs.
 **Principles:** Less code is better · Convention over configuration · Native FastAPI · One resource, one service · Secure by default.
 
 > **Scope decision:** OBOX does **not** implement rate limiting, request-size caps, result-count caps, or enforced maximum page sizes. List endpoints may return all matching records when pagination is not requested. Pagination can be enabled as a UI convenience or requested by API consumers, but is not a security or quota limit. Deployment infrastructure may impose its own constraints; these are outside the OBOX contract.
@@ -42,6 +42,7 @@ app = Obox(
 app.register(Question)
 app.register(Choice)
 
+
 @app.get("/health")
 async def health():
     return {"ok": True}
@@ -58,6 +59,7 @@ async def health():
 ```python
 from obox_builder import builder
 
+
 class QuestionBuilder(builder.ModelBuilder[Question]):
     fields = ("question_text", "pub_date")
     search_fields = ("question_text",)
@@ -72,6 +74,7 @@ class QuestionBuilder(builder.ModelBuilder[Question]):
 
     class API(builder.API):
         actions = ("list", "retrieve", "create", "update")
+
 
 app.register(Question, builder=QuestionBuilder)
 ```
@@ -172,12 +175,13 @@ class ModelBuilder(Generic[T]):
         ctx: Context,
     ) -> Mapping[str, Any]: ...
 
-    async def before_create(self, instance: T, ctx: Context) -> None: ...
-    async def before_update(
+    async def before_save(
         self,
         instance: T,
         changes: Mapping[str, Any],
         ctx: Context,
+        *,
+        created: bool,
     ) -> None: ...
     async def before_delete(self, instance: T, ctx: Context) -> None: ...
     async def after_commit(self, event: DomainEvent, ctx: Context) -> None: ...
@@ -188,8 +192,7 @@ class ModelBuilder(Generic[T]):
 | `get_statement(ctx)` | Return an additional **base** SQLAlchemy `Select`, before mandatory policy scope is added. It may never bypass the policy. |
 | `validate_create(data, ctx)` | Check/normalize create input; raise `BuilderValidationError` (exact error class name TBD). |
 | `validate_update(instance, changes, ctx)` | Check/normalize proposed changes, without committing. |
-| `before_create(instance, ctx)` | Mutate a new instance inside the current transaction, before flush. |
-| `before_update(instance, changes, ctx)` | Perform domain changes inside the same transaction, before flush. |
+| `before_save(instance, changes, ctx, *, created)` | Mutate an instance inside the current transaction, before flush. `created` distinguishes a new instance from an update; `changes` contains the validated input plus server presets. |
 | `before_delete(instance, ctx)` | Validate/prepare deletion inside the current transaction. |
 | `after_commit(event, ctx)` | Optional best-effort callback; the just-committed session must not be reused for new DB work. |
 
@@ -207,8 +210,7 @@ class ModelBuilder(Generic[T]):
 | `fields` | `FieldRefs \| None` | Inherit eligible builder fields |
 | `labels` | `Mapping[str, str]` | `{}`; field labels |
 | `help_texts` | `Mapping[str, str]` | `{}` |
-| `widgets` | `Mapping[str, WidgetConfig]` | `{}`; widget overrides |
-| `layout` | `FormLayout \| None` | `None` = generated layout; concrete layout type TBD |
+| `widgets` | `Mapping[str, WidgetConfig]` | `{}`; per-field input config |
 
 ### 4.2 Methods
 
@@ -223,13 +225,6 @@ class Form:
     ) -> Sequence[str]: ...
 
     def get_initial(self, ctx: Context) -> Mapping[str, Any]: ...
-
-    def get_layout(
-        self,
-        ctx: Context,
-        *,
-        action: Literal["create", "update"],
-    ) -> FormLayout: ...  # FormLayout shape TBD
 
     async def validate(
         self,
@@ -542,7 +537,7 @@ Request / UI / direct service call
   → enforce static + runtime field permissions
   → validate input schema and form/domain rules
   → apply trusted server presets
-  → run before_* hooks
+  → run before_save or before_delete hooks
   → flush within the current transaction
   → run post-write policy check
   → commit through unit of work
@@ -614,4 +609,4 @@ Visual no-code editor, multi-step conditional forms, bulk CRUD operations, curso
 
 ---
 
-**Implementation note:** These classes and signatures are **proposed contracts**. Types such as `Principal`, `DomainEvent`, `Diagnostic`, `FormLayout`, `WidgetConfig`, `FilterDefinition`, `ActionDefinition` and the exact validation exception are deliberately left as **TBD** until a working vertical slice fixes their shape. Avoid inventing a second abstraction layer merely to fill in these placeholders.
+**Implementation note:** These classes and signatures are **proposed contracts**. Types such as `Principal`, `DomainEvent`, `Diagnostic`, `WidgetConfig`, `FilterDefinition`, `ActionDefinition` and the exact validation exception are deliberately left as **TBD** until a working vertical slice fixes their shape. Avoid inventing a second abstraction layer merely to fill in these placeholders.
