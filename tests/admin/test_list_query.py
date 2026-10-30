@@ -8,7 +8,7 @@ from typing import Any
 import httpx
 import pytest
 import sqlalchemy as sa
-from obox_builder.contrib.admin.models import SavedView
+from obox_builder.contrib.savedviews.models import SavedView
 from obox_builder.db.session import session_scope
 
 from tests.admin.conftest import csrf_for, grant_permissions, login_session, make_user

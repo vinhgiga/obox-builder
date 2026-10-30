@@ -2,19 +2,19 @@
 
 from __future__ import annotations
 
-from obox_builder.contrib.admin import ModelAdmin, register
+from obox_builder.contrib.admin import ModelView, register
 
-from tests.support.apps.commentsdemo.models import Article, Ticket
+from .resources import ArticleResource, TicketResource
 
 
-@register(Ticket)
-class TicketAdmin(ModelAdmin):
+@register(TicketResource)
+class TicketAdmin(ModelView):
     list_display = ("id", "title")
     search_fields = ("title",)
     ordering = ("-id",)
 
 
-@register(Article)
-class ArticleAdmin(ModelAdmin):
+@register(ArticleResource)
+class ArticleAdmin(ModelView):
     list_display = ("id", "title")
     ordering = ("-id",)

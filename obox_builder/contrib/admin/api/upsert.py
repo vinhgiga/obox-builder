@@ -63,7 +63,7 @@ def register_upsert(router: APIRouter) -> None:
             or not set(keys) <= set(admin.import_keys)
         ):
             raise Problem(422, "validation_error", "merge_on must use declared import keys.")
-        if not isinstance(records, list) or not 1 <= len(records) <= settings.ADMIN_API_MAX_BATCH:
+        if not isinstance(records, list) or not 1 <= len(records) <= settings.API_MAX_BATCH:
             raise Problem(422, "validation_error", "Invalid upsert batch size.")
         resource = ImportResource(admin.model, user, keys=keys, specs=api_specs(ctx))
         try:

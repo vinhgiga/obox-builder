@@ -7,6 +7,7 @@ import tempfile
 from pathlib import Path
 
 import uvicorn
+from obox_builder.resources import get_registry
 
 
 def main() -> None:
@@ -20,7 +21,7 @@ def main() -> None:
         import obox_builder
 
         obox_builder.setup()
-        from obox_builder.contrib.admin import ModelAdmin, TabularInline
+        from obox_builder.contrib.admin import ModelView, TabularInline
         from obox_builder.contrib.admin.site import site
         from obox_builder.contrib.auth.permissions import sync_permissions
         from obox_builder.contrib.auth.services import create_user
@@ -38,15 +39,21 @@ def main() -> None:
             fields = ("sku", "quantity", "product_id")
             autocomplete_fields = ("product_id",)
 
-        class OrderAdmin(ModelAdmin):
+        class OrderAdmin(ModelView):
             fields = ("reference", "labels")
             list_display = ("id", "reference", "labels")
             autocomplete_fields = ("labels",)
             inlines = (LineInline,)
 
-        site.register(Label, type("LabelAdmin", (ModelAdmin,), {"search_fields": ("title",)}))
-        site.register(OrderLine)
-        site.register(Order, OrderAdmin)
+        site.unregister(get_registry().for_model(Label))
+        site.register(
+            get_registry().for_model(Label),
+            type("LabelAdmin", (ModelView,), {"search_fields": ("title",)}),
+        )
+        site.unregister(get_registry().for_model(OrderLine))
+        site.register(get_registry().for_model(OrderLine))
+        site.unregister(get_registry().for_model(Order))
+        site.register(get_registry().for_model(Order), OrderAdmin)
         product_admin = site.get_model_admin_for(Product)
         assert product_admin is not None
         type(product_admin).list_editable = ("price_cents",)

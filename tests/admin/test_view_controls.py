@@ -7,7 +7,7 @@ import json
 import httpx
 import pytest
 import sqlalchemy as sa
-from obox_builder.contrib.admin.models import SavedView
+from obox_builder.contrib.savedviews.models import SavedView
 from obox_builder.contrib.admin.views import exports
 from obox_builder.db.session import session_scope
 

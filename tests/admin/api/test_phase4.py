@@ -756,13 +756,13 @@ async def test_concurrent_superuser_deactivation_keeps_one_active(api: httpx.Asy
 async def test_generic_account_admin_cannot_bypass_delegation_policy(
     api: httpx.AsyncClient,
 ) -> None:
-    from obox_builder.contrib.admin import ModelAdmin
+    from obox_builder.contrib.admin import ModelView
     from obox_builder.contrib.auth.models import Role, User
     from obox_builder.core.application import create_app
 
     headers = await sign_in(api)
     for model in (User, Role):
-        site_for(api).register(model, type("ExposedAccount", (ModelAdmin,), {"api_enabled": True}))
+        site_for(api).register(model, type("ExposedAccount", (ModelView,), {"api_enabled": True}))
     me = (await api.get(f"{BASE}/auth/me")).json()["user"]
     for label in ("auth.user", "auth.role"):
         assert (await api.get(f"{BASE}/models/{label}/records")).status_code == 404

@@ -101,11 +101,12 @@ async def test_get_user_permissions_unions_roles(db: AsyncSession) -> None:
     assert effective == {"shop.product.read", "shop.category.read"}
 
 
-async def test_superuser_bypasses_permission_checks(db: AsyncSession) -> None:
+async def test_superuser_has_only_declared_permissions(db: AsyncSession) -> None:
     user = await create_user(db, "root", "s3cure-password", is_superuser=True)
     user.permissions = await perms.get_user_permissions(db, user.id)
     assert user.permissions == frozenset()
-    assert user.has_perm("anything.at.all")
+    assert not user.has_perm("anything.at.all")
+    assert user.has_perm("auth.users.manage")
 
 
 async def test_regular_user_defaults_to_deny(db: AsyncSession) -> None:

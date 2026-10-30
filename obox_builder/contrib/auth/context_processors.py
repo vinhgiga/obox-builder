@@ -38,8 +38,8 @@ class PermLookup:
 class PermWrapper:
     """``perms.app_label`` attribute lookups for templates and views.
 
-    Delegates to ``user.has_perm`` so superusers (whose stored permission set
-    is empty but who bypass checks) are reported correctly.
+    Delegates to ``user.has_perm`` so superusers can access declared permissions
+    even when their stored role grants are empty.
     """
 
     def __init__(self, user: User | AnonymousUser) -> None:

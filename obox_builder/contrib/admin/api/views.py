@@ -14,7 +14,7 @@ from obox_builder.contrib.admin.api.deps import DB, USER, json_body
 from obox_builder.contrib.admin.api.meta import model_context
 from obox_builder.contrib.admin.api.problems import Problem
 from obox_builder.contrib.admin.list_query import view_scope
-from obox_builder.contrib.admin.models import SavedView
+from obox_builder.contrib.savedviews.models import SavedView
 from obox_builder.contrib.admin.services import RecordService
 from obox_builder.contrib.auth.tokens import scope_allows
 from obox_builder.fields import QuerySpec

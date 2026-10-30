@@ -3,24 +3,19 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import Any
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from obox_builder.apps import apps
-from obox_builder.contrib.auth.authz import (
-    Actor,
-    AuthorizationCatalog,
-    PermissionName,
-    authorization_catalog,
-    model_permission,
-)
 from obox_builder.contrib.auth.base_user import AbstractBaseUser
 from obox_builder.contrib.auth.models import Permission, Role, role_permissions, user_roles
 from obox_builder.exceptions import ImproperlyConfigured
+from obox_builder.security import Actor, PermissionRef
 from obox_builder.utils.strings import camel_to_snake
 
 logger = logging.getLogger(__name__)
@@ -30,50 +25,74 @@ def model_identifier(model: type[Any]) -> str:
     return camel_to_snake(model.__name__)
 
 
+@dataclass(frozen=True)
+class AuthorizationCatalog:
+    permissions: Mapping[str, PermissionRef]
+    roles: Mapping[str, frozenset[str]] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "permissions", MappingProxyType(dict(self.permissions)))
+        roles = {name: frozenset(grants) for name, grants in self.roles.items()}
+        for name, grants in roles.items():
+            if not name.strip() or len(name) > 150:
+                raise ImproperlyConfigured("Role names must contain 1 to 150 characters.")
+            unknown = grants - self.permissions.keys()
+            if unknown:
+                raise ImproperlyConfigured(f"Unknown permissions on {name!r}: {sorted(unknown)}.")
+        object.__setattr__(self, "roles", MappingProxyType(roles))
+
+
+_catalog: AuthorizationCatalog | None = None
+
+
+def initialize_catalog() -> None:
+    global _catalog
+    from obox_builder.contrib.auth.roles import discover_roles
+    from obox_builder.resources import get_registry
+
+    _catalog = AuthorizationCatalog(
+        get_registry().permissions,
+        discover_roles(app.name for app in apps.get_app_configs()),
+    )
+
+
 def collect_catalog() -> AuthorizationCatalog:
-    """Combine model defaults, app declarations and route/service declarations."""
-    catalog = AuthorizationCatalog()
-    services: dict[str, str] = {}
-    for config in apps.get_app_configs():
-        service = config.label.replace("_", "")
-        if service in services:
-            raise ImproperlyConfigured(
-                f"App labels {services[service]!r} and {config.label!r} share service {service!r}."
-            )
-        services[service] = config.label
-        for name in config.permissions:
-            permission = PermissionName.parse(name)
-            catalog.register_permission(permission.service, permission.resource, permission.action)
-    for model in apps.get_models():
-        for action in (*model.__permission_actions__, *model.__permissions__):
-            permission = PermissionName.parse(model_permission(model, action))
-            catalog.register_permission(permission.service, permission.resource, permission.action)
-    declared = authorization_catalog
-    catalog.permissions.update(declared.permissions)
-    catalog.roles.update(declared.roles)
-    catalog.validate()
-    return catalog
+    if _catalog is None:
+        raise ImproperlyConfigured("Authorization catalog is not ready; call obox_builder.setup().")
+    return _catalog
 
 
-def collect_permissions() -> list[PermissionName]:
+def collect_permissions() -> list[PermissionRef]:
     return list(collect_catalog().permissions.values())
+
+
+def validate_permission_references(names: Iterable[str]) -> None:
+    unknown = set(names) - collect_catalog().permissions.keys()
+    if unknown:
+        raise ImproperlyConfigured(f"Unknown permissions: {sorted(unknown)}.")
 
 
 @dataclass
 class SyncResult:
     created: list[str] = field(default_factory=list)
+    retired: list[str] = field(default_factory=list)
     pruned: list[str] = field(default_factory=list)
     unchanged: int = 0
 
 
 async def sync_permissions(
-    db: AsyncSession, *, prune: bool = False, dry_run: bool = False
+    db: AsyncSession,
+    *,
+    prune: bool = False,
+    dry_run: bool = False,
+    catalog: AuthorizationCatalog | None = None,
 ) -> SyncResult:
     """Sync permissions and create missing role templates, preserving existing grants."""
-    catalog = collect_catalog()
+    catalog = collect_catalog() if catalog is None else catalog
     wanted = catalog.permissions
     existing = {row.name: row for row in await db.scalars(select(Permission))}
     result = SyncResult()
+    result.retired = sorted(existing.keys() - wanted.keys())
     for name, entry in wanted.items():
         if name in existing:
             result.unchanged += 1
@@ -98,7 +117,8 @@ async def sync_permissions(
         for name, grants in catalog.roles.items():
             if await db.scalar(select(Role.id).where(Role.name == name)) is None:
                 db.add(Role(name=name, permissions=[existing[grant] for grant in sorted(grants)]))
-    await db.flush()
+    if not dry_run:
+        await db.flush()
     return result
 
 
@@ -124,11 +144,14 @@ async def get_users_permissions(
     return {user_id: frozenset(values) for user_id, values in grouped.items()}
 
 
-async def get_actor(db: AsyncSession, user: AbstractBaseUser) -> Actor:
+async def get_actor(
+    db: AsyncSession, user: AbstractBaseUser, *, catalog: Mapping[str, Any] | None = None
+) -> Actor:
     """Resolve a fresh snapshot of role names and effective permission names."""
     roles: set[str] = set()
     permissions: set[str] = set()
     if user.is_active:
+        declared = (collect_catalog().permissions if catalog is None else catalog).keys()
         statement = (
             select(Role.name, Permission.service, Permission.resource, Permission.action)
             .join(user_roles, user_roles.c.role_id == Role.id)
@@ -141,13 +164,16 @@ async def get_actor(db: AsyncSession, user: AbstractBaseUser) -> Actor:
             if service is not None:
                 permissions.add(f"{service}.{resource}.{action}")
         if user.is_superuser:
-            permissions = {permission.name for permission in collect_permissions()}
+            permissions = set(declared)
+        else:
+            permissions.intersection_update(declared)
     return Actor(
         id=user.id,
         roles=frozenset(roles),
         permissions=frozenset(permissions),
         is_active=user.is_active,
         is_superuser=user.is_superuser,
+        attributes={"username": user.get_username()},
     )
 
 

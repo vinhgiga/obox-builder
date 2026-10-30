@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import Any
 
 import httpx
 import pytest
-from obox_builder.contrib.admin import ModelAdmin, action
+from obox_builder.contrib.admin import ModelView
 from obox_builder.db.session import session_scope
 
 from tests.admin.conftest import csrf_for, grant_permissions, login_session, make_user
@@ -87,7 +86,7 @@ async def test_queryset_cannot_be_bypassed_by_posting_ids(
     monkeypatch.setattr(
         ProductAdmin,
         "get_queryset",
-        lambda self, ctx: ModelAdmin.get_queryset(self, ctx).where(Product.is_active),
+        lambda self, ctx: ModelView.get_queryset(self, ctx).where(Product.is_active),
     )
     response = await client.request(
         method,
@@ -123,13 +122,7 @@ async def test_object_permission_denial_never_partially_mutates(
             f"has_{permission}_permission",
             lambda self, ctx, obj=None: obj is None or obj.name != "Locked",
         )
-    calls: list[bool] = []
-
-    @action(permissions=("change",))
-    async def publish(admin: Any, ctx: Any, queryset: Any) -> None:
-        calls.append(True)
-
-    monkeypatch.setattr(ProductAdmin, "actions", (publish,))
+    monkeypatch.setattr(ProductAdmin, "actions", ("publish",))
     suffix = {"change": f"/{locked}", "delete": f"/{locked}/delete", "inline": "/inline"}.get(
         operation, "/actions"
     )
@@ -148,7 +141,6 @@ async def test_object_permission_denial_never_partially_mutates(
     assert response.status_code == 403
     assert (await product(visible)).name == "Editable"
     assert (await product(locked)).name == "Locked"
-    assert not calls
 
 
 async def test_object_permissions_control_list_and_readonly_detail(
@@ -194,7 +186,7 @@ async def test_related_choices_and_forged_values_obey_target_permissions(
         monkeypatch.setattr(
             CategoryAdmin,
             "get_queryset",
-            lambda self, ctx: ModelAdmin.get_queryset(self, ctx).where(Category.id != category),
+            lambda self, ctx: ModelView.get_queryset(self, ctx).where(Category.id != category),
         )
     else:
         monkeypatch.setattr(

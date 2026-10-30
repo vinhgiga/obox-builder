@@ -16,7 +16,7 @@ from fastapi.responses import JSONResponse
 
 from obox_builder.contrib.admin.context import AdminContext
 from obox_builder.contrib.admin.list_query import list_queryset, load_query
-from obox_builder.contrib.admin.options import ModelAdmin
+from obox_builder.contrib.admin.options import ModelView
 from obox_builder.fields import FieldSpec, QuerySpecError
 
 COMMON = (
@@ -80,7 +80,7 @@ async def summary_response(ctx: AdminContext) -> JSONResponse:
     assert spec.column is not None  # noqa: S101
     value = None
     if operation != "none":
-        if type(admin).has_view_permission is ModelAdmin.has_view_permission:
+        if type(admin).has_view_permission is ModelView.has_view_permission:
             value = await _sql_summary(ctx, stmt, spec, operation)
         else:
             # Custom object permissions must be evaluated before exposing any values.

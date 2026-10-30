@@ -9,7 +9,9 @@ import sqlalchemy as sa
 
 from obox_builder.conf import settings
 from obox_builder.contrib.admin.context import AdminContext
-from obox_builder.contrib.admin.models import SavedView
+from obox_builder.contrib.savedviews.models import SavedView
+from obox_builder.contrib.savedviews.resources import ViewData
+from obox_builder.contrib.savedviews.resources import view_scope as resource_view_scope
 from obox_builder.fields import FieldSpec, QuerySpec, QuerySpecError
 
 QUERY_KEYS = frozenset({"q", "f", "filter", "sort", "group", "size", "page"})
@@ -21,16 +23,11 @@ def view_scope(ctx: AdminContext) -> sa.Select[tuple[SavedView]]:
         from obox_builder.exceptions import PermissionDenied
 
         raise PermissionDenied("You do not have permission to view this model.")
-    return sa.select(SavedView).where(
-        SavedView.owner_id == ctx.user.id,
-        SavedView.site_name == ctx.site.name,
-        SavedView.model_label == ctx.admin.model_label,
-    )
+    return resource_view_scope(ctx.admin.resource, ctx.operation_context())
 
 
-async def load_query(ctx: AdminContext) -> tuple[QuerySpec, SavedView | None]:
+async def load_query(ctx: AdminContext) -> tuple[QuerySpec, ViewData | None]:
     assert ctx.admin is not None  # noqa: S101
-    scoped_views = view_scope(ctx)
     params: dict[str, Any] = {}
     selected = None
     view_id = ctx.request.query_params.get("view")
@@ -39,9 +36,7 @@ async def load_query(ctx: AdminContext) -> tuple[QuerySpec, SavedView | None]:
             pk = int(view_id)
         except ValueError as exc:
             raise QuerySpecError("Invalid saved view.") from exc
-        selected = await ctx.db.scalar(scoped_views.where(SavedView.id == pk))
-        if selected is None:
-            raise LookupError("Saved view does not exist.")
+        selected = await ctx.admin.resource.execute("getView", ctx.operation_context(), {"id": str(pk)})
         params.update(selected.config)
     for key in QUERY_KEYS:
         if key in ctx.request.query_params:

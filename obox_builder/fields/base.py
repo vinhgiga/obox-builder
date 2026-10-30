@@ -128,6 +128,11 @@ class FieldType(ABC):
     def annotation(self, spec: FieldSpec) -> Any:
         """Return the Python/Pydantic annotation used to validate this field."""
 
+    def output_annotation(self, spec: FieldSpec) -> Any:
+        from dataclasses import replace
+
+        return self.annotation(replace(spec, required=True))
+
     def from_input(self, raw: Any, spec: FieldSpec) -> Any:
         """Normalise a raw form value before validation."""
         return raw

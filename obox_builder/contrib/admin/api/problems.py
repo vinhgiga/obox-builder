@@ -18,8 +18,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm.exc import StaleDataError
 from starlette.exceptions import HTTPException
 
-from obox_builder.contrib.admin.uploads import discard_uploads
 from obox_builder.contrib.auth.sessions import set_session_cookie
+from obox_builder.contrib.uploads import discard_uploads
 from obox_builder.db.session import get_db
 from obox_builder.exceptions import NotAuthenticated, PermissionDenied
 from obox_builder.fields import QuerySpecError

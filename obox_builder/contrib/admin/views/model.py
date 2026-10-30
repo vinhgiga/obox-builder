@@ -1,6 +1,6 @@
 """Generic CRUD views for registered models (full-page, server-rendered).
 
-One set of endpoints is generated per registered ModelAdmin at router build
+One set of endpoints is generated per registered ModelView at router build
 time, so every model gets list/add/change/delete with the same behaviour and
 the OpenAPI schema (M9) can enumerate them.
 """
@@ -28,8 +28,8 @@ from obox_builder.contrib.admin.list_query import (
     load_query,
     view_scope,
 )
-from obox_builder.contrib.admin.models import SavedView
-from obox_builder.contrib.admin.options import ModelAdmin
+from obox_builder.contrib.savedviews.models import SavedView
+from obox_builder.contrib.admin.options import ModelView
 from obox_builder.contrib.admin.relations import build_cells, relation_choices
 from obox_builder.contrib.admin.rendering import render
 from obox_builder.contrib.admin.routing import register_custom_routes
@@ -46,11 +46,6 @@ from obox_builder.contrib.admin.services.history import (
 from obox_builder.contrib.admin.services.records import record_values
 from obox_builder.contrib.admin.site import AdminSite
 from obox_builder.contrib.admin.summaries import summary_choices
-from obox_builder.contrib.admin.uniqueness import validate_model_uniqueness
-from obox_builder.contrib.admin.uploads import (
-    open_upload,
-    stage_uploads,
-)
 from obox_builder.contrib.admin.views.common import (
     csrf_token_for,
     ensure_csrf,
@@ -63,10 +58,15 @@ from obox_builder.contrib.auth.dependencies import login_required, permission_re
 from obox_builder.contrib.history import HISTORY_RESTORE_PERMISSION, HISTORY_VIEW_PERMISSION
 from obox_builder.contrib.history.service import RowChangeEntry, entry_count
 from obox_builder.contrib.i18n import gettext
+from obox_builder.contrib.uploads import (
+    open_upload,
+    stage_uploads,
+)
 from obox_builder.db.session import get_db
 from obox_builder.exceptions import PermissionDenied
 from obox_builder.fields import FieldSpec, QuerySpec, QuerySpecError
 from obox_builder.forms import BoundForm, render_values
+from obox_builder.resources.uniqueness import validate_model_uniqueness
 
 COUNT_CAP = 10_000
 
@@ -79,8 +79,8 @@ def register_model_routes(router: APIRouter, site: AdminSite) -> None:
         _register_one(router, site, admin)
 
 
-def _register_one(router: APIRouter, site: AdminSite, admin: ModelAdmin) -> None:
-    # Paths are relative to the mount point (``/admin``); ModelAdmin.list_path()
+def _register_one(router: APIRouter, site: AdminSite, admin: ModelView) -> None:
+    # Paths are relative to the mount point (``/admin``); ModelView.list_path()
     # returns the absolute path used in links and redirects.
     base = f"/{admin.path_prefix}"
     register_custom_routes(
@@ -147,8 +147,7 @@ def _register_one(router: APIRouter, site: AdminSite, admin: ModelAdmin) -> None
             target = await _get_object(ctx, pk)
         except LookupError as exc:
             return _not_found(ctx, str(exc))
-        if not (admin.has_view_permission(ctx, target) or admin.has_change_permission(ctx, target)):
-            admin.check_permission(ctx, "view", target)
+        admin.check_permission(ctx, "view", target)
         return await _render_form(ctx, target=target)
 
     async def change_submit(
@@ -173,8 +172,7 @@ def _register_one(router: APIRouter, site: AdminSite, admin: ModelAdmin) -> None
             target = await _get_object(ctx, pk)
         except LookupError as exc:
             return _not_found(ctx, str(exc))
-        if not (admin.has_view_permission(ctx, target) or admin.has_change_permission(ctx, target)):
-            admin.check_permission(ctx, "view", target)
+        admin.check_permission(ctx, "view", target)
         specs = [field for field in admin.get_form_fields(ctx) if not field.secret]
         spec = next((field for field in specs if field.name == field_name), None)
         if (
@@ -371,7 +369,7 @@ def _register_one(router: APIRouter, site: AdminSite, admin: ModelAdmin) -> None
     )
 
 
-def _admin_route_context(site: AdminSite, admin: ModelAdmin, permission: str | None) -> Any:
+def _admin_route_context(site: AdminSite, admin: ModelView, permission: str | None) -> Any:
     from obox_builder.contrib.admin.views.common import ensure_csrf
 
     async def dependency(
@@ -536,9 +534,9 @@ async def _list(
         ],
         sort_terms=[{"field": term.field, "descending": term.descending} for term in query.sort],
         group_terms=[{"field": term.field, "descending": term.descending} for term in query.group],
-        saved_views=(
-            await ctx.db.scalars(view_scope(ctx).order_by(SavedView.name, SavedView.id))
-        ).all(),
+        saved_views=(await admin.resource.execute("listViews", ctx.operation_context())).items
+        if "listViews" in admin.resource.operations
+        else [],
         selected_view=selected_view,
         admin=admin,
         columns=columns,
@@ -575,7 +573,7 @@ async def _list(
 
 def _inline_edits(
     ctx: AdminContext,
-    admin: ModelAdmin,
+    admin: ModelView,
     columns: Sequence[FieldSpec],
     objects: Sequence[Any],
     values: Mapping[tuple[str, str], str] | None,
@@ -825,8 +823,7 @@ async def _update(ctx: AdminContext, target: Any) -> Response:
     await ensure_csrf(request, data.get("csrf_token"))
     if data.get("_action") == "save_as_new":
         admin.check_permission(ctx, "add")
-        if not (admin.has_view_permission(ctx, target) or admin.has_change_permission(ctx, target)):
-            admin.check_permission(ctx, "view", target)
+        admin.check_permission(ctx, "view", target)
         return await _save_as_new(ctx, data, target)
     admin.check_permission(ctx, "change", target)
     ctx.obj = target
@@ -877,7 +874,7 @@ async def _save_as_new(ctx: AdminContext, data: dict[str, Any], source: Any) -> 
     return await admin.response_add(ctx, obj)
 
 
-def _copy_inline_submission(admin: ModelAdmin, data: dict[str, Any]) -> dict[str, Any]:
+def _copy_inline_submission(admin: ModelView, data: dict[str, Any]) -> dict[str, Any]:
     copied = dict(data)
     for index, inline_class in enumerate(admin.inlines):
         inline = inline_class(admin.model, admin.site)
@@ -961,7 +958,7 @@ async def _inline(ctx: AdminContext) -> HTMLResponse | RedirectResponse:
         ctx.obj = obj
         bound = BoundForm.bind(specs, schema, row_data, base=ctx.record_context())
         if bound.is_valid:
-            await validate_model_uniqueness(ctx, admin.model, bound, obj)
+            await validate_model_uniqueness(ctx.operation_context(), admin.model, bound, obj)
         if bound.is_valid:
             pending.append((obj, bound))
             continue
@@ -980,9 +977,7 @@ async def _inline(ctx: AdminContext) -> HTMLResponse | RedirectResponse:
             if not any(getattr(obj, name, None) != value for name, value in bound.cleaned.items()):
                 continue
             ctx.obj = obj
-            bound.apply_to(obj)
-            await admin.save_model(ctx, obj, bound, change=True)
-            await admin.save_related(ctx, obj, bound, change=True)
+            await RecordService(ctx).save(bound, target=obj)
             changed += 1
         await ctx.db.flush()
     if changed:
@@ -1097,7 +1092,7 @@ async def _history(ctx: AdminContext, target: Any, pk: Any) -> HTMLResponse:
     return render(request, "admin/history.html", context)
 
 
-def _revert_links(ctx: AdminContext, admin: ModelAdmin, pk: Any) -> RevertLinks | None:
+def _revert_links(ctx: AdminContext, admin: ModelView, pk: Any) -> RevertLinks | None:
     """Revert wiring for a timeline, or ``None`` when the user cannot restore."""
     if not ctx.user.has_perm(HISTORY_RESTORE_PERMISSION):
         return None
@@ -1170,9 +1165,9 @@ async def _delete(ctx: AdminContext, target: Any) -> Response:
 # -- helpers ----------------------------------------------------------------
 
 
-def _require_admin(ctx: AdminContext) -> ModelAdmin:
+def _require_admin(ctx: AdminContext) -> ModelView:
     if ctx.admin is None:  # pragma: no cover - model routes always set it
-        raise RuntimeError("AdminContext without a ModelAdmin on a model route.")
+        raise RuntimeError("AdminContext without a ModelView on a model route.")
     return ctx.admin
 
 
@@ -1183,7 +1178,7 @@ async def _submitted_data(request: Request) -> dict[str, Any]:
             content_length = int(raw_length)
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid Content-Length header.") from None
-        if content_length > settings.ADMIN_MAX_UPLOAD_BYTES + 1024 * 1024:
+        if content_length > settings.UPLOAD_MAX_BYTES + 1024 * 1024:
             raise HTTPException(status_code=413, detail="Admin form request is too large.")
     form = await request.form()
     data: dict[str, Any] = {}
@@ -1241,7 +1236,7 @@ async def _get_object(ctx: AdminContext, pk: str, *, for_update: bool = False) -
     return obj
 
 
-def _object_label(admin: ModelAdmin, obj: Any) -> str:
+def _object_label(admin: ModelView, obj: Any) -> str:
     return _object_label_for(admin.model, obj) if obj is not None else ""
 
 

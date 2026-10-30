@@ -43,12 +43,14 @@
     <form method="post" action="{{ comments_url }}/{{ comment.id }}/delete" class="d-inline"
           data-confirm="{{ _('Delete this comment? The text is removed for everyone.') }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}"/>
+    <input type="hidden" name="version" value="{{ comment.version }}"/>
       <button type="submit" class="btn btn-link btn-sm p-0 text-danger">{{ _('Delete') }}</button>
     </form>
     {% endif %}
     {% if root and comment.can_resolve %}
     <form method="post" action="{{ comments_url }}/{{ comment.id }}/{{ 'reopen' if comment.resolved_at else 'resolve' }}" class="d-inline">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}"/>
+    <input type="hidden" name="version" value="{{ comment.version }}"/>
       <button type="submit" class="btn btn-link btn-sm p-0">{{ _('Reopen') if comment.resolved_at else _('Resolve') }}</button>
     </form>
     {% endif %}
@@ -58,6 +60,7 @@
         class="mt-2{{ '' if edit_comment_id == comment.id else ' d-none' }}"
         data-comment-edit-form="edit-{{ comment.id }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}"/>
+    <input type="hidden" name="version" value="{{ comment.version }}"/>
     <textarea name="body" rows="3" maxlength="{{ max_length }}"
               class="form-control{{ ' is-invalid' if error and edit_comment_id == comment.id }}"
               data-comment-composer data-mention-url="{{ mention_url }}"
@@ -76,6 +79,7 @@
         class="mt-2{{ '' if reply_parent == comment.id else ' d-none' }}"
         data-comment-reply-form="reply-{{ comment.id }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}"/>
+    <input type="hidden" name="version" value="{{ comment.version }}"/>
     <input type="hidden" name="parent_id" value="{{ comment.id }}"/>
     {% if reply_parent == comment.id %}
     <input type="hidden" name="idempotency_key" value="{{ csrf_token[:24] ~ '-' ~ comment.id }}"/>

@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from obox_builder.contrib.admin.context import AdminContext
-from obox_builder.contrib.admin.options import ModelAdmin
+from obox_builder.contrib.admin.options import ModelView
 from obox_builder.contrib.admin.relations import related_admin, related_key
 from obox_builder.contrib.admin.site import AdminSite
 from obox_builder.contrib.auth.dependencies import login_required
@@ -22,7 +22,7 @@ PAGE_SIZE = 20
 
 
 def register_autocomplete_routes(
-    router: APIRouter, site: AdminSite, parent_admin: ModelAdmin
+    router: APIRouter, site: AdminSite, parent_admin: ModelView
 ) -> None:
     async def autocomplete(
         request: Request,

@@ -32,9 +32,9 @@ from obox_builder.contrib.admin.api.serializers import (
 from obox_builder.contrib.admin.api.uploads import prepare_files
 from obox_builder.contrib.admin.inlines import InlineRow
 from obox_builder.contrib.admin.services import RecordService
-from obox_builder.contrib.admin.uniqueness import validate_inline_uniqueness
-from obox_builder.contrib.admin.uploads import persist_uploads
+from obox_builder.contrib.uploads import persist_uploads
 from obox_builder.exceptions import ImproperlyConfigured
+from obox_builder.resources.uniqueness import validate_inline_uniqueness
 
 
 class InlineInput(BaseModel):
@@ -138,7 +138,7 @@ def register_inlines(router: APIRouter) -> None:
         parent_service.check_permission("change", parent)
         inline = child.admin
         rows = batch_items(await json_body(request))
-        if len(rows) > min(settings.ADMIN_API_MAX_BATCH, inline.get_absolute_max()):
+        if len(rows) > min(settings.API_MAX_BATCH, inline.get_absolute_max()):
             raise Problem(422, "validation_error", "Too many inline rows.")
         formset = inline.get_formset(child, index)
         objects = list(

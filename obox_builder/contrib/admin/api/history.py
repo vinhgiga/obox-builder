@@ -30,10 +30,10 @@ from obox_builder.contrib.admin.services.history import (
     entry_view,
     timeline_available,
 )
-from obox_builder.contrib.admin.services.revert import OP_PERMISSION, blocked_fields, build_plan
 from obox_builder.contrib.history import HISTORY_RESTORE_PERMISSION
 from obox_builder.contrib.history.context import CTX_KEY, from_request
 from obox_builder.contrib.history.models import RowChange
+from obox_builder.contrib.history.revert import OP_PERMISSION, blocked_fields, build_plan
 from obox_builder.contrib.history.service import FeedFilters, feed_entries, history_entries
 from obox_builder.forms import build_schema
 

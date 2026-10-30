@@ -9,16 +9,18 @@ from typing import Any
 import sqlalchemy as sa
 
 from obox_builder.contrib.admin.context import AdminContext
-from obox_builder.contrib.admin.options import ModelAdmin
+from obox_builder.contrib.admin.options import ModelView
 from obox_builder.contrib.auth.tokens import scope_allows
 from obox_builder.exceptions import PermissionDenied
 from obox_builder.fields import Cell, FieldSpec
 from obox_builder.forms import BoundForm
 
 
-def related_admin(ctx: AdminContext, spec: FieldSpec) -> tuple[ModelAdmin, AdminContext]:
+def related_admin(ctx: AdminContext, spec: FieldSpec) -> tuple[ModelView, AdminContext]:
     target = spec.options["target"]
-    admin = ctx.site.get_model_admin_for(target) or ModelAdmin(target, ctx.site)
+    admin = ctx.site.get_model_admin_for(target) or ModelView(
+        ctx.site.resource_registry.for_model(target), ctx.site
+    )
     extra = {**ctx.extra, "api_labels": True} if ctx.extra.get("api") else ctx.extra
     return admin, replace(ctx, admin=admin, obj=None, extra=extra)
 
@@ -113,7 +115,7 @@ async def save_relations(ctx: AdminContext, obj: Any, bound: BoundForm) -> None:
 
 
 async def build_cells(
-    ctx: AdminContext, admin: ModelAdmin, specs: Sequence[FieldSpec], objects: Sequence[Any]
+    ctx: AdminContext, admin: ModelView, specs: Sequence[FieldSpec], objects: Sequence[Any]
 ) -> list[list[Cell]]:
     allowed: dict[str, set[Any]] = {}
     related_display: dict[str, dict[Any, Cell]] = {}
@@ -161,7 +163,7 @@ async def build_cells(
 
 async def _related_display_cells(
     ctx: AdminContext,
-    admin: ModelAdmin,
+    admin: ModelView,
     spec: FieldSpec,
     objects: Sequence[Any],
 ) -> dict[Any, Cell]:
@@ -174,10 +176,12 @@ async def _related_display_cells(
         return {}
 
     statement = sa.select(admin.pk_column()).select_from(admin.model)
-    related_admins: list[tuple[ModelAdmin, AdminContext]] = []
+    related_admins: list[tuple[ModelView, AdminContext]] = []
     for relationship in relationships:
         model = relationship.property.mapper.class_
-        related_admin = ctx.site.get_model_admin_for(model) or ModelAdmin(model, ctx.site)
+        related_admin = ctx.site.get_model_admin_for(model) or ModelView(
+            ctx.site.resource_registry.for_model(model), ctx.site
+        )
         related_ctx = replace(ctx, admin=related_admin, obj=None)
         if not related_admin.has_view_permission(related_ctx):
             return {}

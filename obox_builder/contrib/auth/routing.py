@@ -19,9 +19,13 @@ class SessionRenewalRoute(APIRoute):
             response = await handler(request)
             renewal = getattr(request.state, "session_renewal_cookie", None)
             prefix = f"{settings.SESSION_COOKIE_NAME}="
-            if renewal and response.status_code < 400 and not any(
-                cookie.lstrip().startswith(prefix)
-                for cookie in response.headers.getlist("set-cookie")
+            if (
+                renewal
+                and response.status_code < 400
+                and not any(
+                    cookie.lstrip().startswith(prefix)
+                    for cookie in response.headers.getlist("set-cookie")
+                )
             ):
                 response.headers.append("set-cookie", renewal)
             return response

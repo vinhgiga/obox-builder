@@ -34,6 +34,7 @@ class MentionView:
 @dataclass(frozen=True)
 class CommentView:
     id: int
+    version: int
     parent_id: int | None
     body: Markup
     raw_body: str | None
@@ -222,6 +223,7 @@ def _comment_view(
     )
     return CommentView(
         id=int(row.id),
+        version=row.version,
         parent_id=int(row.parent_id) if row.parent_id is not None else None,
         body=render_body(visible_body, mention_map),
         raw_body=row.body if can_edit else None,

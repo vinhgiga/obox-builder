@@ -47,7 +47,7 @@ async def stage_uploads(
         if not isinstance(upload, UploadFile) or not upload.filename:
             prepared[spec.name] = getattr(target, spec.name, None) if target is not None else None
             continue
-        max_bytes = min(spec.type.max_bytes, settings.ADMIN_MAX_UPLOAD_BYTES)
+        max_bytes = min(spec.type.max_bytes, settings.UPLOAD_MAX_BYTES)
         content = await upload.read(max_bytes + 1)
         await upload.close()
         total_bytes += len(content)
@@ -55,10 +55,10 @@ async def stage_uploads(
             prepared[spec.name] = getattr(target, spec.name, None) if target is not None else None
             errors[spec.name] = [f"File must be {max_bytes} bytes or smaller."]
             continue
-        if total_bytes > settings.ADMIN_MAX_UPLOAD_BYTES:
+        if total_bytes > settings.UPLOAD_MAX_BYTES:
             prepared[spec.name] = getattr(target, spec.name, None) if target is not None else None
             errors[spec.name] = [
-                f"Total uploads must be {settings.ADMIN_MAX_UPLOAD_BYTES} bytes or smaller."
+                f"Total uploads must be {settings.UPLOAD_MAX_BYTES} bytes or smaller."
             ]
             continue
         detected = next(

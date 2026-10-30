@@ -5,7 +5,9 @@ from typing import Any
 import httpx
 import pytest
 import sqlalchemy as sa
-from obox_builder.contrib.admin import ModelAdmin, site
+from obox_builder.contrib.admin import ModelView, site
+from obox_builder.resources import ModelResource, ResourcePolicy
+from tests.support.apps.shop.resources import OrderResource, LabelResource
 from obox_builder.db.session import session_scope
 from sqlalchemy.orm import selectinload
 
@@ -87,7 +89,7 @@ async def test_many_to_many_rejects_invalid_selections_atomically(
         monkeypatch.setattr(
             admin,
             "get_queryset",
-            lambda ctx: ModelAdmin.get_queryset(admin, ctx).where(Label.id != "blue"),
+            lambda ctx: ModelView.get_queryset(admin, ctx).where(Label.id != "blue"),
         )
     elif restriction in {"object", "model"}:
         monkeypatch.setattr(
@@ -124,14 +126,21 @@ async def test_many_to_many_rechecks_policy_inside_transaction(
     assert target is not None
     assert parent is not None
     allowed = True
-    monkeypatch.setattr(target, "has_view_permission", lambda *args: allowed)
+    class ChangingPolicy(ResourcePolicy):
+        def allows(self, ctx, operation, obj=None):
+            return allowed
 
-    async def save(ctx: Any, obj: Any, form: Any, *, change: bool) -> None:
+    monkeypatch.setattr(LabelResource, "policy", ChangingPolicy())
+    from tests.support.resources import rebuild_registry
+
+    rebuild_registry(monkeypatch)
+
+    async def save(self: Any, ctx: Any, obj: Any, form: Any, *, change: bool) -> None:
         nonlocal allowed
-        await ModelAdmin.save_model(parent, ctx, obj, form, change=change)
+        await ModelResource.save_model(self, ctx, obj, form, change=change)
         allowed = False
 
-    monkeypatch.setattr(parent, "save_model", save)
+    monkeypatch.setattr(OrderResource, "save_model", save)
     response = await client.post(
         f"{URL}/add", data={"csrf_token": token, "reference": "Rollback", "labels": "red"}
     )

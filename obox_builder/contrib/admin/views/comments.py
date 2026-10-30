@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from obox_builder.conf import settings
 from obox_builder.contrib.admin.context import AdminContext
-from obox_builder.contrib.admin.options import ModelAdmin
+from obox_builder.contrib.admin.options import ModelView
 from obox_builder.contrib.admin.rendering import render
 from obox_builder.contrib.admin.site import AdminSite
 from obox_builder.contrib.admin.views.common import (
@@ -48,8 +48,8 @@ __all__ = ["register_comment_routes", "mentionable"]
 _MENTION_ADD_DEPENDENCY = Depends(permission_required(COMMENTS_ADD_PERMISSION))
 
 
-def register_comment_routes(router: APIRouter, site: AdminSite, admin: ModelAdmin) -> None:
-    """Attach the comment endpoints for one registered ``ModelAdmin``."""
+def register_comment_routes(router: APIRouter, site: AdminSite, admin: ModelView) -> None:
+    """Attach the comment endpoints for one registered ``ModelView``."""
     base = f"/{admin.path_prefix}"
     name = admin.route_prefix
     view_dep = Depends(permission_required(admin.permission_name("view")))
@@ -78,13 +78,15 @@ def register_comment_routes(router: APIRouter, site: AdminSite, admin: ModelAdmi
         await ensure_csrf(request, data.get("csrf_token"))
         try:
             _obj, target = await _load_target(ctx, pk, allow_deleted=False)
-            service = CommentService(db, _policy(admin, user))
-            comment = await service.add(
-                target,
-                get_options(admin.model),
-                data,
-                source="admin_ui",
-                request_id=_request_id(request),
+            comment = await _execute_comment(
+                ctx,
+                "addComment",
+                pk,
+                {
+                    name: data[name]
+                    for name in ("body", "parent_id", "idempotency_key")
+                    if name in data
+                },
             )
         except CommentValidationError as exc:
             return await render_page(
@@ -124,8 +126,16 @@ def register_comment_routes(router: APIRouter, site: AdminSite, admin: ModelAdmi
         await ensure_csrf(request, data.get("csrf_token"))
         try:
             _obj, target = await _load_target(ctx, pk, allow_deleted=False)
-            service = CommentService(db, _policy(admin, user))
-            await service.edit(target, get_options(admin.model), comment_id, data)
+            await _execute_comment(
+                ctx,
+                "editComment",
+                pk,
+                {
+                    "comment_id": str(comment_id),
+                    "version": data.get("version"),
+                    "body": data.get("body", ""),
+                },
+            )
         except CommentValidationError as exc:
             return await render_page(
                 ctx,
@@ -154,8 +164,14 @@ def register_comment_routes(router: APIRouter, site: AdminSite, admin: ModelAdmi
         await ensure_csrf(request, data.get("csrf_token"))
         try:
             _obj, target = await _load_target(ctx, pk, allow_deleted=False)
-            service = CommentService(db, _policy(admin, user))
-            await service.delete(target, comment_id)
+            operation = (
+                "moderateComment"
+                if user.has_perm("comments.rowComment.moderate")
+                else "deleteComment"
+            )
+            await _execute_comment(
+                ctx, operation, pk, {"comment_id": str(comment_id), "version": data.get("version")}
+            )
         except CommentError as exc:
             return _failure(ctx, exc, pk)
         await flash(request, "Comment deleted.")
@@ -319,7 +335,7 @@ async def _set_resolved(
     user: Any,
     db: AsyncSession,
     site: AdminSite,
-    admin: ModelAdmin,
+    admin: ModelView,
     *,
     resolved: bool,
 ) -> Any:
@@ -328,12 +344,30 @@ async def _set_resolved(
     await ensure_csrf(request, data.get("csrf_token"))
     try:
         _obj, target = await _load_target(ctx, pk, allow_deleted=False)
-        service = CommentService(db, _policy(admin, user))
-        await service.set_resolved(target, comment_id, resolved=resolved)
+        await _execute_comment(
+            ctx,
+            "resolveComment",
+            pk,
+            {"comment_id": str(comment_id), "version": data.get("version"), "resolved": resolved},
+        )
     except CommentError as exc:
         return _failure(ctx, exc, pk)
     await flash(request, "Thread resolved." if resolved else "Thread reopened.")
     return RedirectResponse(f"{admin.comments_path(pk)}#comment-{comment_id}", status_code=303)
+
+
+async def _execute_comment(ctx: AdminContext, operation: str, pk: str, data: dict[str, Any]) -> Any:
+    from obox_builder.resources import ResourceValidationError
+
+    try:
+        return await _require_admin(ctx).resource.execute(
+            operation, ctx.operation_context(), data, target=pk
+        )
+    except ResourceValidationError as exc:
+        field, errors = next(iter(exc.errors.items()))
+        raise CommentValidationError(errors[0], field=field) from exc
+    except LookupError as exc:
+        raise CommentNotFound(str(exc)) from exc
 
 
 def _failure(ctx: AdminContext, exc: CommentError, pk: str) -> HTMLResponse:
@@ -382,12 +416,12 @@ def _context(
     user: Any,
     db: AsyncSession,
     site: AdminSite,
-    admin: ModelAdmin,
+    admin: ModelView,
 ) -> AdminContext:
     return AdminContext(request=request, user=user, db=db, site=site, admin=admin)
 
 
-def _policy(admin: ModelAdmin, user: Any) -> CommentPolicy:
+def _policy(admin: ModelView, user: Any) -> CommentPolicy:
     return CommentPolicy(
         user=user,
         view_permission=admin.permission_name("view"),
@@ -395,9 +429,9 @@ def _policy(admin: ModelAdmin, user: Any) -> CommentPolicy:
     )
 
 
-def _require_admin(ctx: AdminContext) -> ModelAdmin:
+def _require_admin(ctx: AdminContext) -> ModelView:
     if ctx.admin is None:  # pragma: no cover - comment routes always set it
-        raise ImproperlyConfigured("AdminContext without a ModelAdmin on a comment route.")
+        raise ImproperlyConfigured("AdminContext without a ModelView on a comment route.")
     return ctx.admin
 
 
@@ -429,7 +463,7 @@ async def _load_target(
     return None, target.with_repr(snapshot)
 
 
-def _object_label(admin: ModelAdmin, obj: Any) -> str:
+def _object_label(admin: ModelView, obj: Any) -> str:
     text = str(obj)
     if text.startswith("<"):
         return f"#{admin.get_pk(obj)}"

@@ -7,6 +7,7 @@ import pytest
 import sqlalchemy as sa
 from obox_builder.contrib.admin import SimpleListFilter, site
 from obox_builder.db.session import session_scope
+from obox_builder.resources import get_registry
 
 from tests.admin.conftest import (
     build_app,
@@ -480,7 +481,7 @@ async def test_fields_config_widget_settings_render_on_the_form(
     assert admin is not None
     monkeypatch.setattr(
         type(admin),
-        "fields_config",
+        "widget_config",
         {"name": {"widget": "textarea", "rows": 8, "placeholder": "Public name"}},
     )
     admin._specs = None
@@ -713,7 +714,8 @@ async def test_base_path_admin_serves_crud_at_the_new_url(client: httpx.AsyncCli
 
     await make_product("Widget")
     await make_user("alice", is_superuser=True)
-    site.register(Product, TopicsAdmin)
+    site.unregister(get_registry().for_model(Product))
+    site.register(get_registry().for_model(Product), TopicsAdmin)
     try:
         transport = httpx.ASGITransport(app=build_app())
         async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as http:
@@ -726,4 +728,5 @@ async def test_base_path_admin_serves_crud_at_the_new_url(client: httpx.AsyncCli
             old = await http.get(LIST_URL, headers={"accept": "text/html"})
             assert old.status_code == 404
     finally:
-        site.register(Product, ProductAdmin)
+        site.unregister(get_registry().for_model(Product))
+        site.register(get_registry().for_model(Product), ProductAdmin)

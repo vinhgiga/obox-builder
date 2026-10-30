@@ -21,9 +21,9 @@ T = TypeVar("T")
 
 
 def _prepare() -> None:
-    import obox_builder
+    from obox_builder.apps import apps
 
-    obox_builder.setup()
+    apps.check_models_ready()
 
 
 def _database_url(database: str) -> str:

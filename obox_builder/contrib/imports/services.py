@@ -18,6 +18,7 @@ from obox_builder.contrib.imports.resources import ImportResource, digest
 from obox_builder.exceptions import ImproperlyConfigured, PermissionDenied
 from obox_builder.fields import RecordContext
 from obox_builder.forms import BoundForm
+from obox_builder.resources import ResourceValidationError
 
 BATCH_SIZE = 250
 MODES = ("insert", "upsert", "update-only", "skip-existing")
@@ -360,10 +361,9 @@ async def commit_batch(db: AsyncSession, session: ImportSession, resource: Impor
         else:
             try:
                 async with db.begin_nested():
-                    obj = target if target is not None else resource.model()
-                    bound.apply_to(obj)
-                    db.add(obj)
-                    await db.flush()
+                    await resource.save(db, bound, target)
+            except ResourceValidationError as exc:
+                row.action, row.errors = "error", exc.errors
             except (DBAPIError, OverflowError, StaleDataError) as exc:
                 if isinstance(exc, DBAPIError) and not isinstance(exc, (DataError, IntegrityError)):
                     code = str(getattr(exc.orig, "sqlstate", "") or getattr(exc.orig, "pgcode", ""))

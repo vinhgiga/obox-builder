@@ -1,9 +1,8 @@
-"""System checks for ModelAdmin declarations (loaded by AdminConfig.ready)."""
+"""System checks for ModelView declarations (loaded by AdminConfig.ready)."""
 
 from __future__ import annotations
 
 from obox_builder.apps import apps
-from obox_builder.conf import settings
 from obox_builder.contrib.admin.site import site
 from obox_builder.core.checks.messages import CheckMessage, Error, Warning
 from obox_builder.core.checks.registry import register
@@ -15,7 +14,7 @@ COMMENTS_APP = "obox_builder.contrib.comments"
 
 @register(tags=(ADMIN,))
 def check_model_admins() -> list[CheckMessage]:
-    """Validate every registered ModelAdmin (fields, search, filters, ordering)."""
+    """Validate every registered ModelView (fields, search, filters, ordering)."""
     site.autodiscover()
     messages: list[CheckMessage] = []
     paths: dict[str, str] = {}
@@ -53,32 +52,4 @@ def check_model_admins() -> list[CheckMessage]:
                     id="obox.comments.W301",
                 )
             )
-    return messages
-
-
-@register(tags=(ADMIN,))
-def check_admin_api() -> list[CheckMessage]:
-    from obox_builder.contrib.auth.csrf import _origin_tuple
-
-    messages: list[CheckMessage] = []
-    if any(
-        _origin_tuple(origin, require_bare_origin=True) is None
-        for origin in settings.ADMIN_API_TRUSTED_ORIGINS
-    ):
-        messages.append(
-            Error(
-                "ADMIN_API_TRUSTED_ORIGINS must contain explicit HTTP(S) origins.",
-                id="obox.admin.E501",
-            )
-        )
-    if (
-        not settings.DEBUG
-        and not settings.SESSION_COOKIE_SECURE
-        and any(admin.api_enabled for admin in site.get_registry().values())
-    ):
-        messages.append(
-            Warning(
-                "The admin API requires secure session cookies in production.", id="obox.admin.W502"
-            )
-        )
     return messages

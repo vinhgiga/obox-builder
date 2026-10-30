@@ -7,7 +7,7 @@ import httpx
 import pytest
 import sqlalchemy as sa
 from fastapi import Request
-from obox_builder.contrib.admin import AdminContext, AdminPaginator, AdminRoute, ModelAdmin, site
+from obox_builder.contrib.admin import AdminContext, AdminPaginator, AdminRoute, ModelView, site
 from obox_builder.db.session import session_scope
 from obox_builder.fields import FieldSpec
 from obox_builder.fields.types.text import Text
@@ -179,7 +179,7 @@ async def test_extra_form_fields_validate_save_and_use_custom_widget(
     assert admin is not None
     monkeypatch.setattr(
         ProductAdmin,
-        "fields_config",
+        "widget_config",
         {"name": {"widget_template": "shop/admin/widgets/text_input.html"}},
     )
     monkeypatch.setattr(admin, "_specs", None)
@@ -198,14 +198,16 @@ async def test_extra_form_fields_validate_save_and_use_custom_widget(
 
     saved_notes: list[tuple[bool, str]] = []
 
-    async def save_model(
-        self: Any, ctx: AdminContext, obj: Product, form: Any, *, change: bool
-    ) -> None:
-        saved_notes.append((change, form.cleaned["review_note"]))
-        await ModelAdmin.save_model(self, ctx, obj, form, change=change)
+    async def response(self: Any, ctx: AdminContext, obj: Product) -> Any:
+        data = await ctx.request.form()
+        changed = str(data.get("name")) == "Widget update"
+        saved_notes.append((changed, str(data["review_note"])))
+        method = ModelView.response_change if changed else ModelView.response_add
+        return await method(self, ctx, obj)
 
     monkeypatch.setattr(ProductAdmin, "get_extra_form_fields", extra_fields)
-    monkeypatch.setattr(ProductAdmin, "save_model", save_model)
+    monkeypatch.setattr(ProductAdmin, "response_add", response)
+    monkeypatch.setattr(ProductAdmin, "response_change", response)
 
     form_page = await client.get(f"{LIST_URL}/add")
     assert 'data-custom-widget="name"' in form_page.text

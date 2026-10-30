@@ -25,7 +25,11 @@ from fastapi.responses import RedirectResponse
 
 from obox_builder.contrib.admin.context import AdminContext
 from obox_builder.contrib.admin.rendering import render
-from obox_builder.contrib.admin.services.revert import (
+from obox_builder.contrib.admin.services.history import diff_mask
+from obox_builder.contrib.admin.views.common import ensure_csrf, flash, page_context
+from obox_builder.contrib.history import HISTORY_RESTORE_PERMISSION
+from obox_builder.contrib.history.models import RowChange
+from obox_builder.contrib.history.revert import (
     OP_PERMISSION,
     BlockedField,
     Conflict,
@@ -39,12 +43,10 @@ from obox_builder.contrib.admin.services.revert import (
     plan_from_row,
     revert_plans,
 )
-from obox_builder.contrib.admin.views.common import ensure_csrf, flash, page_context
-from obox_builder.contrib.history import HISTORY_RESTORE_PERMISSION
-from obox_builder.contrib.history.models import RowChange
 from obox_builder.contrib.history.service import (
     to_entry,
 )
+from obox_builder.exceptions import PermissionDenied
 
 logger = logging.getLogger("obox.history.audit")
 
@@ -97,7 +99,7 @@ async def revert_entry(
     """``POST /admin/<path>/{pk}/history/{entry_id}/revert``."""
     admin = ctx.admin
     if admin is None:  # pragma: no cover - model routes always set it
-        raise RuntimeError("AdminContext without a ModelAdmin on a model route.")
+        raise RuntimeError("AdminContext without a ModelView on a model route.")
     try:
         pk_value = admin.parse_pk(pk)
     except LookupError:
@@ -105,7 +107,17 @@ async def revert_entry(
     if not ctx.user.has_perm(HISTORY_RESTORE_PERMISSION):
         return _forbidden(ctx.request, "You do not have permission to restore changes.")
     try:
-        plan = await build_plan(ctx, admin, pk_value, entry_id)
+        visible = await ctx.db.get(admin.model, pk_value)
+        if visible is not None:
+            visible = await admin.get_object(ctx, pk)
+        admin.check_permission(ctx, "view", visible)
+        plan = await build_plan(
+            ctx.operation_context(),
+            admin.resource,
+            pk_value,
+            entry_id,
+            mask=diff_mask(admin.model, user=ctx.user, admin=admin, ctx=ctx),
+        )
     except LookupError as exc:
         return _not_found(ctx.request, str(exc))
     action = OP_PERMISSION.get(plan.entry.op, "change")
@@ -127,12 +139,11 @@ async def revert_entry(
         await flash(ctx.request, "Nothing to revert: the row is already in that state.", "warning")
         return RedirectResponse(history_url, status_code=303)
     try:
-        await revert_plans(
-            ctx,
-            [plan],
-            force=force,
-            reverts_id=plan.entry.id,
-            reason=f"Revert of entry #{plan.entry.id}",
+        if plan.blocked:
+            raise RevertBlocked("This entry cannot be restored through this view.", [plan])
+        history_resource = ctx.site.resource_registry.for_model(RowChange)
+        await history_resource.execute(
+            "restore", ctx.operation_context(), {"force": force}, target=entry_id
         )
     except RevertError as exc:
         return await _blocked_response(
@@ -174,13 +185,42 @@ async def revert_change_set(
     plans: list[RevertPlan] = []
     for row in rows:
         entry = to_entry(row)
-        plan = await _plan_for_change_set(ctx, ctx.site, entry, allowed=allowed)
+        plan = await _plan_for_change_set(
+            ctx.operation_context(), ctx.site.resource_registry, entry, allowed=allowed
+        )
+        view = (
+            ctx.site.get_model_admin_for(plan.resource.model) if plan.resource is not None else None
+        )
+        visible_label = "Restricted record"
+        if view is not None:
+            child = replace(ctx, admin=view, obj=plan.target)
+            try:
+                if plan.target is not None:
+                    await view.get_object(child, str(plan.pk_value))
+                view.check_permission(child, "view", plan.target)
+                action = OP_PERMISSION.get(entry.op, "change")
+                view.check_permission(child, action, plan.target)
+                visible_label = entry.object_repr
+                hidden = blocked_fields(
+                    entry,
+                    {spec.name: spec for spec in view.get_form_specs(child)},
+                    mask=diff_mask(view.model, user=ctx.user, admin=view, ctx=child),
+                )
+                plan.blocked.extend(item for item in hidden if item not in plan.blocked)
+            except (LookupError, PermissionDenied):
+                plan.blocked.append(
+                    BlockedField(
+                        name="",
+                        label="Restricted record",
+                        reason="This record is unavailable through this view.",
+                    )
+                )
         plan.blocked = [
-            replace(item, model_label=entry.model_label, object_repr=entry.object_repr)
+            replace(item, model_label=entry.model_label, object_repr=visible_label)
             for item in plan.blocked
         ]
         plan.conflicts = [
-            replace(item, model_label=entry.model_label, object_repr=entry.object_repr)
+            replace(item, model_label=entry.model_label, object_repr=visible_label)
             for item in plan.conflicts
         ]
         plans.append(plan)
@@ -190,12 +230,13 @@ async def revert_change_set(
     force = form.get("force") == "1"
     back_url = f"/admin/history/{change_set_id}"
     try:
-        await revert_plans(
-            ctx,
-            plans,
-            force=force,
-            reverts_id=max(row.id for row in rows),
-            reason=f"Revert of change set {change_set_id}",
+        if any(plan.blocked for plan in plans):
+            raise RevertBlocked("This change set cannot be restored through this view.", plans)
+        history_resource = ctx.site.resource_registry.for_model(RowChange)
+        await history_resource.execute(
+            "restoreChangeSet",
+            ctx.operation_context(),
+            {"force": force, "change_set_id": change_set_id},
         )
     except RevertError as exc:
         return await _blocked_response(

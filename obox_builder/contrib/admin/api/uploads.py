@@ -22,7 +22,7 @@ from obox_builder.contrib.admin.api.problems import Problem
 from obox_builder.contrib.admin.api.serializers import api_specs
 from obox_builder.contrib.admin.context import AdminContext
 from obox_builder.contrib.admin.services import RecordService
-from obox_builder.contrib.admin.uploads import persist_uploads, stage_uploads
+from obox_builder.contrib.uploads import persist_uploads, stage_uploads
 from obox_builder.core.storage import default_storage
 from obox_builder.fields import FieldSpec
 
@@ -41,7 +41,7 @@ def _claim(ctx: AdminContext, field: str, path: str) -> str:
         RecordService(ctx).admin.model_label,
         field,
         path,
-        int(time.time()) + settings.ADMIN_API_UPLOAD_TTL_SECONDS,
+        int(time.time()) + settings.API_UPLOAD_TTL_SECONDS,
     ]
     payload = base64.urlsafe_b64encode(json.dumps(data).encode()).decode()
     return f"{payload}.{_signature(payload)}"
@@ -95,7 +95,7 @@ async def prepare_files(
                 errors={spec.name: ["Upload a file first."]},
             )
         path = _path(ctx, spec.name, value["upload_token"])
-        limit = settings.ADMIN_MAX_UPLOAD_BYTES - ctx.request.state.api_upload_bytes
+        limit = settings.UPLOAD_MAX_BYTES - ctx.request.state.api_upload_bytes
         with default_storage.open(path) as stream:
             content = stream.read(limit + 1)
         if len(content) > limit:
@@ -112,7 +112,7 @@ async def prepare_files(
 
 def purge_staged(*, limit: int) -> int:
     directory = Path(settings.MEDIA_ROOT) / "admin" / "api-staged"
-    cutoff = time.time() - settings.ADMIN_API_UPLOAD_TTL_SECONDS
+    cutoff = time.time() - settings.API_UPLOAD_TTL_SECONDS
     removed = 0
     if directory.is_dir():
         for path in directory.iterdir():
@@ -158,7 +158,7 @@ def register_uploads(router: APIRouter) -> None:
         content = bytearray()
         async for chunk in request.stream():
             content.extend(chunk)
-            if len(content) > settings.ADMIN_MAX_UPLOAD_BYTES + 65536:
+            if len(content) > settings.UPLOAD_MAX_BYTES + 65536:
                 raise Problem(413, "payload_too_large", "Upload is too large.")
 
         async def receive() -> Any:
@@ -206,5 +206,5 @@ def register_uploads(router: APIRouter) -> None:
             request.state.api_uploads.append((relative, b""))
             return {
                 "upload_token": _claim(ctx, field, relative),
-                "expires_in": settings.ADMIN_API_UPLOAD_TTL_SECONDS,
+                "expires_in": settings.API_UPLOAD_TTL_SECONDS,
             }

@@ -4,9 +4,9 @@ An action is an async callable ``(admin, ctx, queryset)`` that either returns
 ``None`` (the caller then redirects back to the filtered list) or a response
 (rendered as-is, e.g. a confirmation page).
 
-Actions are declared on a ModelAdmin::
+Actions are declared on a ModelView::
 
-    class PostAdmin(ModelAdmin):
+    class PostAdmin(ModelView):
         actions = ("mark_published", delete_selected)
 
         @action(description="Publish selected posts", permissions=("change",))
@@ -15,7 +15,6 @@ Actions are declared on a ModelAdmin::
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Any
 
 import sqlalchemy as sa
@@ -25,38 +24,13 @@ from obox_builder.http.messages import add_message
 
 if TYPE_CHECKING:
     from obox_builder.contrib.admin.context import AdminContext
-    from obox_builder.contrib.admin.options import ModelAdmin
+    from obox_builder.contrib.admin.options import ModelView
 
-__all__ = ["action", "delete_selected"]
-
-
-def action(
-    func: Callable[..., Any] | None = None,
-    *,
-    description: str = "",
-    permissions: Sequence[str] = (),
-    api: bool = False,
-) -> Any:
-    """Mark a method/function as a bulk action.
-
-    ``permissions`` lists admin perm codenames (``add``/``change``/``delete``);
-    the action is offered only when the user holds at least one of them.
-    """
-
-    def decorate(target: Callable[..., Any]) -> Callable[..., Any]:
-        target.description = description  # type: ignore[attr-defined]
-        target.allowed_permissions = tuple(permissions)  # type: ignore[attr-defined]
-        target.api_enabled = api  # type: ignore[attr-defined]
-        return target
-
-    if func is not None:
-        return decorate(func)
-    return decorate
+__all__ = ["delete_selected"]
 
 
-@action(description="Delete selected %(verbose_name_plural)s", permissions=("delete",))
 async def delete_selected(
-    admin: ModelAdmin, ctx: AdminContext, queryset: sa.Select[Any]
+    admin: ModelView, ctx: AdminContext, queryset: sa.Select[Any]
 ) -> Response | None:
     """Delete every row matched by ``queryset`` (built-in, all-or-nothing).
 
@@ -89,7 +63,7 @@ async def delete_selected(
             status_code=409 if token else 200,
         )
     async with ctx.db.begin_nested():
-        await admin.delete_queryset(ctx, queryset)
+        await admin.resource.execute("deleteSelected", admin.operation_context(ctx), target=objects)
         await ctx.db.flush()
     noun = admin.name.lower() if len(pks) == 1 else admin.plural_name.lower()
     await add_message(ctx.request, f"Successfully deleted {len(pks)} {noun}.", "success")

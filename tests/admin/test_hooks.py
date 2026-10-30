@@ -6,8 +6,9 @@ import httpx
 import pytest
 import sqlalchemy as sa
 from fastapi.responses import RedirectResponse
-from obox_builder.contrib.admin import ModelAdmin
+from obox_builder.contrib.admin import ModelView
 from obox_builder.db.session import session_scope
+from obox_builder.resources import ModelResource
 from pydantic import create_model, model_validator
 
 from tests.admin.conftest import confirmed_delete
@@ -15,6 +16,7 @@ from tests.admin.test_model_views import LIST_URL, get_product, make_product, pr
 from tests.admin.test_permissions import signed_in
 from tests.support.apps.shop.admin import ProductAdmin
 from tests.support.apps.shop.models import Order, Product
+from tests.support.apps.shop.resources import ProductResource
 
 
 async def test_form_fields_use_request_and_object_without_shared_state(
@@ -70,16 +72,16 @@ async def test_custom_form_validation_stops_save_hooks(
 
         return create_model(
             "ProductForm",
-            __base__=ModelAdmin.get_form(self, ctx, change=change),
+            __base__=ModelView.get_form(self, ctx, change=change),
             __validators__={"positive": cast(Any, model_validator(mode="after")(positive))},
         )
 
     async def save(self: Any, ctx: Any, obj: Any, form: Any, *, change: bool) -> None:
         calls.append(change)
-        await ModelAdmin.save_model(self, ctx, obj, form, change=change)
+        await ModelResource.save_model(self, ctx, obj, form, change=change)
 
     monkeypatch.setattr(ProductAdmin, "get_form", get_form)
-    monkeypatch.setattr(ProductAdmin, "save_model", save)
+    monkeypatch.setattr(ProductResource, "save_model", save)
     response = await client.post(
         f"{LIST_URL}/add",
         data={
@@ -109,7 +111,7 @@ async def test_save_hooks_run_in_order_with_actor_object_and_validated_form(
         assert ctx.obj is obj
         calls.append(("save", ctx.user.username, change, form.cleaned["name"]))
         obj.name += " by operator"
-        await ModelAdmin.save_model(self, ctx, obj, form, change=change)
+        await ModelResource.save_model(self, ctx, obj, form, change=change)
 
     async def related(self: Any, ctx: Any, obj: Any, form: Any, *, change: bool) -> None:
         assert obj.id is not None
@@ -121,8 +123,8 @@ async def test_save_hooks_run_in_order_with_actor_object_and_validated_form(
         calls.append(("response", obj.id))
         return RedirectResponse("/custom-result", status_code=303)
 
-    monkeypatch.setattr(ProductAdmin, "save_model", save)
-    monkeypatch.setattr(ProductAdmin, "save_related", related)
+    monkeypatch.setattr(ProductResource, "save_model", save)
+    monkeypatch.setattr(ProductResource, "save_related", related)
     monkeypatch.setattr(ProductAdmin, "response_add", response)
     monkeypatch.setattr(ProductAdmin, "response_change", response)
     suffix = "/add" if pk is None else f"/{pk}"
@@ -159,7 +161,7 @@ async def test_related_failure_rolls_back_parent_and_entire_inline_batch(
         if obj.name != "Changed first":
             ctx.db.add(Order(reference="duplicate"))
 
-    monkeypatch.setattr(ProductAdmin, "save_related", related)
+    monkeypatch.setattr(ProductResource, "save_related", related)
     suffix = "/add" if operation == "create" else f"/{first}"
     data = {"csrf_token": token, **product_form(name="Changed")}
     if operation == "inline":
@@ -193,19 +195,14 @@ async def test_delete_hooks_cover_single_and_bulk_deletion(
         assert ctx.obj is obj
         calls.append("delete")
         ctx.db.add(Order(reference=f"deleted-{obj.id}"))
-        await ModelAdmin.delete_model(self, ctx, obj)
-
-    async def delete_many(self: Any, ctx: Any, queryset: Any) -> None:
-        calls.append("queryset")
-        await ModelAdmin.delete_queryset(self, ctx, queryset)
+        await ModelResource.delete_model(self, ctx, obj)
 
     async def response(self: Any, ctx: Any, object_id: Any) -> Any:
         assert object_id == pk
         calls.append("response")
         return RedirectResponse("/deleted", status_code=303)
 
-    monkeypatch.setattr(ProductAdmin, "delete_model", delete)
-    monkeypatch.setattr(ProductAdmin, "delete_queryset", delete_many)
+    monkeypatch.setattr(ProductResource, "delete_model", delete)
     monkeypatch.setattr(ProductAdmin, "response_delete", response)
     suffix = "/actions" if bulk else f"/{pk}/delete"
     result = await confirmed_delete(
@@ -218,7 +215,7 @@ async def test_delete_hooks_cover_single_and_bulk_deletion(
         },
     )
     assert result.status_code == 303
-    assert calls == (["queryset", "delete"] if bulk else ["delete", "response"])
+    assert calls == (["delete"] if bulk else ["delete", "response"])
     assert await get_product(pk) is None
     async with session_scope() as db:
         assert await db.scalar(sa.select(Order).where(Order.reference == f"deleted-{pk}"))

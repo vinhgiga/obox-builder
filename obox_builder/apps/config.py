@@ -7,7 +7,6 @@ from importlib import import_module
 from importlib.util import find_spec
 from pathlib import Path
 from types import ModuleType
-from typing import ClassVar
 
 import sqlalchemy as sa
 
@@ -21,9 +20,12 @@ class AppConfig:
     label: str = ""
     verbose_name: str = ""
     default: bool = True
-    permissions: ClassVar[list[str]] = []
 
     def __init__(self, name: str, module: ModuleType | None = None) -> None:
+        if any("permissions" in vars(base) for base in type(self).__mro__):
+            raise ImproperlyConfigured(
+                "Declare permissions on Resource operations and capabilities."
+            )
         if module is None:
             module = self._import_app_module(name)
         self.name = name
@@ -154,6 +156,9 @@ class AppConfig:
 
     def ready(self) -> None:
         """Hook called once all app models have been imported."""
+
+    def finalize(self) -> None:
+        """Validate runtime bindings after all definitions have been discovered."""
 
     @asynccontextmanager
     async def lifespan(self) -> AsyncIterator[None]:

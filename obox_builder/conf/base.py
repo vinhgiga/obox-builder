@@ -51,17 +51,17 @@ class BaseSettings(PydanticBaseSettings):
     CACHE_URL: str = "redis://localhost:6379/0"
     CACHE_KEY_PREFIX: str = "obox"
     CACHE_DEFAULT_TIMEOUT: int = Field(default=300, ge=0)
-    ADMIN_MAX_UPLOAD_BYTES: int = Field(default=10 * 1024 * 1024, ge=1, le=50 * 1024 * 1024)
+    UPLOAD_MAX_BYTES: int = Field(default=10 * 1024 * 1024, ge=1, le=50 * 1024 * 1024)
     ADMIN_SMOOTH_NAVIGATION: bool = True
-    ADMIN_API_MAX_BATCH: int = Field(default=50, ge=1, le=200)
-    ADMIN_API_MAX_BODY_BYTES: int = Field(default=1024 * 1024, ge=1)
-    ADMIN_API_REQUIRE_IF_MATCH: bool = True
-    ADMIN_API_RATE_LIMIT: int = Field(default=300, ge=1)
-    ADMIN_API_TRUSTED_ORIGINS: list[str] = Field(default_factory=list)
-    ADMIN_API_QUERY_TIMEOUT_MS: int = Field(default=5000, ge=1)
-    ADMIN_API_IDEMPOTENCY_TTL_SECONDS: int = Field(default=86400, ge=1)
-    ADMIN_API_TOKEN_MAX_AGE_DAYS: int = Field(default=90, ge=1)
-    ADMIN_API_UPLOAD_TTL_SECONDS: int = Field(default=3600, ge=60)
+    API_MAX_BATCH: int = Field(default=50, ge=1, le=200)
+    API_MAX_BODY_BYTES: int = Field(default=1024 * 1024, ge=1)
+    API_REQUIRE_IF_MATCH: bool = True
+    API_RATE_LIMIT: int = Field(default=300, ge=1)
+    API_TRUSTED_ORIGINS: list[str] = Field(default_factory=list)
+    API_QUERY_TIMEOUT_MS: int = Field(default=5000, ge=1)
+    API_IDEMPOTENCY_TTL_SECONDS: int = Field(default=86400, ge=1)
+    API_TOKEN_MAX_AGE_DAYS: int = Field(default=90, ge=1)
+    API_UPLOAD_TTL_SECONDS: int = Field(default=3600, ge=60)
     #: Use ICU Vietnamese ordering for admin text sort/group; None uses the database default.
     ADMIN_TEXT_COLLATION: Literal["vi"] | None = None
     INSTALLED_APPS: list[str] = Field(default_factory=list)

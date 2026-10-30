@@ -8,10 +8,11 @@ from typing import Any
 import httpx
 import pytest
 import sqlalchemy as sa
-from obox_builder.contrib.admin import ModelAdmin
+from obox_builder.contrib.admin import ModelView
 from obox_builder.contrib.history.models import RowChange
 from obox_builder.contrib.history.service import model_label
 from obox_builder.db.session import session_scope
+from obox_builder.resources import get_registry
 
 from tests.admin.conftest import (
     build_app,
@@ -43,7 +44,7 @@ def _register_admins() -> None:
     )
     for model, name, attrs in admins:
         if site.get_model_admin_for(model) is None:
-            site.register(model, type(name, (ModelAdmin,), attrs))
+            site.register(get_registry().for_model(model), type(name, (ModelView,), attrs))
 
 
 @pytest.fixture

@@ -66,6 +66,9 @@ def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.syspath_prepend(str(tmp_path))
     monkeypatch.setenv(SETTINGS_MODULE_ENV, "proj.config.settings")
     monkeypatch.delenv("OBOX_DATABASE_URL", raising=False)
+    import obox_builder
+
+    obox_builder.setup()
     return root
 
 
@@ -158,6 +161,12 @@ def test_shared_migration_graph_filters_operations_per_database_alias(
         "['tests.support.database_routers.ShopRouter']\n"
     )
     settings_file.write_text(settings_file.read_text() + extra_settings)
+    from obox_builder.conf import settings
+    import obox_builder
+
+    settings.reset()
+    obox_builder._reset()
+    sys.modules.pop("proj.config.settings", None)
 
     from obox_builder.db.migrations import (
         current_revision,

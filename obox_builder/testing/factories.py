@@ -54,12 +54,12 @@ async def make_user(
 
 
 async def _resolve_permissions(db: AsyncSession, full_names: tuple[str, ...]) -> list[Permission]:
-    from obox_builder.contrib.auth.authz import PermissionName
     from obox_builder.contrib.auth.models import Permission
+    from obox_builder.security import PermissionRef
 
     resolved: list[Permission] = []
     for full_name in full_names:
-        name = PermissionName.parse(full_name)
+        name = PermissionRef.parse(full_name)
         permission = await db.scalar(
             sa.select(Permission).where(
                 Permission.service == name.service,

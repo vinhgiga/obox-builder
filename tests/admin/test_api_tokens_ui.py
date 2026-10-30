@@ -27,7 +27,7 @@ async def test_token_admin_hides_secret_and_revokes(client: httpx.AsyncClient) -
     assert (await client.get(f"{url}/add")).status_code == 403
     response = await client.post(
         f"{url}/actions",
-        data={"csrf_token": csrf, "action": "revoke_tokens", "_selected_action": str(pk)},
+        data={"csrf_token": csrf, "action": "revoke", "_selected_action": str(pk)},
     )
     assert response.status_code == 303, response.text
     async with session_scope() as db:

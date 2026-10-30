@@ -132,11 +132,11 @@ async def mentionable_users(
 
 
 def _permission_ids(*permissions: str) -> sa.Select[tuple[int]]:
-    from obox_builder.contrib.auth.authz import PermissionName
+    from obox_builder.security import PermissionRef
 
     clauses = []
     for permission in permissions:
-        name = PermissionName.parse(permission)
+        name = PermissionRef.parse(permission)
         clauses.append(
             sa.and_(
                 Permission.service == name.service,

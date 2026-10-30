@@ -11,12 +11,12 @@ from sqlalchemy.orm import Mapped, mapped_column, validates
 
 from obox_builder.apps import apps
 from obox_builder.conf import settings
-from obox_builder.contrib.auth.authz import COMPONENT_PATTERN, SERVICE_PATTERN, model_permission
 from obox_builder.contrib.auth.base_user import AbstractBaseUser, AbstractUser
 from obox_builder.db import Model, TimestampMixin, VersionedMixin, relationship
 from obox_builder.db.base import ModelBase
 from obox_builder.db.types import JSONB, BigIntIdentity, JsonDict, TZDateTime
 from obox_builder.exceptions import ImproperlyConfigured
+from obox_builder.security import COMPONENT_PATTERN, SERVICE_PATTERN
 from obox_builder.utils.strings import camel_to_snake
 
 USER_MODEL = settings.AUTH_USER_MODEL if settings.configured else "auth.User"
@@ -101,8 +101,8 @@ else:
     User = _build_builtin_user() if USER_MODEL == "auth.User" else _resolve_user_model()
 
 USER_MODEL_NAME = camel_to_snake(User.__name__)
-USER_VIEW_PERMISSION = model_permission(User, "read")
-USER_ADD_PERMISSION = model_permission(User, "manage")
+USER_VIEW_PERMISSION = f"{User._model_label.replace('_', '')}.users.read"
+USER_ADD_PERMISSION = f"{User._model_label.replace('_', '')}.users.manage"
 USER_CHANGE_PERMISSION = USER_ADD_PERMISSION
 
 
@@ -141,8 +141,6 @@ class Role(Model, TimestampMixin, VersionedMixin):
     """Roles are assignable identities, so they are tracked as well."""
 
     __history__ = True
-    __permission_resource__ = "roles"
-    __permission_actions__ = ("read", "manage")
 
     id: Mapped[int] = mapped_column(BigIntIdentity, primary_key=True)
     name: Mapped[str] = mapped_column(sa.String(150), unique=True)

@@ -8,8 +8,8 @@ import httpx
 import pytest
 import sqlalchemy as sa
 from obox_builder.conf import settings
-from obox_builder.contrib.admin import ModelAdmin, site
-from obox_builder.contrib.admin.uploads import (
+from obox_builder.contrib.admin import ModelView, site
+from obox_builder.contrib.uploads import (
     discard_uploads,
     open_upload,
     persist_uploads,
@@ -18,6 +18,7 @@ from obox_builder.contrib.admin.uploads import (
 from obox_builder.core.exceptions import ImproperlyConfigured
 from obox_builder.fields import FieldSpec
 from obox_builder.fields.types.file import File
+from obox_builder.resources import get_registry
 from starlette.datastructures import UploadFile
 
 pytestmark = pytest.mark.usefixtures("admin_env")
@@ -98,12 +99,21 @@ async def test_file_upload_and_download_require_record_view_permission(
 
     previous = site.get_model_admin_for(Product)
 
-    class UploadAdmin(ModelAdmin):
+    from tests.support.apps.shop.resources import ProductResource
+    from tests.support.resources import rebuild_registry
+
+    monkeypatch.setattr(
+        ProductResource, "fields_config", {"name": File(accept=("image/png",), max_bytes=1024)}
+    )
+    monkeypatch.setattr(ProductResource, "fields", ("id", "name"))
+    rebuild_registry(monkeypatch)
+
+    class UploadAdmin(ModelView):
         fields = ("name",)
-        fields_config = {"name": File(accept=("image/png",), max_bytes=1024)}
 
     monkeypatch.setattr(settings.load(), "MEDIA_ROOT", tmp_path)
-    site.register(Product, UploadAdmin)
+    site.unregister(get_registry().for_model(Product))
+    site.register(get_registry().for_model(Product), UploadAdmin)
     try:
         await make_user("upload_admin", is_superuser=True)
         transport = httpx.ASGITransport(app=build_app())
@@ -150,10 +160,11 @@ async def test_file_upload_and_download_require_record_view_permission(
             await make_user("change_only")
             await grant_permissions("change_only", "shop.product.update")
             await login_session(http, "change_only")
-            assert (await http.get(f"/admin/shop/product/{pk}/files/name")).content == image
+            assert (await http.get(f"/admin/shop/product/{pk}/files/name")).status_code == 403
     finally:
         if previous is not None:
-            site.register(Product, type(previous))
+            site.unregister(get_registry().for_model(Product))
+            site.register(get_registry().for_model(Product), type(previous))
 
 
 def test_json_type_parses_and_bounds_user_input() -> None:

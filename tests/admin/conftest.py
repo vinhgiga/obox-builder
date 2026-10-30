@@ -10,6 +10,7 @@ import pytest
 import sqlalchemy as sa
 from obox_builder.conf import SETTINGS_MODULE_ENV
 from obox_builder.db.base import ModelBase
+from obox_builder.resources import get_registry
 
 # Model classes require a ready app registry at import time (Django-style), and
 # test modules import them at module level (see tests/auth/conftest.py).
@@ -74,7 +75,7 @@ async def client(admin_env: None) -> AsyncIterator[httpx.AsyncClient]:
 
 @pytest.fixture
 async def relation_client(client: httpx.AsyncClient) -> AsyncIterator[httpx.AsyncClient]:
-    from obox_builder.contrib.admin import ModelAdmin, TabularInline, site
+    from obox_builder.contrib.admin import ModelView, TabularInline, site
 
     from tests.support.apps.shop.models import (
         Asset,
@@ -98,15 +99,15 @@ async def relation_client(client: httpx.AsyncClient) -> AsyncIterator[httpx.Asyn
         model = OrderDetails
         fields = ("recipient",)
 
-    class OrderAdmin(ModelAdmin):
+    class OrderAdmin(ModelView):
         fields = ("reference", "labels")
         autocomplete_fields = ("labels",)
         inlines = (LineInline, DetailsInline)
 
-    class MultiTableRecordAdmin(ModelAdmin):
+    class MultiTableRecordAdmin(ModelView):
         fields = ("name",)
 
-    class DetailedMultiTableRecordAdmin(ModelAdmin):
+    class DetailedMultiTableRecordAdmin(ModelView):
         fields = ("name", "details")
 
     models = (
@@ -134,15 +135,17 @@ async def relation_client(client: httpx.AsyncClient) -> AsyncIterator[httpx.Asyn
             if model is not Order
             else "reference"
         )
+        resource = get_registry().for_model(model)
+        site.unregister(resource)
         site.register(
-            model,
+            resource,
             OrderAdmin
             if model is Order
             else MultiTableRecordAdmin
             if model is MultiTableRecord
             else DetailedMultiTableRecordAdmin
             if model is DetailedMultiTableRecord
-            else type(f"{model.__name__}Admin", (ModelAdmin,), {"search_fields": (search,)}),
+            else type(f"{model.__name__}Admin", (ModelView,), {"search_fields": (search,)}),
         )
     try:
         transport = httpx.ASGITransport(app=build_app())
@@ -150,9 +153,10 @@ async def relation_client(client: httpx.AsyncClient) -> AsyncIterator[httpx.Asyn
             yield http
     finally:
         for model, admin in previous.items():
-            site.unregister(model)
+            site.unregister(get_registry().for_model(model))
             if admin is not None:
-                site.register(model, type(admin))
+                site.unregister(get_registry().for_model(model))
+                site.register(get_registry().for_model(model), type(admin))
 
 
 async def ensure_permissions() -> None:

@@ -20,6 +20,11 @@ def setup() -> BaseSettings:
         return config
     configure_logging(logging_config=config.LOGGING, debug=config.DEBUG)
     apps.populate(config.INSTALLED_APPS)
+    from obox_builder.resources.registry import initialize
+
+    initialize(app.name for app in apps.get_app_configs())
+    for app in apps.get_app_configs():
+        app.finalize()
     _setup_done = True
     return config
 
@@ -33,6 +38,14 @@ def _reset() -> None:
     global _setup_done
     _setup_done = False
     apps._reset()
+    from obox_builder.resources.registry import reset
+
+    reset()
+    import sys
+
+    permissions = sys.modules.get("obox_builder.contrib.auth.permissions")
+    if permissions is not None:
+        setattr(permissions, "_catalog", None)
 
 
 __all__ = [

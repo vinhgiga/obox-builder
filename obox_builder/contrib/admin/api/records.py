@@ -29,7 +29,7 @@ from obox_builder.contrib.admin.context import AdminContext
 from obox_builder.contrib.admin.relations import related_admin, related_key, related_objects
 from obox_builder.contrib.admin.services import RecordService
 from obox_builder.contrib.admin.services.deletion import DeletionPlan, confirmation_token, confirmed
-from obox_builder.contrib.admin.uploads import open_upload
+from obox_builder.contrib.uploads import open_upload
 from obox_builder.fields.types.choice import normalize_choices
 
 
@@ -75,7 +75,7 @@ def body_schema(
                 "records": {
                     "type": "array",
                     "minItems": 1,
-                    "maxItems": settings.ADMIN_API_MAX_BATCH,
+                    "maxItems": settings.API_MAX_BATCH,
                     "items": value,
                 }
             },
@@ -165,13 +165,13 @@ def batch_items(body: dict[str, Any]) -> list[dict[str, Any]]:
     records = body["records"]
     if (
         not isinstance(records, list)
-        or not 1 <= len(records) <= settings.ADMIN_API_MAX_BATCH
+        or not 1 <= len(records) <= settings.API_MAX_BATCH
         or not all(isinstance(item, dict) for item in records)
     ):
         raise Problem(
             422,
             "validation_error",
-            f"records must contain 1–{settings.ADMIN_API_MAX_BATCH} objects.",
+            f"records must contain 1–{settings.API_MAX_BATCH} objects.",
         )
     return records
 
@@ -419,7 +419,7 @@ def register_records(router: APIRouter) -> None:
         ids = body["ids"]
         if (
             not isinstance(ids, list)
-            or not 1 <= len(ids) <= settings.ADMIN_API_MAX_BATCH
+            or not 1 <= len(ids) <= settings.API_MAX_BATCH
             or not all(isinstance(pk, str) for pk in ids)
             or len(set(ids)) != len(ids)
         ):

@@ -17,25 +17,24 @@ from starlette.datastructures import FormData, UploadFile
 from obox_builder.conf import settings
 from obox_builder.contrib.admin.context import AdminContext
 from obox_builder.contrib.admin.imports import AdminImportResource
-from obox_builder.contrib.admin.options import ModelAdmin
+from obox_builder.contrib.admin.options import ModelView
 from obox_builder.contrib.admin.rendering import render
 from obox_builder.contrib.admin.site import AdminSite
-from obox_builder.contrib.admin.tasks import import_spreadsheet
 from obox_builder.contrib.admin.views.common import ensure_csrf, page_context
 from obox_builder.contrib.auth.dependencies import login_required
 from obox_builder.contrib.imports import services
 from obox_builder.contrib.imports.models import ImportRow, ImportSession
 from obox_builder.contrib.imports.parser import ImportFileError
+from obox_builder.contrib.imports.tasks import import_spreadsheet
 from obox_builder.contrib.jobs.models import Task
 from obox_builder.contrib.jobs.services import retry
 from obox_builder.db.session import get_db, session_scope
 from obox_builder.exceptions import ImproperlyConfigured, PermissionDenied
-from obox_builder.utils.module_loading import import_string
 
 BUSY = {"uploaded", "parsing", "validating", "queued", "committing"}
 
 
-def register_import_routes(router: APIRouter, site: AdminSite, admin: ModelAdmin) -> None:
+def register_import_routes(router: APIRouter, site: AdminSite, admin: ModelView) -> None:
     async def context(
         request: Request, user: Any = Depends(login_required), db: AsyncSession = Depends(get_db)
     ) -> AdminContext:
@@ -197,14 +196,9 @@ async def _session(ctx: AdminContext, session_id: str) -> ImportSession | None:
 
 
 async def _enqueue(ctx: AdminContext, session: ImportSession, phase: str) -> None:
-    path = ctx.site.import_path
-    if not path or import_string(path) is not ctx.site:
-        raise ImproperlyConfigured(
-            "Configure AdminSite(import_path=...) with its importable instance path."
-        )
     task = await import_spreadsheet.apply_async(
         ctx.db,
-        args=(session.id, session.revision, phase, path),
+        args=(session.id, session.revision, phase),
         dedup_key=f"import:{session.id}:{session.revision}:{phase}",
     )
     session.task_id = task.id

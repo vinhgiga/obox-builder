@@ -39,7 +39,7 @@ def build_api_router(site: AdminSite, *, rate_limiter: RateLimiter | None = None
         request.state.admin_site = site
         request.state.api_limiter = limiter
         origin = request.headers.get("origin")
-        if origin and origin != "*" and origin in settings.ADMIN_API_TRUSTED_ORIGINS:
+        if origin and origin != "*" and origin in settings.API_TRUSTED_ORIGINS:
             request.state.api_cors_origin = origin
         if apps.is_installed("obox_builder.contrib.history"):
             from obox_builder.contrib.history.context import bind
@@ -86,7 +86,7 @@ def build_api_router(site: AdminSite, *, rate_limiter: RateLimiter | None = None
     @router.options("/{path:path}", include_in_schema=False)
     async def preflight(request: Request, path: str) -> Response:
         origin = request.headers.get("origin", "")
-        if not origin or origin == "*" or origin not in settings.ADMIN_API_TRUSTED_ORIGINS:
+        if not origin or origin == "*" or origin not in settings.API_TRUSTED_ORIGINS:
             raise Problem(403, "csrf_failed", "Origin is not trusted.")
         request.state.api_cors_origin = origin
         return Response(

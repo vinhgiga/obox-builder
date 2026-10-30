@@ -30,7 +30,7 @@ _bearer = HTTPBearer(auto_error=False)
 
 def check_origin(request: Request) -> None:
     origin = request.headers.get("origin")
-    if origin and origin in settings.ADMIN_API_TRUSTED_ORIGINS and origin != "*":
+    if origin and origin in settings.API_TRUSTED_ORIGINS and origin != "*":
         request.state.api_cors_origin = origin
         return
     if not csrf.check_origin(request):
@@ -57,7 +57,7 @@ async def current_user(
         request.state.actor = await get_actor(db, user)
         user.permissions = request.state.actor.permissions
         request.state.api_rate_headers = await request.state.api_limiter.check(
-            request.state.api_principal, settings.ADMIN_API_RATE_LIMIT
+            request.state.api_principal, settings.API_RATE_LIMIT
         )
         if (
             credential.last_used_at is None
@@ -97,11 +97,11 @@ async def current_user(
         provided = request.headers.get(csrf.CSRF_HEADER_NAME, "")
         if not secrets.compare_digest(provided, expected):
             raise Problem(403, "csrf_failed", "CSRF token is missing or invalid.")
-    elif request.headers.get("origin") in settings.ADMIN_API_TRUSTED_ORIGINS:
+    elif request.headers.get("origin") in settings.API_TRUSTED_ORIGINS:
         request.state.api_cors_origin = request.headers["origin"]
     request.state.api_principal = f"user:{user.id}"
     request.state.api_rate_headers = await request.state.api_limiter.check(
-        request.state.api_principal, settings.ADMIN_API_RATE_LIMIT
+        request.state.api_principal, settings.API_RATE_LIMIT
     )
     return user
 
@@ -125,7 +125,7 @@ async def json_body(request: Request) -> dict[str, Any]:
     content = bytearray()
     async for chunk in request.stream():
         content.extend(chunk)
-        if len(content) > settings.ADMIN_API_MAX_BODY_BYTES:
+        if len(content) > settings.API_MAX_BODY_BYTES:
             raise Problem(413, "payload_too_large", "Request body is too large.")
     try:
         value = json.loads(

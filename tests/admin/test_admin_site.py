@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import pytest
-from obox_builder.contrib.admin import AdminSite, ModelAdmin, site
+from obox_builder.contrib.admin import AdminSite, ModelView, site
 from obox_builder.core.exceptions import ImproperlyConfigured
+from obox_builder.resources import get_registry
 
 from tests.support.apps.shop.models import Category, Order, Product
 
@@ -15,64 +16,67 @@ def local_site() -> AdminSite:
 
 
 def test_register_as_decorator_and_function(local_site: AdminSite) -> None:
-    @local_site.register(Category)
-    class CategoryAdmin(ModelAdmin):
+    @local_site.view(get_registry().for_model(Category))
+    class CategoryAdmin(ModelView):
         list_display = ("id", "name")
 
-    class OrderAdmin(ModelAdmin):
+    class OrderAdmin(ModelView):
         list_display = ("id", "reference")
 
-    local_site.register(Order, OrderAdmin)
+    local_site.register(get_registry().for_model(Order), OrderAdmin)
     assert local_site.get_model_admin("shop", "category") is not None
     assert local_site.get_model_admin("shop", "order") is not None
 
 
 def test_get_model_accepts_snake_and_camel_names(local_site: AdminSite) -> None:
-    class CategoryAdmin(ModelAdmin):
+    class CategoryAdmin(ModelView):
         pass
 
-    local_site.register(Category, CategoryAdmin)
+    local_site.register(get_registry().for_model(Category), CategoryAdmin)
     assert local_site.get_model_admin("shop", "category") is not None
     assert local_site.get_model_admin("shop", "Category") is not None
     assert local_site.get_model_admin("shop", "nope") is None
 
 
-def test_registration_replaces_on_conflict(local_site: AdminSite) -> None:
-    class First(ModelAdmin):
+def test_registration_rejects_conflicts_until_explicitly_unbound(local_site: AdminSite) -> None:
+    class First(ModelView):
         pass
 
-    class Second(ModelAdmin):
+    class Second(ModelView):
         list_display = ("id", "name")
 
-    local_site.register(Category, First)
-    local_site.register(Category, Second)
+    local_site.register(get_registry().for_model(Category), First)
+    with pytest.raises(ImproperlyConfigured, match="already has a view binding"):
+        local_site.register(get_registry().for_model(Category), Second)
+    local_site.unregister(get_registry().for_model(Category))
+    local_site.register(get_registry().for_model(Category), Second)
     registered = local_site.get_model_admin("shop", "category")
     assert registered is not None
     assert isinstance(registered, Second)
 
 
 def test_unregister_removes_the_admin(local_site: AdminSite) -> None:
-    class CategoryAdmin(ModelAdmin):
+    class CategoryAdmin(ModelView):
         pass
 
-    local_site.register(Category, CategoryAdmin)
-    local_site.unregister(Category)
+    local_site.register(get_registry().for_model(Category), CategoryAdmin)
+    local_site.unregister(get_registry().for_model(Category))
     assert local_site.get_model_admin("shop", "category") is None
 
 
 def test_registering_a_non_modeladmin_raises(local_site: AdminSite) -> None:
-    with pytest.raises(ImproperlyConfigured, match="not a ModelAdmin"):
+    with pytest.raises(ImproperlyConfigured, match="extend ModelView"):
 
-        @local_site.register(Category)
+        @local_site.view(get_registry().for_model(Category))
         class Nope:
             pass
 
 
 def test_nav_groups_include_registered_models(local_site: AdminSite) -> None:
-    class ProductAdmin(ModelAdmin):
+    class ProductAdmin(ModelView):
         pass
 
-    local_site.register(Product, ProductAdmin)
+    local_site.register(get_registry().for_model(Product), ProductAdmin)
     groups = {group.label: group for group in local_site.get_nav_groups()}
     assert "Shop" in groups
     labels = [item.label for item in groups["Shop"].items]
@@ -114,13 +118,15 @@ def test_router_uses_base_path_when_set() -> None:
     class PostsAdmin(ProductAdmin):
         base_path = "posts"
 
-    site.register(Product, PostsAdmin)
+    site.unregister(get_registry().for_model(Product))
+    site.register(get_registry().for_model(Product), PostsAdmin)
     try:
         router = site.get_router()
         assert router.url_path_for("admin:shop_product_list") == "/posts"
         assert router.url_path_for("admin:shop_product_change", pk="7") == "/posts/7"
     finally:
-        site.register(Product, ProductAdmin)
+        site.unregister(get_registry().for_model(Product))
+        site.register(get_registry().for_model(Product), ProductAdmin)
 
 
 def test_system_check_reports_broken_admins() -> None:
@@ -129,14 +135,16 @@ def test_system_check_reports_broken_admins() -> None:
 
     from tests.support.apps.shop.admin import CategoryAdmin
 
-    class Broken(ModelAdmin):
+    class Broken(ModelView):
         list_display = ("nope",)
 
-    site.register(Category, Broken)
+    site.unregister(get_registry().for_model(Category))
+    site.register(get_registry().for_model(Category), Broken)
     try:
         messages = check_model_admins()
     finally:
-        site.register(Category, CategoryAdmin)
+        site.unregister(get_registry().for_model(Category))
+        site.register(get_registry().for_model(Category), CategoryAdmin)
     assert any(
         isinstance(message, Error) and message.id == "obox.admin.E102" for message in messages
     )
@@ -145,13 +153,13 @@ def test_system_check_reports_broken_admins() -> None:
 def test_duplicate_list_paths_are_reported(monkeypatch: pytest.MonkeyPatch) -> None:
     from obox_builder.contrib.admin import checks as checks_module
 
-    class SamePath(ModelAdmin):
+    class SamePath(ModelView):
         def list_path(self) -> str:
             return "/admin/collision"
 
     clashing = AdminSite()
-    clashing.register(Product, SamePath)
-    clashing.register(Category, SamePath)
+    clashing.register(get_registry().for_model(Product), SamePath)
+    clashing.register(get_registry().for_model(Category), SamePath)
     monkeypatch.setattr(checks_module, "site", clashing)
     messages = checks_module.check_model_admins()
     assert any("URLs would collide" in message.msg for message in messages)

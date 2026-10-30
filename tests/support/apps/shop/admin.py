@@ -2,27 +2,27 @@
 
 from __future__ import annotations
 
-from obox_builder.contrib.admin import ModelAdmin, register
+from obox_builder.contrib.admin import ModelView, register
 
-from tests.support.apps.shop.models import Category, Order, Product
+from .resources import CategoryResource, OrderResource, ProductResource
 
 
-@register(Category)
-class CategoryAdmin(ModelAdmin):
+@register(CategoryResource)
+class CategoryAdmin(ModelView):
     list_display = ("id", "name")
     ordering = ("name",)
 
 
-@register(Product)
-class ProductAdmin(ModelAdmin):
+@register(ProductResource)
+class ProductAdmin(ModelView):
     list_display = ("id", "name", "status", "price_cents", "category_id", "is_active")
     list_filter = ("status", "is_active")
     search_fields = ("name",)
     ordering = ("-id",)
 
 
-@register(Order)
-class OrderAdmin(ModelAdmin):
+@register(OrderResource)
+class OrderAdmin(ModelView):
     list_display = ("id", "reference", "created_at")
     search_fields = ("reference",)
     ordering = ("-id",)

@@ -8,9 +8,8 @@ from typing import Any
 import sqlalchemy as sa
 from sqlalchemy.orm.exc import UnmappedColumnError
 
-from obox_builder.contrib.admin.context import AdminContext
-from obox_builder.contrib.admin.inlines import InlineModelAdmin, InlineRow
 from obox_builder.forms import BoundForm
+from obox_builder.resources.context import OperationContext
 
 
 def unique_column_sets(model: type[Any]) -> list[tuple[tuple[Any, ...], bool]]:
@@ -98,7 +97,7 @@ def _add_unique_error(bound: BoundForm, model: type[Any], columns: Sequence[Any]
 
 
 async def validate_model_uniqueness(
-    ctx: AdminContext,
+    ctx: OperationContext,
     model: type[Any],
     bound: BoundForm,
     obj: Any = None,
@@ -126,7 +125,7 @@ async def validate_model_uniqueness(
                 value = getattr(obj, key, None)
                 if value is not None:
                     predicates.append(primary_key != value)
-        exists = await ctx.db.scalar(
+        exists = await ctx.session.scalar(
             sa.select(sa.literal(True)).select_from(model).where(*predicates).limit(1)
         )
         if exists:
@@ -148,9 +147,9 @@ def _hashable(value: Any) -> Any:
 
 
 async def validate_inline_uniqueness(
-    ctx: AdminContext,
-    inline: InlineModelAdmin,
-    rows: Sequence[InlineRow],
+    ctx: OperationContext,
+    inline: Any,
+    rows: Sequence[Any],
     parent: Any,
 ) -> None:
     """Validate existing-row conflicts and duplicate values within one inline formset."""
@@ -163,7 +162,7 @@ async def validate_inline_uniqueness(
     signature_overrides = overrides.copy()
     if parent is None:
         signature_overrides[inline.fk_column.key] = object()
-    candidates: list[tuple[InlineRow, tuple[Any, ...], tuple[Any, ...]]] = []
+    candidates: list[tuple[Any, tuple[Any, ...], tuple[Any, ...]]] = []
     for row in rows:
         if row.delete or row.bound is None or not row.bound.is_valid:
             continue
@@ -182,7 +181,7 @@ async def validate_inline_uniqueness(
                 continue
             candidates.append((row, columns, signature))
 
-    seen: dict[tuple[tuple[Any, ...], tuple[Any, ...]], InlineRow] = {}
+    seen: dict[tuple[tuple[Any, ...], tuple[Any, ...]], Any] = {}
     for row, columns, signature in candidates:
         key = (tuple(columns), signature)
         previous = seen.get(key)

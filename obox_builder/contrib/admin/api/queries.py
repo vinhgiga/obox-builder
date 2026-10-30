@@ -13,7 +13,7 @@ from obox_builder.contrib.admin.api.problems import Problem
 from obox_builder.contrib.admin.api.serializers import serialize_records
 from obox_builder.contrib.admin.context import AdminContext
 from obox_builder.contrib.admin.list_query import load_query, view_scope
-from obox_builder.contrib.admin.models import SavedView
+from obox_builder.contrib.savedviews.models import SavedView
 from obox_builder.contrib.admin.services import RecordService
 from obox_builder.fields import QuerySpec
 

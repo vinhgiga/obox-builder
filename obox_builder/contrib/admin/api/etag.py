@@ -22,7 +22,7 @@ def etag(fields: dict[str, Any], version: Any = None) -> str:
 
 def check_if_match(current: str, provided: str | None) -> None:
     if provided is None:
-        if settings.ADMIN_API_REQUIRE_IF_MATCH:
+        if settings.API_REQUIRE_IF_MATCH:
             raise Problem(428, "precondition_required", "If-Match is required.")
         return
     if provided.strip() == "*":

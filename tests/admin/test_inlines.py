@@ -5,7 +5,7 @@ from typing import Any
 import httpx
 import pytest
 import sqlalchemy as sa
-from obox_builder.contrib.admin import InlineFormSet, ModelAdmin, StackedInline, site
+from obox_builder.contrib.admin import InlineFormSet, ModelView, StackedInline, site
 from obox_builder.db.session import session_scope
 from sqlalchemy.orm import selectinload
 
@@ -344,7 +344,7 @@ async def test_inline_rejects_forged_or_unauthorized_rows(
     assert child is not None
     if attack == "queryset":
         monkeypatch.setattr(
-            child, "get_queryset", lambda ctx: ModelAdmin.get_queryset(child, ctx).where(sa.false())
+            child, "get_queryset", lambda ctx: ModelView.get_queryset(child, ctx).where(sa.false())
         )
     if attack in {"change", "delete", "add"}:
         monkeypatch.setattr(child, f"has_{attack}_permission", lambda *args: False)

@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     INSTALLED_APPS: list[str] = [
         "obox_builder.contrib.auth",
         "obox_builder.contrib.admin",
+        "obox_builder.contrib.savedviews",
         "obox_builder.contrib.comments",
         "tests.support.apps.customusers",
     ]

@@ -18,7 +18,7 @@ def admin_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture
 async def api(client: httpx.AsyncClient) -> AsyncIterator[httpx.AsyncClient]:
-    from obox_builder.contrib.admin import AdminSite, ModelAdmin
+    from obox_builder.contrib.admin import AdminSite, ModelView
     from obox_builder.core.application import create_app
     from tests.support.apps.shop.admin import CategoryAdmin, OrderAdmin, ProductAdmin
     from tests.support.apps.shop.models import Category, Order, Product
@@ -29,14 +29,14 @@ async def api(client: httpx.AsyncClient) -> AsyncIterator[httpx.AsyncClient]:
         (Product, ProductAdmin),
         (Category, CategoryAdmin),
         (Order, OrderAdmin),
-        (Item, ModelAdmin),
-        (Shelf, ModelAdmin),
-        (Tag, ModelAdmin),
+        (Item, ModelView),
+        (Shelf, ModelView),
+        (Tag, ModelView),
     ):
         site.register(
             model,
             cast(
-                type[ModelAdmin],
+                type[ModelView],
                 type(
                     f"Api{model.__name__}",
                     (admin_class,),

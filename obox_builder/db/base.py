@@ -40,9 +40,6 @@ class Model(ModelBase):
     app_label: ClassVar[str] = ""
     _model_label: ClassVar[str] = ""
     __auth_model__: ClassVar[bool] = False
-    __permissions__: ClassVar[list[str]] = []
-    __permission_resource__: ClassVar[str] = ""
-    __permission_actions__: ClassVar[tuple[str, ...]] = ("read", "create", "update", "delete")
     #: Row-history declaration: ``True`` for defaults, ``False``/``None`` to opt
     #: out, or a mapping with ``fields``/``exclude``/``relations``/``mask``/
     #: ``retention_days``.
@@ -55,6 +52,16 @@ class Model(ModelBase):
     __events__: ClassVar[bool | Mapping[str, Any] | None] = None
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
+        meta = cls.__dict__.get("Meta")
+        if (
+            "__permission_actions__" in cls.__dict__
+            or "__permissions__" in cls.__dict__
+            or meta is not None
+            and any(hasattr(meta, key) for key in ("permissions", "default_permissions"))
+        ):
+            raise ImproperlyConfigured(
+                "Declare permissions on Resource operations and capabilities."
+            )
         if not cls.__dict__.get("__abstract__", False):
             raw_label = cls.__dict__.get("app_label")
             if isinstance(raw_label, str) and raw_label:

@@ -127,17 +127,21 @@ markers = [
 
 [tool.importlinter]
 root_package = "obox_builder"
+include_external_packages = true
 
 [[tool.importlinter.contracts]]
 name = "Layered architecture"
 type = "layers"
 layers = [
-    "obox_builder.contrib.admin",
-    "obox_builder.contrib.imports | obox_builder.contrib.jobs | obox_builder.contrib.events",
+    "obox_builder.contrib.admin | obox_builder.contrib.api",
+    "obox_builder.contrib.imports",
+    "obox_builder.contrib.jobs | obox_builder.contrib.events",
     "obox_builder.contrib.history | obox_builder.contrib.comments",
     "obox_builder.contrib.auth",
+    "obox_builder.contrib.uploads",
     "obox_builder.contrib.email",
     "obox_builder.core",
+    "obox_builder.resources",
     "obox_builder.http",
     "obox_builder.templating",
     "obox_builder.contrib.i18n",
@@ -148,6 +152,7 @@ layers = [
     "obox_builder.apps",
     "obox_builder.conf",
     "obox_builder.utils",
+    "obox_builder.security",
     "obox_builder.exceptions",
 ]
 ignore_imports = [
@@ -169,20 +174,24 @@ forbidden_modules = ["obox_builder.testing"]
 name = "Admin services do not import presentation adapters"
 type = "forbidden"
 source_modules = ["obox_builder.contrib.admin.services"]
-forbidden_modules = ["obox_builder.contrib.admin.views", "obox_builder.contrib.admin.api"]
+forbidden_modules = ["obox_builder.contrib.admin.views", "obox_builder.contrib.api"]
 # AdminSite remains the public router factory; type references can reach its adapters.
 allow_indirect_imports = true
 
 [[tool.importlinter.contracts]]
-name = "Admin API does not import HTML views"
+name = "REST APIs do not depend on the HTML admin"
 type = "forbidden"
-source_modules = ["obox_builder.contrib.admin.api"]
-forbidden_modules = ["obox_builder.contrib.admin.views"]
-allow_indirect_imports = true
+source_modules = ["obox_builder.contrib.api"]
+forbidden_modules = ["obox_builder.contrib.admin"]
 
 [[tool.importlinter.contracts]]
-name = "Admin HTML views do not import API adapters"
+name = "HTML views do not depend on REST APIs"
 type = "forbidden"
-source_modules = ["obox_builder.contrib.admin.views"]
-forbidden_modules = ["obox_builder.contrib.admin.api"]
-allow_indirect_imports = true
+source_modules = ["obox_builder.contrib.admin"]
+forbidden_modules = ["obox_builder.contrib.api"]
+
+[[tool.importlinter.contracts]]
+name = "Resources and security are transport independent"
+type = "forbidden"
+source_modules = ["obox_builder.resources", "obox_builder.security"]
+forbidden_modules = ["obox_builder.contrib.admin", "obox_builder.contrib.api", "fastapi", "starlette", "jinja2"]

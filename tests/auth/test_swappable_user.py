@@ -77,7 +77,9 @@ import asyncio
 import httpx
 import obox_builder
 obox_builder.setup()
-from obox_builder.contrib.admin import AdminSite, ModelAdmin
+from obox_builder.contrib.admin import AdminSite
+from obox_builder.contrib.api import Api
+from obox_builder.contrib.auth.resources import UserResource
 from obox_builder.contrib.auth import password_reset, services
 from obox_builder.contrib.auth import get_user_model
 from obox_builder.conf import settings
@@ -110,13 +112,12 @@ async def main():
         )
         assert await services.authenticate(db, "alice@example.org", "wrong") is None
     site = AdminSite("custom")
-    site.api_auth_enabled = True
-    class UserAdmin(ModelAdmin):
-        api_enabled = True
-    site.register(User, UserAdmin)
+    site.register(UserResource)
+    api = Api("custom")
+    api.register(UserResource, path="/users")
     app = create_app()
     app.include_router(site.get_router(), prefix="/admin")
-    app.include_router(site.get_api_router(), prefix="/api/admin/v1")
+    app.include_router(api.get_router(), prefix="/api/admin/v1")
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
         credentials = {"username": "alice@example.org", "password": "s3cure-password"}
@@ -134,7 +135,7 @@ async def main():
         csrf_token = response.json()["csrf_token"]
         response = await client.get("/api/admin/v1/users")
         assert response.status_code == 200, response.text
-        assert response.json()["users"][0]["email"] == "alice@example.org"
+        assert response.json()["items"][0]["email"] == "alice@example.org"
         response = await client.get("/api/admin/v1/models/emailusers.account/schema")
         assert response.status_code == 404, response.text
         response = await client.post(

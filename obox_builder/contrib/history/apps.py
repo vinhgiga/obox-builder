@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import ClassVar
-
 from obox_builder.apps import AppConfig
 
 
@@ -11,11 +9,6 @@ class HistoryConfig(AppConfig):
     name = "obox_builder.contrib.history"
     label = "history"
     verbose_name = "History"
-    permissions: ClassVar[list[str]] = [
-        "history.rowChange.read",
-        "history.rowChange.restore",
-        "history.rowChange.export",
-    ]
 
     def ready(self) -> None:
         from obox_builder.contrib.history import checks  # noqa: F401 (registers checks)

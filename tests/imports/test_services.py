@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -13,6 +12,8 @@ from obox_builder.contrib.imports import ImportResource, services
 from obox_builder.contrib.imports.models import ImportRow, ImportSession
 from obox_builder.contrib.imports.parser import ImportFileError
 from obox_builder.core.exceptions import ImproperlyConfigured, PermissionDenied
+from obox_builder.resources import OperationContext, get_registry
+from obox_builder.security import Actor
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tests.support.apps.shop.models import Category, Order, Product
@@ -21,8 +22,11 @@ from tests.support.apps.shop.models import Category, Order, Product
 def resource(
     model: type[Any] = Order, *, keys: tuple[str, ...] = ("reference",), **kwargs: Any
 ) -> ImportResource:
-    user = SimpleNamespace(id=1, is_active=True, has_perm=lambda perm: True)
-    return ImportResource(model, user, keys=keys, **kwargs)
+    catalog = get_registry()
+    actor = Actor(id=1, permissions=frozenset(catalog.permissions))
+    return ImportResource(
+        catalog.for_model(model), OperationContext(actor, registry=catalog), keys=keys, **kwargs
+    )
 
 
 async def stage(
@@ -196,7 +200,7 @@ async def test_row_scope_and_object_permissions_are_enforced(db: AsyncSession) -
         def queryset(self) -> sa.Select[Any]:
             return sa.select(Order).where(Order.reference != "private")
 
-    policy = Restricted(Order, resource().user, keys=("reference",))
+    policy = Restricted(get_registry().for_model(Order), resource().ctx, keys=("reference",))
     session = await stage(db, policy, b"reference\nprivate\n", mode="upsert")
     assert (await services.summary(db, session))["error"] == 1
     policy.can_change = lambda obj=None: obj is None  # type: ignore[method-assign]
@@ -222,11 +226,10 @@ async def test_mapping_and_permissions_fail_closed(db: AsyncSession) -> None:
     ):
         with pytest.raises(ValueError, match="Map|mapping"):
             await services.set_mapping(db, session, policy, mapping)
-    policy.user.id = 2
+    policy.ctx = replace(policy.ctx, actor=replace(policy.user, id=2))
     with pytest.raises(PermissionDenied):
         await services.set_mapping(db, session, policy, {"0": "reference"})
-    policy.user.id = 1
-    policy.user.has_perm = lambda perm: False
+    policy.ctx = replace(policy.ctx, actor=replace(policy.user, id=1, permissions=frozenset()))
     with pytest.raises(PermissionDenied):
         await services.set_mapping(db, session, policy, {"0": "reference"})
 

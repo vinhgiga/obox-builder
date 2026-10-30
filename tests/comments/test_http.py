@@ -68,7 +68,7 @@ async def test_comments_cannot_bypass_model_queryset(
     client: httpx.AsyncClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from obox_builder.contrib.admin import ModelAdmin
+    from obox_builder.contrib.admin import ModelView
     from obox_builder.contrib.admin.site import site
 
     pk = await make_ticket("Scoped ticket")
@@ -79,7 +79,7 @@ async def test_comments_cannot_bypass_model_queryset(
     monkeypatch.setattr(
         admin,
         "get_queryset",
-        lambda ctx: ModelAdmin.get_queryset(admin, ctx).where(Ticket.id != pk),
+        lambda ctx: ModelView.get_queryset(admin, ctx).where(Ticket.id != pk),
     )
     response = await client.get(f"{BASE}/{pk}/comments")
     assert response.status_code == 404
@@ -127,14 +127,14 @@ async def test_reply_edit_resolve_and_reopen(client: httpx.AsyncClient) -> None:
 
     edit = await client.post(
         f"{BASE}/{ticket_id}/comments/2/edit",
-        data={"csrf_token": token, "body": "edited reply"},
+        data={"csrf_token": token, "version": "1", "body": "edited reply"},
         follow_redirects=False,
     )
     assert edit.status_code == 303
 
     resolve = await client.post(
         f"{BASE}/{ticket_id}/comments/1/resolve",
-        data={"csrf_token": token},
+        data={"csrf_token": token, "version": "1"},
         follow_redirects=False,
     )
     assert resolve.status_code == 303
@@ -144,7 +144,7 @@ async def test_reply_edit_resolve_and_reopen(client: httpx.AsyncClient) -> None:
 
     reopen = await client.post(
         f"{BASE}/{ticket_id}/comments/1/reopen",
-        data={"csrf_token": token},
+        data={"csrf_token": token, "version": "2"},
         follow_redirects=False,
     )
     assert reopen.status_code == 303
@@ -158,7 +158,7 @@ async def test_delete_is_a_tombstone_and_moderators_see_the_body(
     await post_comment(client, ticket_id, token, "secret text")
     response = await client.post(
         f"{BASE}/{ticket_id}/comments/1/delete",
-        data={"csrf_token": token},
+        data={"csrf_token": token, "version": "1"},
         follow_redirects=False,
     )
     assert response.status_code == 303

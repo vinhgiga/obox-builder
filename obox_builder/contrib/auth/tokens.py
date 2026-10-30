@@ -43,7 +43,7 @@ async def create_token(
     from obox_builder.contrib.auth.models import ApiToken
 
     now = utcnow()
-    maximum = now + timedelta(days=settings.ADMIN_API_TOKEN_MAX_AGE_DAYS)
+    maximum = now + timedelta(days=settings.API_TOKEN_MAX_AGE_DAYS)
     expiry = ensure_aware(expires_at) if expires_at else maximum
     if (
         not 1 <= len(name.strip()) <= 100

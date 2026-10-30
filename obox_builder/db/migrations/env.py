@@ -39,9 +39,9 @@ async def run_async_migrations(url: str, alias: str, engine_name: str) -> None:
 
 def run_migrations() -> None:
     """Run Alembic migrations; called from the project's ``migrations/env.py``."""
-    import obox_builder
+    from obox_builder.apps import apps
 
-    obox_builder.setup()
+    apps.check_models_ready()
     config = context.config
     database = config.attributes.get("database_alias", "default")
     aliases = config.attributes.get("database_aliases", tuple(settings.database_urls))

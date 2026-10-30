@@ -8,16 +8,15 @@ from typing import Any, ClassVar
 import sqlalchemy as sa
 
 from obox_builder.contrib.admin.context import AdminContext
-from obox_builder.contrib.admin.options import ModelAdmin
+from obox_builder.contrib.admin.options import ModelView
 from obox_builder.contrib.admin.relations import build_cells, relation_choices, validate_relations
 from obox_builder.exceptions import ImproperlyConfigured, PermissionDenied
 from obox_builder.fields import FieldSpec
 from obox_builder.forms import BoundForm, render_values
 
 
-class InlineModelAdmin(ModelAdmin):
-    api_name: ClassVar[str | None] = None
-    fk_name: ClassVar[str | None] = None
+class InlineModelView(ModelView):
+    relation: ClassVar[str | None] = None
     extra: ClassVar[int] = 3
     min_num: ClassVar[int] = 0
     max_num: ClassVar[int | None] = None
@@ -30,20 +29,20 @@ class InlineModelAdmin(ModelAdmin):
         model = getattr(type(self), "model", None)
         if model is None:
             raise ImproperlyConfigured("An inline must declare its model.")
-        super().__init__(model, site)
+        super().__init__(site.resource_registry.for_model(model), site)
         self.parent_model = parent_model
+        self.parent_resource = site.resource_registry.for_model(parent_model)
         candidates = [
-            column
-            for column in sa.inspect(model).columns
-            if any(
-                fk.column is sa.inspect(parent_model).primary_key[0] for fk in column.foreign_keys
-            )
+            name
+            for name, relation in self.parent_resource.related.items()
+            if relation.resource == self.resource.name
+            and (self.relation is None or name == self.relation)
         ]
-        if self.fk_name:
-            candidates = [column for column in candidates if column.key == self.fk_name]
         if len(candidates) != 1:
-            raise ImproperlyConfigured("Set fk_name to one foreign key to the parent primary key.")
-        self.fk_column = candidates[0]
+            raise ImproperlyConfigured("An inline must select one declared resource relation.")
+        self.relation_name = candidates[0]
+        self.relation_config = self.parent_resource.related[self.relation_name]
+        self.fk_column = sa.inspect(model).columns[self.relation_config.foreign_key]
         max_num = self.get_max_num()
         if self.min_num < 0 or self.extra < 0 or max_num < 0:
             raise ImproperlyConfigured("Inline limits must be non-negative.")
@@ -60,7 +59,7 @@ class InlineModelAdmin(ModelAdmin):
         )
         if unique_foreign_key:
             return 1
-        return self.max_num if self.max_num is not None else 1000
+        return min(self.max_num or self.relation_config.max_num, self.relation_config.max_num)
 
     def get_absolute_max(self) -> int:
         """Cap forms parsed from a forged POST, as Django formsets do."""
@@ -106,11 +105,11 @@ class InlineModelAdmin(ModelAdmin):
         return self.can_delete and self._allowed(ctx, "delete", obj)
 
 
-class TabularInline(InlineModelAdmin):
+class TabularInline(InlineModelView):
     layout = "tabular"
 
 
-class StackedInline(InlineModelAdmin):
+class StackedInline(InlineModelView):
     layout = "stacked"
 
 
@@ -125,7 +124,7 @@ class InlineRow:
 @dataclass
 class InlineFormSet:
     ctx: AdminContext
-    inline: InlineModelAdmin
+    inline: InlineModelView
     index: int
     rows: list[InlineRow] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
@@ -142,42 +141,56 @@ class InlineFormSet:
         """Validate constraints shared by multiple child rows after binding."""
 
     async def save(self, parent: Any) -> None:
-        from obox_builder.contrib.admin.services.deletion import collect_deletion
+        from obox_builder.contrib.admin.services.records import RecordService
+        from obox_builder.resources.relations import snapshot
 
+        resource = self.inline.resource
+        context = self.inline.operation_context(self.ctx)
+        parent_resource = self.inline.parent_resource
+        current = await snapshot(parent_resource, context, parent, self.inline.relation_name)
+        changes = []
         for row in self.rows:
-            if row.delete and row.obj is not None:
-                child_ctx = replace(self.ctx, obj=row.obj)
-                plan = await collect_deletion(child_ctx, [row.obj], lock=True)
-                if not plan.allowed:
-                    raise PermissionDenied("An inline record cannot be deleted safely.")
-                await self.inline.delete_model(child_ctx, row.obj)
-        await self.ctx.db.flush()
+            if row.delete:
+                if row.obj is not None:
+                    changes.append({"action": "delete", "id": str(resource.get_pk(row.obj))})
+                continue
+            if row.bound is None:
+                continue
+            child_ctx = replace(self.ctx, obj=row.obj)
+            change = {
+                "action": "create" if row.obj is None else "update",
+                "data": RecordService(child_ctx).payload(row.bound),
+            }
+            if row.obj is not None:
+                change["id"] = str(resource.get_pk(row.obj))
+            changes.append(change)
+        if not changes:
+            return
+        result = await parent_resource.execute(
+            "editRelated",
+            context,
+            {
+                "relation": self.inline.relation_name,
+                "revision": current["revision"],
+                "changes": changes,
+            },
+            target=parent,
+        )
+        previous = {item[resource.pk_column().key] for item in current["items"]}
+        created = iter(
+            item
+            for item in result.root.items
+            if getattr(item, resource.pk_column().key) not in previous
+        )
         for row in self.rows:
             if row.delete or row.bound is None:
                 continue
-            obj = row.obj if row.obj is not None else self.inline.model()
-            if (
-                row.obj is not None
-                and all(
-                    getattr(obj, name, None) == value
-                    for name, value in row.bound.cleaned.items()
-                    if name
-                    in {spec.name for spec in row.bound.specs if spec.type.name != "multi_link"}
-                )
-                and not any(spec.type.name == "multi_link" for spec in row.bound.specs)
-            ):
-                continue
-            ctx = replace(self.ctx, obj=obj, extra={**self.ctx.extra, "parent": parent})
-            row.bound.apply_to(obj)
-            setattr(
-                obj,
-                self.inline.fk_column.key,
-                getattr(parent, sa.inspect(type(parent)).primary_key[0].key),
+            identity = (
+                resource.get_pk(row.obj)
+                if row.obj is not None
+                else getattr(next(created), resource.pk_column().key)
             )
-            await self.inline.save_model(ctx, obj, row.bound, change=row.obj is not None)
-            await self.inline.save_related(ctx, obj, row.bound, change=row.obj is not None)
-            row.obj = obj
-        await self.ctx.db.flush()
+            row.obj = await self.ctx.db.get(resource.model, resource.parse_pk(identity))
 
     def initial(self, ctx: AdminContext) -> dict[str, Any]:
         values = {}
@@ -193,7 +206,7 @@ class InlineFormSet:
         return values
 
     async def presentation(
-        self, parent_admin: ModelAdmin, parent: Any, readonly: bool
+        self, parent_admin: ModelView, parent: Any, readonly: bool
     ) -> dict[str, Any]:
         rows = [
             await self._row_context(row, index, parent_admin, parent, readonly)
@@ -211,7 +224,7 @@ class InlineFormSet:
         }
 
     async def _row_context(
-        self, row: InlineRow, index: Any, parent_admin: ModelAdmin, parent: Any, readonly: bool
+        self, row: InlineRow, index: Any, parent_admin: ModelView, parent: Any, readonly: bool
     ) -> dict[str, Any]:
         ctx = replace(self.ctx, obj=row.obj)
         if row.obj is not None and sa.inspect(row.obj).expired_attributes:
@@ -301,7 +314,7 @@ async def load_inlines(
     ctx: AdminContext, parent: Any, data: dict[str, Any] | None = None
 ) -> list[InlineFormSet]:
     from obox_builder.contrib.admin.services.deletion import collect_deletion
-    from obox_builder.contrib.admin.uniqueness import validate_inline_uniqueness
+    from obox_builder.resources.uniqueness import validate_inline_uniqueness
 
     if ctx.admin is None:
         return []
@@ -409,7 +422,7 @@ async def load_inlines(
                 )
                 if row.bound.is_valid:
                     await validate_relations(child_ctx, row.bound)
-            await validate_inline_uniqueness(ctx, inline, formset.rows, parent)
+            await validate_inline_uniqueness(ctx.operation_context(), inline, formset.rows, parent)
             await formset.clean()
         formsets.append(formset)
     return formsets

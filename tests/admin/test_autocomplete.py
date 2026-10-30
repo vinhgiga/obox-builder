@@ -6,7 +6,7 @@ from uuid import uuid4
 import httpx
 import pytest
 import sqlalchemy as sa
-from obox_builder.contrib.admin import ModelAdmin
+from obox_builder.contrib.admin import ModelView
 from obox_builder.db.session import session_scope
 
 from tests.admin.conftest import grant_permissions, login_session, make_user
@@ -64,7 +64,7 @@ async def test_autocomplete_applies_source_and_target_policies(
         monkeypatch.setattr(
             CategoryAdmin,
             "get_queryset",
-            lambda self, ctx: ModelAdmin.get_queryset(self, ctx).where(sa.false()),
+            lambda self, ctx: ModelView.get_queryset(self, ctx).where(sa.false()),
         )
     elif restriction == "object":
         monkeypatch.setattr(

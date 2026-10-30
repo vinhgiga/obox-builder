@@ -16,14 +16,20 @@ from obox_builder.contrib.admin.rendering import render
 from obox_builder.contrib.admin.views.common import ensure_csrf, flash, page_context
 from obox_builder.contrib.auth.dependencies import any_permission_required, permission_required
 from obox_builder.contrib.auth.models import User
-from obox_builder.contrib.jobs import services
 from obox_builder.contrib.jobs.models import Task, TaskAttempt, Worker
 from obox_builder.core.utils.time import utcnow
 from obox_builder.db.session import get_db
 from obox_builder.http.shortcuts import redirect
+from obox_builder.resources import permission_for_model
 
-TaskReaders = Annotated[User, Depends(permission_required("jobs.task.read"))]
-WorkerReaders = Annotated[User, Depends(permission_required("jobs.worker.read"))]
+TASK_READ = permission_for_model(Task, "view")
+WORKER_READ = permission_for_model(Worker, "view")
+TASK_RETRY = permission_for_model(Task, "retry")
+TASK_REVOKE = permission_for_model(Task, "revoke")
+TASK_READ_PAYLOAD = permission_for_model(Task, "read_payload")
+TASK_ACTIONS = {"retry": TASK_RETRY, "revoke": TASK_REVOKE}
+TaskReaders = Annotated[User, Depends(permission_required(TASK_READ))]
+WorkerReaders = Annotated[User, Depends(permission_required(WORKER_READ))]
 PAGE_SIZE = 50
 STATES = {
     "PENDING": ("Queued", "yellow"),
@@ -61,9 +67,9 @@ async def _render(request: Request, template: str, **values: Any) -> Response:
 
 
 async def job_index(
-    user: Annotated[User, Depends(any_permission_required("jobs.task.read", "jobs.worker.read"))],
+    user: Annotated[User, Depends(any_permission_required(TASK_READ, WORKER_READ))],
 ) -> Response:
-    target = "tasks" if user.has_perm("jobs.task.read") else "workers"
+    target = "tasks" if user.has_perm(TASK_READ) else "workers"
     return redirect(f"/admin/jobs/{target}", status_code=303)
 
 
@@ -189,7 +195,7 @@ async def task_detail(
     )
     older = attempts[PAGE_SIZE - 1].retries if len(attempts) > PAGE_SIZE else None
     payload = None
-    if user.has_perm("jobs.task.readPayload"):
+    if user.has_perm(TASK_READ_PAYLOAD):
         payload = {
             key: json.dumps(getattr(row, key), indent=2, ensure_ascii=False)
             for key in ("args", "kwargs", "result")
@@ -208,9 +214,8 @@ async def task_detail(
         older=older,
         before=before,
         terminal=row.status in ("SUCCESS", "FAILURE", "REVOKED"),
-        can_retry=user.has_perm("jobs.task.retry") and row.status in ("FAILURE", "REVOKED"),
-        can_revoke=user.has_perm("jobs.task.revoke")
-        and row.status in ("PENDING", "STARTED", "RETRY"),
+        can_retry=user.has_perm(TASK_RETRY) and row.status in ("FAILURE", "REVOKED"),
+        can_revoke=user.has_perm(TASK_REVOKE) and row.status in ("PENDING", "STARTED", "RETRY"),
     )
 
 
@@ -221,9 +226,9 @@ async def task_action(
     user: TaskReaders,
     db: AsyncSession = Depends(get_db),
 ) -> Response:
-    if action not in ("retry", "revoke"):
+    if action not in TASK_ACTIONS:
         raise HTTPException(404, "Unknown task action.")
-    if not user.has_perm(f"jobs.task.{action}"):
+    if not user.has_perm(TASK_ACTIONS[action]):
         raise HTTPException(403, "You do not have permission to perform this action.")
     form = await request.form()
     await ensure_csrf(request, str(form.get("csrf_token", "")))
@@ -231,14 +236,15 @@ async def task_action(
         raise HTTPException(409, "Background jobs are disabled.")
     if await db.scalar(sa.select(Task.id).where(Task.id == task_id)) is None:
         raise HTTPException(404, "Task not found.")
+    from obox_builder.contrib.admin.context import AdminContext, current_site
+    from obox_builder.resources import ResourceConflict, get_registry
+
+    resource = get_registry().for_model(Task)
+    context = AdminContext(request, user, db, current_site(request)).operation_context()
     try:
-        changed = await (
-            services.retry(db, task_id) if action == "retry" else services.revoke(db, task_id)
-        )
-    except ValueError as exc:
+        await resource.execute(action, context, target=task_id)
+    except (ValueError, ResourceConflict) as exc:
         raise HTTPException(409, str(exc)) from exc
-    if not changed:
-        raise HTTPException(409, "The task state changed. Refresh the page and try again.")
     await flash(
         request,
         "Task queued for retry."

@@ -134,9 +134,9 @@ async def test_current_actor_is_cached_per_request_and_grants_refresh(
     client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from obox_builder.contrib.auth import dependencies
-    from obox_builder.contrib.auth.authz import Actor
     from obox_builder.contrib.auth.models import Role
     from obox_builder.contrib.auth.permissions import get_actor
+    from obox_builder.security import Actor
 
     calls = 0
 

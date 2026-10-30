@@ -1,4 +1,4 @@
-"""AdminContext: request-scoped bundle passed to ModelAdmin hooks."""
+"""AdminContext: request-scoped bundle passed to ModelView hooks."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from obox_builder.fields import RecordContext
 
 if TYPE_CHECKING:
-    from obox_builder.contrib.admin.options import ModelAdmin
+    from obox_builder.contrib.admin.options import ModelView
     from obox_builder.contrib.admin.site import AdminSite
 
 
@@ -24,7 +24,7 @@ class AdminContext:
     user: Any
     db: AsyncSession
     site: AdminSite
-    admin: ModelAdmin | None = None
+    admin: ModelView | None = None
     obj: Any = None
     extra: Mapping[str, Any] = field(default_factory=dict)
 
@@ -34,6 +34,37 @@ class AdminContext:
             values=dict(values or {}),
             user=self.user,
             extra=self.extra,
+        )
+
+    def operation_context(self):
+        from obox_builder.resources import OperationContext
+        from obox_builder.security import Actor
+
+        registry = self.site.resource_registry
+        actor = getattr(getattr(self.request, "state", None), "actor", None)
+        if actor is None:
+            if hasattr(self.user, "actor"):
+                actor = self.user.actor()
+            else:
+                actor = Actor(
+                    id=getattr(self.user, "id", None),
+                    is_active=getattr(self.user, "is_active", True),
+                    is_superuser=getattr(self.user, "is_superuser", False),
+                    permissions=frozenset(
+                        name for name in registry.permissions if self.user.has_perm(name)
+                    ),
+                )
+        return OperationContext(
+            actor=actor,
+            db=self.db,
+            registry=registry,
+            obj=self.obj,
+            scopes=self.extra.get("api_scopes"),
+            metadata={
+                "source": "admin_ui",
+                "namespace": self.site.name,
+                "request_id": getattr(getattr(self.request, "state", None), "request_id", None),
+            },
         )
 
 

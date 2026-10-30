@@ -2,7 +2,7 @@
 
 Priority (highest first):
 
-1. ``ModelAdmin.fields_config`` override (a ``FieldType`` instance, class or name).
+1. ``Resource.fields_config`` override (a ``FieldType`` instance, class or name).
 2. ``mapped_column(..., info={'admin': {...}})`` metadata on the model itself.
 3. Type inference from the SQLAlchemy column type.
 4. Fallback: text, flagged so a system check can warn about it.
@@ -31,8 +31,7 @@ from obox_builder.utils.strings import humanize
 RESERVED_INFO_KEYS = {"type", "label", "required", "readonly", "history", "ignore", "secret"}
 SECRET_SUFFIXES = ("_hash",)
 
-AdminFieldConfig = Mapping[str, Any]
-FieldConfig = FieldType | type[FieldType] | str | AdminFieldConfig
+FieldConfig = FieldType | type[FieldType] | str | Mapping[str, Any]
 
 _FIELD_SPEC_KEYS = frozenset(
     {
@@ -79,14 +78,14 @@ def introspect_model(
     overrides = overrides or {}
     relationship_by_column: dict[str, tuple[str, type[Any]]] = {}
     for rel in mapper.relationships:
-        if rel.uselist:
+        if rel.uselist or rel.direction.name != "MANYTOONE":
             continue
         for column in rel.local_columns:
             relationship_by_column[column.key] = (rel.key, rel.mapper.class_)
 
     specs: list[FieldSpec] = []
     for attr in mapper.column_attrs:
-        if len(attr.columns) != 1:
+        if len(attr.columns) != 1 and not all(column.primary_key for column in attr.columns):
             continue
         column = attr.columns[0]
         info = _admin_info(column)
@@ -126,7 +125,12 @@ def introspect_model(
         nullable = bool(column.nullable) if column.nullable is not None else True
         has_default = column.default is not None or column.server_default is not None
         auto_managed = isinstance(getattr(column.server_default, "arg", None), sa.Function)
-        readonly = bool(info.get("readonly", False)) or bool(column.primary_key) or auto_managed
+        readonly = (
+            bool(info.get("readonly", False))
+            or bool(column.primary_key)
+            or column is mapper.version_id_col
+            or auto_managed
+        )
         if "readonly" in config:
             readonly = readonly or bool(config["readonly"])
         required = bool(info.get("required", False)) or (not nullable and not has_default)

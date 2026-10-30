@@ -59,9 +59,9 @@ def ensure_listeners() -> None:
 
 def _enabled() -> bool:
     return bool(
-        settings.HISTORY_ENABLED
-        and apps.models_ready
+        apps.models_ready
         and apps.is_installed("obox_builder.contrib.history")
+        and settings.HISTORY_ENABLED
     )
 
 

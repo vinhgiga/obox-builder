@@ -3,20 +3,18 @@
 from __future__ import annotations
 
 import sqlalchemy as sa
-from fastapi import Request
 from sqlalchemy.orm import undefer
 
-from obox_builder.contrib.admin.context import AdminContext
-from obox_builder.contrib.admin.imports import AdminImportResource
 from obox_builder.contrib.auth.models import User
-from obox_builder.contrib.auth.permissions import get_user_permissions
+from obox_builder.contrib.auth.permissions import get_actor
 from obox_builder.contrib.history.context import use
 from obox_builder.contrib.imports import services
 from obox_builder.contrib.imports.models import ImportSession
+from obox_builder.contrib.imports.resources import ImportResource
 from obox_builder.contrib.jobs import task
 from obox_builder.db.session import session_scope
 from obox_builder.exceptions import PermissionDenied
-from obox_builder.utils.module_loading import import_string
+from obox_builder.resources import ModelResource, OperationContext, get_registry
 
 STATES = {
     "inspect": {"uploaded"},
@@ -27,7 +25,7 @@ STATES = {
 
 
 @task(name="admin.import_spreadsheet", queue="imports", time_limit=3600)
-async def import_spreadsheet(session_id: str, revision: int, phase: str, site_path: str) -> None:
+async def import_spreadsheet(session_id: str, revision: int, phase: str, source: str = "") -> None:
     if phase not in STATES:
         raise ValueError("Unknown import phase.")
     try:
@@ -51,36 +49,27 @@ async def import_spreadsheet(session_id: str, revision: int, phase: str, site_pa
                 user = await db.get(User, session.owner_id)
                 if user is None or not user.is_active:
                     raise PermissionDenied("The importing user is inactive or no longer exists.")
-                user.permissions = await get_user_permissions(db, user.id)
-                site = import_string(site_path)
-                site.autodiscover()
-                admin = site.get_registry().get(session.model_label)
-                if admin is None or not admin.imports_available():
-                    raise PermissionDenied("Import is no longer enabled for this model.")
-                request = Request(
-                    {
-                        "type": "http",
-                        "method": "POST",
-                        "path": admin.import_path(),
-                        "headers": [],
-                        "query_string": b"",
-                        "scheme": "http",
-                        "server": ("localhost", 80),
-                    }
+                catalog = get_registry()
+                definition = next(
+                    (
+                        item
+                        for item in catalog.resources.values()
+                        if item.scope_name == session.model_label
+                    ),
+                    None,
                 )
-                request.state.user = user
-                ctx = AdminContext(
-                    request=request,
-                    user=user,
+                if not isinstance(definition, ModelResource):
+                    raise PermissionDenied("The imported resource is no longer registered.")
+                ctx = OperationContext(
+                    await get_actor(db, user),
                     db=db,
-                    site=site,
-                    admin=admin,
-                    extra={"import_id": session.id},
+                    registry=catalog,
+                    metadata={"source": "job", "import_id": session.id},
                 )
-                resource = AdminImportResource(ctx)
+                resource = ImportResource(definition, ctx)
                 resource.check_configuration(session.mode)
                 resource.check_permissions(session.mode)
-                if not admin.has_view_permission(ctx):
+                if not definition.can_execute(ctx, "list"):
                     raise PermissionDenied("Viewing this model is no longer permitted.")
                 async with use(
                     source="job",

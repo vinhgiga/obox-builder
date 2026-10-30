@@ -10,6 +10,11 @@ class AuthConfig(AppConfig):
     label = "auth"
     verbose_name = "Authentication"
 
+    def finalize(self) -> None:
+        from obox_builder.contrib.auth.permissions import initialize_catalog
+
+        initialize_catalog()
+
     def ready(self) -> None:
         from obox_builder.contrib.auth.permissions import sync_permissions_receiver
         from obox_builder.core.signals import post_migrate

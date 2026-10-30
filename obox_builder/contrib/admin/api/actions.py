@@ -73,7 +73,7 @@ def register_actions(router: APIRouter) -> None:
         selection = parse_body(Selection, body)
         if selection.select_across == bool(selection.ids):
             raise Problem(422, "validation_error", "Choose ids or select_across.")
-        if len(selection.ids) > settings.ADMIN_API_MAX_BATCH or len(set(selection.ids)) != len(
+        if len(selection.ids) > settings.API_MAX_BATCH or len(set(selection.ids)) != len(
             selection.ids
         ):
             raise Problem(422, "validation_error", "Invalid action selection.")
@@ -95,7 +95,7 @@ def register_actions(router: APIRouter) -> None:
                 await db.scalars(
                     stmt.order_by(None)
                     .order_by(admin.pk_column())
-                    .limit(settings.ADMIN_API_MAX_BATCH + 1)
+                    .limit(settings.API_MAX_BATCH + 1)
                     .with_for_update(of=admin.model)
                     .execution_options(populate_existing=True)
                 )
@@ -103,7 +103,7 @@ def register_actions(router: APIRouter) -> None:
             .unique()
             .all()
         )
-        if len(objects) > settings.ADMIN_API_MAX_BATCH:
+        if len(objects) > settings.API_MAX_BATCH:
             raise Problem(413, "payload_too_large", "Narrow the action selection.")
         if ids and {admin.get_pk(obj) for obj in objects} != set(ids):
             raise Problem(404, "not_found", "A selected record is unavailable.")

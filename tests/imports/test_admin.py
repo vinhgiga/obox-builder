@@ -7,10 +7,10 @@ from typing import Any
 
 import httpx
 import sqlalchemy as sa
-from obox_builder.contrib.admin.tasks import import_spreadsheet
 from obox_builder.contrib.history import track
 from obox_builder.contrib.history.models import RowChange
 from obox_builder.contrib.imports.models import ImportRow, ImportSession
+from obox_builder.contrib.imports.tasks import import_spreadsheet
 from obox_builder.contrib.jobs.models import Task
 from obox_builder.db.session import session_scope
 
@@ -189,9 +189,7 @@ async def test_retry_failed_job_preserves_checkpoint(client: httpx.AsyncClient) 
     async with session_scope() as db:
         session = await db.get(ImportSession, session_id)
         assert session is not None
-        await db.execute(
-            sa.update(Task).where(Task.id == session.task_id).values(status="FAILURE")
-        )
+        await db.execute(sa.update(Task).where(Task.id == session.task_id).values(status="FAILURE"))
     page = await client.get(f"{BASE}/{session_id}")
     assert "Retry processing" in page.text
     assert 'http-equiv="refresh"' not in page.text

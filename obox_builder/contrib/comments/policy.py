@@ -23,7 +23,8 @@ from obox_builder.core.utils.time import ensure_aware, utcnow
 class Viewer(Protocol):
     """Anything with a user id and permission checks (``User``/``AnonymousUser``)."""
 
-    id: int | None
+    @property
+    def id(self) -> int | None: ...
 
     def has_perm(self, perm: str) -> bool: ...
 

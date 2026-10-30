@@ -35,7 +35,7 @@ def test_app_config_attributes() -> None:
     assert blog.label == "blog"
     assert blog.verbose_name == "Blog"
     assert blog.path == Path(__file__).parent.parent / "support" / "apps" / "blog"
-    assert blog.permissions == []
+    assert not hasattr(blog, "permissions")
 
     empty = apps.get_app_config("emptyapp")
     assert empty.label == "emptyapp"

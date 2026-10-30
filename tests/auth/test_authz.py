@@ -4,17 +4,17 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 import sqlalchemy as sa
-from obox_builder.contrib.auth.authz import (
-    Actor,
-    AuthorizationCatalog,
-    PermissionName,
-    authorization_catalog,
-    lower_camel,
-    model_permission,
-)
 from obox_builder.contrib.auth.models import Permission, Role, User
-from obox_builder.contrib.auth.permissions import get_actor, sync_permissions
+from obox_builder.contrib.auth.permissions import (
+    AuthorizationCatalog,
+    collect_catalog,
+    get_actor,
+    sync_permissions,
+)
 from obox_builder.contrib.auth.services import create_user
+from obox_builder.exceptions import ImproperlyConfigured
+from obox_builder.resources import permission_for_model
+from obox_builder.security import Actor, PermissionRef, lower_camel
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
     ["auth.users.read", "kpi.productionQuantity.update", "datatable.productionConfirm.bulkUpdate"],
 )
 def test_permission_name_round_trip(name: str) -> None:
-    assert PermissionName.parse(name).name == name
+    assert PermissionRef.parse(name).name == name
 
 
 @pytest.mark.parametrize(
@@ -46,20 +46,20 @@ def test_permission_name_round_trip(name: str) -> None:
 )
 def test_invalid_permission_names_are_rejected(name: str) -> None:
     with pytest.raises(ValueError, match="permission|Permissions"):
-        PermissionName.parse(name)
+        PermissionRef.parse(name)
 
 
-def test_model_permissions_group_only_account_writes(auth_env: None) -> None:
+def test_permission_for_models_group_only_account_writes(auth_env: None) -> None:
     from tests.support.apps.shop.models import Product
 
-    assert {model_permission(User, action) for action in ("add", "change", "delete")} == {
+    assert {permission_for_model(User, action) for action in ("add", "change", "delete")} == {
         "auth.users.manage"
     }
-    assert model_permission(Role, "read") == "auth.roles.read"
-    assert model_permission(Role, "update") == "auth.roles.manage"
-    assert model_permission(Product, "create") == "shop.product.create"
-    assert model_permission(Product, "change") == "shop.product.update"
-    assert model_permission(Product, "publish") == "shop.product.publish"
+    assert permission_for_model(Role, "read") == "auth.roles.read"
+    assert permission_for_model(Role, "update") == "auth.roles.manage"
+    assert permission_for_model(Product, "create") == "shop.product.create"
+    assert permission_for_model(Product, "change") == "shop.product.update"
+    assert permission_for_model(Product, "publish") == "shop.product.publish"
     assert lower_camel("production_confirm") == "productionConfirm"
 
 
@@ -87,43 +87,47 @@ def test_inactive_actor_never_has_permissions(is_superuser: bool) -> None:
     assert not actor.has_permission("shop.product.read")
 
 
-def test_catalog_validates_and_unions_role_declarations() -> None:
-    catalog = AuthorizationCatalog()
-    read = catalog.register_permission("auth", "users", "read")
-    assert catalog.register_permission("auth", "users", "read") == read
-    catalog.register_role("Readers", permissions=frozenset({read}))
-    catalog.register_role("Readers", permissions=frozenset({"auth.users.manage"}))
-    with pytest.raises(ValueError, match="Unknown permissions"):
-        catalog.validate()
-    catalog.register_permission("auth", "users", "manage")
-    catalog.validate()
-    assert len(catalog.permissions) == 2
-    assert catalog.roles["Readers"] == {read, "auth.users.manage"}
-    with pytest.raises(ValueError, match="Role names"):
-        catalog.register_role(" ")
+def test_catalog_is_immutable_and_validates_role_templates() -> None:
+    read = PermissionRef.parse("auth.users.read")
+    manage = PermissionRef.parse("auth.users.manage")
+    with pytest.raises(ImproperlyConfigured, match="Unknown permissions"):
+        AuthorizationCatalog({read.name: read}, {"Readers": frozenset({manage.name})})
+    catalog = AuthorizationCatalog(
+        {read.name: read, manage.name: manage},
+        {"Readers": frozenset({read.name, manage.name})},
+    )
+    assert catalog.roles["Readers"] == {read.name, manage.name}
+    with pytest.raises(TypeError):
+        catalog.permissions["new"] = read
+    with pytest.raises(ImproperlyConfigured, match="Role names"):
+        AuthorizationCatalog({}, {" ": frozenset()})
 
 
 async def test_role_templates_preserve_admin_edits(db: AsyncSession) -> None:
-    name = authorization_catalog.register_permission("reports", "daily", "read")
-    authorization_catalog.register_role("Report readers", permissions=frozenset({name}))
-    await sync_permissions(db, dry_run=True)
+    name = "shop.product.read"
+    catalog = AuthorizationCatalog(
+        collect_catalog().permissions, {"Report readers": frozenset({name})}
+    )
+    await sync_permissions(db, dry_run=True, catalog=catalog)
     assert await db.scalar(sa.select(Role.id).where(Role.name == "Report readers")) is None
-    await sync_permissions(db)
+    await sync_permissions(db, catalog=catalog)
     role = await db.scalar(sa.select(Role).where(Role.name == "Report readers"))
     assert role is not None
     await db.refresh(role, ["permissions"])
     assert [permission.name for permission in role.permissions] == [name]
     role.permissions.clear()
     await db.flush()
-    await sync_permissions(db)
+    await sync_permissions(db, catalog=catalog)
     await db.refresh(role, ["permissions"])
     assert role.permissions == []
 
 
 async def test_unknown_role_template_grant_prevents_sync(db: AsyncSession) -> None:
-    authorization_catalog.register_role("Invalid", permissions=frozenset({"reports.daily.read"}))
-    with pytest.raises(ValueError, match="Unknown permissions"):
-        await sync_permissions(db)
+    with pytest.raises(ImproperlyConfigured, match="Unknown permissions"):
+        catalog = AuthorizationCatalog(
+            collect_catalog().permissions, {"Invalid": frozenset({"reports.daily.read"})}
+        )
+        await sync_permissions(db, catalog=catalog)
     assert (await db.scalars(sa.select(Permission))).all() == []
 
 
@@ -158,7 +162,7 @@ async def test_superuser_actor_lists_declared_permissions(db: AsyncSession) -> N
     user = await create_user(db, "root", "s3cure-password", is_superuser=True)
     actor = await get_actor(db, user)
     assert {"auth.users.read", "auth.users.manage"} <= actor.permissions
-    assert actor.has_permission("reports.unregistered.read")
+    assert not actor.has_permission("reports.unregistered.read")
     user.is_active = False
     inactive = await get_actor(db, user)
     assert inactive.permissions == frozenset()

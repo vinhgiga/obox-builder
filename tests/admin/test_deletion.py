@@ -3,7 +3,7 @@ from __future__ import annotations
 import httpx
 import pytest
 import sqlalchemy as sa
-from obox_builder.contrib.admin import ModelAdmin, site
+from obox_builder.contrib.admin import ModelView, site
 from obox_builder.db.session import session_scope
 
 from tests.admin.conftest import (
@@ -126,7 +126,7 @@ async def test_related_permissions_and_scope_block_deletion_without_leaking_labe
     assert admin is not None
     if restriction == "queryset":
         monkeypatch.setattr(
-            admin, "get_queryset", lambda ctx: ModelAdmin.get_queryset(admin, ctx).where(sa.false())
+            admin, "get_queryset", lambda ctx: ModelView.get_queryset(admin, ctx).where(sa.false())
         )
     else:
         monkeypatch.setattr(admin, f"has_{restriction}_permission", lambda *args: False)
@@ -208,7 +208,7 @@ async def test_expired_confirmation_requires_another_review(
 ) -> None:
     import time
 
-    from obox_builder.contrib.admin import deletion
+    from obox_builder.contrib.admin.services import deletion
 
     client = relation_client
     token = await signed_in(client)

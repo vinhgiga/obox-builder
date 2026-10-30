@@ -1,4 +1,4 @@
-"""System checks for ModelAdmin declarations."""
+"""System checks for ModelView declarations."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from obox_builder.contrib.admin.options import (
     _AUTO_LIST_DISPLAY_LINKS,
     BASE_PATH_RE,
     INLINE_TYPES,
-    ModelAdmin,
+    ModelView,
     SimpleListFilter,
 )
 from obox_builder.core.checks.messages import CheckMessage, Error, Warning
@@ -19,7 +19,7 @@ from obox_builder.exceptions import ImproperlyConfigured
 from obox_builder.fields.introspect import ADMIN_WIDGETS
 
 
-def validate_admin(admin: ModelAdmin) -> list[CheckMessage]:
+def validate_admin(admin: ModelView) -> list[CheckMessage]:
     messages: list[CheckMessage] = []
     specs = admin.spec_map()
     for entry in admin.list_display:
@@ -154,12 +154,12 @@ def validate_admin(admin: ModelAdmin) -> list[CheckMessage]:
                     id="obox.admin.E109",
                 )
             )
-    from obox_builder.contrib.admin.inlines import InlineFormSet, InlineModelAdmin
+    from obox_builder.contrib.admin.inlines import InlineFormSet, InlineModelView
 
     for inline_class in admin.inlines:
         try:
-            if not isinstance(inline_class, type) or not issubclass(inline_class, InlineModelAdmin):
-                raise ImproperlyConfigured("inlines must contain InlineModelAdmin subclasses.")
+            if not isinstance(inline_class, type) or not issubclass(inline_class, InlineModelView):
+                raise ImproperlyConfigured("inlines must contain InlineModelView subclasses.")
             inline = inline_class(admin.model, admin.site)
             messages.extend(inline.validate())
             formset_class = inline.formset_class
@@ -389,26 +389,9 @@ def validate_admin(admin: ModelAdmin) -> list[CheckMessage]:
                 )
             )
     for entry in admin.actions or ():
-        if not isinstance(entry, str):
-            continue
-        method = getattr(type(admin), entry, None)
-        if method is None:
-            messages.append(
-                Error(
-                    f"{admin.model_label}: actions references unknown method {entry!r}.",
-                    id="obox.admin.E108",
-                )
-            )
-            continue
-        for perm in getattr(method, "allowed_permissions", ()):
-            if not hasattr(admin, f"has_{perm}_permission"):
-                messages.append(
-                    Error(
-                        f"{admin.model_label}: action {entry!r} declares unknown "
-                        f"permission {perm!r}.",
-                        id="obox.admin.E108",
-                    )
-                )
+        operation = admin.resource.operations.get(entry) if isinstance(entry, str) else None
+        if operation is None or operation.scope != "selection":
+            messages.append(Error(f"{admin.model_label}: actions references unknown selection operation {entry!r}.", id="obox.admin.E108"))
     for name in admin.get_ordering(None):  # type: ignore[arg-type]
         bare = name[1:] if name.startswith("-") else name
         field_spec = specs.get(bare)

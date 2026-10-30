@@ -36,6 +36,9 @@ class Text(FieldType):
     searchable = True
     operators = TEXT_OPERATORS
 
+    def output_annotation(self, spec: FieldSpec) -> Any:
+        return str
+
     def annotation(self, spec: FieldSpec) -> Any:
         if spec.required:
             return Annotated[str, PydField(min_length=1)]

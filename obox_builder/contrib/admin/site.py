@@ -16,8 +16,7 @@ from obox_builder.http.urls import is_safe_url
 from obox_builder.utils.strings import camel_to_snake
 
 if TYPE_CHECKING:
-    from obox_builder.contrib.admin.api.ratelimit import RateLimiter
-    from obox_builder.contrib.admin.options import ModelAdmin
+    from obox_builder.contrib.admin.options import ModelView
     from obox_builder.contrib.auth.models import User
 
 logger = logging.getLogger(__name__)
@@ -26,7 +25,7 @@ M = TypeVar("M", bound=type[Any])
 
 
 class AdminSite:
-    """Central admin configuration: a registry of ModelAdmins plus navigation.
+    """Central admin configuration: a registry of ModelViews plus navigation.
 
     Branding is configurable per site through ``site_header``, ``site_title``,
     and ``index_title`` constructor arguments or attributes.
@@ -39,7 +38,6 @@ class AdminSite:
     site_header: str = "obox admin"
     site_title: str = "obox admin"
     index_title: str = "Dashboard"
-    api_auth_enabled: bool = False
 
     def __init__(
         self,
@@ -49,6 +47,7 @@ class AdminSite:
         site_header: str | None = None,
         site_title: str | None = None,
         index_title: str | None = None,
+        registry: Any = None,
     ) -> None:
         self.name = name
         self.import_path = import_path
@@ -61,8 +60,16 @@ class AdminSite:
             self.site_title = type(self).site_title
         self.index_title = index_title if index_title is not None else type(self).index_title
         self.navigation: list[NavGroup] = default_navigation()
-        self._registry: dict[str, ModelAdmin] = {}
+        self._registry: dict[str, ModelView] = {}
         self._discovered = False
+        self._resource_registry = registry
+        self._declarations: dict[str, tuple[type[Any], type[ModelView]]] = {}
+
+    @property
+    def resource_registry(self):
+        from obox_builder.resources import get_registry
+
+        return self._resource_registry if self._resource_registry is not None else get_registry()
 
     async def get_default_redirect_url(self, request: Request, user: User) -> str:
         """Return the landing page when login has no safe ``next`` target."""
@@ -77,48 +84,81 @@ class AdminSite:
         return await self.get_default_redirect_url(request, user)
 
     # -- registration -------------------------------------------------------
-    def register(self, model: type[Any], admin_class: type[ModelAdmin] | None = None) -> Any:
-        """Register ``model`` with an optional ModelAdmin class.
 
-        Usable as ``@site.register(Model)``, ``@site.register(Model, Admin)``
-        or ``site.register(Model, Admin)``.
-        """
+    def register(self, resource, view_class=None):
+        from obox_builder.contrib.admin.options import ModelView
+        from obox_builder.resources import ReadOnlyModelResource
 
-        def _register(cls: type[ModelAdmin]) -> type[ModelAdmin]:
-            from obox_builder.contrib.admin.options import ModelAdmin as ModelAdminBase
+        definition = resource if isinstance(resource, type) else type(resource)
+        if not issubclass(definition, ReadOnlyModelResource):
+            raise ImproperlyConfigured("AdminSite.register expects a model Resource class.")
+        view_class = view_class or ModelView
+        if not issubclass(view_class, ModelView):
+            raise ImproperlyConfigured("HTML adapters must extend ModelView.")
+        instance = view_class(resource, self)
+        previous = self._declarations.get(instance.resource.name)
+        if previous is not None and previous != (definition, view_class):
+            raise ImproperlyConfigured(
+                f"Resource {instance.resource.name!r} already has a view binding."
+            )
+        self._declarations[instance.resource.name] = (definition, view_class)
+        self._registry[instance.model_label] = instance
+        return instance
 
-            if not isinstance(cls, type) or not issubclass(cls, ModelAdminBase):
+    def view(self, resource):
+        def decorate(view_class):
+            self.register(resource, view_class)
+            return view_class
+
+        return decorate
+
+    def unregister(self, resource):
+        name = resource.name if isinstance(resource, type) else resource.name
+        self._declarations.pop(name, None)
+        self._registry = {
+            key: view for key, view in self._registry.items() if view.resource.name != name
+        }
+
+    def finalize(self):
+        from obox_builder.resources import ReadOnlyModelResource
+
+        registry = self.resource_registry
+        compiled = {}
+        for name, (definition, view_class) in self._declarations.items():
+            resource = registry.resources.get(name)
+            if resource is None:
+                continue
+            if not isinstance(resource, ReadOnlyModelResource):
+                raise ImproperlyConfigured("ModelView requires a model resource.")
+            if type(resource) is not definition:
                 raise ImproperlyConfigured(
-                    f"{cls!r} is not a ModelAdmin subclass; cannot register {model.__name__}."
+                    f"View binding for {name!r} does not match its resource definition."
                 )
-            instance = cls(model, self)
-            self._registry[instance.model_label] = instance
-            return cls
+            current = self._registry.get(model_label_for(resource.model))
+            instance = (
+                current
+                if current is not None
+                and current.resource is resource
+                and type(current) is view_class
+                else view_class(resource, self)
+            )
+            compiled[instance.model_label] = instance
+        self._registry = compiled
 
-        if admin_class is not None:
-            return _register(admin_class)
-        return _register
-
-    def unregister(self, model: type[Any]) -> None:
-        label = model_label_for(model)
-        self._registry.pop(label, None)
-
-    def get_registry(self) -> dict[str, ModelAdmin]:
+    def get_registry(self) -> dict[str, ModelView]:
         return dict(self._registry)
 
-    def get_model_admin(self, app_label: str, model_name: str) -> ModelAdmin | None:
+    def get_model_admin(self, app_label: str, model_name: str) -> ModelView | None:
         return self._registry.get(f"{app_label}.{model_name}") or self._registry.get(
             f"{app_label}.{camel_to_snake(model_name)}"
         )
 
-    def get_model_admin_for(self, model: type[Any]) -> ModelAdmin | None:
+    def get_model_admin_for(self, model: type[Any]) -> ModelView | None:
         return self._registry.get(model_label_for(model))
 
     # -- discovery ----------------------------------------------------------
     def autodiscover(self) -> None:
         """Import ``admin.py`` from every installed app (idempotent)."""
-        if self._discovered:
-            return
         self._discovered = True
         from obox_builder.apps import apps
 
@@ -197,17 +237,13 @@ class AdminSite:
         from obox_builder.contrib.admin.urls import build_router
 
         self.autodiscover()
+        self.finalize()
         return build_router(self)
-
-    def get_api_router(self, *, rate_limiter: RateLimiter | None = None) -> APIRouter:
-        from obox_builder.contrib.admin.api.router import build_api_router
-
-        self.autodiscover()
-        return build_api_router(self, rate_limiter=rate_limiter)
 
     # -- tests --------------------------------------------------------------
     def _reset(self) -> None:
         self._registry.clear()
+        self._declarations.clear()
         self._discovered = False
         self.navigation = default_navigation()
 

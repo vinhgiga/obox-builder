@@ -4,15 +4,16 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from datetime import datetime
+from functools import cached_property
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import sqlalchemy as sa
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import Mapped, declared_attr, mapped_column
 
-from obox_builder.contrib.auth.authz import Actor
 from obox_builder.db import Model, TimestampMixin, VersionedMixin, relationship
 from obox_builder.db.types import JSONB, BigIntIdentity, JsonDict, TZDateTime
+from obox_builder.security import Actor
 
 if TYPE_CHECKING:
     from obox_builder.contrib.auth.models import Role
@@ -23,8 +24,6 @@ class AbstractBaseUser(Model, TimestampMixin, VersionedMixin):
 
     __abstract__ = True
     __auth_model__ = True
-    __permission_resource__ = "users"
-    __permission_actions__ = ("read", "manage")
     __history__: ClassVar[bool | Mapping[str, Any] | None] = {"relations": ["roles"]}
     permissions: frozenset[str] = frozenset()
     USERNAME_FIELD: ClassVar[str] = "username"
@@ -51,15 +50,29 @@ class AbstractBaseUser(Model, TimestampMixin, VersionedMixin):
         )
 
     def has_perm(self, perm: str) -> bool:
-        return self.is_active and (self.is_superuser or perm in self.permissions)
+        if not self.is_active:
+            return False
+        if self.is_superuser:
+            return perm in self._permission_names
+        return perm in self.permissions
+
+    @cached_property
+    def _permission_names(self) -> frozenset[str]:
+        from obox_builder.contrib.auth.permissions import collect_catalog
+
+        return frozenset(collect_catalog().permissions)
 
     def actor(self) -> Actor:
         """Snapshot loaded grants without reading ORM relationships."""
+        permissions = self.permissions
+        if self.is_active and self.is_superuser:
+            permissions = self._permission_names
         return Actor(
             id=self.id,
-            permissions=self.permissions,
+            permissions=permissions,
             is_active=self.is_active,
             is_superuser=self.is_superuser,
+            attributes={"username": self.get_username()},
         )
 
     def get_username(self) -> str:

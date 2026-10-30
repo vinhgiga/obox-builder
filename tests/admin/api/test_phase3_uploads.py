@@ -107,9 +107,7 @@ async def test_upload_claim_tampering_field_owner_and_expiry(
     )
     owner = {"X-CSRF-Token": login.json()["csrf_token"]}
     clock = time.time()
-    monkeypatch.setattr(
-        uploads.time, "time", lambda: clock + settings.ADMIN_API_UPLOAD_TTL_SECONDS + 1
-    )
+    monkeypatch.setattr(uploads.time, "time", lambda: clock + settings.API_UPLOAD_TTL_SECONDS + 1)
     assert (await api.post(ITEMS, headers=owner, json=body)).status_code == 422
     assert not (file_fields / "admin" / "uploads").exists()
 
@@ -119,7 +117,7 @@ async def test_upload_limits_content_and_raw_paths(
 ) -> None:
     headers = await sign_in(api)
     assert settings._wrapped is not None
-    monkeypatch.setattr(settings._wrapped, "ADMIN_MAX_UPLOAD_BYTES", 10)
+    monkeypatch.setattr(settings._wrapped, "UPLOAD_MAX_BYTES", 10)
     for filename, content in (("fake.png", b"executable\x00"), ("large.txt", b"a" * 11)):
         response = await api.post(
             f"{BASE}/uploads",
@@ -188,7 +186,7 @@ async def test_upload_pat_scope_and_purge_preserves_attached_files(
     staged = list((file_fields / "admin" / "api-staged").iterdir())
     attached = list((file_fields / "admin" / "uploads").iterdir())
     for path in staged + attached:
-        os.utime(path, (now - settings.ADMIN_API_UPLOAD_TTL_SECONDS - 10,) * 2)
+        os.utime(path, (now - settings.API_UPLOAD_TTL_SECONDS - 10,) * 2)
     assert purge_staged(limit=1) == 1
     assert attached[0].is_file()
     assert (
@@ -201,7 +199,7 @@ async def test_upload_budget_is_shared_across_fields(
 ) -> None:
     headers = await sign_in(api)
     assert settings._wrapped is not None
-    monkeypatch.setattr(settings._wrapped, "ADMIN_MAX_UPLOAD_BYTES", 10)
+    monkeypatch.setattr(settings._wrapped, "UPLOAD_MAX_BYTES", 10)
     a = await upload(api, headers, content=b"123456")
     b = await upload(api, headers, field="notes", content=b"123456")
     response = await api.post(

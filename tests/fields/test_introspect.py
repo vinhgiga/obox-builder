@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 import sqlalchemy as sa
-from obox_builder.contrib.admin.options import ModelAdmin
+from obox_builder.contrib.admin.options import ModelView
 from obox_builder.db import JSONB, Model
 from obox_builder.fields import introspect_model
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -101,7 +101,14 @@ def test_many_to_many_with_payload_column_is_read_only() -> None:
     assert spec.readonly is True
     assert spec.editable is False
     assert spec.options["through_payload"] is True
-    assert "labels" not in [field.name for field in ModelAdmin(PayloadItem).get_form_specs()]
+    from obox_builder.resources import ReadOnlyModelResource
+
+    class PayloadResource(ReadOnlyModelResource[PayloadItem]):
+        name = "example.payloadItem"
+        model = PayloadItem
+        fields = ("id", "labels")
+
+    assert "labels" not in [field.name for field in ModelView(PayloadResource()).get_form_specs()]
 
 
 def test_json_columns_are_editable_with_the_json_widget() -> None:

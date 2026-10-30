@@ -18,13 +18,10 @@ import logging
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
-import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm.exc import StaleDataError
 
-from obox_builder.contrib.admin.context import AdminContext
-from obox_builder.contrib.admin.options import ModelAdmin
-from obox_builder.contrib.history.context import CTX_KEY, from_request
+from obox_builder.contrib.history.context import CTX_KEY, resolve_context
 from obox_builder.contrib.history.models import RowChange
 from obox_builder.contrib.history.service import (
     RowChangeEntry,
@@ -32,11 +29,19 @@ from obox_builder.contrib.history.service import (
     model_for_label,
     to_entry,
 )
+from obox_builder.exceptions import PermissionDenied
 from obox_builder.fields import FieldSpec
 from obox_builder.forms import BoundForm, build_schema
+from obox_builder.resources import (
+    ModelResource,
+    OperationContext,
+    ReadOnlyModelResource,
+    ResourceConflict,
+    get_registry,
+)
 
 if TYPE_CHECKING:
-    from obox_builder.contrib.admin.services.history import DiffMask
+    from obox_builder.contrib.history.access import DiffMask
 
 logger = logging.getLogger("obox.history.audit")
 
@@ -71,7 +76,7 @@ class Conflict:
 class RevertPlan:
     """What reverting one entry would do (or why it cannot)."""
 
-    admin: ModelAdmin | None
+    resource: ReadOnlyModelResource | None
     entry: RowChangeEntry
     pk_value: Any
     target: Any | None = None
@@ -82,7 +87,7 @@ class RevertPlan:
     noop: bool = False
 
 
-class RevertError(Exception):
+class RevertError(ResourceConflict):
     """Base for refusal; carries the plans so the view can explain itself."""
 
     def __init__(self, message: str, plans: list[RevertPlan]) -> None:
@@ -148,36 +153,42 @@ def blocked_fields(
 
 
 async def build_plan(
-    ctx: AdminContext,
-    admin: ModelAdmin,
+    ctx: OperationContext,
+    resource: ReadOnlyModelResource,
     pk_value: Any,
     entry_id: int,
     *,
     mask: DiffMask | None = None,
 ) -> RevertPlan:
     """Load one entry and work out how to revert it (``LookupError`` = 404)."""
-    row = await ctx.db.get(RowChange, entry_id)
-    if row is None or row.model_label != admin.model_label or row.object_pk != str(pk_value):
+    row = await ctx.session.get(RowChange, entry_id)
+    if row is None or row.model_label != resource.scope_name or row.object_pk != str(pk_value):
         raise LookupError(f"History entry {entry_id} does not belong to this row.")
-    return await plan_from_row(ctx, admin, pk_value, to_entry(row), mask=mask)
+    return await plan_from_row(ctx, resource, pk_value, to_entry(row), mask=mask)
 
 
 async def plan_from_row(
-    ctx: AdminContext,
-    admin: ModelAdmin,
+    ctx: OperationContext,
+    resource: ReadOnlyModelResource,
     pk_value: Any,
     entry: RowChangeEntry,
     *,
     mask: DiffMask | None = None,
 ) -> RevertPlan:
-    ctx = replace(ctx, admin=admin, obj=None)
-    plan = RevertPlan(admin=admin, entry=entry, pk_value=pk_value)
-    plan.target = await ctx.db.get(admin.model, pk_value)
+    ctx = replace(ctx, resource=resource, obj=None)
+    plan = RevertPlan(resource=resource, entry=entry, pk_value=pk_value)
+    plan.target = await ctx.session.get(resource.model, pk_value)
     if plan.target is not None:
-        plan.target = await admin.get_object(ctx, str(pk_value))
-        ctx.obj = plan.target
-    admin.check_permission(ctx, "view", plan.target)
-    specs = {spec.name: spec for spec in admin.get_form_specs(ctx)}
+        action = {"update": "update", "delete": "create", "create": "delete"}[entry.op]
+        operation_spec = resource.operations.get(action) or resource.operations["get"]
+        plan.target = await resource.resolve_target(ctx, operation_spec, str(pk_value))
+        ctx = replace(ctx, obj=plan.target)
+    if not resource.can_execute(ctx, "get", plan.target):
+        raise PermissionDenied("The affected resource is unavailable.")
+    from obox_builder.contrib.history.access import diff_mask
+
+    mask = mask or diff_mask(resource.model, ctx)
+    specs = {spec.name: spec for spec in resource.specs.values()}
     if entry.op == "create":
         # Reverting a create is a confirmed delete; no values are restored.
         if plan.target is None:
@@ -226,79 +237,66 @@ async def plan_from_row(
     return plan
 
 
-def _bind_values(plan: RevertPlan, ctx: AdminContext, values: dict[str, Any]) -> BoundForm:
-    admin = _admin_of(plan)
-    ctx.obj = plan.target
-    specs = [spec for spec in admin.get_form_specs(ctx) if spec.name in values]
-    schema = build_schema(
+def _resource_of(plan: RevertPlan) -> ReadOnlyModelResource:
+    if plan.resource is None:  # pragma: no cover - blocked entries never mutate
+        raise RuntimeError("RevertPlan without a ReadOnlyModelResource cannot be applied.")
+    return plan.resource
+
+
+async def _mutate(ctx: OperationContext, plan: RevertPlan) -> None:
+    resource = _resource_of(plan)
+    context = replace(ctx.for_resource(resource), obj=plan.target)
+    if plan.entry.op == "create":
+        await resource.execute("delete", context, target=plan.target)
+        return
+    if not isinstance(resource, ModelResource):
+        plan.blocked.append(
+            BlockedField(
+                name="",
+                label="",
+                reason="This resource requires its dedicated administration operations.",
+            )
+        )
+        raise RevertBlocked("This resource does not support snapshot restoration.", [plan])
+    action = "create" if plan.entry.op == "delete" else "update"
+    if not resource.can_execute(context, action, plan.target):
+        raise PermissionDenied("The affected operation is not allowed.")
+    obj = resource.model() if action == "create" else plan.target
+    if action == "create":
+        setattr(obj, resource.pk_column().key, plan.pk_value)
+    context = replace(context, obj=obj)
+    values = {name: value for name, value in plan.values.items() if name in resource.specs}
+    specs = [replace(resource.specs[name], readonly=False, editable=True) for name in values]
+    for spec in specs:
+        if not resource.field_allowed(context, spec, write=True):
+            raise PermissionDenied("A recorded field can no longer be written.")
+    bound = BoundForm.bind(
         specs,
-        name=f"revert_{admin.app_label}_{admin.model_name}",
-        mode="revert",
+        build_schema(specs, mode="revert"),
+        values,
+        base=context.record_context(values=values),
     )
-    return BoundForm.bind(specs, schema, values, base=ctx.record_context(values))
+    from obox_builder.resources.validation import validate_relations, validate_unique
+
+    if bound.is_valid:
+        await validate_relations(resource, context, bound)
+        await validate_unique(resource.model, context, bound, None if action == "create" else obj)
+    if not bound.is_valid:
+        plan.blocked.extend(
+            BlockedField(name=name, label=name, reason="; ".join(errors))
+            for name, errors in bound.errors.items()
+        )
+        raise RevertBlocked("Recorded values no longer pass validation.", [plan])
+    bound.apply_to(obj)
+    await resource.save_model(context, obj, bound, change=action == "update")
+    await resource.save_related(context, obj, bound, change=action == "update")
 
 
-def _apply_values(ctx: AdminContext, plan: RevertPlan, obj: Any) -> None:
-    """Restore recorded values: editable ones via the form, rest via setattr."""
-    admin = _admin_of(plan)
-    ctx.obj = obj
-    by_name = {spec.name: spec for spec in admin.get_form_specs(ctx)}
-    editable = {name for name, spec in by_name.items() if spec.is_editable()}
-    values = {name: value for name, value in plan.values.items() if name in by_name}
-    form_values = {name: value for name, value in values.items() if name in editable}
-    if form_values:
-        bound = _bind_values(plan, ctx, form_values)
-        if not bound.is_valid:
-            first = next(iter(bound.errors.values()), ["invalid values"])[0]
-            plan.blocked.append(
-                BlockedField(
-                    name="",
-                    label="",
-                    reason=f"the form now rejects the recorded values ({first}).",
-                )
-            )
-            raise RevertBlocked("Recorded values no longer pass validation.", [plan])
-        missing = [name for name in form_values if name not in bound.cleaned]
-        if missing:
-            plan.blocked.extend(
-                BlockedField(name=name, label=name, reason="not editable for you.")
-                for name in missing
-            )
-            raise RevertBlocked("Some fields are not editable for you.", [plan])
-        bound.apply_to(obj)
-    # Read-only fields (e.g. JSON columns) are not user-editable, so their
-    # recorded value is assigned directly; the payload is trustworthy and the
-    # flush still enforces column constraints.
-    for name, value in values.items():
-        if name not in editable:
-            setattr(obj, name, value)
-
-
-def _admin_of(plan: RevertPlan) -> ModelAdmin:
-    if plan.admin is None:  # pragma: no cover - blocked entries never mutate
-        raise RuntimeError("RevertPlan without a ModelAdmin cannot be applied.")
-    return plan.admin
-
-
-async def _mutate(ctx: AdminContext, plan: RevertPlan) -> None:
-    """Stage the reverse change on the session (no flush)."""
-    admin = _admin_of(plan)
-    entry = plan.entry
-    if entry.op == "create":
-        await ctx.db.delete(plan.target)
-        return
-    if entry.op == "delete":
-        obj = admin.model()
-        setattr(obj, sa.inspect(admin.model).primary_key[0].key, plan.pk_value)
-        _apply_values(ctx, plan, obj)
-        ctx.db.add(obj)
-        return
-    _apply_values(ctx, plan, plan.target)
-
-
-def _bind_revert_context(ctx: AdminContext, *, reverts_id: int, reason: str) -> None:
-    ctx.db.info[CTX_KEY] = replace(
-        from_request(ctx.request),
+def _bind_revert_context(ctx: OperationContext, *, reverts_id: int, reason: str) -> None:
+    ctx.session.info[CTX_KEY] = replace(
+        resolve_context(ctx.session),
+        actor_id=ctx.actor.id,
+        actor_label=ctx.actor.username or "system",
         source="revert",
         reverts_id=reverts_id,
         reason=reason[:500],
@@ -306,14 +304,12 @@ def _bind_revert_context(ctx: AdminContext, *, reverts_id: int, reason: str) -> 
 
 
 async def revert_plans(
-    ctx: AdminContext,
-    plans: list[RevertPlan],
-    *,
-    force: bool,
-    reverts_id: int,
-    reason: str,
+    ctx: OperationContext, plans: list[RevertPlan], *, force: bool, reverts_id: int, reason: str
 ) -> None:
-    """Apply a set of plans in one transaction (all or nothing)."""
+    registry = ctx.registry or get_registry()
+    history = registry.for_model(RowChange)
+    if not ctx.for_resource(history).can(history.operations["restore"].permission, effect="write"):
+        raise PermissionDenied("Restoring history is not allowed.")
     for plan in plans:
         if plan.noop:
             continue
@@ -321,40 +317,41 @@ async def revert_plans(
             raise RevertBlocked("This entry cannot be reverted.", [plan])
         if plan.conflicts and not force:
             raise RevertConflict("The row changed since this entry was recorded.", [plan])
-    _bind_revert_context(ctx, reverts_id=reverts_id, reason=reason)
-    for plan in plans:
-        if plan.noop:
-            continue
-        await _mutate(ctx, plan)
+        resource = _resource_of(plan)
+        action = {"update": "update", "delete": "create", "create": "delete"}[plan.entry.op]
+        if not resource.can_execute(ctx.for_resource(resource), action, plan.target):
+            raise PermissionDenied("An affected operation is not allowed.")
+    previous = ctx.session.info.get(CTX_KEY)
     try:
-        async with ctx.db.begin_nested():
-            await ctx.db.flush()
+        async with ctx.session.begin_nested():
+            _bind_revert_context(ctx, reverts_id=reverts_id, reason=reason)
+            for plan in plans:
+                if not plan.noop:
+                    await _mutate(ctx, plan)
+            await ctx.session.flush()
     except IntegrityError as exc:
-        await ctx.db.rollback()
-        raise RevertBlocked(
-            f"Could not revert: the database rejected the change ({exc.orig}).",
-            plans,
-        ) from exc
+        raise RevertBlocked("A database constraint prevented this restoration.", plans) from exc
     except StaleDataError as exc:
-        await ctx.db.rollback()
-        raise RevertConflict(
-            "The row changed while the revert was being applied; try again.",
-            plans,
-        ) from exc
+        raise RevertConflict("The row changed while the restore was being applied.", plans) from exc
+    finally:
+        if previous is None:
+            ctx.session.info.pop(CTX_KEY, None)
+        else:
+            ctx.session.info[CTX_KEY] = previous
 
 
 def _entry_blocked(entry: RowChangeEntry, reason: str) -> RevertPlan:
     return RevertPlan(
-        admin=None,
+        resource=None,
         entry=entry,
         pk_value=None,
-        blocked=[BlockedField(name="", label=entry.object_repr, reason=reason)],
+        blocked=[BlockedField(name="", label="Restricted record", reason=reason)],
     )
 
 
 async def _plan_for_change_set(
-    ctx: AdminContext,
-    site: Any,
+    ctx: OperationContext,
+    registry: Any,
     entry: RowChangeEntry,
     *,
     allowed: frozenset[str] | None,
@@ -362,35 +359,29 @@ async def _plan_for_change_set(
     if allowed is not None and entry.model_label not in allowed:
         return _entry_blocked(entry, "the model is not visible to you.")
     model = model_for_label(entry.model_label)
-    admin = site.get_model_admin_for(model) if model is not None else None
-    if admin is None:
-        return _entry_blocked(entry, "the model is no longer registered in the admin.")
-    ctx = replace(ctx, admin=admin, obj=None)
+    resource = registry.models.get(model) if model is not None else None
+    if resource is None:
+        return _entry_blocked(entry, "the affected resource is no longer registered.")
+    ctx = replace(ctx, resource=resource, obj=None)
     try:
-        pk_value = admin.parse_pk(entry.object_pk)
+        pk_value = resource.parse_pk(entry.object_pk)
     except LookupError:
         pk_value = entry.object_pk
     try:
-        plan = await plan_from_row(ctx, admin, pk_value, entry)
+        plan = await plan_from_row(ctx, resource, pk_value, entry)
     except Exception:  # noqa: BLE001 - a plan failure must not abort the report
         logger.exception("Failed to plan revert of entry #%d.", entry.id)
         return RevertPlan(
-            admin=admin,
+            resource=resource,
             entry=entry,
             pk_value=pk_value,
             blocked=[BlockedField(name="", label=entry.object_repr, reason="could not evaluate.")],
         )
-    action = OP_PERMISSION.get(entry.op, "change")
-    if not (
-        admin.has_add_permission(ctx)
-        if action == "add"
-        else getattr(admin, f"has_{action}_permission")(ctx, plan.target)
-    ):
+    action = {"update": "update", "delete": "create", "create": "delete"}[entry.op]
+    if not resource.can_execute(ctx, action, plan.target):
         plan.blocked.append(
             BlockedField(
-                name="",
-                label=entry.object_repr,
-                reason=f"you lack '{admin.permission_name(action)}'.",
+                name="", label="Restricted record", reason=f"The {action} operation is not allowed."
             )
         )
     return plan

@@ -23,6 +23,9 @@ def handle(
         utils.echo(f"{verb} {len(result.created)} permission(s).")
         for name in result.created:
             utils.echo(f"  + {name}", level=2)
+        utils.echo(f"{len(result.retired)} retired permission(s); existing grants are retained.")
+        for name in result.retired:
+            utils.echo(f"  ~ {name}", level=2)
         if prune:
             verb = "Would prune" if dry_run else "Pruned"
             utils.echo(f"{verb} {len(result.pruned)} permission(s).")

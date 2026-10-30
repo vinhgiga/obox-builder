@@ -11,12 +11,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from obox_builder.conf import settings
 from obox_builder.contrib.auth import services, sessions
-from obox_builder.contrib.auth.authz import Actor, PermissionName, authorization_catalog
 from obox_builder.contrib.auth.models import Session as AuthSession
 from obox_builder.contrib.auth.models import User
-from obox_builder.contrib.auth.permissions import get_actor
+from obox_builder.contrib.auth.permissions import get_actor, validate_permission_references
 from obox_builder.db.session import get_db
 from obox_builder.exceptions import NotAuthenticated, PermissionDenied
+from obox_builder.security import Actor, PermissionRef
 
 
 async def get_auth_session(
@@ -83,14 +83,12 @@ def require_permission(name: str) -> DependsParameter:
 def permission_required(*permissions: str) -> Callable[..., Coroutine[Any, Any, User]]:
     """Require every listed permission."""
     for name in permissions:
-        permission = PermissionName.parse(name)
-        authorization_catalog.register_permission(
-            permission.service, permission.resource, permission.action
-        )
+        PermissionRef.parse(name)
 
     async def dependency(
         user: User = Depends(get_current_user), actor: Actor = Depends(get_current_actor)
     ) -> User:
+        validate_permission_references(permissions)
         if not all(actor.has_permission(permission) for permission in permissions):
             raise PermissionDenied(
                 "You do not have permission to perform this action "
@@ -104,14 +102,12 @@ def permission_required(*permissions: str) -> Callable[..., Coroutine[Any, Any, 
 def any_permission_required(*permissions: str) -> Callable[..., Coroutine[Any, Any, User]]:
     """Require at least one of the listed permissions."""
     for name in permissions:
-        permission = PermissionName.parse(name)
-        authorization_catalog.register_permission(
-            permission.service, permission.resource, permission.action
-        )
+        PermissionRef.parse(name)
 
     async def dependency(
         user: User = Depends(get_current_user), actor: Actor = Depends(get_current_actor)
     ) -> User:
+        validate_permission_references(permissions)
         if not any(actor.has_permission(permission) for permission in permissions):
             raise PermissionDenied("You do not have permission to perform this action.")
         return user

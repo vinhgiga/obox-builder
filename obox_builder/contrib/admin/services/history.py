@@ -9,6 +9,7 @@ from typing import Any
 from fastapi import Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from obox_builder.contrib.history.access import DiffMask
 from obox_builder.contrib.history.service import (
     RowChangeEntry,
     entry_count,
@@ -20,25 +21,6 @@ from obox_builder.fields import FieldSpec
 
 TIMELINE_PAGE_SIZE = 20
 CARD_LIMIT = 5
-
-
-@dataclass(frozen=True)
-class DiffMask:
-    """Which recorded field names the current viewer may see (ADR L10).
-
-    A field is visible when it appears in the model's non-secret specs (or is
-    a tracked relation); secrets stay hidden for everyone and fields that are
-    not in any current spec (legacy names) are only shown to superusers.
-    """
-
-    visible: frozenset[str]
-    known: frozenset[str]
-    is_superuser: bool
-
-    def allows(self, name: str) -> bool:
-        if name in self.visible:
-            return True
-        return self.is_superuser and name not in self.known
 
 
 @dataclass(frozen=True)
@@ -54,33 +36,37 @@ class RevertLinks:
 
 
 def diff_mask(model: type[Any], *, user: Any, admin: Any = None, ctx: Any = None) -> DiffMask:
-    """Build the entry filter for ``user`` viewing ``model`` (admin optional).
+    from obox_builder.contrib.history.access import diff_mask as resource_mask
+    from obox_builder.resources import OperationContext, get_registry
+    from obox_builder.security import Actor
 
-    With an ``admin`` the visible set is the non-secret form/list specs, so a
-    field hidden from the interface stays hidden in history.
-    Without one (bespoke pages) every recorded non-secret field is visible.
-    Declared relations are an explicit recording opt-in and are always visible.
-    """
-    from obox_builder.contrib.history.tracker import get_tracker
-
-    tracker = get_tracker(model)
-    known: set[str] = set()
-    visible: set[str] = set()
-    if tracker is not None:
-        known |= {field.name for field in tracker.fields}
-        known |= {relation.name for relation in tracker.relations}
-        visible |= {relation.name for relation in tracker.relations}
-    if admin is not None:
-        specs = [*admin.get_form_specs(ctx), *admin.get_list_specs(ctx)]
-        known |= {spec.name for spec in specs}
-        visible |= {spec.name for spec in specs if not spec.secret}
-    elif tracker is not None:
-        visible |= {field.name for field in tracker.fields if not field.secret}
-    return DiffMask(
-        visible=frozenset(visible),
-        known=frozenset(known),
-        is_superuser=bool(getattr(user, "is_superuser", False)),
+    catalog = get_registry()
+    context = (
+        ctx.operation_context()
+        if ctx is not None
+        else OperationContext(
+            Actor(
+                id=getattr(user, "id", None),
+                permissions=frozenset(name for name in catalog.permissions if user.has_perm(name)),
+                is_superuser=bool(getattr(user, "is_superuser", False)),
+            ),
+            registry=catalog,
+        )
     )
+    mask = resource_mask(model, context)
+    if admin is not None:
+        displayed = {
+            spec.name
+            for spec in (*admin.get_form_specs(ctx), *admin.get_list_specs(ctx))
+            if not spec.secret
+        }
+        from obox_builder.contrib.history.tracker import get_tracker
+
+        tracker = get_tracker(model)
+        if tracker is not None:
+            displayed.update(item.name for item in tracker.relations)
+        mask = replace(mask, visible=mask.visible & displayed)
+    return mask
 
 
 def model_timeline_available(model: type[Any]) -> bool:
@@ -93,7 +79,7 @@ def model_timeline_available(model: type[Any]) -> bool:
 
 
 def timeline_available(admin: Any) -> bool:
-    """``model_timeline_available`` for a registered ``ModelAdmin``."""
+    """``model_timeline_available`` for a registered ``ModelView``."""
     return model_timeline_available(admin.model)
 
 
@@ -151,7 +137,7 @@ def entry_view(
         "revert_url": "",
     }
     if revert is not None:
-        from obox_builder.contrib.admin.services.revert import blocked_fields
+        from obox_builder.contrib.history.revert import blocked_fields
 
         view["revertable"] = revert.can_revert(entry) and not blocked_fields(
             entry, revert.specs, mask=mask

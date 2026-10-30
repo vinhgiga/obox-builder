@@ -1,0 +1,3 @@
+from obox_builder.contrib.api import api
+
+# Publish a resource explicitly: api.register(YourResource, path="/records").

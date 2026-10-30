@@ -7,10 +7,11 @@ import httpx
 import pytest
 import sqlalchemy as sa
 from obox_builder.conf import settings
-from obox_builder.contrib.admin import ModelAdmin
+from obox_builder.contrib.admin import ModelView
 from obox_builder.core.utils.time import utcnow
 from obox_builder.db import get_engine
 from obox_builder.db.session import session_scope
+from obox_builder.resources import get_registry
 from pydantic import create_model, model_validator
 from sqlalchemy import event
 from sqlalchemy.exc import IntegrityError
@@ -69,13 +70,13 @@ async def test_partial_update_keeps_custom_form_validation_and_hooks(
 
         return create_model(
             "CustomItemForm",
-            __base__=ModelAdmin.get_form(admin, ctx, change=change),
+            __base__=ModelView.get_form(admin, ctx, change=change),
             __validators__={"check": cast(Any, model_validator(mode="after")(check))},
         )
 
     async def save(ctx: Any, obj: Any, form: Any, *, change: bool) -> None:
         calls.append((change, form.parsed.quantity))
-        await ModelAdmin.save_model(admin, ctx, obj, form, change=change)
+        await ModelView.save_model(admin, ctx, obj, form, change=change)
 
     monkeypatch.setattr(admin, "get_form", get_form)
     monkeypatch.setattr(admin, "save_model", save)
@@ -102,7 +103,7 @@ async def test_dynamic_fields_are_scoped_per_row(
     def fields(ctx: Any) -> Any:
         return [
             spec
-            for spec in ModelAdmin.get_form_fields(admin, ctx)
+            for spec in ModelView.get_form_fields(admin, ctx)
             if ctx.obj is None or ctx.obj.name != "Private" or spec.name != "notes"
         ]
 
@@ -117,7 +118,9 @@ async def test_real_user_version_is_readonly_and_password_is_secret(api: httpx.A
     from obox_builder.contrib.auth.models import User
 
     headers = await sign_in(api)
-    site_for(api).register(User, type("ApiUserAdmin", (ModelAdmin,), {"api_enabled": True}))
+    site_for(api).register(
+        get_registry().for_model(User), type("ApiUserAdmin", (ModelView,), {"api_enabled": True})
+    )
     assert (await api.get(f"{BASE}/models/auth.user/records")).status_code == 404
     site_for(api).api_auth_enabled = True
     response = await api.get(f"{BASE}/users")
@@ -196,7 +199,10 @@ async def test_partial_composite_uniqueness_and_large_ids(api: httpx.AsyncClient
     from tests.support.apps.warehouse.models import Item
 
     headers = await sign_in(api)
-    site_for(api).register(OrderLine, type("ApiLineAdmin", (ModelAdmin,), {"api_enabled": True}))
+    site_for(api).register(
+        get_registry().for_model(OrderLine),
+        type("ApiLineAdmin", (ModelView,), {"api_enabled": True}),
+    )
     async with session_scope() as db:
         order = Order(reference="unique-order")
         db.add(order)
@@ -252,5 +258,5 @@ async def test_api_settings_checks(admin_env: None, monkeypatch: pytest.MonkeyPa
     from obox_builder.contrib.admin.checks import check_admin_api
 
     assert settings._wrapped is not None
-    monkeypatch.setattr(settings._wrapped, "ADMIN_API_TRUSTED_ORIGINS", ["*"])
+    monkeypatch.setattr(settings._wrapped, "API_TRUSTED_ORIGINS", ["*"])
     assert [message.id for message in check_admin_api()] == ["obox.admin.E501"]

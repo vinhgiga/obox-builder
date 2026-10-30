@@ -137,7 +137,7 @@ async def test_trusted_origin_preflight_and_csrf(
     api: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     assert settings._wrapped is not None
-    monkeypatch.setattr(settings._wrapped, "ADMIN_API_TRUSTED_ORIGINS", ["https://frontend.test"])
+    monkeypatch.setattr(settings._wrapped, "API_TRUSTED_ORIGINS", ["https://frontend.test"])
     origin = {"Origin": "https://frontend.test"}
     preflight = await api.options(
         ITEMS,
@@ -244,7 +244,7 @@ async def test_rate_limits_and_body_limits(
 ) -> None:
     assert settings._wrapped is not None
     await sign_in(api)
-    monkeypatch.setattr(settings._wrapped, "ADMIN_API_MAX_BODY_BYTES", 10)
+    monkeypatch.setattr(settings._wrapped, "API_MAX_BODY_BYTES", 10)
     csrf = (await api.get(f"{BASE}/auth/me")).json()["csrf_token"]
     oversized = await api.post(
         ITEMS, headers={"X-CSRF-Token": csrf}, json={"fields": {"name": "too-long"}}

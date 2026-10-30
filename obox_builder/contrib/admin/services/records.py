@@ -1,4 +1,4 @@
-"""Transport-independent record validation and writes for admin hooks."""
+"""HTML form binding and presentation around guarded resource operations."""
 
 from __future__ import annotations
 
@@ -14,12 +14,11 @@ from obox_builder.contrib.admin.context import AdminContext
 from obox_builder.contrib.admin.pagination import AdminPage
 from obox_builder.contrib.admin.relations import related_key, validate_relations
 from obox_builder.contrib.admin.services.deletion import DeletionPlan, collect_deletion
-from obox_builder.contrib.admin.uniqueness import validate_model_uniqueness
-from obox_builder.contrib.admin.uploads import discard_uploads, persist_uploads
-from obox_builder.contrib.auth.tokens import scope_allows
+from obox_builder.contrib.uploads import discard_uploads, persist_uploads
 from obox_builder.exceptions import PermissionDenied
 from obox_builder.fields import FieldSpec, QuerySpec
 from obox_builder.forms import BoundForm
+from obox_builder.resources import ModelResource
 
 
 def field_value(obj: Any, spec: FieldSpec) -> Any:
@@ -48,19 +47,15 @@ class RecordService:
         self.admin = ctx.admin
 
     def allowed(self, action: str, obj: Any = None) -> bool:
-        scopes = self.ctx.extra.get("api_scopes")
-        operation = {"view": "read", "add": "write", "change": "write", "delete": "delete"}[action]
-        if scopes is not None and not scope_allows(scopes, self.admin.model_label, operation):
-            return False
+        key = {"view": "get", "add": "create", "change": "update"}.get(action, action)
         checker = getattr(self.admin, f"has_{action}_permission")
-        return bool(checker(self.ctx) if action == "add" else checker(self.ctx, obj))
+        return self.admin.resource.can_execute(
+            self.admin.operation_context(self.ctx), key, obj
+        ) and bool(checker(self.ctx) if action == "add" else checker(self.ctx, obj))
 
     def check_permission(self, action: str, obj: Any = None) -> None:
-        scopes = self.ctx.extra.get("api_scopes")
-        operation = {"view": "read", "add": "write", "change": "write", "delete": "delete"}[action]
-        if scopes is not None and not scope_allows(scopes, self.admin.model_label, operation):
+        if not self.allowed(action, obj):
             raise PermissionDenied(f"You do not have permission to {action} this record.")
-        self.admin.check_permission(self.ctx, action, obj)
 
     async def get(self, pk: str, *, for_update: bool = False) -> Any:
         return await self.admin.get_object(self.ctx, pk, for_update=for_update)
@@ -86,7 +81,7 @@ class RecordService:
         if ctx.db.get_bind().dialect.name == "postgresql":
             await ctx.db.execute(
                 sa.text("SELECT set_config('statement_timeout', :timeout, true)"),
-                {"timeout": str(settings.ADMIN_API_QUERY_TIMEOUT_MS)},
+                {"timeout": str(settings.API_QUERY_TIMEOUT_MS)},
             )
         count = None
         if total != "none":
@@ -138,7 +133,15 @@ class RecordService:
         if bound.is_valid:
             await validate_relations(ctx, bound)
         if bound.is_valid:
-            await validate_model_uniqueness(ctx, admin.model, bound, target)
+            from obox_builder.resources.errors import ResourceValidationError
+
+            if not isinstance(admin.resource, ModelResource):
+                raise PermissionDenied("This resource is read-only.")
+            try:
+                await admin.resource.bind(admin.operation_context(ctx), self.payload(bound), target)
+            except ResourceValidationError as exc:
+                bound.errors.update(exc.errors)
+                bound.parsed = None
         return bound
 
     async def save(
@@ -148,22 +151,23 @@ class RecordService:
         target: Any = None,
         formsets: Sequence[Any] = (),
         uploads: Sequence[Any] = (),
-        primary_key: Any = None,
     ) -> Any:
         if not bound.is_valid or not all(formset.is_valid for formset in formsets):
             raise ValueError("Cannot save an invalid form.")
         ctx, admin = self.ctx, self.admin
         self.check_permission("add" if target is None else "change", target)
-        obj = target if target is not None else admin.model()
-        if target is None and primary_key is not None:
-            setattr(obj, admin.pk_column().key, primary_key)
-        ctx.obj = obj
+        resource = admin.resource
+        operation = "create" if target is None else "update"
+        payload = self.payload(bound)
         try:
             persist_uploads(uploads)
             async with ctx.db.begin_nested():
-                bound.apply_to(obj)
-                await admin.save_model(ctx, obj, bound, change=target is not None)
-                await admin.save_related(ctx, obj, bound, change=target is not None)
+                result = await resource.execute(
+                    operation, admin.operation_context(ctx), payload, target=target
+                )
+                identity = getattr(result, resource.pk_column().key)
+                obj = await ctx.db.get(admin.model, resource.parse_pk(identity))
+                ctx.obj = obj
                 for formset in formsets:
                     await formset.save(obj)
                 await ctx.db.flush()
@@ -172,12 +176,20 @@ class RecordService:
             raise
         return obj
 
+    def payload(self, bound: BoundForm) -> dict[str, Any]:
+        specs = self.admin.resource.specs
+        return {
+            name: specs[name].type.to_api(value, specs[name])
+            for name, value in bound.cleaned.items()
+            if name in specs and specs[name].is_editable()
+        }
+
     async def plan_delete(self, targets: builtins.list[Any], *, lock: bool = False) -> DeletionPlan:
         return await collect_deletion(self.ctx, targets, lock=lock)
 
     async def delete(self, target: Any) -> None:
         self.ctx.obj = target
         self.check_permission("delete", target)
-        async with self.ctx.db.begin_nested():
-            await self.admin.delete_model(self.ctx, target)
-            await self.ctx.db.flush()
+        await self.admin.resource.execute(
+            "delete", self.admin.operation_context(self.ctx), target=target
+        )

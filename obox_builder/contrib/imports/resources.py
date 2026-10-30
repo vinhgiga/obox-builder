@@ -12,8 +12,9 @@ from typing import Any
 import sqlalchemy as sa
 
 from obox_builder.exceptions import ImproperlyConfigured, PermissionDenied
-from obox_builder.fields import FieldSpec, RecordContext, introspect_model
+from obox_builder.fields import FieldSpec, RecordContext
 from obox_builder.forms import BoundForm, build_schema
+from obox_builder.resources import ModelResource, OperationContext
 from obox_builder.utils.strings import camel_to_snake
 
 
@@ -24,16 +25,17 @@ def digest(value: Any) -> str:
 class ImportResource:
     def __init__(
         self,
-        model: type[Any],
-        user: Any,
+        resource: ModelResource,
+        ctx: OperationContext,
         *,
-        keys: Sequence[str] = (),
+        keys: Sequence[str] | None = None,
         specs: Sequence[FieldSpec] | None = None,
     ) -> None:
-        self.model = model
-        self.user = user
-        self.keys = tuple(keys)
-        source = specs if specs is not None else introspect_model(model)
+        self.resource = resource
+        self.ctx = ctx.for_resource(resource)
+        self.model = model = resource.model
+        self.keys = tuple(resource.import_keys if keys is None else keys)
+        source = specs if specs is not None else resource.specs.values()
         self.specs = [
             replace(spec, readonly=False, editable=True) if spec.primary_key else spec
             for spec in source
@@ -56,6 +58,10 @@ class ImportResource:
             if len(self.keys) == 1 and generated is not None and self.keys[0] == generated.key
             else None
         )
+
+    @property
+    def user(self):
+        return self.ctx.actor
 
     def check_configuration(self, mode: str) -> None:
         if mode not in {"insert", "upsert", "update-only", "skip-existing"}:
@@ -88,17 +94,13 @@ class ImportResource:
             raise ImproperlyConfigured("Import keys must refer to database columns.")
 
     def queryset(self) -> sa.Select[Any]:
-        return sa.select(self.model)
+        return self.resource.scoped_query(self.ctx, self.resource.operations["list"])
 
     def can_add(self) -> bool:
-        from obox_builder.contrib.auth.authz import model_permission
-
-        return bool(self.user.has_perm(model_permission(self.model, "create")))
+        return self.resource.can_execute(self.ctx, "create")
 
     def can_change(self, obj: Any = None) -> bool:
-        from obox_builder.contrib.auth.authz import model_permission
-
-        return bool(self.user.has_perm(model_permission(self.model, "update")))
+        return self.resource.can_execute(self.ctx, "update", obj)
 
     def check_permissions(self, mode: str) -> None:
         if not getattr(self.user, "is_active", False):
@@ -109,7 +111,7 @@ class ImportResource:
             raise PermissionDenied("Updating records is not permitted.")
 
     def context(self, obj: Any = None) -> RecordContext:
-        return RecordContext(obj=obj, user=self.user)
+        return self.ctx.record_context(obj)
 
     def value_errors(self, values: dict[str, Any]) -> dict[str, list[str]]:
         errors: dict[str, list[str]] = {}
@@ -193,4 +195,15 @@ class ImportResource:
     def snapshot(self, obj: Any) -> str:
         return digest(
             {column.key: getattr(obj, column.key) for column in sa.inspect(self.model).columns}
+        )
+
+    async def save(self, db, bound, target=None):
+        context = replace(self.ctx, db=db)
+        payload = {
+            name: self.resource.specs[name].type.to_api(value, self.resource.specs[name])
+            for name, value in bound.cleaned.items()
+            if name in self.resource.specs and self.resource.specs[name].is_editable()
+        }
+        return await self.resource.execute(
+            "create" if target is None else "update", context, payload, target=target
         )

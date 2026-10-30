@@ -8,13 +8,13 @@ import pytest
 from obox_builder import conf
 from obox_builder.apps import apps
 from obox_builder.apps.registry import Apps
-from obox_builder.contrib.auth.authz import authorization_catalog
 from obox_builder.contrib.history import context as history_context
 from obox_builder.contrib.history import tracker as history_tracker
 from obox_builder.core.checks import registry as checks_registry
 from obox_builder.core.management import utils as cli_utils
 from obox_builder.core.signals import post_migrate
 from obox_builder.db import engine as db_engine
+from obox_builder.resources import registry as resource_registry
 
 from tests.support import events
 
@@ -37,8 +37,21 @@ def _purge_support_app_modules() -> None:
 
 @pytest.fixture(autouse=True)
 def guard_global_state() -> Iterator[None]:
-    saved_permission_catalog = dict(authorization_catalog.permissions)
-    saved_role_catalog = dict(authorization_catalog.roles)
+    admin_module = sys.modules.get("obox_builder.contrib.admin.site")
+    admin_site = getattr(admin_module, "site", None)
+    saved_admin = (
+        None
+        if admin_site is None
+        else (
+            dict(admin_site._registry),
+            dict(admin_site._declarations),
+            list(admin_site.navigation),
+            admin_site._discovered,
+        )
+    )
+    saved_resource_registry = resource_registry._registry
+    auth_permissions = sys.modules.get("obox_builder.contrib.auth.permissions")
+    saved_auth_catalog = getattr(auth_permissions, "_catalog", None)
     saved_settings = conf.settings._wrapped
     saved_apps = Apps()
     saved_apps.app_configs = dict(apps.app_configs)
@@ -61,8 +74,17 @@ def guard_global_state() -> Iterator[None]:
     try:
         yield
     finally:
-        authorization_catalog.permissions = saved_permission_catalog
-        authorization_catalog.roles = saved_role_catalog
+        if saved_admin is not None and admin_site is not None:
+            (
+                admin_site._registry,
+                admin_site._declarations,
+                admin_site.navigation,
+                admin_site._discovered,
+            ) = saved_admin
+        resource_registry._registry = saved_resource_registry
+        auth_permissions = sys.modules.get("obox_builder.contrib.auth.permissions")
+        if auth_permissions is not None:
+            setattr(auth_permissions, "_catalog", saved_auth_catalog)
         conf.settings._wrapped = saved_settings
         apps.app_configs = saved_apps.app_configs
         apps.all_models = saved_apps.all_models

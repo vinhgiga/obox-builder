@@ -8,9 +8,10 @@ from datetime import datetime, timedelta, timezone
 import httpx
 import pytest
 import sqlalchemy as sa
-from obox_builder.contrib.admin import ModelAdmin
+from obox_builder.contrib.admin import ModelView
 from obox_builder.contrib.history.models import RowChange
 from obox_builder.db.session import session_scope
+from obox_builder.resources import get_registry
 
 from tests.admin.conftest import (
     build_app,
@@ -32,10 +33,10 @@ def _register_shelf_admin() -> None:
 
     if site.get_model_admin_for(Shelf) is None:
         site.register(
-            Shelf,
+            get_registry().for_model(Shelf),
             type(
                 "ShelfAdmin",
-                (ModelAdmin,),
+                (ModelView,),
                 {"list_display": ("id", "code"), "ordering": ("-id",)},
             ),
         )
@@ -282,7 +283,7 @@ async def test_row_visibility_covers_timeline_feed_change_set_export_and_revert(
         monkeypatch.setattr(
             admin,
             "get_queryset",
-            lambda ctx: ModelAdmin.get_queryset(admin, ctx).where(Item.id != hidden),
+            lambda ctx: ModelView.get_queryset(admin, ctx).where(Item.id != hidden),
         )
     else:
         monkeypatch.setattr(

@@ -6,6 +6,11 @@ class AdminConfig(AppConfig):
     label = "admin"
     verbose_name = "Administration"
 
+    def finalize(self) -> None:
+        from obox_builder.contrib.admin.site import site
+
+        site.finalize()
+
     def ready(self) -> None:
         from obox_builder.contrib.admin import checks  # noqa: F401  (register checks)
         from obox_builder.contrib.admin.navigation import default_navigation
@@ -15,9 +20,10 @@ class AdminConfig(AppConfig):
         site.autodiscover()
         from obox_builder.contrib.admin.token_admin import ApiTokenAdmin
         from obox_builder.contrib.auth.models import ApiToken
+        from obox_builder.contrib.auth.resources import ApiTokenResource
 
         if site.get_model_admin_for(ApiToken) is None:
-            site.register(ApiToken, ApiTokenAdmin)
+            site.register(ApiTokenResource, ApiTokenAdmin)
         if not apps.is_installed("obox_builder.contrib.history"):
             return
         from obox_builder.contrib.admin.navigation import NavGroup, NavItem

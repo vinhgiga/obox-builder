@@ -1,4 +1,4 @@
-"""ModelAdmin: declarative CRUD configuration for one model."""
+"""ModelView: declarative CRUD configuration for one model."""
 
 from __future__ import annotations
 
@@ -17,16 +17,14 @@ from pydantic import BaseModel
 from obox_builder.contrib.admin.actions import delete_selected
 from obox_builder.core.checks.messages import CheckMessage
 from obox_builder.exceptions import ImproperlyConfigured, PermissionDenied
-from obox_builder.fields import Cell, FieldSpec, introspect_model
-from obox_builder.fields.introspect import FieldConfig
+from obox_builder.fields import Cell, FieldSpec
 from obox_builder.fields.types.text import Text
-from obox_builder.forms import BoundForm, build_schema
+from obox_builder.forms import build_schema
 from obox_builder.utils.strings import camel_to_snake, humanize
 
 if TYPE_CHECKING:
     from obox_builder.contrib.admin.context import AdminContext
-    from obox_builder.contrib.admin.inlines import InlineModelAdmin
-    from obox_builder.contrib.admin.site import AdminSite
+    from obox_builder.contrib.admin.inlines import InlineModelView
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +52,7 @@ class ActionSpec:
     description: str
     permissions: tuple[str, ...]
     func: Callable[[AdminContext, sa.Select[Any]], Awaitable[Any]]
-    api: bool = False
+    operation: str | None = None
 
 
 @dataclass(frozen=True)
@@ -112,7 +110,7 @@ def display(
     return decorate(function) if function is not None else decorate
 
 
-class ModelAdmin:
+class ModelView:
     """Configuration object for one model's CRUD screens.
 
     Subclass and register with ``@site.register(Model)``. The declared
@@ -120,7 +118,6 @@ class ModelAdmin:
     so the mental model carries over.
     """
 
-    api_enabled: bool = False
     model: type[Any]
 
     list_display: ClassVar[Sequence[str | Callable[..., Any]]] = ()
@@ -129,7 +126,7 @@ class ModelAdmin:
     )
     list_editable: ClassVar[Sequence[str]] = ()
     list_filter: ClassVar[Sequence[str | type[SimpleListFilter]]] = ()
-    #: Bulk actions on the list page; strings name ModelAdmin methods,
+    #: Bulk actions on the list page; strings name ModelView methods,
     #: callables are used directly. ``None`` disables actions entirely.
     actions: ClassVar[Sequence[str | Callable[..., Any]] | None] = ()
     search_fields: ClassVar[Sequence[str]] = ()
@@ -140,7 +137,7 @@ class ModelAdmin:
     save_as: ClassVar[bool] = False
     save_as_continue: ClassVar[bool] = True
     exclude: ClassVar[Sequence[str]] = ()
-    fields_config: ClassVar[Mapping[str, FieldConfig]] = {}
+    widget_config: ClassVar[Mapping[str, Mapping[str, Any]]] = {}
     verbose_name: ClassVar[str] = ""
     verbose_name_plural: ClassVar[str] = ""
     per_page: ClassVar[int] = DEFAULT_PER_PAGE
@@ -151,10 +148,42 @@ class ModelAdmin:
     import_enabled: ClassVar[bool] = False
     import_keys: ClassVar[Sequence[str]] = ()
     autocomplete_fields: ClassVar[Sequence[str]] = ()
-    inlines: ClassVar[Sequence[type[InlineModelAdmin]]] = ()
+    inlines: ClassVar[Sequence[type[InlineModelView]]] = ()
     prepopulated_fields: ClassVar[Mapping[str, Sequence[str]]] = {}
     extra_css: ClassVar[Sequence[str]] = ()
     extra_js: ClassVar[Sequence[str]] = ()
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        for action in ("view", "add", "change", "delete"):
+            key = f"has_{action}_permission"
+            method = vars(cls).get(key)
+            if method is None:
+                continue
+
+            def protect(method, action):
+                @functools.wraps(method)
+                def check(self, ctx, obj=None):
+                    if not ModelView._core_allowed(self, ctx, action, obj):
+                        return False
+                    return method(self, ctx) if action == "add" else method(self, ctx, obj)
+
+                return check
+
+            setattr(cls, key, protect(method, action))
+        method = vars(cls).get("get_queryset")
+        if method is not None:
+
+            @functools.wraps(method)
+            def scoped(self, ctx):
+                allowed = (
+                    ModelView.get_queryset(self, ctx)
+                    .with_only_columns(self.pk_column())
+                    .order_by(None)
+                )
+                return method(self, ctx).where(self.pk_column().in_(allowed))
+
+            cls.get_queryset = scoped
 
     def imports_available(self) -> bool:
         from obox_builder.apps import apps
@@ -172,14 +201,134 @@ class ModelAdmin:
     def import_path(self) -> str:
         return f"{self.list_path()}/import"
 
-    def __init__(self, model: type[Any], site: AdminSite | None = None) -> None:
-        self.model = model
+    def __init__(self, resource, site=None):
+        from obox_builder.resources import ReadOnlyModelResource, get_registry
+
+        if isinstance(resource, type):
+            if not issubclass(resource, ReadOnlyModelResource):
+                raise ImproperlyConfigured("ModelView expects a model Resource, not a model class.")
+            definition = resource
+            try:
+                compiled = (site.resource_registry if site is not None else get_registry()).get(
+                    resource.name
+                )
+            except (ImproperlyConfigured, LookupError):
+                compiled = resource()
+            if type(compiled) is not definition:
+                raise ImproperlyConfigured("View binding does not match its resource definition.")
+            resource = compiled
+        if not isinstance(resource, ReadOnlyModelResource):
+            raise ImproperlyConfigured("ModelView expects a model resource.")
+        self.resource = resource
+        self.model = resource.model
         self.site = site
-        self._specs: list[FieldSpec] | None = None
-        self._schema: type[BaseModel] | None = None
-        self._schema_mode: str = ""
-        self._inline_schema: type[BaseModel] | None = None
-        self._inline_specs: list[FieldSpec] | None = None
+        self._specs = None
+        self._schema = None
+        self._schema_mode = ""
+        self._inline_schema = None
+        self._inline_specs = None
+
+    def operation_context(self, ctx):
+        return ctx.operation_context().for_resource(self.resource)
+
+    def permission_name(self, action: str) -> str:
+        key = {"view": "get", "add": "create", "change": "update"}.get(action, action)
+        spec = self.resource.operations.get(key)
+        if spec is not None:
+            return spec.permission.name
+        return f"{self.resource.name}.{action}"
+
+    def _core_allowed(self, ctx: AdminContext, action: str, obj: Any = None) -> bool:
+        references = {
+            "history": "history.rowChange.read",
+            "comment_view": "comments.rowComment.read",
+            "comment_add": "comments.rowComment.create",
+            "comment_moderate": "comments.rowComment.moderate",
+        }
+        if action in references:
+            from obox_builder.security import PermissionRef
+
+            context = self.operation_context(ctx)
+            return self.resource.can_execute(context, "get", obj) and context.can(
+                PermissionRef.parse(references[action])
+            )
+        key = {"view": "get", "add": "create", "change": "update"}.get(action, action)
+        return self.resource.can_execute(self.operation_context(ctx), key, obj)
+
+    def has_view_permission(self, ctx, obj=None):
+        return self._core_allowed(ctx, "view", obj)
+
+    def has_add_permission(self, ctx):
+        return self._core_allowed(ctx, "add")
+
+    def has_change_permission(self, ctx, obj=None):
+        return self._core_allowed(ctx, "change", obj)
+
+    def has_delete_permission(self, ctx, obj=None):
+        return self._core_allowed(ctx, "delete", obj)
+
+    def check_permission(self, ctx, action, obj=None):
+        checker = getattr(self, f"has_{action}_permission")
+        allowed = checker(ctx) if action == "add" else checker(ctx, obj)
+        if not self._core_allowed(ctx, action, obj) or not allowed:
+            raise PermissionDenied(f"You do not have permission to {action} this record.")
+
+    def get_queryset(self, ctx):
+        return self.resource.scoped_query(
+            self.operation_context(ctx), self.resource.operations["list"]
+        )
+
+    async def get_object(self, ctx, pk, *, for_update=False):
+        operation = "update" if for_update and "update" in self.resource.operations else "get"
+        context = self.operation_context(ctx)
+        obj = await self.resource.resolve_target(context, self.resource.operations[operation], pk)
+        scoped = await ctx.db.scalar(
+            self.get_queryset(ctx)
+            .with_only_columns(self.pk_column())
+            .where(self.pk_column() == self.get_pk(obj))
+            .order_by(None)
+        )
+        if scoped is None:
+            raise LookupError("Record is unavailable.")
+        return obj
+
+    def get_field_specs(self):
+        if self._specs is None:
+            if set(self.widget_config) - self.resource.specs.keys() or any(
+                set(config) - {"widget", "widget_template", "rows", "placeholder"}
+                for config in self.widget_config.values()
+            ):
+                raise ImproperlyConfigured(
+                    "ModelView.widget_config only accepts widget presentation options "
+                    "for published fields."
+                )
+            self._specs = [
+                replace(
+                    spec,
+                    readonly=True,
+                    editable=False,
+                    options={**spec.options, **self.widget_config.get(spec.name, {})},
+                )
+                if spec.name in self.readonly_fields
+                else replace(
+                    spec, options={**spec.options, **self.widget_config.get(spec.name, {})}
+                )
+                for spec in self.resource.specs.values()
+                if spec.name not in self.exclude
+            ]
+        return self._specs
+
+    def pk_column(self):
+        return self.resource.pk_column()
+
+    def get_pk(self, obj):
+        return self.resource.get_pk(obj)
+
+    def parse_pk(self, value):
+        try:
+            return self.resource.parse_pk(value)
+        except LookupError as exc:
+            raise LookupError(f"Invalid {self.name.lower()} id.") from exc
 
     # -- identity -----------------------------------------------------------
     @property
@@ -242,41 +391,6 @@ class ModelAdmin:
         return f"{self.comments_path(pk)}/{comment_id}/{action}"
 
     # -- permissions --------------------------------------------------------
-    def permission_name(self, action: str) -> str:
-        from obox_builder.contrib.auth.authz import model_permission
-
-        return model_permission(self.model, action)
-
-    def has_view_permission(self, ctx: AdminContext, obj: Any = None) -> bool:
-        return bool(
-            ctx.user.has_perm(self.permission_name("view"))
-            or ctx.user.has_perm(self.permission_name("change"))
-        )
-
-    def has_add_permission(self, ctx: AdminContext) -> bool:
-        return self._has_write_permission(ctx, "add")
-
-    def has_change_permission(self, ctx: AdminContext, obj: Any = None) -> bool:
-        return self._has_write_permission(ctx, "change")
-
-    def has_delete_permission(self, ctx: AdminContext, obj: Any = None) -> bool:
-        return self._has_write_permission(ctx, "delete")
-
-    def _has_write_permission(self, ctx: AdminContext, action: str) -> bool:
-        # Account writes must use the dedicated administration policy and password helpers.
-        return (
-            not getattr(self.model, "__auth_model__", False)
-            and self.model_label not in {"auth.role", "auth.permission"}
-            and bool(ctx.user.has_perm(self.permission_name(action)))
-        )
-
-    def check_permission(self, ctx: AdminContext, action: str, obj: Any = None) -> None:
-        checker = getattr(self, f"has_{action}_permission")
-        allowed = checker(ctx) if action == "add" else checker(ctx, obj)
-        if not allowed:
-            raise PermissionDenied(
-                f"You do not have permission to {action} this {self.name.lower()}."
-            )
 
     def has_history_permission(self, ctx: AdminContext, obj: Any = None) -> bool:
         """Reading the audit trail requires the row-history permission *and* view."""
@@ -316,20 +430,6 @@ class ModelAdmin:
         )
 
     # -- queryset -----------------------------------------------------------
-    def get_queryset(self, ctx: AdminContext) -> sa.Select[Any]:
-        from sqlalchemy.orm import selectinload
-
-        stmt: sa.Select[Any] = sa.select(self.model)
-        for spec in self.get_field_specs():
-            relationship = spec.options.get("relationship")
-            if (
-                spec.type.name in {"link", "multi_link"}
-                and relationship
-                and (spec.type.name == "multi_link" or not (ctx and ctx.extra.get("api")))
-                and not (ctx and ctx.extra.get("api_labels"))
-            ):
-                stmt = stmt.options(selectinload(getattr(self.model, str(relationship))))
-        return stmt
 
     def get_ordering(self, ctx: AdminContext) -> tuple[str, ...]:
         return tuple(self.ordering or ())
@@ -392,10 +492,6 @@ class ModelAdmin:
         """Return validated form-only fields; override for request-specific fields."""
         return self.extra_form_fields
 
-    def get_api_urls(self) -> Sequence[AdminRoute]:
-        """Additional JSON routes, relative to this model's API namespace."""
-        return ()
-
     def get_urls(self) -> Sequence[AdminRoute]:
         """Return extra FastAPI routes under this model's admin URL.
 
@@ -415,35 +511,7 @@ class ModelAdmin:
             show_full_result_count=self.show_full_result_count,
         )
 
-    async def get_object(self, ctx: AdminContext, pk: str, *, for_update: bool = False) -> Any:
-        """Resolve a row within this request's queryset, including eager loads."""
-        value = self.parse_pk(pk)
-        stmt = self.get_queryset(ctx).where(self.pk_column() == value)
-        if for_update:
-            stmt = stmt.with_for_update(of=self.model).execution_options(populate_existing=True)
-        result = await ctx.db.scalars(stmt)
-        obj = result.unique().one_or_none()
-        if obj is None:
-            raise LookupError(f"{self.name} with id {pk!r} does not exist.")
-        return obj
-
     # -- field specs --------------------------------------------------------
-    def get_field_specs(self) -> list[FieldSpec]:
-        if self._specs is None:
-            specs = introspect_model(self.model, overrides=self.fields_config)
-            excluded = set(self.exclude)
-            readonly = set(self.readonly_fields)
-            prepared: list[FieldSpec] = []
-            for spec in specs:
-                if spec.name in excluded:
-                    continue
-                if spec.name in readonly and not spec.readonly:
-                    from dataclasses import replace
-
-                    spec = replace(spec, readonly=True, editable=False)
-                prepared.append(spec)
-            self._specs = prepared
-        return self._specs
 
     def get_spec(self, name: str) -> FieldSpec | None:
         for spec in self.get_field_specs():
@@ -596,6 +664,10 @@ class ModelAdmin:
     def _query_field(self, name: str, ctx: AdminContext | None = None) -> FieldSpec | None:
         direct = self.spec_map().get(name)
         if direct is not None:
+            if ctx is not None and not self.resource.field_allowed(
+                self.operation_context(ctx), direct
+            ):
+                return None
             return direct
         parts = name.split("__")
         if len(parts) < 2 or len(parts) > 4:
@@ -605,6 +677,10 @@ class ModelAdmin:
         model = self.model
         path = []
         scopes = []
+        from obox_builder.resources import get_registry
+
+        registry = self.site.resource_registry if self.site is not None else get_registry()
+        related_admin = None
         for relationship_name in parts[:-1]:
             relationship = sa.inspect(model).relationships.get(relationship_name)
             if relationship is None:
@@ -612,12 +688,12 @@ class ModelAdmin:
             path.append(getattr(model, relationship_name))
             model = relationship.mapper.class_
             related_admin = self.site.get_model_admin_for(model) if self.site else None
-            related_admin = related_admin or ModelAdmin(model, self.site)
+            related_admin = related_admin or ModelView(registry.for_model(model), self.site)
             if ctx is not None:
                 related_ctx = replace(ctx, admin=related_admin, obj=None)
                 if (
                     not related_admin.has_view_permission(related_ctx)
-                    or type(related_admin).has_view_permission is not ModelAdmin.has_view_permission
+                    or type(related_admin).has_view_permission is not ModelView.has_view_permission
                 ):
                     return None
                 related_query = related_admin.get_queryset(related_ctx)
@@ -625,9 +701,17 @@ class ModelAdmin:
                 related_query = sa.select(model)
             primary_key = sa.inspect(model).primary_key[0]
             scopes.append(related_query.with_only_columns(primary_key).order_by(None))
-        target_spec = next(
-            (spec for spec in introspect_model(model) if spec.name == parts[-1]), None
-        )
+        if related_admin is None:
+            return None
+        target_spec = related_admin.resource.specs.get(parts[-1])
+        if (
+            target_spec is not None
+            and ctx is not None
+            and not related_admin.resource.field_allowed(
+                related_admin.operation_context(ctx), target_spec
+            )
+        ):
+            return None
         if target_spec is None or target_spec.column is None or target_spec.secret:
             return None
         return replace(
@@ -642,6 +726,12 @@ class ModelAdmin:
 
     def get_query_specs(self, ctx: AdminContext | None = None) -> dict[str, FieldSpec]:
         specs = self.spec_map()
+        if ctx is not None:
+            specs = {
+                name: spec
+                for name, spec in specs.items()
+                if self.resource.field_allowed(self.operation_context(ctx), spec)
+            }
         specs.update(
             {spec.name: spec for spec in self.get_list_specs(ctx) if spec.options.get("computed")}
         )
@@ -674,54 +764,65 @@ class ModelAdmin:
 
     # -- bulk actions -------------------------------------------------------
     def get_actions(self, ctx: AdminContext) -> list[ActionSpec]:
-        """Actions available to ``ctx.user``: the built-in delete plus ``actions``."""
         if self.actions is None:
             return []
-        specs: list[ActionSpec] = []
-        seen: set[str] = set()
-        for entry in (delete_selected, *self.actions):
-            spec = self._resolve_action(entry)
-            if spec is None or spec.name in seen:
+        result = []
+        if self.has_delete_permission(ctx) and "deleteSelected" in self.resource.operations:
+            result.append(
+                ActionSpec(
+                    "delete_selected",
+                    f"Delete selected {self.plural_name.lower()}",
+                    ("delete",),
+                    functools.partial(delete_selected, self),
+                    operation="deleteSelected",
+                )
+            )
+        for spec in self.resource.operations.values():
+            if spec.scope != "selection" or spec.name == "deleteSelected":
                 continue
-            seen.add(spec.name)
-            if self._action_allowed(spec, ctx):
-                specs.append(spec)
-        return specs
+            if spec.builtin and not self.actions:
+                continue
+            if self.actions and spec.name not in self.actions:
+                continue
+            if not self.resource.can_execute(self.operation_context(ctx), spec.name):
+                continue
 
-    def _resolve_action(self, entry: str | Callable[..., Any]) -> ActionSpec | None:
-        if isinstance(entry, str):
-            method = getattr(type(self), entry, None)
-            if method is None:
-                return None
-            name = entry
-            func: Callable[..., Awaitable[Any]] = getattr(self, entry)
-        else:
-            method = entry
-            name = entry.__name__
-            func = functools.partial(entry, self)
-        description = getattr(method, "description", "") or name.replace("_", " ").capitalize()
-        if "%(" in description:
-            description = description % {
-                "verbose_name": self.name.lower(),
-                "verbose_name_plural": self.plural_name.lower(),
-            }
-        permissions = tuple(getattr(method, "allowed_permissions", ()))
-        return ActionSpec(
-            name=name,
-            description=description,
-            permissions=permissions,
-            func=func,
-            api=bool(getattr(method, "api_enabled", False)),
-        )
+            def adapt(spec):
+                async def perform(action_ctx, queryset):
+                    objects = list((await action_ctx.db.scalars(queryset)).unique())
+                    data = None
+                    if spec.input_schema is not None:
+                        form = await action_ctx.request.form()
+                        data = {
+                            name: form[name]
+                            for name in spec.input_schema.model_fields
+                            if name in form
+                        }
+                    return await self.resource.execute(
+                        spec.name, self.operation_context(action_ctx), data, target=objects
+                    )
+
+                return perform
+
+            result.append(
+                ActionSpec(spec.name, spec.permission.label, (), adapt(spec), operation=spec.name)
+            )
+        return result
 
     def _action_allowed(self, spec: ActionSpec, ctx: AdminContext, obj: Any = None) -> bool:
-        if not spec.permissions:
-            return True
-        for perm in spec.permissions:
-            checker = getattr(self, f"has_{perm}_permission", None)
-            if checker is not None and (checker(ctx) if perm == "add" else checker(ctx, obj)):
-                return True
-        return False
+        operation = self.resource.operations.get(spec.operation or "")
+        if operation is None:
+            return False
+        action = {"read": "view", "write": "change", "delete": "delete"}[operation.effect]
+        checker = getattr(self, f"has_{action}_permission")
+        narrowed = (
+            action != "change" or "update" not in self.resource.operations or checker(ctx, obj)
+        )
+        if action != "change":
+            narrowed = checker(ctx, obj)
+        return bool(narrowed) and self.resource.can_execute(
+            self.operation_context(ctx), operation.name, obj
+        )
 
     def get_search_specs(self, ctx: AdminContext | None = None) -> list[FieldSpec]:
         specs = self.spec_map()
@@ -821,7 +922,12 @@ class ModelAdmin:
                     )
                 )
                 names.add(name)
-        return specs
+        return [
+            spec
+            for spec in specs
+            if spec.options.get("computed")
+            or self.resource.field_allowed(self.operation_context(ctx), spec)
+        ]
 
     def get_form(self, ctx: AdminContext, *, change: bool = False) -> type[BaseModel]:
         """Override to provide custom validation without sharing request state."""
@@ -831,36 +937,8 @@ class ModelAdmin:
             mode="change" if change else "add",
         )
 
-    async def save_model(
-        self, ctx: AdminContext, obj: Any, form: BoundForm, *, change: bool
-    ) -> None:
-        """Save the validated row inside the caller's transaction; do not commit."""
-        ctx.db.add(obj)
-        await ctx.db.flush()
-
-    async def save_related(
-        self, ctx: AdminContext, obj: Any, form: BoundForm, *, change: bool
-    ) -> None:
-        """Save related data after ``save_model``, in the same transaction."""
-        from obox_builder.contrib.admin.relations import save_relations
-
-        await save_relations(ctx, obj, form)
-
-    def get_inline_instances(self, ctx: AdminContext) -> list[InlineModelAdmin]:
+    def get_inline_instances(self, ctx: AdminContext) -> list[InlineModelView]:
         return [inline(self.model, self.site) for inline in self.inlines]
-
-    async def delete_model(self, ctx: AdminContext, obj: Any) -> None:
-        await ctx.db.delete(obj)
-
-    async def delete_queryset(self, ctx: AdminContext, queryset: sa.Select[Any]) -> None:
-        objects = (
-            (await ctx.db.scalars(queryset.order_by(None).order_by(self.pk_column())))
-            .unique()
-            .all()
-        )
-        for obj in objects:
-            ctx.obj = obj
-            await self.delete_model(ctx, obj)
 
     async def response_add(self, ctx: AdminContext, obj: Any) -> Response:
         return await self._response_save(ctx, obj)
@@ -928,18 +1006,6 @@ class ModelAdmin:
         return target_admin.change_path(pk)
 
     # -- primary keys -------------------------------------------------------
-    def pk_column(self) -> sa.Column[Any]:
-        return sa.inspect(self.model).primary_key[0]  # type: ignore[union-attr]
-
-    def get_pk(self, obj: Any) -> Any:
-        return getattr(obj, self.pk_column().key, None)
-
-    def parse_pk(self, raw: str) -> Any:
-        python_type = self.pk_column().type.python_type
-        try:
-            return python_type(raw)
-        except (TypeError, ValueError):
-            raise LookupError(f"Invalid {self.model_name} id {raw!r}.") from None
 
     # -- system checks ------------------------------------------------------
     def validate(self) -> list[CheckMessage]:

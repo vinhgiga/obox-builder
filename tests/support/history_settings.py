@@ -8,6 +8,7 @@ class Settings(AuthSettings):
         "obox_builder.contrib.history",
         "obox_builder.contrib.auth",
         "obox_builder.contrib.admin",
+        "obox_builder.contrib.savedviews",
         "tests.support.apps.shop",
         "tests.support.apps.warehouse",
     ]

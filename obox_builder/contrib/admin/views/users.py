@@ -10,6 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from obox_builder.contrib.admin.context import AdminContext, current_site
 from obox_builder.contrib.admin.rendering import render
 from obox_builder.contrib.admin.services.history import (
     before_cursor,
@@ -19,7 +20,6 @@ from obox_builder.contrib.admin.services.history import (
     timeline_context,
 )
 from obox_builder.contrib.admin.views.common import PAGE_SIZE, ensure_csrf, flash, page_context
-from obox_builder.contrib.auth import administration, services
 from obox_builder.contrib.auth.dependencies import permission_required
 from obox_builder.contrib.auth.models import (
     USER_ADD_PERMISSION,
@@ -29,11 +29,11 @@ from obox_builder.contrib.auth.models import (
     User,
     user_roles,
 )
-from obox_builder.contrib.auth.validators import PasswordValidationError
 from obox_builder.contrib.history import HISTORY_VIEW_PERMISSION
 from obox_builder.db.session import get_db
 from obox_builder.exceptions import PermissionDenied
 from obox_builder.http.shortcuts import redirect
+from obox_builder.resources import ResourceValidationError, get_registry
 
 logger = logging.getLogger(__name__)
 
@@ -146,40 +146,32 @@ async def user_create_submit(
     await ensure_csrf(request, csrf_token)
     roles = await _all_roles(db)
     errors: list[str] = []
-    selected = []
-    try:
-        selected = await administration.selected_roles(db, user.actor(), role_ids)
-    except ValueError as exc:
-        errors.append(str(exc))
-    await administration.check_user(
-        db, user.actor(), None, active=is_active, superuser=is_superuser
-    )
     if not password:
         errors.append("A password is required.")
     elif password != confirm_password:
         errors.append("The two password fields do not match.")
-    if is_superuser and not user.is_superuser:
-        errors.append("Only a superuser can create another superuser.")
     if not errors:
+        resource = get_registry().for_model(User)
+        ctx = AdminContext(request, user, db, current_site(request)).operation_context()
         try:
             async with db.begin_nested():
-                target = await services.create_user(
-                    db,
-                    username,
-                    password or None,
-                    email=email,
-                    full_name=full_name,
-                    is_superuser=is_superuser and user.is_superuser,
-                    is_active=is_active,
+                await resource.execute(
+                    "create",
+                    ctx,
+                    {
+                        "username": username,
+                        "password": password,
+                        "email": email,
+                        "full_name": full_name,
+                        "is_active": is_active,
+                        "is_superuser": is_superuser,
+                        "role_ids": list(map(str, role_ids)),
+                    },
                 )
-        except (ValueError, PasswordValidationError) as exc:
-            errors = getattr(exc, "errors", None) or [str(exc)]
+        except ResourceValidationError as exc:
+            errors = [message for values in exc.errors.values() for message in values]
         else:
-            if selected:
-                await db.refresh(target, ["roles"])
-                target.roles = selected
-            logger.info("Admin %r created user %r", user.username, target.username)
-            await flash(request, f"User {target.username!r} created.")
+            await flash(request, f"User {username!r} created.")
             return redirect("/admin/users", status_code=303)
 
     context = _user_form_context(
@@ -263,7 +255,6 @@ async def user_edit_submit(
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     await ensure_csrf(request, csrf_token)
-    await administration.lock_superusers(db)
     target = await db.scalar(
         select(User)
         .where(User.id == user_id)
@@ -274,49 +265,27 @@ async def user_edit_submit(
         return render(request, "admin/errors/404.html", {}, status_code=404)
     roles = await _all_roles(db)
     errors: list[str] = []
-    selected = []
-    try:
-        selected = await administration.selected_roles(db, user.actor(), role_ids)
-    except ValueError as exc:
-        errors.append(str(exc))
-    try:
-        await administration.check_user(
-            db, user.actor(), target, active=is_active, superuser=is_superuser
-        )
-    except PermissionDenied as exc:
-        errors.append(str(exc))
-
-    if is_superuser != target.is_superuser and not user.is_superuser:
-        errors.append("Only a superuser can change the superuser flag.")
     if password and password != confirm_password:
         errors.append("The two password fields do not match.")
-
     if not errors:
-        previous_email = getattr(target, User.EMAIL_FIELD, None)
-        previous_full_name = getattr(target, "full_name", None)
-        if User.EMAIL_FIELD in User.__table__.columns:
-            setattr(target, User.EMAIL_FIELD, services.normalize_email(email))
-        if "full_name" in User.__table__.columns:
-            target.full_name = full_name.strip()
+        resource = get_registry().for_model(User)
+        ctx = AdminContext(request, user, db, current_site(request)).operation_context()
+        values = {
+            "email": email,
+            "full_name": full_name,
+            "is_active": is_active,
+            "is_superuser": is_superuser,
+            "role_ids": list(map(str, role_ids)),
+        }
         if password:
-            try:
-                await services.set_password(db, target, password)
-            except PasswordValidationError as exc:
-                errors = exc.errors
-                if previous_email is not None:
-                    setattr(target, User.EMAIL_FIELD, previous_email)
-                if previous_full_name is not None:
-                    target.full_name = previous_full_name
-        if not errors:
-            target.is_active = is_active
-            if user.is_superuser:
-                target.is_superuser = is_superuser
-            target.roles = selected
-            if not target.is_active:
-                from obox_builder.contrib.auth import sessions as auth_sessions
-
-                await auth_sessions.revoke_user_sessions(db, target.id)
-            logger.info("Admin %r updated user %r", user.username, target.username)
+            values["password"] = password
+        try:
+            await resource.execute("update", ctx, values, target=user_id)
+        except ResourceValidationError as exc:
+            errors = [message for values in exc.errors.values() for message in values]
+        except PermissionDenied as exc:
+            errors = [str(exc)]
+        else:
             await flash(request, f"User {target.username!r} updated.")
             return redirect("/admin/users", status_code=303)
 

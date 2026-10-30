@@ -8,9 +8,10 @@ from typing import Any
 import httpx
 import pytest
 import sqlalchemy as sa
-from obox_builder.contrib.admin import ModelAdmin
+from obox_builder.contrib.admin import ModelView
 from obox_builder.contrib.history.models import RowChange
 from obox_builder.db.session import session_scope
+from obox_builder.resources import get_registry
 
 from tests.admin.conftest import (
     build_app,
@@ -32,19 +33,19 @@ def _register_admins() -> None:
 
     if site.get_model_admin_for(Item) is None:
         site.register(
-            Item,
+            get_registry().for_model(Item),
             type(
                 "ItemAdmin",
-                (ModelAdmin,),
+                (ModelView,),
                 {"list_display": ("id", "name", "quantity"), "ordering": ("-id",)},
             ),
         )
     if site.get_model_admin_for(Crate) is None:
         site.register(
-            Crate,
+            get_registry().for_model(Crate),
             type(
                 "CrateAdmin",
-                (ModelAdmin,),
+                (ModelView,),
                 {"list_display": ("id", "code"), "ordering": ("-id",)},
             ),
         )
@@ -149,6 +150,10 @@ async def test_reader_with_model_and_history_permissions_sees_the_timeline(
     await login_session(client, "auditor")
 
     form = await client.get(f"{LIST_URL}/{item_id}", headers={"accept": "text/html"})
+    if model_permission == "warehouse.item.update":
+        assert form.status_code == 403
+        assert (await client.get(f"{LIST_URL}/{item_id}/history")).status_code == 403
+        return
     assert form.status_code == 200
     assert "Full history" in form.text
 

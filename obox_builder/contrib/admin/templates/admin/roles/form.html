@@ -84,7 +84,7 @@
                     <input class="form-check-input" type="checkbox" name="permission_ids"
                            value="{{ permission.id }}"
                            {{ "checked" if permission.id in selected_permission_ids }}/>
-                    <span class="form-check-label">{{ permission.action }}</span>
+                    <span class="form-check-label">{{ permission.label | gettext }}</span>
                   </label>
                 {% endfor %}
               </td>

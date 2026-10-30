@@ -10,6 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from obox_builder.contrib.admin.context import AdminContext, current_site
 from obox_builder.contrib.admin.rendering import render
 from obox_builder.contrib.admin.services.history import (
     before_cursor,
@@ -19,14 +20,13 @@ from obox_builder.contrib.admin.services.history import (
     timeline_context,
 )
 from obox_builder.contrib.admin.views.common import ensure_csrf, flash, page_context
-from obox_builder.contrib.auth import administration
 from obox_builder.contrib.auth.dependencies import permission_required
 from obox_builder.contrib.auth.models import Permission, Role, User, user_roles
 from obox_builder.contrib.auth.permissions import collect_permissions
 from obox_builder.contrib.history import HISTORY_VIEW_PERMISSION
 from obox_builder.db.session import get_db
-from obox_builder.exceptions import PermissionDenied
 from obox_builder.http.shortcuts import redirect
+from obox_builder.resources import ResourceValidationError, get_registry
 
 logger = logging.getLogger(__name__)
 
@@ -61,27 +61,35 @@ async def _history_for(db: AsyncSession, user: User, target: Role) -> dict[str, 
 
 async def _permission_matrix(db: AsyncSession) -> list[dict[str, object]]:
     """Group declared grants by service and resource."""
-    declared = {permission.name for permission in collect_permissions()}
+    declared = {permission.name: permission for permission in collect_permissions()}
     rows = await db.scalars(
         select(Permission).order_by(Permission.service, Permission.resource, Permission.action)
     )
     services: dict[str, dict[str, list[Permission]]] = {}
     for permission in rows:
-        if permission.name in declared:
-            services.setdefault(permission.service, {}).setdefault(permission.resource, []).append(
-                permission
-            )
+        services.setdefault(permission.service, {}).setdefault(permission.resource, []).append(
+            permission
+        )
     matrix: list[dict[str, object]] = []
     for service, resources in services.items():
         models: list[dict[str, object]] = []
         for resource, permissions in resources.items():
             crud: dict[str, Permission | None] = dict.fromkeys(CRUD_ACTIONS)
-            extras: list[Permission] = []
+            extras: list[dict[str, object]] = []
             for permission in permissions:
                 if permission.action in CRUD_ACTIONS:
                     crud[permission.action] = permission
                 else:
-                    extras.append(permission)
+                    extras.append(
+                        {
+                            "id": permission.id,
+                            "label": (
+                                declared[permission.name].label
+                                if permission.name in declared
+                                else f"{permission.action} (retired)"
+                            ),
+                        }
+                    )
             models.append({"name": resource, "crud": crud, "extras": extras})
         matrix.append({"service": service, "models": models})
     return matrix
@@ -126,18 +134,15 @@ async def role_create_submit(
 ) -> Response:
     await ensure_csrf(request, csrf_token)
     errors: list[str] = []
-    cleaned = name.strip()
-    if not cleaned:
-        errors.append("A role name is required.")
-    elif await db.scalar(select(Role).where(Role.name == cleaned)) is not None:
-        errors.append(f"A role named {cleaned!r} already exists.")
-    if not errors:
-        role = Role(name=cleaned)
-        db.add(role)
-        await db.flush()
-        logger.info("Admin %r created role %r", user.username, role.name)
-        await flash(request, f"Role {role.name!r} created.")
-        return redirect(f"/admin/roles/{role.id}", status_code=303)
+    resource = get_registry().for_model(Role)
+    ctx = AdminContext(request, user, db, current_site(request)).operation_context()
+    try:
+        result = await resource.execute("create", ctx, {"name": name})
+    except ResourceValidationError as exc:
+        errors = [message for values in exc.errors.values() for message in values]
+    else:
+        await flash(request, f"Role {name!r} created.")
+        return redirect(f"/admin/roles/{result.id}", status_code=303)
     context = {"target": None, "errors": errors, "form": {"name": name}}
     return render(
         request, "admin/roles/form.html", await page_context(request, **context), status_code=200
@@ -209,30 +214,19 @@ async def role_edit_submit(
     )
     if role is None:
         return render(request, "admin/errors/404.html", {}, status_code=404)
-    administration.check_role(user.actor(), role)
-    permissions = list(
-        await db.scalars(select(Permission).where(Permission.id.in_(permission_ids)))
-    )
-    if {perm.id for perm in permissions} != set(permission_ids):
-        raise PermissionDenied("Unknown permission.")
-    administration.check_permissions(user.actor(), permissions)
-    errors: list[str] = []
-    cleaned = name.strip()
-    if not cleaned:
-        errors.append("A role name is required.")
-    else:
-        duplicate = await db.scalar(select(Role).where(Role.name == cleaned, Role.id != role.id))
-        if duplicate is not None:
-            errors.append(f"A role named {cleaned!r} already exists.")
-    if not errors:
-        role.name = cleaned
-        role.permissions = permissions
-        logger.info(
-            "Admin %r updated role %r (%d permissions)",
-            user.username,
-            role.name,
-            len(role.permissions),
+    resource = get_registry().for_model(Role)
+    ctx = AdminContext(request, user, db, current_site(request)).operation_context()
+    errors = []
+    try:
+        await resource.execute(
+            "update",
+            ctx,
+            {"name": name, "permission_ids": list(map(str, permission_ids))},
+            target=role_id,
         )
+    except ResourceValidationError as exc:
+        errors = [message for values in exc.errors.values() for message in values]
+    else:
         await flash(request, f"Role {role.name!r} updated.")
         return redirect("/admin/roles", status_code=303)
     context = {
@@ -264,8 +258,9 @@ async def role_delete(
     )
     if role is None:
         return render(request, "admin/errors/404.html", {}, status_code=404)
-    administration.check_role(user.actor(), role)
-    await db.delete(role)
+    resource = get_registry().for_model(Role)
+    ctx = AdminContext(request, user, db, current_site(request)).operation_context()
+    await resource.execute("delete", ctx, target=role_id)
     logger.info("Admin %r deleted role %r", user.username, role.name)
     await flash(request, f"Role {role.name!r} deleted.")
     return redirect("/admin/roles", status_code=303)

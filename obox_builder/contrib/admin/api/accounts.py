@@ -18,13 +18,14 @@ from obox_builder.contrib.admin.api.etag import check_if_match, etag
 from obox_builder.contrib.admin.api.problems import Problem
 from obox_builder.contrib.admin.api.records import body_schema
 from obox_builder.contrib.auth import administration, services, sessions
-from obox_builder.contrib.auth.authz import Actor, PermissionName, model_permission
 from obox_builder.contrib.auth.models import Permission, Role, User
 from obox_builder.contrib.auth.permissions import collect_permissions, model_identifier
 from obox_builder.contrib.auth.tokens import scope_allows
 from obox_builder.contrib.auth.validators import PasswordValidationError
 from obox_builder.core.utils.time import ensure_aware, utcnow
 from obox_builder.exceptions import PermissionDenied
+from obox_builder.resources import permission_for_model
+from obox_builder.security import Actor, PermissionRef
 
 AccountID = Annotated[int, Path(ge=1, le=2**63 - 1)]
 
@@ -79,7 +80,7 @@ def account_access(request: Request, user: User, kind: str, action: str) -> Acto
     operation = {"view": "read", "add": "write", "change": "write", "delete": "delete"}[action]
     model = User if kind == "user" else Role
     label = f"{model._model_label}.{model_identifier(model)}"
-    permission = model_permission(model, action)
+    permission = permission_for_model(model, action)
     if not user.has_perm(permission) or (
         token is not None and not scope_allows(token.scopes, label, operation)
     ):
@@ -90,13 +91,13 @@ def account_access(request: Request, user: User, kind: str, action: str) -> Acto
     effective = set()
     held = {p.name for p in collect_permissions()} if user.is_superuser else user.permissions
     labels = {
-        model_permission(model, "read").rsplit(".", 1)[
+        permission_for_model(model, "read").rsplit(".", 1)[
             0
         ]: f"{model._model_label}.{model_identifier(model)}"
         for model in apps.get_models()
     }
     for permission in held:
-        name = PermissionName.parse(permission)
+        name = PermissionRef.parse(permission)
         operations = {
             "read": ("read",),
             "create": ("write",),
@@ -274,6 +275,7 @@ def register_accounts(router: APIRouter) -> None:
     @router.get("/permissions")
     async def permissions(request: Request, user: USER, db: DB) -> Any:
         actor = account_access(request, user, "role", "view")
+        declared = {p.name: p for p in collect_permissions()}
         rows = list(
             await db.scalars(
                 sa.select(Permission).order_by(
@@ -289,9 +291,10 @@ def register_accounts(router: APIRouter) -> None:
                     "service": p.service,
                     "resource": p.resource,
                     "action": p.action,
+                    "label": declared[p.name].label or p.action,
                 }
                 for p in rows
-                if actor.has_perm(p.name)
+                if p.name in declared and actor.has_perm(p.name)
             ]
         }
 

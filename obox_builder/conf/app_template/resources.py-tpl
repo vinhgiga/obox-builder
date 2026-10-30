@@ -1,0 +1,3 @@
+from obox_builder.resources import ModelResource, operation, register
+
+# Declare an explicit name, model and fields, then mark the resource with @register().

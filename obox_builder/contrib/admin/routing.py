@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, Request, Response
 from jinja2 import TemplateNotFound
 
 from obox_builder.contrib.admin.context import AdminContext, current_site
-from obox_builder.contrib.admin.options import AdminRoute, ModelAdmin
+from obox_builder.contrib.admin.options import AdminRoute, ModelView
 from obox_builder.contrib.auth.routing import SessionRenewalRoute
 from obox_builder.core.application import permission_denied_handler
 from obox_builder.exceptions import ImproperlyConfigured, PermissionDenied
@@ -53,13 +53,12 @@ class AdminPageRoute(SessionRenewalRoute):
 
 def register_custom_routes(
     router: APIRouter,
-    admin: ModelAdmin,
+    admin: ModelView,
     base: str,
     *,
-    context_factory: Callable[[ModelAdmin, str | None], Any],
-    api: bool = False,
+    context_factory: Callable[[ModelView, str | None], Any],
 ) -> None:
-    routes = admin.get_api_urls() if api else admin.get_urls()
+    routes = admin.get_urls()
     names: set[str] = set()
     paths: set[str] = set()
     for custom in routes:
@@ -76,17 +75,6 @@ def register_custom_routes(
         ):
             raise ImproperlyConfigured("Admin routes need a safe relative path and a valid name.")
         path = custom.path.strip("/")
-        if api and path.split("/", 1)[0] in {
-            "schema",
-            "records",
-            "records:query",
-            "records:delete",
-            "records:upsert",
-            "options",
-            "actions",
-            "views",
-        }:
-            raise ImproperlyConfigured("Custom API routes cannot replace built-in resources.")
         if any(not part for part in path.split("/")):
             raise ImproperlyConfigured("Admin route paths cannot contain empty segments.")
         if path in paths or custom.name in names:
@@ -111,7 +99,7 @@ def register_custom_routes(
             f"{base}/{path}",
             endpoint,
             methods=list(methods),
-            name=f"{'api_' if api else ''}{admin.route_prefix}_{custom.name}",
+            name=f"{admin.route_prefix}_{custom.name}",
             dependencies=[Depends(admin_context)],
         )
 
