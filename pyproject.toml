@@ -10,6 +10,9 @@ dependencies = [
     "sqlalchemy[asyncio]>=2.0.54,<2.1",
 ]
 
+[project.scripts]
+obox = "obox_builder.cli:main"
+
 [project.optional-dependencies]
 postgres = ["psycopg[binary,pool]>=3.3,<4", "asyncpg>=0.32,<1"]
 sqlite = ["aiosqlite>=0.22,<1"]
