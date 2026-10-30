@@ -112,9 +112,9 @@ def test_api_operations_control_registered_routes() -> None:
             assert builder.api.operations == ("list", "retrieve")
             transport = httpx.ASGITransport(app=app)
             async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-                listed = await client.get("/api/v1/widgets")
-                created = await client.post("/api/v1/widgets", json={"name": "alpha"})
-                updated = await client.patch("/api/v1/widgets/1", json={"name": "beta"})
+                listed = await client.get("/api/widgets")
+                created = await client.post("/api/widgets", json={"name": "alpha"})
+                updated = await client.patch("/api/widgets/1", json={"name": "beta"})
             assert listed.status_code == 200
             assert created.status_code == 405
             assert updated.status_code == 405

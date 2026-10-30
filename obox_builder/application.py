@@ -65,7 +65,7 @@ class Obox(FastAPI):
         principal_dependency: Callable[..., Any] | None = None,
         default_policy: Policy[Any] | None = None,
         ui_prefix: str = "/admin",
-        api_prefix: str = "/api/v1",
+        api_prefix: str = "/api",
         csrf_secret: str | bytes | None = None,
         **fastapi_kwargs: Any,
     ) -> None:

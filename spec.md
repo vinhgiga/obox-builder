@@ -94,7 +94,7 @@ class Obox(FastAPI):
         principal_dependency: Callable[..., Any],
         default_policy: Policy[Any],
         ui_prefix: str = "/admin",
-        api_prefix: str = "/api/v1",
+        api_prefix: str = "/api",
         **fastapi_kwargs: Any,
     ) -> None: ...
 
@@ -338,11 +338,11 @@ These schema methods run during registration, not per request. Schemas expose th
 
 | Method | Route | Operation |
 | --- | --- | --- |
-| `GET` | `/api/v1/questions` | `list` |
-| `POST` | `/api/v1/questions` | `create` |
-| `GET` | `/api/v1/questions/{id}` | `retrieve` |
-| `PATCH` | `/api/v1/questions/{id}` | `update` |
-| `DELETE` | `/api/v1/questions/{id}` | `delete` |
+| `GET` | `/api/questions` | `list` |
+| `POST` | `/api/questions` | `create` |
+| `GET` | `/api/questions/{id}` | `retrieve` |
+| `PATCH` | `/api/questions/{id}` | `update` |
+| `DELETE` | `/api/questions/{id}` | `delete` |
 
 Canonical routes have no trailing slash. Resource slugs are configurable. OBOX does not impose a request rate, request-size quota or result maximum.
 
