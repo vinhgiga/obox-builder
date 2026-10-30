@@ -14,6 +14,7 @@ from obox_builder.context import Context
 class Form:
     enabled = True
     fields: FieldRefs | None = None
+    fieldsets: Sequence[tuple[str | None, Mapping[str, Any]]] | None = None
     labels: Mapping[str, str] = {}
     help_texts: Mapping[str, str] = {}
     widgets: Mapping[str, Mapping[str, Any]] = {}
@@ -43,7 +44,7 @@ class View:
     columns: FieldRefs | None = None
     detail_fields: FieldRefs | None = None
     related: FieldRefs = ()
-    actions: tuple[str, ...] = ("create", "update", "delete")
+    operations: tuple[str, ...] = ("create", "update", "delete")
     page_size: int | None = None
     _builder: Any
 
@@ -54,8 +55,8 @@ class View:
         allowed = self._builder.readable(ctx)
         return tuple(name for name in self._builder.filter_fields if name in allowed)
 
-    def get_actions(self, ctx: Context, *, instance: Any = None) -> Sequence[str]:
-        return self.actions
+    def get_operations(self, ctx: Context, *, instance: Any = None) -> Sequence[str]:
+        return self.operations
 
     def get_context(self, ctx: Context, *, instance: Any = None) -> Mapping[str, Any]:
         return {}
@@ -63,7 +64,7 @@ class View:
 
 class API:
     enabled = True
-    actions: tuple[str, ...] = ("list", "retrieve", "create", "update", "delete")
+    operations: tuple[str, ...] = ("list", "retrieve", "create", "update", "delete")
     read_fields: FieldRefs | None = None
     write_fields: FieldRefs | None = None
     prefix: str | None = None

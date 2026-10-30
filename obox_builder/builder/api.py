@@ -70,24 +70,24 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
 
     create.__annotations__["data"] = builder.create_schema
     update.__annotations__["data"] = builder.update_schema
-    for action, endpoint, method, suffix, code in (
+    for operation, endpoint, method, suffix, code in (
         ("list", list_records, "GET", "", 200),
         ("create", create, "POST", "", 201),
         ("retrieve", retrieve, "GET", "/{id}", 200),
         ("update", update, "PATCH", "/{id}", 200),
         ("delete", delete, "DELETE", "/{id}", 204),
     ):
-        if action not in builder.api.actions:
+        if operation not in builder.api.operations:
             continue
         router.add_api_route(
             path + suffix,
             endpoint,
             methods=[method],
             status_code=code,
-            name=f"obox_api_{builder.slug}_{action}",
+            name=f"obox_api_{builder.slug}_{operation}",
             response_model=None
-            if action == "delete"
-            else (list[builder.read_schema] if action == "list" else builder.read_schema),
+            if operation == "delete"
+            else (list[builder.read_schema] if operation == "list" else builder.read_schema),
             response_model_exclude_unset=True,
             tags=list(builder.api.tags or (builder.model.__name__,)),
             openapi_extra={"x-obox-conditional-fields": True},

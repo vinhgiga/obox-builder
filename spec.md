@@ -16,7 +16,7 @@ OBOX generates a CRUD UI and REST API from a SQLAlchemy mapped class. Developers
 | `Obox(FastAPI)` | FastAPI app, builder registration, route generation, application-level defaults |
 | `ModelBuilder[T]` | Resource metadata, shared field/query configuration, business hooks |
 | `Form` | Create/edit form presentation and form-only validation |
-| `View` | List/detail UI, search/filter controls, visible actions |
+| `View` | List/detail UI, search/filter controls, visible operations |
 | `API` | REST operations, static schemas, HTTP mapping |
 | `Policy[T]` | Operation/row/field permissions, server-side presets, post-write checks |
 | `Context` | Current principal, SQLAlchemy session, optional HTTP request, execution source |
@@ -73,7 +73,7 @@ class QuestionBuilder(builder.ModelBuilder[Question]):
         columns = ("question_text", "pub_date")
 
     class API(builder.API):
-        actions = ("list", "retrieve", "create", "update")
+        operations = ("list", "retrieve", "create", "update")
 
 
 app.register(Question, builder=QuestionBuilder)
@@ -208,9 +208,12 @@ class ModelBuilder(Generic[T]):
 | --- | --- | --- |
 | `enabled` | `bool` | `True` |
 | `fields` | `FieldRefs \| None` | Inherit eligible builder fields |
+| `fieldsets` | `Sequence[tuple[str \| None, Mapping[str, Any]]] \| None` | `None`; Django-style field groups |
 | `labels` | `Mapping[str, str]` | `{}`; field labels |
 | `help_texts` | `Mapping[str, str]` | `{}` |
 | `widgets` | `Mapping[str, WidgetConfig]` | `{}`; per-field input config |
+
+`fields` order defines the rendered form order; overriding `get_fields()` can reorder fields per action or request. `fieldsets` uses Django's `(title, options)` shape; the current subset supports a flat `fields` list and `description`, and cannot be combined with `fields`. Policy-hidden fields are removed from each group and empty groups are not rendered. Nested field rows and `classes` are not supported yet.
 
 ### 4.2 Methods
 
@@ -249,7 +252,7 @@ class Form:
 
 ## 5. `View`
 
-**Purpose:** Render list/detail pages and UI actions while reusing policy-scoped resource queries.
+**Purpose:** Render list/detail pages and UI operations while reusing policy-scoped resource queries.
 
 ### 5.1 Properties
 
@@ -258,7 +261,7 @@ class Form:
 | `enabled` | `bool` | `True` |
 | `columns` | `FieldRefs \| None` | Inherit readable builder fields |
 | `detail_fields` | `FieldRefs \| None` | Inherit readable builder fields |
-| `actions` | `tuple[str, ...]` | `("create", "update", "delete")`; UI visibility only |
+| `operations` | `tuple[str, ...]` | `("create", "update", "delete")`; UI visibility only |
 | `page_size` | `int \| None` | `None`; no forced pagination or maximum |
 
 Searchable, filterable and sortable fields come from `ModelBuilder`, not `View`, so the same rules apply to the REST API.
@@ -271,12 +274,12 @@ class View:
 
     def get_filters(self, ctx: Context) -> Sequence[FilterDefinition]: ...
 
-    def get_actions(
+    def get_operations(
         self,
         ctx: Context,
         *,
         instance: Any | None = None,
-    ) -> Sequence[ActionDefinition]: ...
+    ) -> Sequence[OperationDefinition]: ...
 
     def get_context(
         self,
@@ -297,14 +300,14 @@ class View:
 | Property | Type | Default / meaning |
 | --- | --- | --- |
 | `enabled` | `bool` | `True` |
-| `actions` | `tuple[str, ...]` | `("list", "retrieve", "create", "update", "delete")` |
+| `operations` | `tuple[str, ...]` | `("list", "retrieve", "create", "update", "delete")` |
 | `read_fields` | `FieldRefs \| None` | Inherit builder read projection |
 | `write_fields` | `FieldRefs \| None` | Inherit builder write projection |
 | `prefix` | `str \| None` | Inherit resource `slug` |
 | `tags` | `tuple[str, ...] \| None` | Generated from model name |
 | `pagination` | `bool` | `False` by default; consumers may request `offset`/`limit` if enabled |
 
-`actions` describes **semantic operations**, not HTTP methods. `GET` applies to both list and retrieve, so `methods=("GET", ...)` is not a suitable contract.
+`operations` describes **semantic operations**, not HTTP methods. `GET` applies to both list and retrieve, so `methods=("GET", ...)` is not a suitable contract.
 
 ### 6.2 Methods
 
@@ -603,10 +606,9 @@ Visual no-code editor, multi-step conditional forms, bulk CRUD operations, curso
 - SQLAlchemy relationships/cascade: https://docs.sqlalchemy.org/en/20/orm/cascades.html
 - Hasura authorization: https://hasura.io/docs/2.0/auth/authorization/permissions/
 - Payload access control: https://payloadcms.com/docs/access-control/collections
-- AppSheet security filters: https://support.google.com/appsheet/answer/10104706
 - OWASP API Security Top 10: https://owasp.org/API-Security/
 - RFC 9457 Problem Details: https://www.rfc-editor.org/rfc/rfc9457.html
 
 ---
 
-**Implementation note:** These classes and signatures are **proposed contracts**. Types such as `Principal`, `DomainEvent`, `Diagnostic`, `WidgetConfig`, `FilterDefinition`, `ActionDefinition` and the exact validation exception are deliberately left as **TBD** until a working vertical slice fixes their shape. Avoid inventing a second abstraction layer merely to fill in these placeholders.
+**Implementation note:** These classes and signatures are **proposed contracts**. Types such as `Principal`, `DomainEvent`, `Diagnostic`, `WidgetConfig`, `FilterDefinition`, `OperationDefinition` and the exact validation exception are deliberately left as **TBD** until a working vertical slice fixes their shape. Avoid inventing a second abstraction layer merely to fill in these placeholders.

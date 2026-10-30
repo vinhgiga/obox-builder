@@ -242,7 +242,7 @@ class Obox(FastAPI):
                         "form": tuple(key for key in b.form_fields if key not in b.read_only_fields)
                         if b.form.enabled
                         else (),
-                        "api_actions": b.api.actions if b.api.enabled else (),
+                        "api_operations": b.api.operations if b.api.enabled else (),
                         "view": b.view_columns if b.view.enabled else (),
                         "related": b.view_related if b.view.enabled else (),
                         "conditional": type(b.policy).read_fields is not Policy.read_fields

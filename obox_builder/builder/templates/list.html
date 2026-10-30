@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
-{% if "create" in actions %}<a href="{{ base }}/new">Create</a>{% endif %}
+{% if "create" in operations %}<a href="{{ base }}/new">Create</a>{% endif %}
 <form method="get">
   {% if search %}<label>Search <input name="search" value="{{ query.get('search', '') }}"></label>{% endif %}
   {% for field in filters %}<label>{{ field }} <input name="filter.{{ field }}" value="{{ query.get('filter.' ~ field, '') }}"></label>{% endfor %}

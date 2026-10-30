@@ -30,14 +30,16 @@ def render(template: str, *, status: int = 200, **context: Any) -> HTMLResponse:
     return HTMLResponse(templates.get_template(template).render(**context), status_code=status)
 
 
-async def actions(builder: Any, ctx: Context, obj: Any = None) -> tuple[str, ...]:
-    requested = builder.view.get_actions(ctx, instance=obj)
+async def allowed_operations(builder: Any, ctx: Context, obj: Any = None) -> tuple[str, ...]:
+    requested = builder.view.get_operations(ctx, instance=obj)
     allowed = []
-    for action in builder.view.actions:
-        if action not in requested or (action in {"create", "update"} and not builder.form.enabled):
+    for operation in builder.view.operations:
+        if operation not in requested or (
+            operation in {"create", "update"} and not builder.form.enabled
+        ):
             continue
-        if await invoke(builder.policy.allow, action, ctx, obj=obj):
-            allowed.append(action)
+        if await invoke(builder.policy.allow, operation, ctx, obj=obj):
+            allowed.append(operation)
     return tuple(allowed)
 
 
@@ -149,6 +151,25 @@ async def form_fields(builder: Any, service: Any, ctx: Context, obj: Any) -> lis
     return result
 
 
+def fieldset_groups(builder: Any, controls: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    fieldsets = builder.form.fieldsets
+    if not fieldsets:
+        return [{"title": None, "description": "", "fields": controls}]
+    visible = {control["name"]: control for control in controls}
+    groups = []
+    for title, options in fieldsets:
+        fields = [visible[name] for name in options["fields"] if name in visible]
+        if fields:
+            groups.append(
+                {
+                    "title": title,
+                    "description": options.get("description", ""),
+                    "fields": fields,
+                }
+            )
+    return groups
+
+
 def input_values(builder: Any, data: dict[str, Any]) -> dict[str, str]:
     result = {}
     for name, value in data.items():
@@ -216,7 +237,7 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
             base=base(request),
             columns=columns,
             rows=rows,
-            actions=await actions(builder, ctx),
+            operations=await allowed_operations(builder, ctx),
             search=any(key in builder.readable(ctx) for key in builder.search_fields),
             filters=filters,
             sort_fields=tuple(key for key in builder.sort_fields if key in builder.readable(ctx)),
@@ -264,7 +285,7 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
             values=visible,
             collections=collections,
             links=links,
-            actions=await actions(builder, ctx, obj),
+            operations=await allowed_operations(builder, ctx, obj),
             url=f"{base(request)}/{quote(str(getattr(obj, builder.pk_name)), safe='')}",
             csrf=app.csrf.token(request, ctx.principal),
         )
@@ -274,6 +295,7 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
         action = "create" if obj is None else "update"
         await service.authorize(action, ctx, obj)
         controls = await form_fields(builder, service, ctx, obj)
+        fieldsets = fieldset_groups(builder, controls)
         names = tuple(field["name"] for field in controls)
         if obj is None:
             values = {
@@ -332,7 +354,7 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
             status=status,
             title=extra.get("title", builder.model.__name__),
             base=base(request),
-            fields=controls,
+            fieldsets=fieldsets,
             values=values if request.method == "POST" else input_values(builder, values),
             errors=errors,
             csrf=app.csrf.token(request, ctx.principal),

@@ -81,7 +81,7 @@ class ModelBuilder(Generic[T]):
                 raise ImproperlyConfigured("Surface configuration must extend Form, View or API.")
         self.form, self.view, self.api = self.Form(), self.View(), self.API()
         self.form._builder = self.view._builder = self
-        self.form_fields = self._projection(self.form.fields)
+        self.form_fields = self._form_fields()
         self.view_columns = self._projection(self.view.columns)
         self.view_details = self._projection(self.view.detail_fields)
         self.view_related = normalize(
@@ -115,12 +115,12 @@ class ModelBuilder(Generic[T]):
                 raise ImproperlyConfigured(f"Invalid ordering field: {order!r}.")
         if self.view.page_size is not None and self.view.page_size < 1:
             raise ImproperlyConfigured("View.page_size must be positive or None.")
-        for actions, allowed in (
-            (self.api.actions, {"list", "retrieve", "create", "update", "delete"}),
-            (self.view.actions, {"create", "update", "delete"}),
+        for operations, allowed in (
+            (self.api.operations, {"list", "retrieve", "create", "update", "delete"}),
+            (self.view.operations, {"create", "update", "delete"}),
         ):
-            if len(set(actions)) != len(actions) or set(actions) - allowed:
-                raise ImproperlyConfigured("Unknown or duplicate surface actions.")
+            if len(set(operations)) != len(operations) or set(operations) - allowed:
+                raise ImproperlyConfigured("Unknown or duplicate surface operations.")
         if self.api.prefix is not None:
             self._validate_path(self.api.prefix)
         for mapping in (self.form.labels, self.form.help_texts, self.form.widgets):
@@ -140,6 +140,50 @@ class ModelBuilder(Generic[T]):
     def _validate_path(value: str) -> None:
         if not re.fullmatch(r"[a-zA-Z][a-zA-Z0-9_-]*", value):
             raise ImproperlyConfigured(f"Invalid resource path: {value!r}.")
+
+    def _form_fields(self) -> tuple[str, ...]:
+        fieldsets = self.form.fieldsets
+        if fieldsets is None:
+            return self._projection(self.form.fields)
+        if not isinstance(fieldsets, (list, tuple)):
+            raise ImproperlyConfigured("Form.fieldsets must be a list or tuple.")
+        if not fieldsets:
+            return self._projection(self.form.fields)
+        if self.form.fields is not None:
+            raise ImproperlyConfigured("Both 'fieldsets' and 'fields' are specified.")
+        names: list[str] = []
+        for index, fieldset in enumerate(fieldsets):
+            label = f"Form.fieldsets[{index}]"
+            if not isinstance(fieldset, (list, tuple)) or len(fieldset) != 2:
+                raise ImproperlyConfigured(f"{label} must be a (title, options) pair.")
+            title, options = fieldset
+            if title is not None and not isinstance(title, str):
+                raise ImproperlyConfigured(f"{label} title must be a string or None.")
+            if not isinstance(options, Mapping):
+                raise ImproperlyConfigured(f"{label} options must be a mapping.")
+            unsupported = set(options) - {"fields", "description"}
+            if unsupported:
+                raise ImproperlyConfigured(
+                    f"Unsupported fieldset option: {sorted(unsupported)[0]!r}."
+                )
+            if "fields" not in options:
+                raise ImproperlyConfigured(f"{label} must contain 'fields'.")
+            fields = options["fields"]
+            if isinstance(fields, str) or not isinstance(fields, (list, tuple)):
+                raise ImproperlyConfigured(f"{label}['fields'] must be a list or tuple.")
+            description = options.get("description", "")
+            if not isinstance(description, str):
+                raise ImproperlyConfigured(f"{label} description must be a string.")
+            for name in fields:
+                if not isinstance(name, str):
+                    raise ImproperlyConfigured("Nested field rows are not supported in fieldsets.")
+                if name in names:
+                    raise ImproperlyConfigured(f"Duplicate field in fieldsets: {name!r}.")
+                names.append(name)
+        projected = self._projection(names)
+        if len(projected) != len(names):
+            raise ImproperlyConfigured("Form fieldsets reference unpublished fields.")
+        return projected
 
     def _projection(self, refs: FieldRefs | None) -> tuple[str, ...]:
         if self.fields is None or self.model is None:
