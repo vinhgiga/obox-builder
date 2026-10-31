@@ -1,17 +1,73 @@
 {% extends base_template %}
+{% block main_class %}grid-page{% endblock %}
+{% block heading_class %}sr-only{% endblock %}
+{% block content_class %}grid-content{% endblock %}
 {% block content %}
-  {% if "create" in operations %}<a href="{{ base }}/new">Create</a>{% endif %}
-  <form method="get">
-    {% if search %}<label>Search <input name="search"
-        value="{{ query.get('search', '') }}"></label>{% endif %}
-    {% for field in filters %}<label>{{ field }} <input name="filter.{{ field }}"
-        value="{{ query.get('filter.' ~ field, '') }}"></label>{% endfor %}
-    {% if sort_fields %}<label>Sort <select name="ordering"><option value="">Default</option>{% for field in sort_fields %}<option value="{{ field }}"
-        {% if query.get('ordering') == field %}selected{% endif %}>{{ field }} ↑</option><option value="-{{ field }}"
-        {% if query.get('ordering') == '-' ~ field %}selected{% endif %}>{{ field }} ↓</option>{% endfor %}</select></label>{% endif %}
-    {% if search or filters or sort_fields %}<button>Apply</button>{% endif %}
-  </form>
-  <table><thead><tr>{% for field in list_display %}<th scope="col">{{ field.replace('_', ' ').capitalize() }}</th>{% endfor %}<th scope="col">Record</th></tr></thead>
-    <tbody>{% for row in rows %}<tr>{% for field in list_display %}<td>{{ row['values'].get(field, '') }}</td>{% endfor %}<td>{% if row.detail %}<a href="{{ row.url }}">View</a>{% endif %}</td></tr>{% else %}<tr><td colspan="{{ list_display|length + 1 }}">No records.</td></tr>{% endfor %}</tbody></table>
-  {% if next_url %}<nav><a href="{{ next_url }}">Next page</a></nav>{% endif %}
+  <div class="grid-toolbar">
+    <span class="shrink-0 font-semibold">▦ Grid view</span>
+    <form method="get" class="query-controls">
+      {% if search %}
+        <label>
+          Search
+          <input name="search" value="{{ query.get('search', '') }}">
+        </label>
+      {% endif %}
+      {% for field in filters %}
+        <label>
+          {{ field.replace('_', ' ').capitalize() }}
+          <input name="filter.{{ field }}"
+                 value="{{ query.get('filter.' ~ field, '') }}">
+        </label>
+      {% endfor %}
+      {% if sort_fields %}
+        <label>
+          Sort
+          <select name="ordering">
+            <option value="">Default</option>
+            {% for field in sort_fields %}
+              <option value="{{ field }}"
+                      {% if query.get('ordering') == field %}selected{% endif %}>{{ field }} ↑</option>
+              <option value="-{{ field }}"
+                      {% if query.get('ordering') == '-' ~ field %}selected{% endif %}>{{ field }} ↓</option>
+            {% endfor %}
+          </select>
+        </label>
+      {% endif %}
+      {% if search or filters or sort_fields %}<button>Apply</button>{% endif %}
+    </form>
+  </div>
+  <div class="grid-scroll"
+       role="region"
+       aria-label="{{ title }} records"
+       tabindex="0">
+    <table class="record-grid">
+      <thead>
+        <tr>
+          <th scope="col" class="row-number"><span class="sr-only">Row</span>#</th>
+          {% for field in list_display %}<th scope="col">{{ field.replace('_', ' ').capitalize() }}</th>{% endfor %}
+          <th scope="col">Record</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+          <tr>
+            <td class="row-number">{{ query.get('offset', 0)|int + loop.index }}</td>
+            {% for field in list_display %}
+              <td title="{{ row['values'].get(field, '') }}">{{ row['values'].get(field, '') }}</td>
+            {% endfor %}
+            <td>{% if row.detail %}<a href="{{ row.url }}">View</a>{% endif %}</td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="{{ list_display|length + 2 }}">No records.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% if "create" in operations %}<a class="grid-add" href="{{ base }}/new">＋ Create</a>{% endif %}
+  </div>
+  <footer class="grid-footer">
+    <span>{{ rows|length }} record{% if rows|length != 1 %}s{% endif %} on this page</span>
+    {% if next_url %}<a href="{{ next_url }}">Next page →</a>{% endif %}
+  </footer>
 {% endblock %}

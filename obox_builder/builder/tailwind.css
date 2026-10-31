@@ -16,3 +16,32 @@
   dd { @apply mb-4 wrap-anywhere; }
   :focus-visible { @apply outline-2 outline-offset-3 outline-blue-700; }
 }
+
+@layer components {
+  .workspace { @apply flex h-dvh flex-col; }
+  .workspace-header { @apply flex shrink-0 flex-wrap items-center gap-x-6 border-b border-slate-200 bg-white px-5 py-3; }
+  .resource-tabs { @apply m-0 flex shrink-0 overflow-x-auto border-b border-slate-200 bg-white px-3; }
+  .resource-tabs a { @apply shrink-0 border-b-2 border-transparent px-4 py-2 text-slate-600 hover:bg-slate-50 hover:no-underline; }
+  .resource-tabs a[aria-current="page"] { @apply border-blue-600 font-semibold text-blue-700; }
+  .record-page { @apply w-full flex-1 overflow-auto p-4 md:p-8; }
+  .record-page > h1, .record-content { @apply mx-auto max-w-240; }
+  .record-content { @apply overflow-x-auto rounded border border-slate-200 bg-white p-4 md:p-6; }
+  .record-content > nav { @apply mt-0 flex gap-2; }
+  .record-content form > p { @apply mt-6; }
+  .record-content fieldset + fieldset { @apply mt-6; }
+  .record-content legend, .record-content h2 { @apply font-semibold; }
+  .grid-page, .grid-content { @apply flex min-h-0 min-w-0 flex-1 flex-col; }
+  .grid-toolbar { @apply flex shrink-0 flex-wrap items-center gap-x-6 gap-y-2 border-b border-slate-200 bg-white px-5 py-2; }
+  .query-controls { @apply m-0 flex flex-wrap items-end gap-3; }
+  .query-controls label { @apply mt-0 text-xs text-slate-600; }
+  .query-controls input, .query-controls select { @apply block w-40 px-2 py-1 text-sm text-slate-800; }
+  .query-controls button { @apply px-3 py-1; }
+  .grid-scroll { @apply min-h-0 flex-1 overflow-auto; }
+  .record-grid { @apply w-max border-separate border-spacing-0 bg-white text-xs; }
+  .record-grid th, .record-grid td { @apply h-8 min-w-44 max-w-72 truncate border-r border-b border-slate-200 px-3 py-1 font-normal; }
+  .record-grid th { @apply sticky top-0 z-10 bg-white; }
+  .record-grid tbody tr:hover { @apply bg-blue-50; }
+  .record-grid .row-number { @apply w-12 min-w-12 text-center text-slate-500; }
+  .grid-add { @apply block border-b border-slate-200 bg-white px-4 py-1 text-slate-500 hover:bg-slate-50 hover:no-underline; }
+  .grid-footer { @apply flex shrink-0 items-center justify-between gap-4 border-t border-slate-200 bg-white px-3 py-1 text-xs; }
+}

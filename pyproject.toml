@@ -36,6 +36,9 @@ dev = [
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.hatch.build]
+artifacts = ["/obox_builder/builder/static/ui.css"]
+
 [tool.hatch.build.targets.wheel]
 packages = ["obox_builder"]
 

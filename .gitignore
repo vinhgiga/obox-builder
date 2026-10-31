@@ -19,6 +19,7 @@ htmlcov/
 
 # Node (Tailwind standalone downloads, frontend tooling)
 node_modules/
+/obox_builder/builder/static/ui.css
 
 # Environment
 .env

@@ -70,6 +70,13 @@ jobs:
         python-version: ["3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build:css
       - uses: astral-sh/setup-uv@v10.3.0
         with:
           python-version: ${{ matrix.python-version }}
@@ -87,5 +94,7 @@ jobs:
           "$RUNNER_TEMP/wheel-env/bin/python" -I -c
           "from obox_builder import Obox, ModelBuilder, ResourceService;
           from obox_builder.auth import StaffOnly;
-          from obox_builder.builder.ui import templates;
-          templates.get_template('form.html')"
+          from importlib.resources import files;
+          assets = files('obox_builder.builder');
+          assert assets.joinpath('templates/obox/form.html').is_file();
+          assert assets.joinpath('static/ui.css').read_text().strip()"
