@@ -23,7 +23,7 @@ Follows [Keep a Changelog](https://keepachangelog.com/), versions follow
   list badges, context menu, mention autocomplete at
   `/admin/comments/mentionable`, CSRF-protected actions and problem pages.
 - `Model.__comments__` declarations, `COMMENTS_*` settings, model checks
-  (`E301`–`E303`, `W301`), idempotency keys, rate limiting and the
+  (`E301`-`E303`, `W301`), idempotency keys, rate limiting and the
   `CommentService`/`queries` read/write APIs.
 - **Row history** (`obox_builder.contrib.history`): append-only
   `history_row_change` written in the same transaction as the data change;
@@ -36,7 +36,7 @@ Follows [Keep a Changelog](https://keepachangelog.com/), versions follow
 - Append-only DB triggers installed by `migrate`; `history_purge` and
   `history_export` commands (NDJSON/CSV) with per-model retention.
 - `HISTORY_*` settings, `pre_record`/`post_record` signals, model checks
-  (`E201`–`E203`, `W201`, `W202`), `history.service` read API, and tracking for
+  (`E201`-`E203`, `W201`, `W202`), `history.service` read API, and tracking for
   `auth.User`/`auth.Role`.
 - Revert/restore: per-entry and per-change-set `POST .../revert` with
   conflict detection (`?force=1`), deleted-row restore, all-or-nothing
@@ -80,7 +80,7 @@ Follows [Keep a Changelog](https://keepachangelog.com/), versions follow
   `/admin`.
 - `fields` (column introspection, `FieldType` registry, `QuerySpec`) and
   `forms` (pydantic schemas, `BoundForm`).
-- Admin checks `E101`–`E106`, warnings `W101`/`W102`, and 400/404/409 error
+- Admin checks `E101`-`E106`, warnings `W101`/`W102`, and 400/404/409 error
   pages.
 
 ## [0.1.0] - 2026-10-17
@@ -88,7 +88,7 @@ Follows [Keep a Changelog](https://keepachangelog.com/), versions follow
 ### Added
 
 - Scaffold: uv + hatchling, ruff, pyright, pytest, import-linter, pre-commit,
-  CI on Python 3.11–3.13.
+  CI on Python 3.11-3.13.
 - `conf` lazy settings, `apps` registry, and CLI (`startproject`, `startapp`,
   `runserver`, `check`, `version`).
 - `db`: `Model` base, mixins, async engine/session helpers, and Alembic
