@@ -5,6 +5,11 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 
+def N_(message: str) -> str:  # noqa: N802
+    """Mark a runtime message for gettext extraction."""
+    return message
+
+
 class OboxError(Exception):
     status = 400
 

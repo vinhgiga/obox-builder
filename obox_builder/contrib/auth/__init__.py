@@ -19,7 +19,8 @@ from obox_builder.contrib.auth.models import (
     UserMixin,
 )
 from obox_builder.contrib.auth.passwords import hash_password
-from obox_builder.errors import ImproperlyConfigured
+from obox_builder.errors import N_, ImproperlyConfigured
+from obox_builder.i18n import localize
 
 if TYPE_CHECKING:
     from obox_builder.application import Obox
@@ -65,8 +66,9 @@ class Auth:
         self.secure, self.max_age = secure, max_age
         self.prefix = prefix.rstrip("/")
         self.login_template, self.account_template = login_template, account_template
+        field = getattr(backend, "username_field", "username")
         self.login_label = (
-            getattr(backend, "username_field", "username").replace("_", " ").capitalize()
+            N_("Username") if field == "username" else field.replace("_", " ").capitalize()
         )
         self.cookie_name = "__Host-obox_session" if secure else "obox_session"
         self.login_cookie = "__Host-obox_login" if secure else "obox_login"
@@ -95,14 +97,17 @@ class Auth:
             name, value, max_age=max_age, secure=self.secure, httponly=True, samesite="lax"
         )
 
+    def _url(self, request: Request, route: str) -> str:
+        return localize(request, str(request.url_for(route).path))
+
     def login_url(self, request: Request) -> str:
-        return str(request.url_for(self.login_route))
+        return self._url(request, self.login_route)
 
     def logout_url(self, request: Request) -> str:
-        return str(request.url_for(self.logout_route))
+        return self._url(request, self.logout_route)
 
     def account_url(self, request: Request) -> str:
-        return str(request.url_for(self.account_route))
+        return self._url(request, self.account_route)
 
     def get_router(self, app: Obox) -> APIRouter:
         from obox_builder.contrib.auth.views import router

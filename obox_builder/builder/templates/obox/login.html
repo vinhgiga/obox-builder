@@ -1,16 +1,16 @@
 {% extends base_template %}
 {% block content %}
-  {% if error %}<p class="text-red-800" role="alert">{{ error }}</p>{% endif %}
+  {% if error %}<p class="text-red-800" role="alert">{{ _(error) }}</p>{% endif %}
   <form method="post">
     <input type="hidden" name="csrf_token" value="{{ csrf }}">
-    <label for="username">{{ login_label }}</label>
+    <label for="username">{{ _(login_label) }}</label>
     <input id="username"
            name="username"
            autocomplete="username"
            maxlength="150"
            required
            autofocus>
-    <label for="password">Password</label>
+    <label for="password">{% trans %}Password{% endtrans %}</label>
     <input id="password"
            name="password"
            type="password"
@@ -18,7 +18,7 @@
            maxlength="1024"
            required>
     <p>
-      <button>Sign in</button>
+      <button>{% trans %}Sign in{% endtrans %}</button>
     </p>
   </form>
 {% endblock %}

@@ -30,6 +30,7 @@ from obox_builder.errors import (
     OboxError,
     ResourceConflict,
 )
+from obox_builder.i18n import LanguageMiddleware
 
 T = TypeVar("T")
 logger = logging.getLogger(__name__)
@@ -89,6 +90,7 @@ class Obox(FastAPI):
         super().__init__(lifespan=user_lifespan, **fastapi_kwargs)
         original_lifespan = self.router.lifespan_context
         self.router.lifespan_context = lifespan
+        self.add_middleware(LanguageMiddleware)
         self.add_exception_handler(OboxError, self._problem)
         self.add_exception_handler(RequestValidationError, self._validation_problem)
         self.mount(

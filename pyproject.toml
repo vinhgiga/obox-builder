@@ -4,6 +4,7 @@ version = "0.4.0"
 description = "Model-driven forms, views and REST APIs for native FastAPI applications."
 requires-python = ">=3.11"
 dependencies = [
+    "babel>=2.18,<3",
     "fastapi>=0.143.3,<0.144",
     "jinja2>=3.1.6,<4",
     "pydantic>=2.14,<3",

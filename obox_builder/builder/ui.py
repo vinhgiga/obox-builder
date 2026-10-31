@@ -7,7 +7,7 @@ import json
 from collections.abc import Mapping, Sequence
 from datetime import date, datetime, time
 from decimal import Decimal
-from typing import Any
+from typing import Any, cast
 from urllib.parse import quote, urlencode
 
 import sqlalchemy as sa
@@ -21,23 +21,26 @@ from obox_builder.builder.http import read_form
 from obox_builder.builder.service import invoke
 from obox_builder.conf import Settings
 from obox_builder.context import Context
-from obox_builder.errors import BuilderValidationError, PermissionDenied
+from obox_builder.errors import N_, BuilderValidationError, PermissionDenied
+from obox_builder.i18n import context as translation_context
+from obox_builder.i18n import localize
 
 
 def create_templates(settings: Settings) -> Jinja2Templates:
     if settings.templates is not None:
         return settings.templates
-    return Jinja2Templates(
-        env=Environment(
-            loader=ChoiceLoader(
-                [
-                    FileSystemLoader(settings.template_dirs),
-                    PackageLoader("obox_builder.builder", "templates"),
-                ]
-            ),
-            autoescape=select_autoescape(("html",)),
-        )
+    env = Environment(
+        loader=ChoiceLoader(
+            [
+                FileSystemLoader(settings.template_dirs),
+                PackageLoader("obox_builder.builder", "templates"),
+            ]
+        ),
+        autoescape=select_autoescape(("html",)),
+        extensions=["jinja2.ext.i18n"],
     )
+    cast(Any, env).install_null_translations()
+    return Jinja2Templates(env=env)
 
 
 async def allowed_operations(builder: Any, ctx: Context, obj: Any = None) -> tuple[str, ...]:
@@ -53,7 +56,7 @@ async def allowed_operations(builder: Any, ctx: Context, obj: Any = None) -> tup
     return tuple(allowed)
 
 
-async def reference(app: Any, spec: Any, value: Any, ctx: Context) -> str | None:
+async def reference(app: Any, spec: Any, value: Any, ctx: Context, request: Request) -> str | None:
     if value is None:
         return None
     for fk in spec.column.foreign_keys:
@@ -71,7 +74,7 @@ async def reference(app: Any, spec: Any, value: Any, ctx: Context) -> str | None
         obj = (await ctx.session.scalars(stmt)).unique().one_or_none()
         if obj is not None and await invoke(target.policy.allow, "retrieve", ctx, obj=obj):
             record_id = quote(str(getattr(obj, target.pk_name)), safe="")
-            return f"{app.settings.ui_prefix}/{target.slug}/{record_id}"
+            return localize(request, f"{app.settings.ui_prefix}/{target.slug}/{record_id}")
     return None
 
 
@@ -143,7 +146,7 @@ async def form_fields(builder: Any, service: Any, ctx: Context, obj: Any) -> lis
             "url",
             "password",
         }:
-            raise BuilderValidationError({name: ["Unsupported form widget."]})
+            raise BuilderValidationError({name: [N_("Unsupported form widget.")]})
         result.append(
             {
                 "name": name,
@@ -230,7 +233,7 @@ def convert_values(builder: Any, data: dict[str, str], obj: Any) -> dict[str, An
             try:
                 converted[key] = json.loads(value)
             except (TypeError, ValueError) as exc:
-                raise BuilderValidationError({key: ["Enter valid JSON."]}) from exc
+                raise BuilderValidationError({key: [N_("Enter valid JSON.")]}) from exc
     return converted
 
 
@@ -247,7 +250,7 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
     dependency = Depends(app.context_dependency("ui"), scope="function")
 
     def base(request: Request) -> str:
-        return request.scope.get("root_path", "") + path
+        return localize(request, path)
 
     async def page(
         template: str,
@@ -265,7 +268,9 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
                 navigation.append(
                     {
                         "label": target.model.__name__,
-                        "url": request.url_for(f"obox_ui_{target.slug}_list"),
+                        "url": localize(
+                            request, str(request.url_for(f"obox_ui_{target.slug}_list").path)
+                        ),
                         "active": target is builder,
                     }
                 )
@@ -282,6 +287,7 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
                 "principal": ctx.principal,
                 "auth": getattr(app.state, "obox_auth", None),
                 "csrf": app.csrf.token(request, ctx.principal),
+                **translation_context(request),
             },
             status_code=status,
         )
@@ -364,9 +370,11 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
                 try:
                     count = int(submitted.get(f"inline:{index}:_total", "0"))
                 except (TypeError, ValueError) as exc:
-                    raise BuilderValidationError({"__all__": ["Invalid inline count."]}) from exc
+                    raise BuilderValidationError(
+                        {"__all__": [N_("Invalid inline count.")]}
+                    ) from exc
                 if not 0 <= count <= 1000:
-                    raise BuilderValidationError({"__all__": ["Invalid inline count."]})
+                    raise BuilderValidationError({"__all__": [N_("Invalid inline count.")]})
                 for position in range(count):
                     prefix = f"inline:{index}:{position}:"
                     raw = {
@@ -378,7 +386,7 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
                     delete = raw.pop("_delete", "") == "1"
                     record = records.get(identity)
                     if identity and record is None:
-                        raise PermissionDenied("An inline record is unavailable.")
+                        raise PermissionDenied(N_("An inline record is unavailable."))
                     controls = await inline_fields(
                         child, child_service, ctx, record, inline.fk_name
                     )
@@ -407,7 +415,7 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
                     }
                     if delete:
                         if record is None:
-                            raise PermissionDenied("An inline record is unavailable.")
+                            raise PermissionDenied(N_("An inline record is unavailable."))
                         await child_service.authorize("delete", ctx, record)
                     elif not blank:
                         if record is None:
@@ -449,7 +457,7 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
                 key for key in submitted if key.startswith("inline:") and key not in known
             )
             if unknown:
-                raise BuilderValidationError({"__all__": ["Unknown inline field."]})
+                raise BuilderValidationError({"__all__": [N_("Unknown inline field.")]})
         return groups
 
     async def list_records(request: Request, ctx: Context = dependency) -> HTMLResponse:
@@ -507,12 +515,10 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
         obj = await service.get(id, ctx=ctx)
         visible = await service.serialize(obj, ctx=ctx, fields=builder.view_details)
         links = {
-            key: await reference(app, builder.specs[key], value, ctx)
+            key: await reference(app, builder.specs[key], value, ctx, request)
             for key, value in visible.items()
         }
-        links = {
-            key: request.scope.get("root_path", "") + value for key, value in links.items() if value
-        }
+        links = {key: value for key, value in links.items() if value}
         extra = builder.view.get_context(ctx, instance=obj)
         collections = []
         allowed = builder.policy.read_fields(ctx, obj=obj)
@@ -570,7 +576,7 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
             app.csrf.validate(request, ctx.principal, str(form.get("csrf_token", "")))
             if any(len(form.getlist(key)) != 1 for key in form):
                 raise BuilderValidationError(
-                    {"__all__": ["Duplicate form fields are not permitted."]}
+                    {"__all__": [N_("Duplicate form fields are not permitted.")]}
                 )
             submitted = {key: str(value) for key, value in form.items() if key != "csrf_token"}
             values = {
@@ -613,7 +619,11 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
                         record = quote(str(getattr(instance, builder.pk_name)), safe="")
                         location = f"{base(request)}/{record}/edit"
                     else:
-                        location = base(request) if builder.view.enabled else request.url.path
+                        location = (
+                            base(request)
+                            if builder.view.enabled
+                            else localize(request, request.scope.get("obox_path", request.url.path))
+                        )
                     return RedirectResponse(location, status_code=303)
                 except BuilderValidationError as exc:
                     if ctx._failed or written:

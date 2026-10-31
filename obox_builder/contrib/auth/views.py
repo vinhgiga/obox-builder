@@ -10,7 +10,9 @@ from fastapi.responses import RedirectResponse
 
 from obox_builder.builder.http import read_form
 from obox_builder.builder.service import invoke
-from obox_builder.errors import PermissionDenied
+from obox_builder.errors import N_, PermissionDenied
+from obox_builder.i18n import context as translation_context
+from obox_builder.i18n import localize, translate
 
 if TYPE_CHECKING:
     from obox_builder.application import Obox
@@ -48,12 +50,13 @@ def router(app: Obox, auth: Auth) -> APIRouter:
                 auth.set_cookie(response, auth.login_cookie, "", 0)
                 response.headers["cache-control"] = "no-store"
                 return response
-            error, status = "Invalid username or password.", 401
+            error, status = N_("Invalid username or password."), 401
         return app.templates.TemplateResponse(
             request=request,
             name=auth.login_template,
             context={
-                "title": "Sign in",
+                **translation_context(request),
+                "title": translate(request, "Sign in"),
                 "site_title": app.title,
                 "base_template": app.settings.base_template,
                 "navigation": [],
@@ -88,13 +91,18 @@ def router(app: Obox, auth: Auth) -> APIRouter:
                     and await invoke(builder.policy.allow, "list", ctx)
                 ):
                     return RedirectResponse(
-                        request.url_for(f"obox_ui_{builder.slug}_list"), status_code=303
+                        localize(
+                            request,
+                            str(request.url_for(f"obox_ui_{builder.slug}_list").path),
+                        ),
+                        status_code=303,
                     )
         return app.templates.TemplateResponse(
             request=request,
             name=auth.account_template,
             context={
-                "title": "Account",
+                **translation_context(request),
+                "title": translate(request, "Account"),
                 "site_title": app.title,
                 "base_template": app.settings.base_template,
                 "navigation": [],

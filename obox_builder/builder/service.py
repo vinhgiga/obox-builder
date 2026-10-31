@@ -16,6 +16,7 @@ from sqlalchemy.orm.exc import StaleDataError
 from obox_builder.builder.fields import schema, validate
 from obox_builder.context import Context, DomainEvent
 from obox_builder.errors import (
+    N_,
     BuilderValidationError,
     ImproperlyConfigured,
     NotAuthenticated,
@@ -203,7 +204,7 @@ class ResourceService(Generic[T]):
         presets = validate(schema("Presets", b.specs, presets, partial=True), presets)
         if action == "create":
             missing = {
-                key: ["Field is required."]
+                key: [N_("Field is required.")]
                 for key, spec in b.specs.items()
                 if spec.required
                 and not spec.readonly
@@ -254,7 +255,7 @@ class ResourceService(Generic[T]):
         self._context(ctx)
         if action == "create":
             missing = {
-                key: ["Field is required."]
+                key: [N_("Field is required.")]
                 for key, spec in self.builder.specs.items()
                 if spec.required and not spec.readonly and getattr(obj, key, None) is None
             }

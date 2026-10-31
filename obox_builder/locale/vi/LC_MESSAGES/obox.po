@@ -1,0 +1,195 @@
+# Vietnamese translations for obox-builder.
+# Copyright (C) 2026 ORGANIZATION
+# This file is distributed under the same license as the  project.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version:  obox-builder\n"
+"Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
+"POT-Creation-Date: 2026-10-31 20:46+0700\n"
+"PO-Revision-Date: 2026-10-31 20:45+0700\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: vi\n"
+"Language-Team: Vietnamese\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+#: obox_builder/builder/service.py:207 obox_builder/builder/service.py:258
+msgid "Field is required."
+msgstr "Trường này là bắt buộc."
+
+#: obox_builder/builder/ui.py:149
+msgid "Unsupported form widget."
+msgstr "Kiểu nhập không được hỗ trợ."
+
+#: obox_builder/builder/ui.py:236
+msgid "Enter valid JSON."
+msgstr "Nhập JSON hợp lệ."
+
+#: obox_builder/builder/ui.py:374 obox_builder/builder/ui.py:377
+msgid "Invalid inline count."
+msgstr "Số dòng không hợp lệ."
+
+#: obox_builder/builder/ui.py:389 obox_builder/builder/ui.py:418
+msgid "An inline record is unavailable."
+msgstr "Không tìm thấy bản ghi inline."
+
+#: obox_builder/builder/ui.py:460
+msgid "Unknown inline field."
+msgstr "Trường inline không hợp lệ."
+
+#: obox_builder/builder/ui.py:579
+msgid "Duplicate form fields are not permitted."
+msgstr "Không được gửi trường trùng lặp."
+
+#: obox_builder/builder/templates/obox/account.html:3
+msgid "No resources are available for your account."
+msgstr "Không có tài nguyên nào cho tài khoản của bạn."
+
+#: obox_builder/builder/templates/obox/base.html:14
+msgid "Skip to content"
+msgstr "Bỏ qua nội dung"
+
+#: obox_builder/builder/templates/obox/base.html:19
+msgid "Administration"
+msgstr "Quản trị"
+
+#: obox_builder/builder/templates/obox/base.html:26
+msgid "Sign out"
+msgstr "Đăng xuất"
+
+#: obox_builder/builder/templates/obox/base.html:30
+msgid "Language"
+msgstr "Ngôn ngữ"
+
+#: obox_builder/builder/templates/obox/base.html:40
+msgid "Resources"
+msgstr "Tài nguyên"
+
+#: obox_builder/builder/templates/obox/detail.html:3
+#: obox_builder/builder/templates/obox/form.html:37
+msgid "Back to list"
+msgstr "Quay lại danh sách"
+
+#: obox_builder/builder/templates/obox/detail.html:3
+msgid "Edit"
+msgstr "Sửa"
+
+#: obox_builder/builder/templates/obox/detail.html:7
+#: obox_builder/builder/templates/obox/list.html:63
+msgid "No records."
+msgstr "Không có bản ghi."
+
+#: obox_builder/builder/templates/obox/detail.html:9
+msgid "Confirm deletion"
+msgstr "Xác nhận xoá"
+
+#: obox_builder/builder/templates/obox/detail.html:9
+#: obox_builder/builder/templates/obox/form.html:83
+msgid "Delete"
+msgstr "Xoá"
+
+#: obox_builder/builder/templates/obox/form.html:11
+msgid "Choose…"
+msgstr "Chọn…"
+
+#: obox_builder/builder/templates/obox/form.html:62
+msgid "Delete?"
+msgstr "Xoá?"
+
+#: obox_builder/builder/templates/obox/form.html:89
+#: obox_builder/builder/templates/obox/form.html:108
+msgid "Remove"
+msgstr "Bỏ"
+
+#: obox_builder/builder/templates/obox/form.html:116
+#, python-format
+msgid "Add another %(name)s"
+msgstr "Thêm %(name)s khác"
+
+#: obox_builder/builder/templates/obox/form.html:121
+msgid "Save"
+msgstr "Lưu"
+
+#: obox_builder/builder/templates/obox/form.html:122
+msgid "Save and add another"
+msgstr "Lưu và thêm mới"
+
+#: obox_builder/builder/templates/obox/form.html:123
+msgid "Save and continue editing"
+msgstr "Lưu và tiếp tục sửa"
+
+#: obox_builder/builder/templates/obox/list.html:7
+msgid "Grid view"
+msgstr "Dạng lưới"
+
+#: obox_builder/builder/templates/obox/list.html:11
+msgid "Search"
+msgstr "Tìm kiếm"
+
+#: obox_builder/builder/templates/obox/list.html:24
+msgid "Sort"
+msgstr "Sắp xếp"
+
+#: obox_builder/builder/templates/obox/list.html:26
+msgid "Default"
+msgstr "Mặc định"
+
+#: obox_builder/builder/templates/obox/list.html:36
+msgid "Apply"
+msgstr "Áp dụng"
+
+#: obox_builder/builder/templates/obox/list.html:41
+msgid "records"
+msgstr "bản ghi"
+
+#: obox_builder/builder/templates/obox/list.html:47
+msgid "Row"
+msgstr "Dòng"
+
+#: obox_builder/builder/templates/obox/list.html:49
+msgid "Record"
+msgstr "Bản ghi"
+
+#: obox_builder/builder/templates/obox/list.html:59
+msgid "View"
+msgstr "Xem"
+
+#: obox_builder/builder/templates/obox/list.html:69
+msgid "Create"
+msgstr "Tạo"
+
+#: obox_builder/builder/templates/obox/list.html:72
+#, python-format
+msgid "%(count)s record on this page"
+msgid_plural "%(count)s records on this page"
+msgstr[0] "%(count)s bản ghi trên trang này"
+
+#: obox_builder/builder/templates/obox/list.html:73
+msgid "Next page →"
+msgstr "Trang sau →"
+
+#: obox_builder/builder/templates/obox/login.html:13
+msgid "Password"
+msgstr "Mật khẩu"
+
+#: obox_builder/builder/templates/obox/login.html:21
+#: obox_builder/contrib/auth/views.py:59
+msgid "Sign in"
+msgstr "Đăng nhập"
+
+#: obox_builder/contrib/auth/__init__.py:71
+msgid "Username"
+msgstr "Tên đăng nhập"
+
+#: obox_builder/contrib/auth/views.py:53
+msgid "Invalid username or password."
+msgstr "Tên đăng nhập hoặc mật khẩu không đúng."
+
+#: obox_builder/contrib/auth/views.py:105
+msgid "Account"
+msgstr "Tài khoản"

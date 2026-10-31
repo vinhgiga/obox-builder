@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="{% block language %}en{% endblock %}">
+<html lang="{% block language %}{{ language|default('en') }}{% endblock %}">
   <head>
     {% block head %}
       <meta charset="utf-8">
@@ -10,23 +10,34 @@
     {% endblock %}
   </head>
   <body class="bg-slate-50 font-sans text-sm/6 text-slate-800">
-    <a class="absolute -top-20 bg-white px-4 py-2 focus:top-2" href="#main">Skip to content</a>
+    <a class="absolute -top-20 bg-white px-4 py-2 focus:top-2"
+       href="#main">{% trans %}Skip to content{% endtrans %}</a>
     <div class="workspace">
       {% block sidebar %}
         <header class="workspace-header">
           <div class="font-semibold">{% block branding %}{{ site_title }}{% endblock %}</div>
-          <span class="text-slate-600">{% block header %}Administration{% endblock %}</span>
+          <span class="text-slate-600">{% block header %}{% trans %}Administration{% endtrans %}{% endblock %}</span>
           {% if auth and principal.is_authenticated %}
             <form class="account-controls"
                   method="post"
                   action="{{ auth.logout_url(request) }}">
               <span>{{ principal.username }}</span>
               <input type="hidden" name="csrf_token" value="{{ csrf }}">
-              <button>Sign out</button>
+              <button>{% trans %}Sign out{% endtrans %}</button>
             </form>
           {% endif %}
+          {% if languages %}
+            <nav class="language-switcher" aria-label="{{ _('Language') }}">
+              {% for code, label in languages.items() %}
+                <a href="{{ language_url(code) }}"
+                   lang="{{ code }}"
+                   hreflang="{{ code }}"
+                   {% if code == language %}aria-current="true"{% endif %}>{{ label }}</a>
+              {% endfor %}
+            </nav>
+          {% endif %}
         </header>
-        <nav class="resource-tabs" aria-label="Resources">
+        <nav class="resource-tabs" aria-label="{{ _('Resources') }}">
           {% for item in navigation %}
             <a href="{{ item.url }}"
                {% if item.active %} aria-current="page"{% endif %}>{{ item.label }}</a>
