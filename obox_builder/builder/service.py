@@ -174,10 +174,16 @@ class ResourceService(Generic[T]):
             raise PermissionDenied(f"Fields cannot be written: {', '.join(sorted(denied))}.")
 
     async def _input(
-        self, action: str, data: Mapping[str, Any], ctx: Context, obj: Any = None
+        self,
+        action: str,
+        data: Mapping[str, Any],
+        ctx: Context,
+        obj: Any = None,
+        *,
+        allowed: Sequence[str] | None = None,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         b = self.builder
-        allowed = self.write_fields(action, ctx, obj)
+        allowed = self.write_fields(action, ctx, obj) if allowed is None else allowed
         self._check_fields(data, allowed)
         if ctx.source == "ui":
             data = await invoke(b.form.validate, dict(data), ctx, instance=obj)
@@ -264,9 +270,40 @@ class ResourceService(Generic[T]):
             DomainEvent(action, self.builder.model, getattr(obj, self.builder.pk_name))
         )
 
+    async def validate_inline(
+        self,
+        data: Mapping[str, Any],
+        *,
+        action: str,
+        relation: str,
+        ctx: Context,
+        obj: Any = None,
+    ) -> None:
+        allowed = tuple(key for key in self.write_fields(action, ctx, obj) if key != relation)
+        await self._input(action, data, ctx, obj, allowed=allowed)
+
+    async def create_inline(
+        self, data: Mapping[str, Any], *, relation: str, parent: Any, ctx: Context
+    ) -> T:
+        parent_builder = self.app.get_builder(type(parent))
+        parent_id = getattr(parent, parent_builder.pk_name)
+        allowed = tuple(key for key in self.write_fields("create", ctx) if key != relation)
+        return await self._create(data, ctx=ctx, allowed=allowed, extra={relation: parent_id})
+
     async def create(self, data: Mapping[str, Any], *, ctx: Context) -> T:
+        return await self._create(data, ctx=ctx)
+
+    async def _create(
+        self,
+        data: Mapping[str, Any],
+        *,
+        ctx: Context,
+        allowed: Sequence[str] | None = None,
+        extra: Mapping[str, Any] | None = None,
+    ) -> T:
         await self.authorize("create", ctx)
-        values, presets = await self._input("create", data, ctx)
+        values, presets = await self._input("create", data, ctx, allowed=allowed)
+        values = {**values, **(extra or {})}
         async with self._mutation(ctx):
             obj = self.builder.model(**values)
             ctx.session.add(obj)

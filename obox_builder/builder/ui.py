@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import enum
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import date, datetime, time
 from decimal import Decimal
 from typing import Any
@@ -21,7 +21,7 @@ from obox_builder.builder.http import read_form
 from obox_builder.builder.service import invoke
 from obox_builder.conf import Settings
 from obox_builder.context import Context
-from obox_builder.errors import BuilderValidationError
+from obox_builder.errors import BuilderValidationError, PermissionDenied
 
 
 def create_templates(settings: Settings) -> Jinja2Templates:
@@ -200,6 +200,47 @@ def input_values(builder: Any, data: dict[str, Any]) -> dict[str, str]:
     return result
 
 
+def initial_values(builder: Any, ctx: Context, names: Sequence[str]) -> dict[str, Any]:
+    values = {
+        key: builder.specs[key].column.default.arg
+        for key in names
+        if builder.specs[key].column.default is not None
+        and builder.specs[key].column.default.is_scalar
+    }
+    values.update(builder.form.get_initial(ctx))
+    return values
+
+
+def convert_values(builder: Any, data: dict[str, str], obj: Any) -> dict[str, Any]:
+    converted: dict[str, Any] = dict(data)
+    for key, value in data.items():
+        if key not in builder.specs:
+            continue
+        column = builder.specs[key].column
+        if value == "" and column.nullable:
+            converted[key] = None
+        elif (
+            value == ""
+            and obj is None
+            and column.type.python_type is not str
+            and (column.default is not None or column.server_default is not None)
+        ):
+            converted.pop(key)
+        elif isinstance(column.type, sa.JSON):
+            try:
+                converted[key] = json.loads(value)
+            except (TypeError, ValueError) as exc:
+                raise BuilderValidationError({key: ["Enter valid JSON."]}) from exc
+    return converted
+
+
+async def inline_fields(
+    builder: Any, service: Any, ctx: Context, obj: Any, fk_name: str
+) -> list[dict[str, Any]]:
+    controls = await form_fields(builder, service, ctx, obj)
+    return [control for control in controls if control["name"] != fk_name]
+
+
 def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
     router = APIRouter()
     path = f"{app.settings.ui_prefix}/{builder.slug}"
@@ -244,6 +285,172 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
             },
             status_code=status,
         )
+
+    async def inline_rows(
+        ctx: Context, obj: Any, *, submitted: Mapping[str, str] | None = None
+    ) -> list[dict[str, Any]]:
+        groups: list[dict[str, Any]] = []
+        for index, inline in enumerate(builder.inline_instances):
+            child = app.get_builder(inline.model)
+            child_service = app.service(inline.model)
+            if not child.form.enabled or not await invoke(child.policy.allow, "list", ctx):
+                continue
+            allowed = builder.policy.read_fields(ctx, obj=obj)
+            if allowed is not None and inline.relation_name not in allowed:
+                continue
+            records: dict[str, Any] = {}
+            if obj is not None:
+                stmt = (
+                    child_service._statement("list", ctx)
+                    .where(getattr(inline.model, inline.fk_name) == getattr(obj, builder.pk_name))
+                    .order_by(child.pk)
+                )
+                for record in (await ctx.session.scalars(stmt)).unique():
+                    if await invoke(child.policy.allow, "update", ctx, obj=record):
+                        records[str(getattr(record, child.pk_name))] = record
+            can_create = bool(await invoke(child.policy.allow, "create", ctx))
+            prototype: dict[str, Any] | None = None
+            if can_create:
+                controls = await inline_fields(child, child_service, ctx, None, inline.fk_name)
+                initial = input_values(
+                    child,
+                    initial_values(child, ctx, tuple(field["name"] for field in controls)),
+                )
+                prototype = {
+                    "prefix": f"inline:{index}:__index__:",
+                    "fields": controls,
+                    "values": initial,
+                }
+            rows: list[dict[str, Any]] = []
+
+            if submitted is None:
+                for identity, record in records.items():
+                    controls = await inline_fields(
+                        child, child_service, ctx, record, inline.fk_name
+                    )
+                    rows.append(
+                        {
+                            "prefix": f"inline:{index}:{len(rows)}:",
+                            "id": identity,
+                            "fields": controls,
+                            "values": input_values(
+                                child,
+                                {
+                                    field["name"]: getattr(record, field["name"])
+                                    for field in controls
+                                },
+                            ),
+                            "errors": {},
+                            "delete": False,
+                            "can_delete": bool(
+                                await invoke(child.policy.allow, "delete", ctx, obj=record)
+                            ),
+                        }
+                    )
+                if prototype:
+                    for _ in range(inline.extra):
+                        rows.append(
+                            {
+                                "prefix": f"inline:{index}:{len(rows)}:",
+                                "id": "",
+                                "fields": prototype["fields"],
+                                "values": dict(prototype["values"]),
+                                "errors": {},
+                                "delete": False,
+                                "can_delete": False,
+                            }
+                        )
+            else:
+                try:
+                    count = int(submitted.get(f"inline:{index}:_total", "0"))
+                except (TypeError, ValueError) as exc:
+                    raise BuilderValidationError({"__all__": ["Invalid inline count."]}) from exc
+                if not 0 <= count <= 1000:
+                    raise BuilderValidationError({"__all__": ["Invalid inline count."]})
+                for position in range(count):
+                    prefix = f"inline:{index}:{position}:"
+                    raw = {
+                        key[len(prefix) :]: value
+                        for key, value in submitted.items()
+                        if key.startswith(prefix)
+                    }
+                    identity = raw.pop("_pk", "")
+                    delete = raw.pop("_delete", "") == "1"
+                    record = records.get(identity)
+                    if identity and record is None:
+                        raise PermissionDenied("An inline record is unavailable.")
+                    controls = await inline_fields(
+                        child, child_service, ctx, record, inline.fk_name
+                    )
+                    names = {field["name"] for field in controls}
+                    initial = input_values(child, initial_values(child, ctx, tuple(names)))
+                    blank = (
+                        record is None
+                        and not delete
+                        and set(raw) <= names
+                        and all(raw.get(name, "") == initial.get(name, "") for name in names)
+                    )
+                    row = {
+                        "prefix": prefix,
+                        "id": identity,
+                        "fields": controls,
+                        "values": initial if blank else {name: raw.get(name, "") for name in names},
+                        "errors": {},
+                        "delete": delete,
+                        "can_delete": bool(
+                            record is not None
+                            and await invoke(child.policy.allow, "delete", ctx, obj=record)
+                        ),
+                        "_data": dict(raw),
+                        "_record": record,
+                        "_blank": blank,
+                    }
+                    if delete:
+                        if record is None:
+                            raise PermissionDenied("An inline record is unavailable.")
+                        await child_service.authorize("delete", ctx, record)
+                    elif not blank:
+                        if record is None:
+                            await child_service.authorize("create", ctx)
+                        data = dict(raw)
+                        try:
+                            data = convert_values(child, data, record)
+                            await child_service.validate_inline(
+                                data,
+                                action="update" if record is not None else "create",
+                                relation=inline.fk_name,
+                                ctx=ctx,
+                                obj=record,
+                            )
+                        except BuilderValidationError as exc:
+                            row["errors"] = exc.errors
+                        row["_data"] = data
+                    rows.append(row)
+            if rows or can_create or submitted is not None:
+                headers = prototype["fields"] if prototype else (rows[0]["fields"] if rows else [])
+                groups.append(
+                    {
+                        "index": index,
+                        "label": inline.label,
+                        "name": inline.name,
+                        "headers": headers,
+                        "prototype": prototype,
+                        "rows": rows,
+                    }
+                )
+        if submitted is not None:
+            known = {f"inline:{group['index']}:_total" for group in groups}
+            for group in groups:
+                for row in group["rows"]:
+                    known.add(f"{row['prefix']}_pk")
+                    known.add(f"{row['prefix']}_delete")
+                    known.update(f"{row['prefix']}{key}" for key in row["_data"])
+            unknown = sorted(
+                key for key in submitted if key.startswith("inline:") and key not in known
+            )
+            if unknown:
+                raise BuilderValidationError({"__all__": ["Unknown inline field."]})
+        return groups
 
     async def list_records(request: Request, ctx: Context = dependency) -> HTMLResponse:
         options = query_options(request, builder, pagination=True)
@@ -352,17 +559,12 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
         fieldsets = fieldset_groups(builder, controls)
         names = tuple(field["name"] for field in controls)
         if obj is None:
-            values = {
-                key: builder.specs[key].column.default.arg
-                for key in names
-                if builder.specs[key].column.default is not None
-                and builder.specs[key].column.default.is_scalar
-            }
-            values.update(builder.form.get_initial(ctx))
+            values = initial_values(builder, ctx, names)
         else:
             values = {key: getattr(obj, key) for key in names}
         errors = {}
         status = 200
+        inline_groups = []
         if request.method == "POST":
             form = await read_form(request)
             app.csrf.validate(request, ctx.principal, str(form.get("csrf_token", "")))
@@ -370,38 +572,49 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
                 raise BuilderValidationError(
                     {"__all__": ["Duplicate form fields are not permitted."]}
                 )
-            values = {key: str(value) for key, value in form.items() if key != "csrf_token"}
-            try:
-                converted: dict[str, Any] = dict(values)
-                for key, value in values.items():
-                    if key not in builder.specs:
-                        continue
-                    column = builder.specs[key].column
-                    if value == "" and column.nullable:
-                        converted[key] = None
-                    elif (
-                        value == ""
-                        and obj is None
-                        and column.type.python_type is not str
-                        and (column.default is not None or column.server_default is not None)
-                    ):
-                        converted.pop(key)
-                    elif isinstance(column.type, sa.JSON):
-                        try:
-                            converted[key] = json.loads(value)
-                        except (TypeError, ValueError) as exc:
-                            raise BuilderValidationError({key: ["Enter valid JSON."]}) from exc
-                if obj is None:
-                    await service.create(converted, ctx=ctx)
-                else:
-                    await service.update(id, converted, ctx=ctx)
-                return RedirectResponse(
-                    base(request) if builder.view.enabled else request.url.path, status_code=303
-                )
-            except BuilderValidationError as exc:
-                if ctx._failed:
-                    raise
-                errors, status = exc.errors, 422
+            submitted = {key: str(value) for key, value in form.items() if key != "csrf_token"}
+            values = {
+                key: value for key, value in submitted.items() if not key.startswith("inline:")
+            }
+            inline_groups = await inline_rows(ctx, obj, submitted=submitted)
+            inline_errors = any(row["errors"] for group in inline_groups for row in group["rows"])
+            if not inline_errors:
+                written = False
+                try:
+                    converted = convert_values(builder, values, obj)
+                    if obj is None:
+                        instance = await service.create(converted, ctx=ctx)
+                    else:
+                        instance = await service.update(id, converted, ctx=ctx)
+                    written = True
+                    for group in inline_groups:
+                        inline = builder.inline_instances[group["index"]]
+                        child_service = app.service(inline.model)
+                        for row in group["rows"]:
+                            if row["delete"]:
+                                await child_service.delete(row["id"], ctx=ctx)
+                            elif row["_blank"]:
+                                continue
+                            elif row["_record"] is None:
+                                await child_service.create_inline(
+                                    row["_data"],
+                                    relation=inline.fk_name,
+                                    parent=instance,
+                                    ctx=ctx,
+                                )
+                            else:
+                                await child_service.update(row["id"], row["_data"], ctx=ctx)
+                    return RedirectResponse(
+                        base(request) if builder.view.enabled else request.url.path, status_code=303
+                    )
+                except BuilderValidationError as exc:
+                    if ctx._failed or written:
+                        raise
+                    errors, status = exc.errors, 422
+            else:
+                status = 422
+        else:
+            inline_groups = await inline_rows(ctx, obj)
         extra = builder.form.get_context(ctx, instance=obj, action=action)
         return await page(
             builder.form.template,
@@ -414,6 +627,7 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
             fieldsets=fieldsets,
             values=values if request.method == "POST" else input_values(builder, values),
             errors=errors,
+            inlines=inline_groups,
             csrf=app.csrf.token(request, ctx.principal),
             action=action,
         )

@@ -13,6 +13,7 @@ from sqlalchemy.orm import raiseload, undefer
 
 from obox_builder.auth import Policy, StaffOnly
 from obox_builder.builder.fields import FieldRefs, inspect_fields, normalize
+from obox_builder.builder.inlines import Inline
 from obox_builder.builder.surfaces import API, Form, View
 from obox_builder.context import Context, DomainEvent
 from obox_builder.errors import ImproperlyConfigured
@@ -30,6 +31,8 @@ class ModelBuilder(Generic[T]):
     sort_fields: FieldRefs | None = None
     ordering: tuple[str, ...] | None = None
     policy: Policy[T] | None = None
+    inlines: Sequence[type[Inline[Any]]] = ()
+    inline_instances: Sequence[Inline[Any]] = ()
     Form = Form
     View = View
     API = API
@@ -81,6 +84,16 @@ class ModelBuilder(Generic[T]):
                 raise ImproperlyConfigured("Surface configuration must extend Form, View or API.")
         self.form, self.view, self.api = self.Form(), self.View(), self.API()
         self.form._builder = self.view._builder = self
+        instances: list[Inline[Any]] = []
+        for inline_class in self.inlines:
+            if not isinstance(inline_class, type) or not issubclass(inline_class, Inline):
+                raise ImproperlyConfigured("inlines must extend Inline.")
+            instance = inline_class()
+            instance._compile(self)
+            if any(item.model is instance.model for item in instances):
+                raise ImproperlyConfigured("Duplicate inline model.")
+            instances.append(instance)
+        self.inline_instances = tuple(instances)
         self.form_fields = self._form_fields()
         self.view_list_display = self._projection(self.view.list_display)
         self.view_details = self._projection(self.view.detail_fields)

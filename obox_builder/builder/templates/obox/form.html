@@ -1,4 +1,37 @@
 {% extends base_template %}
+{% macro control(field, values, errors, prefix='', required=true, label=true) %}
+  {% if label %}
+    <label for="{{ prefix }}{{ field.name }}">{{ field.label }}{% if field.required %} *{% endif %}</label>
+  {% endif %}
+  {% if field.widget == "select" %}
+    <select id="{{ prefix }}{{ field.name }}"
+            name="{{ prefix }}{{ field.name }}"
+            {% if not label %}aria-label="{{ field.label }}"{% endif %}
+            {% if required and field.required %}required{% endif %}>
+      <option value="">Choose…</option>
+      {% for value, label in field.options %}<option value="{{ value }}"
+        {% if values.get(field.name) == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+  {% elif field.widget == "textarea" %}
+    <textarea id="{{ prefix }}{{ field.name }}"
+              name="{{ prefix }}{{ field.name }}"
+              {% if not label %}aria-label="{{ field.label }}"{% endif %}
+              {% if required and field.required %}required{% endif %}>{{ values.get(field.name, '') }}</textarea>
+  {% else %}
+    <input id="{{ prefix }}{{ field.name }}"
+           name="{{ prefix }}{{ field.name }}"
+           type="{{ field.widget }}"
+           value="{{ values.get(field.name, '') }}"
+           placeholder="{{ field.placeholder }}"
+           {% if not label %}aria-label="{{ field.label }}"{% endif %}
+           {% if required and field.required %}required{% endif %}
+           {% if field.maxlength %}maxlength="{{ field.maxlength }}"{% endif %}
+           {% if field.widget == "number" %}step="any"{% endif %}>
+  {% endif %}
+  {% if field.help %}<div class="text-slate-600">{{ field.help }}</div>{% endif %}
+  {% for error in errors.get(field.name, []) %}<div class="text-red-800"
+     role="alert">{{ error }}</div>{% endfor %}
+{% endmacro %}
 {% block content %}
   <nav>
     <a href="{{ base }}">Back to list</a>
@@ -12,36 +45,75 @@
       {% if wrapped %}<fieldset>{% endif %}
       {% if fieldset.title %}<legend>{{ fieldset.title }}</legend>{% endif %}
       {% if fieldset.description %}<p class="text-slate-600">{{ fieldset.description }}</p>{% endif %}
-      {% for field in fieldset.fields %}
-        <label for="field-{{ field.name }}">{{ field.label }}{% if field.required %} *{% endif %}</label>
-        {% if field.widget == "select" %}
-          <select id="field-{{ field.name }}"
-                  name="{{ field.name }}"
-                  {% if field.required %}required{% endif %}>
-            <option value="">Choose…</option>
-            {% for value, label in field.options %}<option value="{{ value }}"
-        {% if values.get(field.name) == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
-          </select>
-        {% elif field.widget == "textarea" %}
-          <textarea id="field-{{ field.name }}"
-                    name="{{ field.name }}"
-                    {% if field.required %}required{% endif %}>{{ values.get(field.name, '') }}</textarea>
-        {% else %}
-          <input id="field-{{ field.name }}"
-                 name="{{ field.name }}"
-                 type="{{ field.widget }}"
-                 value="{{ values.get(field.name, '') }}"
-                 placeholder="{{ field.placeholder }}"
-                 {% if field.required %}required{% endif %}
-                 {% if field.maxlength %}maxlength="{{ field.maxlength }}"{% endif %}
-                 {% if field.widget == "number" %}step="any"{% endif %}>
-        {% endif %}
-        {% if field.help %}<div class="text-slate-600">{{ field.help }}</div>{% endif %}
-        {% for error in errors.get(field.name, []) %}<div class="text-red-800"
-     role="alert">{{ error }}</div>{% endfor %}
-      {% endfor %}
+      {% for field in fieldset.fields %}{{ control(field, values, errors) }}{% endfor %}
       {% if wrapped %}</fieldset>{% endif %}
+    {% endfor %}
+    {% for inline in inlines %}
+      <section data-inline data-inline-group="{{ inline['index'] }}">
+        <h2>{{ inline['label'] }}</h2>
+        <input type="hidden"
+               name="inline:{{ inline['index'] }}:_total"
+               value="{{ inline['rows'] | length }}"
+               data-inline-total>
+        <table>
+          <thead>
+            <tr>
+              {% for field in inline['headers'] %}<th scope="col">{{ field['label'] }}</th>{% endfor %}
+              <th scope="col">Delete?</th>
+            </tr>
+          </thead>
+          <tbody data-inline-rows>
+            {% for row in inline['rows'] %}
+              <tr data-inline-row {% if row['delete'] %}style="opacity: 0.5"{% endif %}>
+                {% for field in row['fields'] %}
+                  <td>{{ control(field, row['values'], row['errors'], row['prefix'], false, false) }}</td>
+                {% endfor %}
+                <td>
+                  <input type="hidden" name="{{ row['prefix'] }}_pk" value="{{ row['id'] }}">
+                  {% for error in row['errors'].get('__all__', []) %}
+                    <p class="text-red-800" role="alert">{{ error }}</p>
+                  {% endfor %}
+                  {% if row["can_delete"] %}
+                    <label>
+                      <input type="checkbox"
+                             name="{{ row['prefix'] }}_delete"
+                             value="1"
+                             data-inline-delete
+                             {% if row['delete'] %}checked{% endif %}>
+                      Delete
+                    </label>
+                  {% endif %}
+                  {% if not row["id"] %}
+                    <button type="button" class="inline-remove" data-inline-remove>Remove</button>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% if inline["prototype"] %}
+          <template data-inline-template>
+            <table>
+              <tbody>
+                <tr data-inline-row>
+                  {% for field in inline['prototype']['fields'] %}
+                    <td>{{ control(field, inline['prototype']['values'], {}, inline['prototype']['prefix'], false, false) }}</td>
+                  {% endfor %}
+                  <td>
+                    <input type="hidden" name="{{ inline['prototype']['prefix'] }}_pk" value="">
+                    <button type="button" class="inline-remove" data-inline-remove>Remove</button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </template>
+          <button type="button"
+                  class="inline-add"
+                  data-inline-add>+ Add another {{ inline['name'] }}</button>
+        {% endif %}
+      </section>
     {% endfor %}
     <p><button>{% if action == "create" %}Create{% else %}Save{% endif %}</button></p>
   </form>
+  <script src="{{ request.url_for('obox_static', path='inline.js') }}"></script>
 {% endblock %}
