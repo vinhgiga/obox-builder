@@ -10,7 +10,7 @@ from typing import Any, Generic, TypeVar
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.routing import iter_route_contexts
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import event
@@ -26,6 +26,7 @@ from obox_builder.context import Context
 from obox_builder.errors import (
     BuilderValidationError,
     ImproperlyConfigured,
+    NotAuthenticated,
     OboxError,
     ResourceConflict,
 )
@@ -97,7 +98,16 @@ class Obox(FastAPI):
         )
 
     @staticmethod
-    async def _problem(request: Request, exc: Exception) -> JSONResponse:
+    async def _problem(request: Request, exc: Exception) -> JSONResponse | RedirectResponse:
+        if (
+            isinstance(exc, NotAuthenticated)
+            and request.method == "GET"
+            and getattr(request.app.state, "obox_auth", None) is not None
+            and request.url.path.removeprefix(request.scope.get("root_path", "")).startswith(
+                request.app.settings.ui_prefix + "/"
+            )
+        ):
+            return RedirectResponse(request.app.state.obox_auth.login_url(request), status_code=303)
         error = exc if isinstance(exc, OboxError) else OboxError(str(exc))
         body: dict[str, Any] = {
             "type": "about:blank",

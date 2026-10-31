@@ -16,6 +16,9 @@ obox = "obox_builder.cli:main"
 [project.optional-dependencies]
 postgres = ["psycopg[binary,pool]>=3.3,<4", "asyncpg>=0.32,<1"]
 sqlite = ["aiosqlite>=0.22,<1"]
+auth = [
+    "pwdlib[argon2]>=0.3,<1",
+]
 
 [dependency-groups]
 dev = [

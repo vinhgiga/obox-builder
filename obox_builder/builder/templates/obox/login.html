@@ -1,0 +1,24 @@
+{% extends base_template %}
+{% block content %}
+  {% if error %}<p class="text-red-800" role="alert">{{ error }}</p>{% endif %}
+  <form method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <label for="username">{{ login_label }}</label>
+    <input id="username"
+           name="username"
+           autocomplete="username"
+           maxlength="150"
+           required
+           autofocus>
+    <label for="password">Password</label>
+    <input id="password"
+           name="password"
+           type="password"
+           autocomplete="current-password"
+           maxlength="1024"
+           required>
+    <p>
+      <button>Sign in</button>
+    </p>
+  </form>
+{% endblock %}

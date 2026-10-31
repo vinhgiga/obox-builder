@@ -238,6 +238,9 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
                 "navigation": navigation,
                 "site_title": app.title,
                 "base_template": app.settings.base_template,
+                "principal": ctx.principal,
+                "auth": getattr(app.state, "obox_auth", None),
+                "csrf": app.csrf.token(request, ctx.principal),
             },
             status_code=status,
         )

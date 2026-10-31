@@ -16,6 +16,15 @@
         <header class="workspace-header">
           <div class="font-semibold">{% block branding %}{{ site_title }}{% endblock %}</div>
           <span class="text-slate-600">{% block header %}Administration{% endblock %}</span>
+          {% if auth and principal.is_authenticated %}
+            <form class="account-controls"
+                  method="post"
+                  action="{{ auth.logout_url(request) }}">
+              <span>{{ principal.username }}</span>
+              <input type="hidden" name="csrf_token" value="{{ csrf }}">
+              <button>Sign out</button>
+            </form>
+          {% endif %}
         </header>
         <nav class="resource-tabs" aria-label="Resources">
           {% for item in navigation %}

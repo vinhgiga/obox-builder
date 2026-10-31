@@ -20,6 +20,8 @@
 @layer components {
   .workspace { @apply flex h-dvh flex-col; }
   .workspace-header { @apply flex shrink-0 flex-wrap items-center gap-x-6 border-b border-slate-200 bg-white px-5 py-3; }
+  .account-controls { @apply m-0 ml-auto flex items-center gap-3; }
+  .account-controls button { @apply border-slate-200 bg-white px-2 py-1 text-slate-600; }
   .resource-tabs { @apply m-0 flex shrink-0 overflow-x-auto border-b border-slate-200 bg-white px-3; }
   .resource-tabs a { @apply shrink-0 border-b-2 border-transparent px-4 py-2 text-slate-600 hover:bg-slate-50 hover:no-underline; }
   .resource-tabs a[aria-current="page"] { @apply border-blue-600 font-semibold text-blue-700; }
