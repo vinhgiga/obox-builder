@@ -1,28 +1,28 @@
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from importlib import import_module
 
 from fastapi import FastAPI
 from obox_builder import Obox
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-import setting
-
-engine = create_async_engine(setting.DATABASE_URL)
-session_factory = async_sessionmaker(engine, expire_on_commit=False)
+settings_module = os.environ.setdefault("OBOX_SETTINGS_MODULE", "setting")
+setting = import_module(settings_module)
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-    yield
-    await engine.dispose()
+    try:
+        yield
+    finally:
+        await setting.engine.dispose()
 
 
 app = Obox(
-    session_factory=session_factory,
+    settings=settings_module,
     lifespan=lifespan,
     title=setting.PROJECT_NAME,
     debug=setting.DEBUG,
-    csrf_secret=setting.SECRET_KEY,
 )
 
 

@@ -39,7 +39,7 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
     router = APIRouter()
     if not builder.api.enabled:
         return router
-    path = f"{app.api_prefix}/{builder.api.prefix or builder.slug}"
+    path = f"{app.settings.api_prefix}/{builder.api.prefix or builder.slug}"
     dependency = Depends(app.context_dependency("api"), scope="function")
 
     async def list_records(request: Request, ctx: Context = dependency) -> Any:

@@ -1,0 +1,17 @@
+{% extends base_template %}
+{% block content %}
+  {% if "create" in operations %}<a href="{{ base }}/new">Create</a>{% endif %}
+  <form method="get">
+    {% if search %}<label>Search <input name="search"
+        value="{{ query.get('search', '') }}"></label>{% endif %}
+    {% for field in filters %}<label>{{ field }} <input name="filter.{{ field }}"
+        value="{{ query.get('filter.' ~ field, '') }}"></label>{% endfor %}
+    {% if sort_fields %}<label>Sort <select name="ordering"><option value="">Default</option>{% for field in sort_fields %}<option value="{{ field }}"
+        {% if query.get('ordering') == field %}selected{% endif %}>{{ field }} ↑</option><option value="-{{ field }}"
+        {% if query.get('ordering') == '-' ~ field %}selected{% endif %}>{{ field }} ↓</option>{% endfor %}</select></label>{% endif %}
+    {% if search or filters or sort_fields %}<button>Apply</button>{% endif %}
+  </form>
+  <table><thead><tr>{% for field in list_display %}<th scope="col">{{ field.replace('_', ' ').capitalize() }}</th>{% endfor %}<th scope="col">Record</th></tr></thead>
+    <tbody>{% for row in rows %}<tr>{% for field in list_display %}<td>{{ row['values'].get(field, '') }}</td>{% endfor %}<td>{% if row.detail %}<a href="{{ row.url }}">View</a>{% endif %}</td></tr>{% else %}<tr><td colspan="{{ list_display|length + 1 }}">No records.</td></tr>{% endfor %}</tbody></table>
+  {% if next_url %}<nav><a href="{{ next_url }}">Next page</a></nav>{% endif %}
+{% endblock %}

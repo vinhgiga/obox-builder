@@ -12,15 +12,16 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.routing import iter_route_contexts
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import event
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm.exc import StaleDataError
 from starlette.routing import Mount
 
 from obox_builder.auth import Policy
 from obox_builder.builder import ModelBuilder
 from obox_builder.builder.service import ResourceService, invoke
+from obox_builder.conf import Settings, load_settings
 from obox_builder.context import Context
 from obox_builder.errors import (
     BuilderValidationError,
@@ -61,26 +62,18 @@ class Obox(FastAPI):
     def __init__(
         self,
         *,
-        session_factory: async_sessionmaker[AsyncSession],
-        principal_dependency: Callable[..., Any] | None = None,
-        default_policy: Policy[Any] | None = None,
-        ui_prefix: str = "/admin",
-        api_prefix: str = "/api",
-        csrf_secret: str | bytes | None = None,
+        settings: Settings | str | None = None,
         **fastapi_kwargs: Any,
     ) -> None:
         from obox_builder.builder.csrf import CSRF
+        from obox_builder.builder.ui import create_templates
 
-        self.session_factory = session_factory
-        self.principal_dependency, self.default_policy = principal_dependency, default_policy
-        self.ui_prefix, self.api_prefix = ui_prefix.rstrip("/"), api_prefix.rstrip("/")
-        for prefix in (self.ui_prefix, self.api_prefix):
-            if not prefix.startswith("/") or any(char in prefix for char in "{}?#"):
-                raise ImproperlyConfigured("Surface prefixes must be nonempty absolute URL paths.")
+        self.settings = load_settings(settings)
         self._registrations: dict[type[Any], Registration[Any]] = {}
         self._generated: dict[Callable[..., Any] | None, type[Any]] = {}
         self._frozen = False
-        self.csrf = CSRF(csrf_secret)
+        self.csrf = CSRF(self.settings.csrf_secret)
+        self.templates = create_templates(self.settings)
         user_lifespan = fastapi_kwargs.pop("lifespan", None)
         fastapi_kwargs.setdefault("version", "0.4.0")
 
@@ -97,6 +90,11 @@ class Obox(FastAPI):
         self.router.lifespan_context = lifespan
         self.add_exception_handler(OboxError, self._problem)
         self.add_exception_handler(RequestValidationError, self._validation_problem)
+        self.mount(
+            f"{self.settings.ui_prefix}/_static",
+            StaticFiles(packages=[("obox_builder.builder", "static")]),
+            name="obox_static",
+        )
 
     @staticmethod
     async def _problem(request: Request, exc: Exception) -> JSONResponse:
@@ -141,12 +139,14 @@ class Obox(FastAPI):
             not isinstance(builder, type) or not issubclass(builder, ModelBuilder)
         ):
             raise ImproperlyConfigured("builder must be a ModelBuilder subclass.")
-        if not callable(self.principal_dependency) or not isinstance(self.default_policy, Policy):
+        if not callable(self.settings.principal_dependency) or not isinstance(
+            self.settings.default_policy, Policy
+        ):
             raise ImproperlyConfigured("Registration requires authentication and a default policy.")
         if model in self._registrations:
             raise ImproperlyConfigured("This model is already registered.")
         definition = (builder or ModelBuilder)()
-        definition._compile(model, self.default_policy, self)
+        definition._compile(model, self.settings.default_policy, self)
         if definition.slug is None:
             raise ImproperlyConfigured("The compiled builder has no slug.")
         if any(item.slug == definition.slug for item in self._registrations.values()):
@@ -292,7 +292,7 @@ class Obox(FastAPI):
         ctx = None
         committing = False
         try:
-            async with self.session_factory(
+            async with self.settings.session_factory(
                 expire_on_commit=False, close_resets_only=False
             ) as session:
                 ctx = Context(
@@ -333,7 +333,7 @@ class Obox(FastAPI):
 
     def context_dependency(self, source: str) -> Callable[..., Any]:
         async def dependency(
-            request: Request, principal: Any = Depends(self.principal_dependency)
+            request: Request, principal: Any = Depends(self.settings.principal_dependency)
         ) -> AsyncIterator[Context]:
             async with self.uow(principal=principal, source=source, request=request) as ctx:
                 yield ctx

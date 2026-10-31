@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import enum
 import json
+from collections.abc import Mapping
 from datetime import date, datetime, time
 from decimal import Decimal
 from typing import Any
@@ -12,22 +13,31 @@ from urllib.parse import quote, urlencode
 import sqlalchemy as sa
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from jinja2 import Environment, PackageLoader, select_autoescape
+from fastapi.templating import Jinja2Templates
+from jinja2 import ChoiceLoader, Environment, FileSystemLoader, PackageLoader, select_autoescape
 
 from obox_builder.builder.api import query_options
 from obox_builder.builder.http import read_form
 from obox_builder.builder.service import invoke
+from obox_builder.conf import Settings
 from obox_builder.context import Context
 from obox_builder.errors import BuilderValidationError
 
-templates = Environment(
-    loader=PackageLoader("obox_builder.builder", "templates"),
-    autoescape=select_autoescape(("html",)),
-)
 
-
-def render(template: str, *, status: int = 200, **context: Any) -> HTMLResponse:
-    return HTMLResponse(templates.get_template(template).render(**context), status_code=status)
+def create_templates(settings: Settings) -> Jinja2Templates:
+    if settings.templates is not None:
+        return settings.templates
+    return Jinja2Templates(
+        env=Environment(
+            loader=ChoiceLoader(
+                [
+                    FileSystemLoader(settings.template_dirs),
+                    PackageLoader("obox_builder.builder", "templates"),
+                ]
+            ),
+            autoescape=select_autoescape(("html",)),
+        )
+    )
 
 
 async def allowed_operations(builder: Any, ctx: Context, obj: Any = None) -> tuple[str, ...]:
@@ -60,9 +70,8 @@ async def reference(app: Any, spec: Any, value: Any, ctx: Context) -> str | None
         )
         obj = (await ctx.session.scalars(stmt)).unique().one_or_none()
         if obj is not None and await invoke(target.policy.allow, "retrieve", ctx, obj=obj):
-            return (
-                f"{app.ui_prefix}/{target.slug}/{quote(str(getattr(obj, target.pk_name)), safe='')}"
-            )
+            record_id = quote(str(getattr(obj, target.pk_name)), safe="")
+            return f"{app.settings.ui_prefix}/{target.slug}/{record_id}"
     return None
 
 
@@ -193,11 +202,45 @@ def input_values(builder: Any, data: dict[str, Any]) -> dict[str, str]:
 
 def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
     router = APIRouter()
-    path = f"{app.ui_prefix}/{builder.slug}"
+    path = f"{app.settings.ui_prefix}/{builder.slug}"
     dependency = Depends(app.context_dependency("ui"), scope="function")
 
     def base(request: Request) -> str:
         return request.scope.get("root_path", "") + path
+
+    async def page(
+        template: str,
+        request: Request,
+        ctx: Context,
+        *,
+        extra: Mapping[str, Any],
+        status: int = 200,
+        **context: Any,
+    ) -> HTMLResponse:
+        navigation = []
+        for registration in app._registrations.values():
+            target = registration.builder
+            if target.view.enabled and await invoke(target.policy.allow, "list", ctx):
+                navigation.append(
+                    {
+                        "label": target.model.__name__,
+                        "url": request.url_for(f"obox_ui_{target.slug}_list"),
+                        "active": target is builder,
+                    }
+                )
+        return app.templates.TemplateResponse(
+            request=request,
+            name=template,
+            context={
+                **extra,
+                **context,
+                "request": request,
+                "navigation": navigation,
+                "site_title": app.title,
+                "base_template": app.settings.base_template,
+            },
+            status_code=status,
+        )
 
     async def list_records(request: Request, ctx: Context = dependency) -> HTMLResponse:
         options = query_options(request, builder, pagination=True)
@@ -233,8 +276,11 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
             for key in builder.view.get_list_filter(ctx)
             if key in builder.filter_fields and key in builder.readable(ctx)
         )
-        return render(
-            "list.html",
+        return await page(
+            builder.view.list_template,
+            request,
+            ctx,
+            extra=extra,
             title=extra.get("title", builder.model.__name__),
             base=base(request),
             list_display=list_display,
@@ -280,8 +326,11 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
                     ],
                 }
             )
-        return render(
-            "detail.html",
+        return await page(
+            builder.view.detail_template,
+            request,
+            ctx,
+            extra=extra,
             title=extra.get("title", builder.model.__name__),
             base=base(request),
             values=visible,
@@ -351,8 +400,11 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
                     raise
                 errors, status = exc.errors, 422
         extra = builder.form.get_context(ctx, instance=obj, action=action)
-        return render(
-            "form.html",
+        return await page(
+            builder.form.template,
+            request,
+            ctx,
+            extra=extra,
             status=status,
             title=extra.get("title", builder.model.__name__),
             base=base(request),

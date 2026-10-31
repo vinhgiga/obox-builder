@@ -7,6 +7,7 @@ import sqlalchemy as sa
 from obox_builder import Form, ModelBuilder, Obox, Principal
 from obox_builder.auth import StaffOnly
 from obox_builder.builder.ui import fieldset_groups, form_fields
+from obox_builder.conf import Settings
 from obox_builder.context import Context
 from obox_builder.errors import ImproperlyConfigured
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -59,10 +60,12 @@ async def make_app(
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
     app = Obox(
-        session_factory=async_sessionmaker(engine, expire_on_commit=False),
-        principal_dependency=lambda: principal,
-        default_policy=StaffOnly(),
-        csrf_secret="x" * 32,
+        settings=Settings(
+            session_factory=async_sessionmaker(engine, expire_on_commit=False),
+            principal_dependency=lambda: principal,
+            default_policy=StaffOnly(),
+            csrf_secret="x" * 32,
+        ),
     )
     app.register(Widget, builder=builder)
     return app, engine
@@ -76,10 +79,12 @@ def compile_error(form: type[Form], **builder_attrs: Any) -> str:
     async def scenario() -> str:
         engine = create_async_engine("sqlite+aiosqlite://", poolclass=StaticPool)
         app = Obox(
-            session_factory=async_sessionmaker(engine, expire_on_commit=False),
-            principal_dependency=lambda: None,
-            default_policy=StaffOnly(),
-            csrf_secret="x" * 32,
+            settings=Settings(
+                session_factory=async_sessionmaker(engine, expire_on_commit=False),
+                principal_dependency=lambda: None,
+                default_policy=StaffOnly(),
+                csrf_secret="x" * 32,
+            ),
         )
         builder = type("TestBuilder", (ModelBuilder,), {"Form": form, **builder_attrs})
         try:

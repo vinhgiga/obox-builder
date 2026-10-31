@@ -4,11 +4,14 @@
   "type": "module",
   "packageManager": "pnpm@11.5.2",
   "scripts": {
+    "build:css": "tailwindcss -i obox_builder/builder/tailwind.css -o obox_builder/builder/static/ui.css --minify",
     "commitlint": "commitlint",
     "lint": "node scripts/lint-js.mjs",
     "test:commitlint": "node --test tests/tooling/commitlint.test.mjs"
   },
   "devDependencies": {
-    "@commitlint/cli": "21.2.4"
+    "@commitlint/cli": "21.2.4",
+    "@tailwindcss/cli": "4.3.3",
+    "tailwindcss": "4.3.3"
   }
 }

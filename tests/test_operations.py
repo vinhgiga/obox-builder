@@ -7,6 +7,7 @@ import sqlalchemy as sa
 from obox_builder import API, ModelBuilder, Obox, Principal, View
 from obox_builder.auth import StaffOnly
 from obox_builder.builder.ui import allowed_operations
+from obox_builder.conf import Settings
 from obox_builder.context import Context
 from obox_builder.errors import ImproperlyConfigured
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -54,10 +55,12 @@ async def make_app(
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
     app = Obox(
-        session_factory=async_sessionmaker(engine, expire_on_commit=False),
-        principal_dependency=lambda: principal,
-        default_policy=StaffOnly(),
-        csrf_secret="x" * 32,
+        settings=Settings(
+            session_factory=async_sessionmaker(engine, expire_on_commit=False),
+            principal_dependency=lambda: principal,
+            default_policy=StaffOnly(),
+            csrf_secret="x" * 32,
+        ),
     )
     app.register(Widget, builder=builder)
     return app, engine
@@ -67,10 +70,12 @@ def compile_error(builder: type[ModelBuilder[Widget]]) -> str:
     async def scenario() -> str:
         engine = create_async_engine("sqlite+aiosqlite://", poolclass=StaticPool)
         app = Obox(
-            session_factory=async_sessionmaker(engine, expire_on_commit=False),
-            principal_dependency=lambda: None,
-            default_policy=StaffOnly(),
-            csrf_secret="x" * 32,
+            settings=Settings(
+                session_factory=async_sessionmaker(engine, expire_on_commit=False),
+                principal_dependency=lambda: None,
+                default_policy=StaffOnly(),
+                csrf_secret="x" * 32,
+            ),
         )
         try:
             with pytest.raises(ImproperlyConfigured) as error:

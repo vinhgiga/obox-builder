@@ -13,6 +13,7 @@ from obox_builder.context import Context
 
 class Form:
     enabled = True
+    template = "obox/form.html"
     fields: FieldRefs | None = None
     fieldsets: Sequence[tuple[str | None, Mapping[str, Any]]] | None = None
     labels: Mapping[str, str] = {}
@@ -41,6 +42,8 @@ class Form:
 
 class View:
     enabled = True
+    list_template = "obox/list.html"
+    detail_template = "obox/detail.html"
     list_display: FieldRefs | None = None
     detail_fields: FieldRefs | None = None
     related: FieldRefs = ()

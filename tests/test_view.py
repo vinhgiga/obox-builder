@@ -5,6 +5,7 @@ import httpx
 import sqlalchemy as sa
 from obox_builder import ModelBuilder, Obox, Principal, View
 from obox_builder.auth import StaffOnly
+from obox_builder.conf import Settings
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.pool import StaticPool
@@ -59,10 +60,12 @@ async def make_app(builder: type[ModelBuilder[Widget]]) -> tuple[Obox, Any]:
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
     app = Obox(
-        session_factory=async_sessionmaker(engine, expire_on_commit=False),
-        principal_dependency=lambda: STAFF,
-        default_policy=StaffOnly(),
-        csrf_secret="x" * 32,
+        settings=Settings(
+            session_factory=async_sessionmaker(engine, expire_on_commit=False),
+            principal_dependency=lambda: STAFF,
+            default_policy=StaffOnly(),
+            csrf_secret="x" * 32,
+        ),
     )
     app.register(Widget, builder=builder)
     return app, engine
