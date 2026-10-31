@@ -113,7 +113,11 @@
         {% endif %}
       </section>
     {% endfor %}
-    <p><button>{% if action == "create" %}Create{% else %}Save{% endif %}</button></p>
+    <p class="submit-row">
+      <button name="_save">Save</button>
+      <button name="_addanother">Save and add another</button>
+      <button name="_continue">Save and continue editing</button>
+    </p>
   </form>
   <script src="{{ request.url_for('obox_static', path='inline.js') }}"></script>
 {% endblock %}

@@ -35,6 +35,7 @@
   .inline-add, .inline-remove { @apply border-0 bg-transparent p-0 text-blue-700 hover:underline; }
   .inline-add { @apply mt-3; }
   .inline-remove { @apply text-red-800; }
+  .submit-row { @apply flex flex-wrap gap-2; }
   .grid-page, .grid-content { @apply flex min-h-0 min-w-0 flex-1 flex-col; }
   .grid-toolbar { @apply flex shrink-0 flex-wrap items-center gap-x-6 gap-y-2 border-b border-slate-200 bg-white px-5 py-2; }
   .query-controls { @apply m-0 flex flex-wrap items-end gap-3; }

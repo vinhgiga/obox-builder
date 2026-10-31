@@ -574,7 +574,10 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
                 )
             submitted = {key: str(value) for key, value in form.items() if key != "csrf_token"}
             values = {
-                key: value for key, value in submitted.items() if not key.startswith("inline:")
+                key: value
+                for key, value in submitted.items()
+                if not key.startswith("inline:")
+                and key not in {"_save", "_addanother", "_continue"}
             }
             inline_groups = await inline_rows(ctx, obj, submitted=submitted)
             inline_errors = any(row["errors"] for group in inline_groups for row in group["rows"])
@@ -604,9 +607,14 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
                                 )
                             else:
                                 await child_service.update(row["id"], row["_data"], ctx=ctx)
-                    return RedirectResponse(
-                        base(request) if builder.view.enabled else request.url.path, status_code=303
-                    )
+                    if "_addanother" in submitted:
+                        location = f"{base(request)}/new"
+                    elif "_continue" in submitted:
+                        record = quote(str(getattr(instance, builder.pk_name)), safe="")
+                        location = f"{base(request)}/{record}/edit"
+                    else:
+                        location = base(request) if builder.view.enabled else request.url.path
+                    return RedirectResponse(location, status_code=303)
                 except BuilderValidationError as exc:
                     if ctx._failed or written:
                         raise
