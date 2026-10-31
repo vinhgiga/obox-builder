@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import keyword
 import secrets
 import shutil
@@ -63,6 +64,9 @@ def _parser() -> argparse.ArgumentParser:
     start = commands.add_parser("startproject", help="Create a runnable Obox project.")
     start.add_argument("name", help="Python project name")
     start.add_argument("directory", nargs="?", type=Path, help="Output directory")
+    from obox_builder.contrib.jobs.cli import add_parser
+
+    add_parser(commands)
     return parser
 
 
@@ -70,6 +74,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = _parser()
     arguments = parser.parse_args(argv)
     try:
+        if arguments.command == "jobs":
+            from obox_builder.contrib.jobs.cli import run
+
+            asyncio.run(run(arguments))
+            return 0
         destination = startproject(arguments.name, arguments.directory)
     except (ValueError, OSError) as error:
         parser.exit(1, f"obox: error: {error}\n")
