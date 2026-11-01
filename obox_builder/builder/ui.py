@@ -78,6 +78,80 @@ async def reference(app: Any, spec: Any, value: Any, ctx: Context, request: Requ
     return None
 
 
+def list_columns(builder: Any, ctx: Context, requested: Sequence[str]) -> tuple[str, ...]:
+    readable = set(builder.readable(ctx))
+    columns = []
+    for name in requested:
+        if name not in builder.view_list_display:
+            continue
+        if name in builder.view_list_relations:
+            if builder.list_relation_fields[name] in readable:
+                columns.append(name)
+        elif name in readable:
+            columns.append(name)
+    return tuple(columns)
+
+
+async def relation_labels(
+    builder: Any, ctx: Context, objects: Sequence[Any], name: str
+) -> list[str]:
+    relation = builder.list_relations[name]
+    fk_name = builder.list_relation_fields[name]
+    values: list[Any] = []
+    for obj in objects:
+        if fk_name not in builder.readable(ctx, obj=obj):
+            values.append(None)
+            continue
+        values.append(getattr(obj, fk_name))
+    keys = {value for value in values if value is not None}
+    if not keys:
+        return ["" for _ in objects]
+    target = builder.app._for_table(relation.target)
+    if target is None or not await invoke(target.policy.allow, "retrieve", ctx):
+        return ["" if value is None else str(value) for value in values]
+    remote = next(iter(relation.remote_side))
+    remote_name = sa.inspect(target.model).get_property_by_column(remote).key
+    stmt = (
+        builder.app.service(target.model)
+        ._statement("retrieve", ctx)
+        .where(getattr(target.model, remote_name).in_(keys))
+    )
+    target_rows = list((await ctx.session.scalars(stmt)).unique())
+    by_key = {getattr(row, remote_name): row for row in target_rows}
+    labels = []
+    for value in values:
+        if value is None:
+            labels.append("")
+            continue
+        row = by_key.get(value)
+        if row is None or not await invoke(target.policy.allow, "retrieve", ctx, obj=row):
+            labels.append(str(value))
+            continue
+        label_name = target.label_field
+        if label_name is None or label_name not in target.readable(ctx, obj=row):
+            labels.append(str(value))
+            continue
+        label = getattr(row, label_name)
+        labels.append("" if label is None else str(label))
+    return labels
+
+
+async def list_rows(
+    builder: Any, ctx: Context, objects: Sequence[Any], fields: Sequence[str]
+) -> list[dict[str, Any]]:
+    scalar = tuple(name for name in fields if name not in builder.view_list_relations)
+    scalar = builder.readable(ctx, fields=scalar)
+    service = builder.app.service(builder.model)
+    rows = [await service.serialize(obj, ctx=ctx, fields=scalar) for obj in objects]
+    for name in fields:
+        if name not in builder.view_list_relations:
+            continue
+        labels = await relation_labels(builder, ctx, objects, name)
+        for row, label in zip(rows, labels, strict=True):
+            row[name] = label
+    return rows
+
+
 async def form_fields(builder: Any, service: Any, ctx: Context, obj: Any) -> list[dict[str, Any]]:
     action = "create" if obj is None else "update"
     allowed = service.write_fields(action, ctx, obj)
@@ -111,9 +185,18 @@ async def form_fields(builder: Any, service: Any, ctx: Context, obj: Any) -> lis
                     if remote != target.pk_name and remote not in target.readable(ctx, obj=row):
                         continue
                     visible = await builder.app.service(target.model).serialize(row, ctx=ctx)
-                    label = next(
-                        (str(v) for k, v in visible.items() if k != target.pk_name), "Record"
-                    )
+                    label_name = target.label_field
+                    if label_name is not None:
+                        label = (
+                            ""
+                            if label_name not in visible or visible[label_name] is None
+                            else str(visible[label_name])
+                        )
+                        label = label or str(getattr(row, remote))
+                    else:
+                        label = next(
+                            (str(v) for k, v in visible.items() if k != target.pk_name), "Record"
+                        )
                     choices.append((str(getattr(row, remote)), label))
             if not any(builder.app._for_table(fk.column.table) for fk in column.foreign_keys):
                 continue
@@ -468,13 +551,10 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
         if builder.view.page_size is not None:
             options.setdefault("limit", builder.view.page_size)
         objects = await service.list(ctx=ctx, **options)
-        list_display = tuple(
-            key for key in builder.view.get_list_display(ctx) if key in builder.view_list_display
-        )
-        list_display = builder.readable(ctx, fields=list_display)
+        list_display = list_columns(builder, ctx, builder.view.get_list_display(ctx))
+        visible_rows = await list_rows(builder, ctx, objects, list_display)
         rows = []
-        for obj in objects:
-            visible = await service.serialize(obj, ctx=ctx, fields=list_display)
+        for obj, visible in zip(objects, visible_rows, strict=True):
             can_detail = await invoke(builder.policy.allow, "retrieve", ctx, obj=obj)
             rows.append(
                 {
@@ -530,16 +610,12 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
             if not await invoke(target.policy.allow, "list", ctx):
                 continue
             records = await service.related(id, name, ctx=ctx)
-            target_service = app.service(target.model)
-            list_display = target.readable(ctx, fields=target.view_list_display)
+            list_display = list_columns(target, ctx, target.view.get_list_display(ctx))
             collections.append(
                 {
                     "name": name,
                     "list_display": list_display,
-                    "rows": [
-                        await target_service.serialize(row, ctx=ctx, fields=list_display)
-                        for row in records
-                    ],
+                    "rows": await list_rows(target, ctx, records, list_display),
                 }
             )
         return await page(

@@ -52,7 +52,7 @@ class View:
     _builder: Any
 
     def get_list_display(self, ctx: Context) -> Sequence[str]:
-        return self._builder.readable(ctx, fields=self._builder.view_list_display)
+        return self._builder.list_display(ctx)
 
     def get_list_filter(self, ctx: Context) -> Sequence[str]:
         allowed = self._builder.readable(ctx)

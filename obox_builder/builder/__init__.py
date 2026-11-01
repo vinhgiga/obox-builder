@@ -10,6 +10,7 @@ from typing import Any, Generic, TypeVar
 
 import sqlalchemy as sa
 from sqlalchemy.orm import raiseload, undefer
+from sqlalchemy.orm.interfaces import MANYTOONE
 
 from obox_builder.auth import Policy, StaffOnly
 from obox_builder.builder.fields import FieldRefs, inspect_fields, normalize
@@ -24,6 +25,7 @@ T = TypeVar("T")
 class ModelBuilder(Generic[T]):
     model: type[T] | None = None
     slug: str | None = None
+    label_field: str | None = None
     fields: FieldRefs | None = None
     read_only_fields: FieldRefs = ()
     search_fields: FieldRefs = ()
@@ -61,6 +63,23 @@ class ModelBuilder(Generic[T]):
         self.fields = normalize(
             self.fields if self.fields is not None else eligible, model, eligible
         )
+        if self.label_field is not None and (
+            not isinstance(self.label_field, str) or self.label_field not in self.fields
+        ):
+            raise ImproperlyConfigured("label_field must be a published scalar field.")
+        self.list_relations = MappingProxyType(
+            {
+                relation.key: relation
+                for relation in mapper.relationships
+                if relation.direction is MANYTOONE
+            }
+        )
+        relation_fields = {}
+        for relation_name, relation in self.list_relations.items():
+            if len(relation.local_columns) == 1 and len(relation.remote_side) == 1:
+                column = next(iter(relation.local_columns))
+                relation_fields[relation_name] = mapper.get_property_by_column(column).key
+        self.list_relation_fields = MappingProxyType(relation_fields)
         readonly = normalize(self.read_only_fields, model, self.specs)
         self.read_only_fields = tuple(
             key for key, spec in self.specs.items() if spec.readonly or key in readonly
@@ -95,7 +114,10 @@ class ModelBuilder(Generic[T]):
             instances.append(instance)
         self.inline_instances = tuple(instances)
         self.form_fields = self._form_fields()
-        self.view_list_display = self._projection(self.view.list_display)
+        self.view_list_display = self._list_projection(self.view.list_display)
+        self.view_list_relations = tuple(
+            name for name in self.view_list_display if name in self.list_relation_fields
+        )
         self.view_details = self._projection(self.view.detail_fields)
         self.view_related = normalize(
             self.view.related,
@@ -204,6 +226,49 @@ class ModelBuilder(Generic[T]):
         selected = self.fields if refs is None else refs
         names = normalize(selected, self.model, self.specs)
         return tuple(name for name in names if name in self.fields)
+
+    def _list_projection(self, refs: FieldRefs | None) -> tuple[str, ...]:
+        if refs is None:
+            return self._projection(None)
+        if isinstance(refs, str):
+            raise ImproperlyConfigured("Field projections must be sequences, not strings.")
+        if self.model is None or self.fields is None:
+            raise ImproperlyConfigured("Register the builder before using field projections.")
+        result = []
+        for ref in refs:
+            name = ref if isinstance(ref, str) else getattr(ref, "key", None)
+            if not isinstance(ref, str) and getattr(ref, "class_", None) is not self.model:
+                raise ImproperlyConfigured("Mapped field references must belong to this model.")
+            if not isinstance(name, str) or name in result:
+                raise ImproperlyConfigured(f"Unknown, unsupported or duplicate field: {name!r}.")
+            if name in self.specs:
+                if name not in self.fields:
+                    continue
+            elif name in self.list_relations:
+                fk = self.list_relation_fields.get(name)
+                if fk is None:
+                    raise ImproperlyConfigured(
+                        f"Relation {name!r} must use a single-column foreign key."
+                    )
+                if fk not in self.fields:
+                    raise ImproperlyConfigured(
+                        f"Relation {name!r} requires its foreign key {fk!r} in fields."
+                    )
+            else:
+                raise ImproperlyConfigured(f"Unknown, unsupported or duplicate field: {name!r}.")
+            result.append(name)
+        return tuple(result)
+
+    def list_display(self, ctx: Context) -> tuple[str, ...]:
+        if self.policy is None or self.fields is None:
+            raise ImproperlyConfigured("Register the builder before using field projections.")
+        readable = set(self.readable(ctx))
+        return tuple(
+            name
+            for name in self.view_list_display
+            if (name in self.view_list_relations and self.list_relation_fields[name] in readable)
+            or (name not in self.view_list_relations and name in readable)
+        )
 
     def readable(
         self, ctx: Context, *, obj: T | None = None, fields: Sequence[str] | None = None

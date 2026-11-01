@@ -248,6 +248,7 @@ class Obox(FastAPI):
                     item.slug,
                     {
                         "fields": b.fields,
+                        "label_field": b.label_field,
                         "read_only_fields": b.read_only_fields,
                         "api_read": b.api_read if b.api.enabled else (),
                         "api_write": b.api_write if b.api.enabled else (),
@@ -274,6 +275,26 @@ class Obox(FastAPI):
                             f"{item.slug}.{name}: register the collection's target resource.",
                         )
                     )
+            if b.view.enabled:
+                for name in b.view_list_relations:
+                    target = self._for_table(b.list_relations[name].target)
+                    if target is None:
+                        diagnostics.append(
+                            Diagnostic(
+                                "error",
+                                "relationship.unregistered_display",
+                                f"{item.slug}.{name}: register the relation's target resource.",
+                            )
+                        )
+                    elif target.label_field is None:
+                        diagnostics.append(
+                            Diagnostic(
+                                "warning",
+                                "relationship.raw_label",
+                                f"{item.slug}.{name}: set label_field on the target; "
+                                "falling back to the raw key.",
+                            )
+                        )
             for key in b.fields:
                 for fk in b.specs[key].column.foreign_keys:
                     if self._for_table(fk.column.table) is None and key not in b.read_only_fields:
