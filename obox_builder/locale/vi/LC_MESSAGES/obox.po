@@ -211,3 +211,21 @@ msgstr "Rất cao"
 
 msgid "Wrap headers"
 msgstr "Xuống dòng tiêu đề"
+
+msgid "Search records"
+msgstr "Tìm bản ghi"
+
+msgid "No matches"
+msgstr "Không có kết quả"
+
+msgid "of"
+msgstr "trong"
+
+msgid "Previous match"
+msgstr "Kết quả trước"
+
+msgid "Next match"
+msgstr "Kết quả tiếp theo"
+
+msgid "Close search"
+msgstr "Đóng tìm kiếm"

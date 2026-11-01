@@ -62,6 +62,10 @@ class GroupedBuilder(ModelBuilder[Widget]):
     View = GroupedView
 
 
+class SearchBuilder(ModelBuilder[Widget]):
+    search_fields = ("name",)
+
+
 STAFF = Principal(id=1, is_authenticated=True, is_staff=True)
 
 
@@ -113,6 +117,21 @@ def test_list_exposes_row_height_controls() -> None:
     for label in ("Short", "Medium", "Tall", "Extra Tall", "Wrap headers"):
         assert label in html
     assert '<div class="cell-value">live</div>' in html
+
+
+def test_list_exposes_global_search_controls() -> None:
+    html, _ = asyncio.run(get_list(SearchBuilder))
+    for marker in (
+        "data-search-toggle",
+        "data-search-panel",
+        "data-search-input",
+        "data-search-prev",
+        "data-search-next",
+        "data-search-close",
+    ):
+        assert marker in html
+    assert 'aria-controls="grid-search"' in html
+    assert 'name="search"' not in html
 
 
 def test_get_list_display_overrides_configured_fields() -> None:

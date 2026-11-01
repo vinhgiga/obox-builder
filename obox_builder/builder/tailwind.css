@@ -39,7 +39,16 @@
   .inline-remove { @apply text-red-800; }
   .submit-row { @apply flex flex-wrap gap-2; }
   .grid-page, .grid-content { @apply flex min-h-0 min-w-0 flex-1 flex-col; }
-  .grid-toolbar { @apply flex shrink-0 flex-wrap items-center gap-x-6 gap-y-2 border-b border-slate-200 bg-white px-5 py-2; }
+  .grid-toolbar { @apply relative flex shrink-0 flex-wrap items-center gap-x-6 gap-y-2 border-b border-slate-200 bg-white px-5 py-2; }
+  button.grid-search-toggle { @apply flex size-8 shrink-0 items-center justify-center rounded border border-slate-300 bg-white p-0 text-slate-600 hover:bg-slate-50; }
+  .grid-search-toggle svg { @apply size-4; }
+  .grid-search-toggle[aria-expanded="true"] { @apply border-blue-600 bg-blue-50 text-blue-700; }
+  .grid-search { @apply absolute top-full right-5 z-30 mt-2 flex max-w-[calc(100vw-2.5rem)] items-center gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1.5 shadow-lg; }
+  .grid-search[hidden] { display: none; }
+  .grid-search input[type="search"] { @apply m-0 w-64 min-w-0 flex-1 border-0 bg-transparent px-2 py-1 text-sm shadow-none; }
+  .grid-search-count { @apply min-w-16 text-center text-xs whitespace-nowrap tabular-nums text-slate-500; }
+  button.grid-search-button { @apply flex size-7 shrink-0 items-center justify-center rounded border-0 bg-transparent p-0 text-slate-500 hover:bg-slate-100 hover:text-slate-900 disabled:cursor-default disabled:text-slate-300 disabled:hover:bg-transparent; }
+  .grid-search-button svg { @apply size-4; }
   .query-controls { @apply m-0 flex flex-wrap items-end gap-3; }
   .query-controls label { @apply mt-0 text-xs text-slate-600; }
   .query-controls input, .query-controls select { @apply block w-40 px-2 py-1 text-sm text-slate-800; }
@@ -151,6 +160,9 @@
   .record-grid[data-wrap-headers="true"] th { white-space: normal; overflow-wrap: anywhere; }
   .record-grid td[data-list-column] { height: var(--row-height); }
   .record-grid .cell-value { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: var(--cell-lines); overflow: hidden; overflow-wrap: anywhere; white-space: pre-line; line-height: 1.25rem; }
+  .record-grid mark[data-search-mark] { @apply rounded-sm bg-amber-200 text-inherit; }
+  .record-grid td[data-search-current] { @apply bg-orange-100 ring-2 ring-orange-400 ring-inset; }
+  .record-grid td[data-search-current] mark[data-search-mark] { @apply bg-orange-300; }
   .record-grid tbody tr:hover { @apply bg-blue-50; }
   .record-grid .row-number { @apply w-12 min-w-12 text-center text-slate-500; }
   .grid-add { @apply block border-b border-slate-200 bg-white px-4 py-1 text-slate-500 hover:bg-slate-50 hover:no-underline; }

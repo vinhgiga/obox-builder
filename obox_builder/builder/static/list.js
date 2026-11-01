@@ -1033,3 +1033,156 @@
     menu.querySelector("summary")?.focus();
   });
 })();
+(() => {
+  const table = document.querySelector("[data-list-table]");
+  const toggle = document.querySelector("[data-search-toggle]");
+  const panel = document.querySelector("[data-search-panel]");
+  if (!table || !toggle || !panel) return;
+
+  const input = panel.querySelector("[data-search-input]");
+  const count = panel.querySelector("[data-search-count]");
+  const previous = panel.querySelector("[data-search-prev]");
+  const next = panel.querySelector("[data-search-next]");
+  const close = panel.querySelector("[data-search-close]");
+  const emptyLabel = panel.dataset.searchEmpty || "No matches";
+  const ofLabel = panel.dataset.searchOf || "of";
+  let matches = [];
+  let active = -1;
+
+  const fold = (text) => {
+    let folded = "";
+    const positions = [];
+    for (let index = 0; index < text.length; index += 1) {
+      const part = text[index]
+        .normalize("NFD")
+        .replace(/\p{M}/gu, "")
+        .toLocaleLowerCase()
+        .replace(/đ/g, "d");
+      folded += part;
+      for (let offset = 0; offset < part.length; offset += 1) positions.push(index);
+    }
+    return { folded, positions };
+  };
+
+  const clear = () => {
+    for (const mark of table.querySelectorAll("mark[data-search-mark]")) {
+      const value = mark.closest(".cell-value");
+      if (value) value.textContent = value.textContent;
+    }
+    table.querySelectorAll("[data-search-current]").forEach((cell) => {
+      cell.removeAttribute("data-search-current");
+    });
+    matches = [];
+    active = -1;
+  };
+
+  const highlight = (cell, needle) => {
+    const value = cell.querySelector(".cell-value");
+    if (!value) return false;
+    const text = value.textContent || "";
+    const { folded, positions } = fold(text);
+    const ranges = [];
+    let index = 0;
+    while ((index = folded.indexOf(needle, index)) !== -1) {
+      const end = index + needle.length;
+      let to = positions[end - 1] + 1;
+      while (to < text.length && /\p{M}/u.test(text[to])) to += 1;
+      ranges.push([positions[index], to]);
+      index = end;
+    }
+    if (!ranges.length) return false;
+
+    const fragment = document.createDocumentFragment();
+    let cursor = 0;
+    for (const [from, to] of ranges) {
+      if (from > cursor) fragment.append(text.slice(cursor, from));
+      const mark = document.createElement("mark");
+      mark.dataset.searchMark = "";
+      mark.textContent = text.slice(from, to);
+      fragment.append(mark);
+      cursor = to;
+    }
+    if (cursor < text.length) fragment.append(text.slice(cursor));
+    value.replaceChildren(fragment);
+    return true;
+  };
+
+  const show = (index, scroll = false) => {
+    active = matches.length ? (index + matches.length) % matches.length : -1;
+    table.querySelectorAll("[data-search-current]").forEach((cell) => {
+      cell.removeAttribute("data-search-current");
+    });
+    const cell = matches[active];
+    if (cell) {
+      cell.dataset.searchCurrent = "";
+      if (scroll) cell.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
+    if (!input.value.trim()) count.textContent = `0 ${ofLabel} 0`;
+    else if (!matches.length) count.textContent = emptyLabel;
+    else count.textContent = `${active + 1} ${ofLabel} ${matches.length}`;
+    previous.disabled = !matches.length;
+    next.disabled = !matches.length;
+  };
+
+  const run = () => {
+    const needle = fold(input.value.trim()).folded;
+    clear();
+    if (needle) {
+      for (const row of table.querySelectorAll("tr[data-group-row]:not([hidden])")) {
+        for (const cell of row.querySelectorAll("td[data-list-column]:not([hidden])")) {
+          if (highlight(cell, needle)) matches.push(cell);
+        }
+      }
+    }
+    show(0, Boolean(needle));
+  };
+
+  const open = () => {
+    panel.hidden = false;
+    toggle.setAttribute("aria-expanded", "true");
+    input.focus();
+    input.select();
+    if (input.value.trim()) run();
+  };
+
+  const hide = () => {
+    panel.hidden = true;
+    toggle.setAttribute("aria-expanded", "false");
+    input.value = "";
+    run();
+    toggle.focus();
+  };
+
+  toggle.addEventListener("click", () => (panel.hidden ? open() : hide()));
+  close.addEventListener("click", hide);
+  previous.addEventListener("click", () => show(active - 1, true));
+  next.addEventListener("click", () => show(active + 1, true));
+  input.addEventListener("input", (event) => {
+    if (!event.isComposing) run();
+  });
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      hide();
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      if (matches.length) show(active + (event.shiftKey ? -1 : 1), true);
+    }
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || panel.hidden) return;
+    event.preventDefault();
+    hide();
+  });
+
+  const fieldMenu = document.querySelector("[data-field-menu]");
+  fieldMenu?.addEventListener("change", () => {
+    if (!panel.hidden && input.value.trim()) run();
+  });
+  fieldMenu?.addEventListener("click", (event) => {
+    if (event.target.closest("[data-hide-all], [data-show-all]") && !panel.hidden) run();
+  });
+  table.addEventListener("click", (event) => {
+    if (event.target.closest("[data-group-toggle]") && !panel.hidden) run();
+  });
+})();

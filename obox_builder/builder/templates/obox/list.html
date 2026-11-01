@@ -7,12 +7,6 @@
     <span class="shrink-0 font-semibold">▦ {% trans %}Grid view{% endtrans %}</span>
     <div class="grid-tools">
       <form method="get" class="query-controls">
-        {% if search %}
-          <label>
-            {% trans %}Search{% endtrans %}
-            <input name="search" value="{{ query.get('search', '') }}">
-          </label>
-        {% endif %}
         {% if sort_fields %}
           <details class="field-menu sort-menu" data-sort-menu>
             <summary>
@@ -154,7 +148,6 @@
             </div>
           </details>
         {% endif %}
-        {% if not filters and not sort_fields and search %}<button>{% trans %}Apply{% endtrans %}</button>{% endif %}
       </form>
       {% if list_display %}
         <details class="field-menu" data-field-menu>
@@ -282,6 +275,79 @@
           </button>
         </div>
       </details>
+      <button class="grid-search-toggle"
+              type="button"
+              data-search-toggle
+              aria-expanded="false"
+              aria-controls="grid-search"
+              aria-label="{% trans %}Search records{% endtrans %}"
+              title="{% trans %}Search records{% endtrans %}">
+        <svg viewBox="0 0 24 24"
+             fill="none"
+             stroke="currentColor"
+             stroke-width="1.5"
+             aria-hidden="true">
+          <circle cx="11" cy="11" r="7" />
+          <path d="m20 20-3.5-3.5" />
+        </svg>
+      </button>
+    </div>
+    <div class="grid-search"
+         id="grid-search"
+         data-search-panel
+         data-search-empty="{% trans %}No matches{% endtrans %}"
+         data-search-of="{% trans %}of{% endtrans %}"
+         role="search"
+         aria-label="{% trans %}Search records{% endtrans %}"
+         hidden>
+      <input type="search"
+             data-search-input
+             placeholder="{% trans %}Search records{% endtrans %}"
+             aria-label="{% trans %}Search records{% endtrans %}"
+             autocomplete="off"
+             spellcheck="false">
+      <span class="grid-search-count" data-search-count aria-live="polite">0 / 0</span>
+      <button class="grid-search-button"
+              type="button"
+              data-search-prev
+              aria-label="{% trans %}Previous match{% endtrans %}"
+              title="{% trans %}Previous match{% endtrans %}"
+              disabled>
+        <svg viewBox="0 0 24 24"
+             fill="none"
+             stroke="currentColor"
+             stroke-width="1.5"
+             aria-hidden="true">
+          <path d="m6 14 6-6 6 6" />
+        </svg>
+      </button>
+      <button class="grid-search-button"
+              type="button"
+              data-search-next
+              aria-label="{% trans %}Next match{% endtrans %}"
+              title="{% trans %}Next match{% endtrans %}"
+              disabled>
+        <svg viewBox="0 0 24 24"
+             fill="none"
+             stroke="currentColor"
+             stroke-width="1.5"
+             aria-hidden="true">
+          <path d="m6 10 6 6 6-6" />
+        </svg>
+      </button>
+      <button class="grid-search-button"
+              type="button"
+              data-search-close
+              aria-label="{% trans %}Close search{% endtrans %}"
+              title="{% trans %}Close search{% endtrans %}">
+        <svg viewBox="0 0 24 24"
+             fill="none"
+             stroke="currentColor"
+             stroke-width="1.5"
+             aria-hidden="true">
+          <path d="m6 6 12 12M18 6 6 18" />
+        </svg>
+      </button>
     </div>
   </div>
   <div class="grid-scroll"
