@@ -94,6 +94,24 @@ def list_columns(builder: Any, ctx: Context, requested: Sequence[str]) -> tuple[
     return tuple(columns)
 
 
+def column_kind(column_type: Any) -> str:
+    if isinstance(column_type, sa.Enum):
+        return "choice"
+    if isinstance(column_type, sa.Boolean):
+        return "boolean"
+    if isinstance(column_type, sa.String):
+        return "text"
+    if isinstance(column_type, (sa.Integer, sa.Numeric, sa.Float)):
+        return "number"
+    if isinstance(column_type, sa.DateTime):
+        return "datetime"
+    if isinstance(column_type, sa.Date):
+        return "date"
+    if isinstance(column_type, sa.Time):
+        return "time"
+    return "text"
+
+
 def filter_columns(builder: Any, ctx: Context, requested: Sequence[str]) -> list[dict[str, Any]]:
     readable = set(builder.readable(ctx))
     columns = []
@@ -101,23 +119,8 @@ def filter_columns(builder: Any, ctx: Context, requested: Sequence[str]) -> list
         if name not in builder.filter_fields or name not in readable:
             continue
         column_type = builder.specs[name].column.type
-        choices: list[str] = []
-        if isinstance(column_type, sa.Enum):
-            kind, choices = "choice", list(column_type.enums)
-        elif isinstance(column_type, sa.Boolean):
-            kind = "boolean"
-        elif isinstance(column_type, sa.String):
-            kind = "text"
-        elif isinstance(column_type, (sa.Integer, sa.Numeric, sa.Float)):
-            kind = "number"
-        elif isinstance(column_type, sa.DateTime):
-            kind = "datetime"
-        elif isinstance(column_type, sa.Date):
-            kind = "date"
-        elif isinstance(column_type, sa.Time):
-            kind = "time"
-        else:
-            kind = "text"
+        kind = column_kind(column_type)
+        choices = list(column_type.enums) if isinstance(column_type, sa.Enum) else []
         columns.append(
             {
                 "name": name,
@@ -132,6 +135,14 @@ def filter_columns(builder: Any, ctx: Context, requested: Sequence[str]) -> list
             }
         )
     return columns
+
+
+def parse_sort(value: str) -> list[dict[str, Any]]:
+    return [
+        {"field": term.lstrip("-"), "descending": term.startswith("-")}
+        for term in value.split(",")
+        if term
+    ]
 
 
 def count_filter_terms(node: FilterGroup | FilterTerm) -> int:
@@ -642,6 +653,18 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
             next_query.update(offset=str(offset + limit), limit=str(limit))
         filters = filter_columns(builder, ctx, builder.view.get_list_filter(ctx))
         filter_config = {"fields": filters, "filter": display.to_dict()}
+        sort_fields = tuple(key for key in builder.sort_fields if key in builder.readable(ctx))
+        sort_config = {
+            "fields": [
+                {
+                    "name": key,
+                    "label": builder.form.labels.get(key, key.replace("_", " ").capitalize()),
+                    "kind": column_kind(builder.specs[key].column.type),
+                }
+                for key in sort_fields
+            ],
+            "sort": parse_sort(request.query_params.get("ordering", "")),
+        }
         return await page(
             builder.view.list_template,
             request,
@@ -656,7 +679,8 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
             filters=filters,
             filter_count=count_filter_terms(display),
             filter_config=filter_config,
-            sort_fields=tuple(key for key in builder.sort_fields if key in builder.readable(ctx)),
+            sort_fields=sort_fields,
+            sort_config=sort_config,
             query=request.query_params,
             next_url="?" + urlencode(next_query) if limit and len(objects) == limit else None,
         )

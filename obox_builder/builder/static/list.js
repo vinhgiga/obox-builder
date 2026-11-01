@@ -536,3 +536,204 @@
   });
   render();
 })();
+(() => {
+  const menu = document.querySelector("[data-sort-menu]");
+  const configNode = document.querySelector("[data-list-sort-config]");
+  if (!menu || !configNode) return;
+  const config = JSON.parse(configNode.textContent);
+  const specs = new Map(config.fields.map((spec) => [spec.name, spec]));
+  const rows = menu.querySelector("[data-sort-rows]");
+  const picker = menu.querySelector("[data-sort-picker]");
+  const search = menu.querySelector("[data-sort-search]");
+  const fields = menu.querySelector("[data-sort-fields]");
+  const add = menu.querySelector("[data-sort-add]");
+  const input = menu.querySelector("[data-sort-input]");
+  const cancel = menu.querySelector("[data-sort-cancel]");
+  const footer = menu.querySelector(".sort-footer");
+  const applied = () => config.sort.map((term) => ({ ...term }));
+  let terms = applied();
+  let picking = !terms.length;
+  let query = "";
+
+  const make = (tag, className, text) => {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text) node.textContent = text;
+    return node;
+  };
+  const xIcon =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>';
+  const gripIcon =
+    '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>';
+  const available = () =>
+    [...specs.keys()].filter((name) => !terms.some((term) => term.field === name));
+  const directions = (kind) =>
+    ({
+      number: ["1 → 9", "9 → 1"],
+      date: ["Earliest → Latest", "Latest → Earliest"],
+      datetime: ["Earliest → Latest", "Latest → Earliest"],
+      time: ["Earliest → Latest", "Latest → Earliest"],
+      boolean: ["Unchecked → Checked", "Checked → Unchecked"],
+      choice: ["First → Last", "Last → First"],
+    })[kind] || ["A → Z", "Z → A"];
+
+  const renderPicker = () => {
+    picker.hidden = !picking;
+    if (!picking) return;
+    fields.replaceChildren();
+    const matches = available().filter((name) =>
+      specs.get(name).label.toLowerCase().includes(query),
+    );
+    matches.forEach((name) => {
+      const button = make("button", "sort-field", specs.get(name).label);
+      button.type = "button";
+      button.addEventListener("click", () => {
+        terms.push({ field: name, descending: false });
+        picking = false;
+        query = "";
+        search.value = "";
+        render();
+        rows.querySelector(`[data-sort-index="${terms.length - 1}"] select`)?.focus();
+      });
+      fields.append(button);
+    });
+    if (!matches.length) fields.append(make("p", "sort-empty", "No fields found."));
+  };
+
+  const reset = () => {
+    terms = applied();
+    picking = !terms.length;
+    query = "";
+    search.value = "";
+    render();
+  };
+  const serialize = () => {
+    input.value = terms.map((term) => `${term.descending ? "-" : ""}${term.field}`).join(",");
+    input.disabled = terms.length === 0;
+  };
+  const move = (from, to) => {
+    if (from < 0 || to < 0 || from === to || to >= terms.length) return;
+    const [term] = terms.splice(from, 1);
+    terms.splice(to, 0, term);
+    render();
+    rows.querySelector(`[data-sort-index="${to}"] .sort-grip`)?.focus();
+  };
+
+  const render = () => {
+    rows.replaceChildren();
+    terms.forEach((term, index) => {
+      const spec = specs.get(term.field);
+      if (!spec) return;
+      const row = make("div", "sort-row");
+      row.dataset.sortIndex = index;
+
+      const field = document.createElement("select");
+      field.setAttribute("aria-label", `Sort field ${index + 1}`);
+      specs.forEach((option) => {
+        if (
+          option.name !== term.field &&
+          terms.some((other, otherIndex) => otherIndex !== index && other.field === option.name)
+        ) {
+          return;
+        }
+        field.add(new Option(option.label, option.name));
+      });
+      field.value = term.field;
+      field.addEventListener("change", () => {
+        term.field = field.value;
+        term.descending = false;
+        render();
+        rows.querySelector(`[data-sort-index="${index}"] select`)?.focus();
+      });
+      row.append(field);
+
+      const direction = document.createElement("select");
+      direction.setAttribute("aria-label", `Sort direction for ${spec.label}`);
+      const labels = directions(spec.kind);
+      direction.add(new Option(labels[0], "asc"));
+      direction.add(new Option(labels[1], "desc"));
+      direction.value = term.descending ? "desc" : "asc";
+      direction.addEventListener("change", () => {
+        term.descending = direction.value === "desc";
+        serialize();
+      });
+      row.append(direction);
+
+      const remove = make("button", "sort-icon");
+      remove.type = "button";
+      remove.setAttribute("aria-label", `Remove ${spec.label} sort`);
+      remove.innerHTML = xIcon;
+      remove.addEventListener("click", () => {
+        terms.splice(index, 1);
+        picking = !terms.length;
+        render();
+        (picking ? search : add).focus();
+      });
+      row.append(remove);
+
+      const grip = make("button", "sort-icon sort-grip");
+      grip.type = "button";
+      grip.setAttribute("aria-label", `Reorder ${spec.label} sort`);
+      grip.title = "Drag or use Alt+Up/Down";
+      grip.innerHTML = gripIcon;
+      grip.draggable = true;
+      grip.addEventListener("keydown", (event) => {
+        if (!event.altKey || !["ArrowUp", "ArrowDown"].includes(event.key)) return;
+        event.preventDefault();
+        move(index, index + (event.key === "ArrowUp" ? -1 : 1));
+      });
+      grip.addEventListener("dragstart", (event) => {
+        event.dataTransfer.setData("text/plain", String(index));
+        event.dataTransfer.effectAllowed = "move";
+      });
+      row.append(grip);
+      row.addEventListener("dragover", (event) => event.preventDefault());
+      row.addEventListener("drop", (event) => {
+        event.preventDefault();
+        move(Number(event.dataTransfer.getData("text/plain")), index);
+      });
+      rows.append(row);
+    });
+
+    add.hidden = picking || terms.length >= 5 || !available().length;
+    footer.hidden = !terms.length && !config.sort.length;
+    renderPicker();
+    serialize();
+  };
+
+  add.addEventListener("click", () => {
+    picking = true;
+    query = "";
+    search.value = "";
+    render();
+    search.focus();
+  });
+  search.addEventListener("input", () => {
+    query = search.value.trim().toLowerCase();
+    renderPicker();
+  });
+  search.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    fields.querySelector("button")?.click();
+  });
+  cancel.addEventListener("click", () => {
+    menu.open = false;
+    menu.querySelector("summary")?.focus();
+  });
+
+  menu.addEventListener("toggle", () => {
+    if (!menu.open) return reset();
+    if (picking) search.focus();
+  });
+
+  document.addEventListener("click", (event) => {
+    if (menu.open && !event.composedPath().includes(menu)) menu.open = false;
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || !menu.open) return;
+    menu.open = false;
+    menu.querySelector("summary")?.focus();
+  });
+  render();
+})();

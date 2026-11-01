@@ -14,18 +14,60 @@
           </label>
         {% endif %}
         {% if sort_fields %}
-          <label>
-            {% trans %}Sort{% endtrans %}
-            <select name="ordering">
-              <option value="">{% trans %}Default{% endtrans %}</option>
-              {% for field in sort_fields %}
-                <option value="{{ field }}"
-                        {% if query.get('ordering') == field %}selected{% endif %}>{{ field }} ↑</option>
-                <option value="-{{ field }}"
-                        {% if query.get('ordering') == '-' ~ field %}selected{% endif %}>{{ field }} ↓</option>
-              {% endfor %}
-            </select>
-          </label>
+          <details class="field-menu sort-menu" data-sort-menu>
+            <summary>
+              <svg class="field-menu-icon"
+                   viewBox="0 0 24 24"
+                   fill="none"
+                   stroke="currentColor"
+                   stroke-width="1.5"
+                   aria-hidden="true">
+                <path d="M8 4v16m-3-3 3 3 3-3M16 20V4m-3 3 3-3 3 3" />
+              </svg>
+              {% trans %}Sort{% endtrans %}
+            </summary>
+            <div class="field-menu-panel sort-menu-panel">
+              <div class="sort-title">
+                <p class="filter-title">{% trans %}Sort by{% endtrans %}</p>
+                <span class="sort-help"
+                      role="img"
+                      aria-label="{% trans %}Sort records by one or more fields. Fields higher in the list take priority.{% endtrans %}"
+                      title="{% trans %}Sort records by one or more fields. Fields higher in the list take priority.{% endtrans %}">?</span>
+              </div>
+              <div class="sort-rows" data-sort-rows></div>
+              <div class="sort-picker" data-sort-picker>
+                <div class="sort-search">
+                  <svg viewBox="0 0 24 24"
+                       fill="none"
+                       stroke="currentColor"
+                       stroke-width="1.5"
+                       aria-hidden="true">
+                    <circle cx="11" cy="11" r="7" />
+                    <path d="m20 20-3.5-3.5" />
+                  </svg>
+                  <input type="search"
+                         placeholder="{% trans %}Find a field{% endtrans %}"
+                         aria-label="{% trans %}Find a field{% endtrans %}"
+                         autocomplete="off"
+                         data-sort-search>
+                </div>
+                <div class="sort-fields" data-sort-fields></div>
+              </div>
+              <button class="sort-add" type="button" data-sort-add>
+                ＋ {% trans %}Add another sort{% endtrans %}
+              </button>
+              <div class="sort-footer">
+                <button class="sort-cancel"
+                        type="button"
+                        data-sort-cancel>{% trans %}Cancel{% endtrans %}</button>
+                <button class="sort-apply" type="submit">{% trans %}Sort{% endtrans %}</button>
+              </div>
+              <input type="hidden"
+                     name="ordering"
+                     value="{{ query.get('ordering', '') }}"
+                     data-sort-input>
+            </div>
+          </details>
         {% endif %}
         {% if filters %}
           <details class="field-menu filter-menu" data-filter-menu>
@@ -59,7 +101,7 @@
             </div>
           </details>
         {% endif %}
-        {% if not filters and (search or sort_fields) %}<button>{% trans %}Apply{% endtrans %}</button>{% endif %}
+        {% if not filters and not sort_fields and search %}<button>{% trans %}Apply{% endtrans %}</button>{% endif %}
       </form>
       {% if list_display %}
         <details class="field-menu" data-field-menu>
@@ -169,6 +211,7 @@
     {% if next_url %}<a href="{{ next_url }}">{% trans %}Next page →{% endtrans %}</a>{% endif %}
   </footer>
   <script type="application/json" data-list-filter-config>{{ filter_config|tojson }}</script>
+  <script type="application/json" data-list-sort-config>{{ sort_config|tojson }}</script>
 {% endblock %}
 {% block scripts %}
   <script src="{{ request.url_for('obox_static', path='list.js') }}"></script>

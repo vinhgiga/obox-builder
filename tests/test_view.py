@@ -140,6 +140,34 @@ def test_list_filter_groups_match_nested_conditions() -> None:
     asyncio.run(run())
 
 
+def test_list_sorts_by_multiple_fields_and_exposes_sort_config() -> None:
+    async def run() -> None:
+        app, engine = await make_app(OrderedBuilder)
+        try:
+            async with app.uow(principal=STAFF) as ctx:
+                for name, status in (("beta", "live"), ("alpha", "live"), ("gamma", "draft")):
+                    await app.service(Widget).create({"name": name, "status": status}, ctx=ctx)
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+                response = await client.get("/admin/widgets", params={"ordering": "status,-name"})
+            html = response.text
+            assert html.index("gamma") < html.index("beta") < html.index("alpha")
+            config = json.loads(html.split("data-list-sort-config>")[1].split("</script>")[0])
+            assert config["sort"] == [
+                {"field": "status", "descending": False},
+                {"field": "name", "descending": True},
+            ]
+            assert {item["name"]: item["kind"] for item in config["fields"]} == {
+                "id": "number",
+                "name": "text",
+                "status": "text",
+            }
+        finally:
+            await engine.dispose()
+
+    asyncio.run(run())
+
+
 def test_list_filter_rejects_invalid_groups() -> None:
     async def run() -> None:
         app, engine = await make_app(FilterBuilder)

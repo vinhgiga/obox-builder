@@ -100,6 +100,28 @@
   .filter-reset { @apply rounded border border-slate-300 bg-white px-3 py-1 text-xs text-slate-700 no-underline hover:bg-slate-50; }
   .filter-empty { @apply m-0 px-2 py-1 text-xs text-slate-500; }
   .filter-count { @apply rounded-full bg-slate-100 px-2 py-0.5 text-xs font-normal text-slate-600; }
+  .sort-menu-panel { @apply w-[28rem]; }
+  .sort-title { @apply flex items-center gap-2; }
+  .sort-help { @apply flex size-4 shrink-0 items-center justify-center rounded-full border border-slate-300 text-[0.625rem] leading-none text-slate-500; }
+  .sort-rows { @apply mt-3; }
+  .sort-picker { @apply mt-3; }
+  .sort-search { @apply relative; }
+  .sort-search svg { @apply pointer-events-none absolute top-1/2 left-2 size-4 -translate-y-1/2 text-slate-400; }
+  .sort-search input { @apply w-full py-1.5 pr-2 pl-8 text-sm; }
+  .sort-fields { @apply mt-1 max-h-64 overflow-y-auto; }
+  button.sort-field { @apply flex w-full items-center border-0 bg-transparent px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50; }
+  .sort-row { @apply mt-2 grid grid-cols-[minmax(0,1fr)_minmax(0,0.8fr)_1.5rem_1.5rem] items-center gap-2; }
+  .sort-row:first-child { @apply mt-0; }
+  .sort-row select { @apply w-full min-w-0 px-2 py-1 text-sm; }
+  button.sort-icon { @apply flex size-6 shrink-0 items-center justify-center rounded border-0 bg-transparent p-0 text-slate-400 hover:bg-slate-100 hover:text-slate-700; }
+  .sort-icon svg { @apply size-4; }
+  .sort-grip { @apply cursor-grab active:cursor-grabbing; }
+  button.sort-add { @apply mt-2 flex items-center gap-1 border-0 bg-transparent p-0 text-xs text-slate-700 hover:text-slate-900; }
+  .sort-add[hidden] { @apply hidden; }
+  .sort-empty { @apply m-0 py-2 text-xs text-slate-500; }
+  .sort-footer { @apply mt-3 flex items-center justify-end gap-2 border-t border-slate-200 pt-3; }
+  .sort-cancel { @apply rounded border border-slate-300 bg-white px-3 py-1 text-xs text-slate-700 hover:bg-slate-50; }
+  .sort-apply { @apply rounded bg-blue-700 px-3 py-1 text-xs text-white; }
   .grid-scroll { @apply min-h-0 flex-1 overflow-auto; }
   .record-grid { @apply w-max border-separate border-spacing-0 bg-white text-xs; }
   .record-grid th, .record-grid td { @apply h-8 min-w-44 max-w-72 truncate border-r border-b border-slate-200 px-3 py-1 font-normal; }
