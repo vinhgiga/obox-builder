@@ -122,6 +122,15 @@
   .sort-footer { @apply mt-3 flex items-center justify-end gap-2 border-t border-slate-200 pt-3; }
   .sort-cancel { @apply rounded border border-slate-300 bg-white px-3 py-1 text-xs text-slate-700 hover:bg-slate-50; }
   .sort-apply { @apply rounded bg-blue-700 px-3 py-1 text-xs text-white; }
+  .group-header > td { @apply bg-slate-50 px-3 py-1; }
+  .group-toggle { @apply flex items-center gap-2 border-0 bg-transparent p-0 text-left text-xs text-slate-700; }
+  .group-level-2 { @apply pl-8; }
+  .group-level-3 { @apply pl-14; }
+  .group-caret { @apply text-slate-400 transition-transform; }
+  .group-toggle[aria-expanded="false"] .group-caret { @apply -rotate-90; }
+  .group-name { @apply text-[0.625rem] font-medium tracking-wide text-slate-500 uppercase; }
+  .group-value { @apply rounded-full bg-slate-200 px-2 py-0.5 text-xs font-medium text-slate-800; }
+  .group-count { @apply text-xs text-slate-500; }
   .grid-scroll { @apply min-h-0 flex-1 overflow-auto; }
   .record-grid { @apply w-max border-separate border-spacing-0 bg-white text-xs; }
   .record-grid th, .record-grid td { @apply h-8 min-w-44 max-w-72 truncate border-r border-b border-slate-200 px-3 py-1 font-normal; }

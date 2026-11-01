@@ -69,6 +69,59 @@
             </div>
           </details>
         {% endif %}
+        {% if sort_fields %}
+          <details class="field-menu group-menu" data-group-menu>
+            <summary>
+              <svg class="field-menu-icon"
+                   viewBox="0 0 24 24"
+                   fill="none"
+                   stroke="currentColor"
+                   stroke-width="1.5"
+                   aria-hidden="true">
+                <path d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+              {% trans %}Group{% endtrans %}
+              <span class="filter-count"
+                    data-group-count
+                    {% if not group_config.group %}hidden{% endif %}>{{ group_config.group|length }}</span>
+            </summary>
+            <div class="field-menu-panel sort-menu-panel">
+              <div class="sort-title">
+                <p class="filter-title">{% trans %}Group by{% endtrans %}</p>
+                <span class="sort-help"
+                      role="img"
+                      aria-label="{% trans %}Group records by one or more fields. Fields higher in the list take priority.{% endtrans %}"
+                      title="{% trans %}Group records by one or more fields. Fields higher in the list take priority.{% endtrans %}">?</span>
+              </div>
+              <div class="sort-rows" data-group-rows></div>
+              <div class="sort-picker" data-group-picker>
+                <div class="sort-search">
+                  <svg viewBox="0 0 24 24"
+                       fill="none"
+                       stroke="currentColor"
+                       stroke-width="1.5"
+                       aria-hidden="true">
+                    <circle cx="11" cy="11" r="7" />
+                    <path d="m20 20-3.5-3.5" />
+                  </svg>
+                  <input type="search"
+                         placeholder="{% trans %}Find a field{% endtrans %}"
+                         aria-label="{% trans %}Find a field{% endtrans %}"
+                         autocomplete="off"
+                         data-group-search>
+                </div>
+                <div class="sort-fields" data-group-fields></div>
+              </div>
+              <button class="sort-add" type="button" data-group-add>
+                ＋ {% trans %}Add subgroup{% endtrans %}
+              </button>
+              <input type="hidden"
+                     name="group"
+                     value="{{ query.get('group', '') }}"
+                     data-group-input>
+            </div>
+          </details>
+        {% endif %}
         {% if filters %}
           <details class="field-menu filter-menu" data-filter-menu>
             <summary>
@@ -188,7 +241,24 @@
       </thead>
       <tbody>
         {% for row in rows %}
-          <tr>
+          {% for group in row.groups %}
+            <tr class="group-header"
+                data-group-header="{{ group.level }}"
+                data-group-id="{{ group.id }}">
+              <td colspan="{{ list_display|length + 2 }}">
+                <button class="group-toggle group-level-{{ group.level }}"
+                        type="button"
+                        data-group-toggle
+                        aria-expanded="true">
+                  <span class="group-caret" aria-hidden="true">▾</span>
+                  <span class="group-name">{{ group.label }}</span>
+                  <span class="group-value">{{ group.value }}</span>
+                  <span class="group-count">{{ group.count }}</span>
+                </button>
+              </td>
+            </tr>
+          {% endfor %}
+          <tr data-group-row>
             <td class="row-number">{{ query.get('offset', 0)|int + loop.index }}</td>
             {% for field in list_display %}
               <td data-list-column="{{ field }}"
@@ -212,6 +282,7 @@
   </footer>
   <script type="application/json" data-list-filter-config>{{ filter_config|tojson }}</script>
   <script type="application/json" data-list-sort-config>{{ sort_config|tojson }}</script>
+  <script type="application/json" data-list-group-config>{{ group_config|tojson }}</script>
 {% endblock %}
 {% block scripts %}
   <script src="{{ request.url_for('obox_static', path='list.js') }}"></script>

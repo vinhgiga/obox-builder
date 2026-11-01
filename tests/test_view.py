@@ -53,6 +53,15 @@ class FilterBuilder(ModelBuilder[Widget]):
     filter_fields = ("status",)
 
 
+class GroupedView(View):
+    list_display = ("status", "name")
+    page_size = 2
+
+
+class GroupedBuilder(ModelBuilder[Widget]):
+    View = GroupedView
+
+
 STAFF = Principal(id=1, is_authenticated=True, is_staff=True)
 
 
@@ -162,6 +171,49 @@ def test_list_sorts_by_multiple_fields_and_exposes_sort_config() -> None:
                 "name": "text",
                 "status": "text",
             }
+        finally:
+            await engine.dispose()
+
+    asyncio.run(run())
+
+
+def test_list_groups_nested_rows_with_cross_page_counts() -> None:
+    async def run() -> None:
+        app, engine = await make_app(GroupedBuilder)
+        try:
+            async with app.uow(principal=STAFF) as ctx:
+                for name, status in (
+                    ("alpha", "live"),
+                    ("beta", "live"),
+                    ("gamma", "live"),
+                    ("delta", "draft"),
+                    ("epsilon", "draft"),
+                ):
+                    await app.service(Widget).create({"name": name, "status": status}, ctx=ctx)
+                counts = await app.service(Widget).group_counts(
+                    ctx=ctx,
+                    grouping=("status", "name"),
+                    prefixes=[("draft",), ("draft", "delta")],
+                )
+                assert counts == {("draft",): 2, ("draft", "delta"): 1}
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+                first = await client.get("/admin/widgets", params={"group": "status,name"})
+                second = await client.get("/admin/widgets", params={"group": "status", "offset": 2})
+                invalid = await client.get("/admin/widgets", params={"group": "missing"})
+            html = first.text
+            assert 'data-group-header="1"' in html
+            assert 'data-group-header="2"' in html
+            assert ">Status<" in html and ">draft<" in html
+            assert '<span class="group-count">2</span>' in html
+            config = json.loads(html.split("data-list-group-config>")[1].split("</script>")[0])
+            assert config["group"] == [
+                {"field": "status", "descending": False},
+                {"field": "name", "descending": False},
+            ]
+            assert ">live<" in second.text
+            assert '<span class="group-count">3</span>' in second.text
+            assert invalid.status_code == 422
         finally:
             await engine.dispose()
 

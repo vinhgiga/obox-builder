@@ -11,11 +11,15 @@ from obox_builder.context import Context
 from obox_builder.errors import BuilderValidationError
 
 
-def query_options(request: Request, builder: Any, *, pagination: bool) -> dict[str, Any]:
+def query_options(
+    request: Request, builder: Any, *, pagination: bool, grouping: bool = False
+) -> dict[str, Any]:
     query = request.query_params
     permitted = {"search", "ordering"}
     if pagination:
         permitted.update(("offset", "limit"))
+    if grouping:
+        permitted.add("group")
     filters = {}
     filter_ops = {}
     filter_group = None
@@ -38,6 +42,8 @@ def query_options(request: Request, builder: Any, *, pagination: bool) -> dict[s
     }
     if query.get("ordering"):
         result["ordering"] = tuple(query["ordering"].split(","))
+    if grouping and query.get("group"):
+        result["grouping"] = tuple(term for term in query["group"].split(",") if term)
     for name in ("offset", "limit"):
         if name in query:
             try:

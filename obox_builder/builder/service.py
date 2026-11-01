@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import inspect
-from collections.abc import AsyncIterator, Mapping, Sequence
+from collections.abc import AsyncIterator, Iterable, Mapping, Sequence
 from contextlib import asynccontextmanager
 from types import MappingProxyType
 from typing import Any, Generic, TypeVar
@@ -106,7 +106,7 @@ class ResourceService(Generic[T]):
         self._context(ctx)
         return self.builder.get_statement(ctx).where(self.builder.policy.scope(action, ctx))
 
-    async def list(
+    async def _list_statement(
         self,
         *,
         ctx: Context,
@@ -114,18 +114,8 @@ class ResourceService(Generic[T]):
         filter_ops: Mapping[str, str] | None = None,
         filter_group: FilterGroup | None = None,
         search: str | None = None,
-        ordering: Sequence[str] | None = None,
-        offset: int = 0,
-        limit: int | None = None,
-    ) -> Sequence[T]:
-        await self.authorize("list", ctx)
+    ) -> tuple[Any, set[str]]:
         b = self.builder
-        if (
-            isinstance(offset, bool)
-            or offset < 0
-            or (limit is not None and (isinstance(limit, bool) or limit < 0))
-        ):
-            raise BuilderValidationError({"pagination": ["Use nonnegative offset and limit."]})
         readable = set(b.readable(ctx))
         if ctx.source == "api":
             readable.intersection_update(b.api_read)
@@ -153,6 +143,52 @@ class ResourceService(Generic[T]):
             stmt = stmt.where(
                 sa.or_(*(getattr(b.model, key).icontains(search, autoescape=True) for key in names))
             )
+        return stmt, readable
+
+    def _grouping(
+        self, readable: set[str], grouping: Sequence[str]
+    ) -> tuple[tuple[str, ...], list[str]]:
+        b = self.builder
+        groups = tuple(grouping)
+        if len(groups) > 3:
+            raise BuilderValidationError({"group": ["Group by at most 3 fields."]})
+        names = [order.removeprefix("-") for order in groups]
+        for name in names:
+            if name not in b.sort_fields or name not in readable:
+                raise BuilderValidationError({"group": [f"Grouping {name!r} is not permitted."]})
+        if len(set(names)) != len(names):
+            raise BuilderValidationError({"group": ["Duplicate group field."]})
+        return groups, names
+
+    async def list(
+        self,
+        *,
+        ctx: Context,
+        filters: Mapping[str, Any] | None = None,
+        filter_ops: Mapping[str, str] | None = None,
+        filter_group: FilterGroup | None = None,
+        search: str | None = None,
+        ordering: Sequence[str] | None = None,
+        grouping: Sequence[str] | None = None,
+        offset: int = 0,
+        limit: int | None = None,
+    ) -> Sequence[T]:
+        await self.authorize("list", ctx)
+        if (
+            isinstance(offset, bool)
+            or offset < 0
+            or (limit is not None and (isinstance(limit, bool) or limit < 0))
+        ):
+            raise BuilderValidationError({"pagination": ["Use nonnegative offset and limit."]})
+        stmt, readable = await self._list_statement(
+            ctx=ctx,
+            filters=filters,
+            filter_ops=filter_ops,
+            filter_group=filter_group,
+            search=search,
+        )
+        b = self.builder
+        groups, names = self._grouping(readable, grouping or ())
         orders = (
             tuple(
                 key
@@ -166,23 +202,70 @@ class ResourceService(Generic[T]):
             name = order.removeprefix("-")
             if ordering is not None and (name not in b.sort_fields or name not in readable):
                 raise BuilderValidationError({"ordering": [f"Sorting {name!r} is not permitted."]})
+        orders = (*groups, *(order for order in orders if order.removeprefix("-") not in names))
         if b.pk_name not in {key.removeprefix("-") for key in orders}:
             orders = (*orders, b.pk_name)
-        stmt = (
-            stmt.order_by(None)
-            .order_by(
-                *(
-                    getattr(b.model, key.removeprefix("-")).desc()
-                    if key.startswith("-")
-                    else getattr(b.model, key)
-                    for key in orders
-                )
-            )
-            .offset(offset)
-        )
+
+        def order_expression(key: str) -> Any:
+            column = getattr(b.model, key.removeprefix("-"))
+            expression = column.desc() if key.startswith("-") else column.asc()
+            return expression.nulls_last() if key in groups else expression
+
+        stmt = stmt.order_by(None).order_by(*(order_expression(key) for key in orders))
+        stmt = stmt.offset(offset)
         if limit is not None:
             stmt = stmt.limit(limit)
         return list((await ctx.session.scalars(stmt)).unique())
+
+    async def group_counts(
+        self,
+        *,
+        ctx: Context,
+        grouping: Sequence[str],
+        prefixes: Iterable[tuple[Any, ...]],
+        filters: Mapping[str, Any] | None = None,
+        filter_ops: Mapping[str, str] | None = None,
+        filter_group: FilterGroup | None = None,
+        search: str | None = None,
+    ) -> dict[tuple[Any, ...], int]:
+        await self.authorize("list", ctx)
+        stmt, readable = await self._list_statement(
+            ctx=ctx,
+            filters=filters,
+            filter_ops=filter_ops,
+            filter_group=filter_group,
+            search=search,
+        )
+        _, names = self._grouping(readable, grouping)
+        depths: dict[int, set[tuple[Any, ...]]] = {}
+        for prefix in prefixes:
+            depths.setdefault(len(prefix), set()).add(prefix)
+        if not depths:
+            return {}
+        b = self.builder
+        columns = [
+            getattr(b.model, name).label(f"group_{index}") for index, name in enumerate(names)
+        ]
+        scope = (
+            stmt.order_by(None)
+            .with_only_columns(b.pk, *columns, maintain_column_froms=True)
+            .distinct()
+            .subquery()
+        )
+        counts: dict[tuple[Any, ...], int] = {}
+        for depth, values in depths.items():
+            selected = [scope.c[f"group_{index}"] for index in range(depth)]
+            conditions = [
+                sa.and_(
+                    *((column == value) for column, value in zip(selected, prefix, strict=True))
+                )
+                for prefix in values
+            ]
+            result = await ctx.session.execute(
+                sa.select(*selected, sa.func.count()).where(sa.or_(*conditions)).group_by(*selected)
+            )
+            counts.update({tuple(row[:-1]): row[-1] for row in result})
+        return counts
 
     async def _get(self, id: Any, ctx: Context, action: str) -> T:
         await self.authorize(action, ctx)

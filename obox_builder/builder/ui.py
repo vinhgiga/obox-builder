@@ -137,12 +137,62 @@ def filter_columns(builder: Any, ctx: Context, requested: Sequence[str]) -> list
     return columns
 
 
-def parse_sort(value: str) -> list[dict[str, Any]]:
+def parse_order(value: str) -> list[dict[str, Any]]:
     return [
         {"field": term.lstrip("-"), "descending": term.startswith("-")}
         for term in value.split(",")
         if term
     ]
+
+
+def group_headers(
+    fields: Sequence[str],
+    labels: Mapping[str, str],
+    rows: Sequence[Mapping[str, Any]],
+    counts: Mapping[tuple[Any, ...], int],
+    relations: Mapping[str, Sequence[str]],
+) -> list[list[dict[str, Any]]]:
+    previous: tuple[Any, ...] = ()
+    headers: list[list[dict[str, Any]]] = []
+    group_id = 0
+    for index, row in enumerate(rows):
+        values = tuple(row.get(name) for name in fields)
+        current = []
+        for depth, name in enumerate(fields, 1):
+            prefix = values[:depth]
+            if previous[:depth] == prefix:
+                continue
+            value = values[depth - 1]
+            if value is None or value == "":
+                text = "Empty"
+            elif name in relations:
+                text = relations[name][index] or str(value)
+            else:
+                text = str(value)
+            group_id += 1
+            current.append(
+                {
+                    "id": group_id,
+                    "level": depth,
+                    "label": labels[name],
+                    "value": text,
+                    "count": counts.get(prefix, 0),
+                }
+            )
+        headers.append(current)
+        previous = values
+    return headers
+
+
+async def group_relations(
+    builder: Any, ctx: Context, objects: Sequence[Any], fields: Sequence[str]
+) -> dict[str, list[str]]:
+    relation_by_field = {fk: name for name, fk in builder.list_relation_fields.items()}
+    labels = {}
+    for name in fields:
+        if relation := relation_by_field.get(name):
+            labels[name] = await relation_labels(builder, ctx, objects, relation)
+    return labels
 
 
 def count_filter_terms(node: FilterGroup | FilterTerm) -> int:
@@ -603,7 +653,9 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
         return groups
 
     async def list_records(request: Request, ctx: Context = dependency) -> HTMLResponse:
-        options = query_options(request, builder, pagination=True)
+        options = query_options(request, builder, pagination=True, grouping=True)
+        grouping = options.get("grouping", ())
+        group = parse_order(request.query_params.get("group", ""))
         filter_ops = options.get("filter_ops") or {}
         requested = options["filters"]
         options["filters"] = {
@@ -634,13 +686,47 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
             options.setdefault("limit", builder.view.page_size)
         objects = await service.list(ctx=ctx, **options)
         list_display = list_columns(builder, ctx, builder.view.get_list_display(ctx))
-        visible_rows = await list_rows(builder, ctx, objects, list_display)
+        group_names = [term["field"] for term in group]
+        visible_rows = await list_rows(
+            builder, ctx, objects, tuple(dict.fromkeys((*list_display, *group_names)))
+        )
+        prefixes = {
+            tuple(row.get(name) for name in group_names[:depth])
+            for row in visible_rows
+            for depth in range(1, len(group_names) + 1)
+        }
+        counts = (
+            await service.group_counts(
+                ctx=ctx,
+                grouping=grouping,
+                prefixes=prefixes,
+                filters=options.get("filters"),
+                filter_ops=options.get("filter_ops"),
+                filter_group=options.get("filter_group"),
+                search=options.get("search"),
+            )
+            if grouping
+            else {}
+        )
+        sort_fields = tuple(key for key in builder.sort_fields if key in builder.readable(ctx))
+        labels = {
+            key: builder.form.labels.get(key, key.replace("_", " ").capitalize())
+            for key in sort_fields
+        }
+        headers = group_headers(
+            group_names,
+            labels,
+            visible_rows,
+            counts,
+            await group_relations(builder, ctx, objects, group_names),
+        )
         rows = []
-        for obj, visible in zip(objects, visible_rows, strict=True):
+        for index, (obj, visible) in enumerate(zip(objects, visible_rows, strict=True)):
             can_detail = await invoke(builder.policy.allow, "retrieve", ctx, obj=obj)
             rows.append(
                 {
                     "values": visible,
+                    "groups": headers[index],
                     "url": f"{base(request)}/{quote(str(getattr(obj, builder.pk_name)), safe='')}",
                     "detail": can_detail,
                 }
@@ -653,18 +739,19 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
             next_query.update(offset=str(offset + limit), limit=str(limit))
         filters = filter_columns(builder, ctx, builder.view.get_list_filter(ctx))
         filter_config = {"fields": filters, "filter": display.to_dict()}
-        sort_fields = tuple(key for key in builder.sort_fields if key in builder.readable(ctx))
+        field_options = [
+            {
+                "name": key,
+                "label": labels[key],
+                "kind": column_kind(builder.specs[key].column.type),
+            }
+            for key in sort_fields
+        ]
         sort_config = {
-            "fields": [
-                {
-                    "name": key,
-                    "label": builder.form.labels.get(key, key.replace("_", " ").capitalize()),
-                    "kind": column_kind(builder.specs[key].column.type),
-                }
-                for key in sort_fields
-            ],
-            "sort": parse_sort(request.query_params.get("ordering", "")),
+            "fields": field_options,
+            "sort": parse_order(request.query_params.get("ordering", "")),
         }
+        group_config = {"fields": field_options, "group": group}
         return await page(
             builder.view.list_template,
             request,
@@ -681,6 +768,7 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
             filter_config=filter_config,
             sort_fields=sort_fields,
             sort_config=sort_config,
+            group_config=group_config,
             query=request.query_params,
             next_url="?" + urlencode(next_query) if limit and len(objects) == limit else None,
         )

@@ -737,3 +737,233 @@
   });
   render();
 })();
+(() => {
+  const menu = document.querySelector("[data-group-menu]");
+  const configNode = document.querySelector("[data-list-group-config]");
+  if (!menu || !configNode) return;
+  const form = menu.closest("form");
+  const config = JSON.parse(configNode.textContent);
+  const specs = new Map(config.fields.map((spec) => [spec.name, spec]));
+  const rows = menu.querySelector("[data-group-rows]");
+  const picker = menu.querySelector("[data-group-picker]");
+  const search = menu.querySelector("[data-group-search]");
+  const fields = menu.querySelector("[data-group-fields]");
+  const add = menu.querySelector("[data-group-add]");
+  const input = menu.querySelector("[data-group-input]");
+  const count = menu.querySelector("[data-group-count]");
+  let terms = config.group.map((term) => ({ ...term }));
+  let picking = !terms.length;
+  let query = "";
+
+  const make = (tag, className, text) => {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text) node.textContent = text;
+    return node;
+  };
+  const xIcon =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>';
+  const gripIcon =
+    '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>';
+  const available = () =>
+    [...specs.keys()].filter((name) => !terms.some((term) => term.field === name));
+  const directions = (kind) =>
+    ({
+      number: ["1 → 9", "9 → 1"],
+      date: ["Earliest → Latest", "Latest → Earliest"],
+      datetime: ["Earliest → Latest", "Latest → Earliest"],
+      time: ["Earliest → Latest", "Latest → Earliest"],
+      boolean: ["Unchecked → Checked", "Checked → Unchecked"],
+      choice: ["First → Last", "Last → First"],
+    })[kind] || ["A → Z", "Z → A"];
+
+  const serialize = () => {
+    input.value = terms.map((term) => `${term.descending ? "-" : ""}${term.field}`).join(",");
+    input.disabled = !terms.length;
+    count.textContent = terms.length;
+    count.hidden = !terms.length;
+  };
+  const submit = () => {
+    try {
+      sessionStorage.setItem("obox-group-open", "1");
+    } catch {}
+    form.requestSubmit();
+  };
+  const renderPicker = () => {
+    picker.hidden = !picking;
+    if (!picking) return;
+    fields.replaceChildren();
+    const matches = available().filter((name) =>
+      specs.get(name).label.toLowerCase().includes(query),
+    );
+    matches.forEach((name) => {
+      const button = make("button", "sort-field", specs.get(name).label);
+      button.type = "button";
+      button.addEventListener("click", () => {
+        terms.push({ field: name, descending: false });
+        picking = false;
+        query = "";
+        search.value = "";
+        render();
+        submit();
+      });
+      fields.append(button);
+    });
+    if (!matches.length) fields.append(make("p", "sort-empty", "No fields found."));
+  };
+  const move = (from, to) => {
+    if (from < 0 || to < 0 || from === to || to >= terms.length) return;
+    const [term] = terms.splice(from, 1);
+    terms.splice(to, 0, term);
+    render();
+    submit();
+  };
+
+  const render = () => {
+    rows.replaceChildren();
+    terms.forEach((term, index) => {
+      const spec = specs.get(term.field);
+      if (!spec) return;
+      const row = make("div", "sort-row");
+      row.dataset.groupIndex = index;
+
+      const field = document.createElement("select");
+      field.setAttribute("aria-label", `Group field ${index + 1}`);
+      specs.forEach((option) => {
+        if (
+          option.name !== term.field &&
+          terms.some((other, otherIndex) => otherIndex !== index && other.field === option.name)
+        ) {
+          return;
+        }
+        field.add(new Option(option.label, option.name));
+      });
+      field.value = term.field;
+      field.addEventListener("change", () => {
+        term.field = field.value;
+        term.descending = false;
+        render();
+        submit();
+      });
+      row.append(field);
+
+      const direction = document.createElement("select");
+      direction.setAttribute("aria-label", `Group direction for ${spec.label}`);
+      const labels = directions(spec.kind);
+      direction.add(new Option(labels[0], "asc"));
+      direction.add(new Option(labels[1], "desc"));
+      direction.value = term.descending ? "desc" : "asc";
+      direction.addEventListener("change", () => {
+        term.descending = direction.value === "desc";
+        serialize();
+        submit();
+      });
+      row.append(direction);
+
+      const remove = make("button", "sort-icon");
+      remove.type = "button";
+      remove.setAttribute("aria-label", `Remove ${spec.label} grouping`);
+      remove.innerHTML = xIcon;
+      remove.addEventListener("click", () => {
+        terms.splice(index, 1);
+        picking = !terms.length;
+        render();
+        submit();
+      });
+      row.append(remove);
+
+      const grip = make("button", "sort-icon sort-grip");
+      grip.type = "button";
+      grip.setAttribute("aria-label", `Reorder ${spec.label} grouping`);
+      grip.title = "Drag or use Alt+Up/Down";
+      grip.innerHTML = gripIcon;
+      grip.draggable = true;
+      grip.addEventListener("keydown", (event) => {
+        if (!event.altKey || !["ArrowUp", "ArrowDown"].includes(event.key)) return;
+        event.preventDefault();
+        move(index, index + (event.key === "ArrowUp" ? -1 : 1));
+      });
+      grip.addEventListener("dragstart", (event) => {
+        event.dataTransfer.setData("text/plain", String(index));
+        event.dataTransfer.effectAllowed = "move";
+      });
+      row.append(grip);
+      row.addEventListener("dragover", (event) => event.preventDefault());
+      row.addEventListener("drop", (event) => {
+        event.preventDefault();
+        move(Number(event.dataTransfer.getData("text/plain")), index);
+      });
+      rows.append(row);
+    });
+
+    add.hidden = picking || terms.length >= 3 || !available().length;
+    renderPicker();
+    serialize();
+  };
+
+  add.addEventListener("click", () => {
+    picking = true;
+    query = "";
+    search.value = "";
+    render();
+    search.focus();
+  });
+  search.addEventListener("input", () => {
+    query = search.value.trim().toLowerCase();
+    renderPicker();
+  });
+  search.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    fields.querySelector("button")?.click();
+  });
+  menu.addEventListener("toggle", () => {
+    if (menu.open && picking) search.focus();
+  });
+  document.addEventListener("click", (event) => {
+    if (menu.open && !event.composedPath().includes(menu)) menu.open = false;
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || !menu.open) return;
+    menu.open = false;
+    menu.querySelector("summary")?.focus();
+  });
+
+  render();
+  try {
+    if (sessionStorage.getItem("obox-group-open") === "1") {
+      sessionStorage.removeItem("obox-group-open");
+      menu.open = true;
+      if (picking) requestAnimationFrame(() => search.focus());
+    }
+  } catch {}
+
+  const table = document.querySelector("[data-list-table]");
+  if (!table) return;
+  const collapsed = new Set();
+  const sync = () => {
+    const path = [];
+    for (const row of table.tBodies[0]?.rows || []) {
+      if (!row.dataset.groupHeader) {
+        row.hidden = path.some((id) => collapsed.has(id));
+        continue;
+      }
+      path.length = Number(row.dataset.groupHeader) - 1;
+      row.hidden = path.some((id) => collapsed.has(id));
+      row.querySelector("[data-group-toggle]")?.setAttribute(
+        "aria-expanded",
+        String(!collapsed.has(row.dataset.groupId)),
+      );
+      path.push(row.dataset.groupId);
+    }
+  };
+  table.addEventListener("click", (event) => {
+    const toggle = event.target.closest("[data-group-toggle]");
+    if (!toggle) return;
+    const id = toggle.closest("tr").dataset.groupId;
+    if (collapsed.has(id)) collapsed.delete(id);
+    else collapsed.add(id);
+    sync();
+  });
+  sync();
+})();
