@@ -466,22 +466,25 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
                         "active": target is builder,
                     }
                 )
-        return app.templates.TemplateResponse(
-            request=request,
-            name=template,
-            context={
-                **extra,
-                **context,
-                "request": request,
-                "navigation": navigation,
-                "site_title": app.title,
-                "base_template": app.settings.base_template,
-                "principal": ctx.principal,
-                "auth": getattr(app.state, "obox_auth", None),
-                "csrf": app.csrf.token(request, ctx.principal),
-                **translation_context(request),
-            },
-            status_code=status,
+        return cast(
+            HTMLResponse,
+            app.templates.TemplateResponse(
+                request=request,
+                name=template,
+                context={
+                    **extra,
+                    **context,
+                    "request": request,
+                    "navigation": navigation,
+                    "site_title": app.title,
+                    "base_template": app.settings.base_template,
+                    "principal": ctx.principal,
+                    "auth": getattr(app.state, "obox_auth", None),
+                    "csrf": app.csrf.token(request, ctx.principal),
+                    **translation_context(request),
+                },
+                status_code=status,
+            ),
         )
 
     async def inline_rows(

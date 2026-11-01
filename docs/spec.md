@@ -30,14 +30,15 @@ OBOX generates a CRUD UI and REST API from a SQLAlchemy mapped class. Developers
 ### 2.1 Level 1 — Register a SQLAlchemy model
 
 ```python
-from obox_builder import Obox
+from obox_builder import Obox, Settings
 from obox_builder.auth import StaffOnly
 
-app = Obox(
+settings = Settings(
     session_factory=AsyncSessionLocal,
     principal_dependency=get_principal,
     default_policy=StaffOnly(),
 )
+app = Obox(settings=settings)
 
 app.register(Question)
 app.register(Choice)
@@ -83,18 +84,15 @@ app.register(Question, builder=QuestionBuilder)
 
 ### 2.3 `Obox` methods
 
-The following is an **interface sketch** (not importable implementation code):
+The constructor and methods below summarize the repository implementation;
+imports are omitted for brevity.
 
 ```python
 class Obox(FastAPI):
     def __init__(
         self,
         *,
-        session_factory: async_sessionmaker[AsyncSession],
-        principal_dependency: Callable[..., Any],
-        default_policy: Policy[Any],
-        ui_prefix: str = "/admin",
-        api_prefix: str = "/api",
+        settings: Settings | str | None = None,
         **fastapi_kwargs: Any,
     ) -> None: ...
 
@@ -114,10 +112,13 @@ class Obox(FastAPI):
     def uow(
         self,
         *,
-        principal: Principal,
+        principal: Any,
         source: str = "job",
-        # Additional arguments: TBD
-    ) -> AsyncContextManager[Context]: ...
+        request: Request | None = None,
+        tenant: Any = None,
+        locale: str | None = None,
+        trace_id: str | None = None,
+    ) -> AsyncIterator[Context]: ...
 ```
 
 | Method | Behavior |
@@ -190,7 +191,7 @@ class ModelBuilder(Generic[T]):
 | Method | Parameters and intended behavior |
 | --- | --- |
 | `get_statement(ctx)` | Return an additional **base** SQLAlchemy `Select`, before mandatory policy scope is added. It may never bypass the policy. |
-| `validate_create(data, ctx)` | Check/normalize create input; raise `BuilderValidationError` (exact error class name TBD). |
+| `validate_create(data, ctx)` | Check/normalize create input; raise `BuilderValidationError` with field errors. |
 | `validate_update(instance, changes, ctx)` | Check/normalize proposed changes, without committing. |
 | `before_save(instance, changes, ctx, *, created)` | Mutate an instance inside the current transaction, before flush. `created` distinguishes a new instance from an update; `changes` contains the validated input plus server presets. |
 | `before_delete(instance, ctx)` | Validate/prepare deletion inside the current transaction. |
@@ -211,7 +212,7 @@ class ModelBuilder(Generic[T]):
 | `fieldsets` | `Sequence[tuple[str \| None, Mapping[str, Any]]] \| None` | `None`; Django-style field groups |
 | `labels` | `Mapping[str, str]` | `{}`; field labels |
 | `help_texts` | `Mapping[str, str]` | `{}` |
-| `widgets` | `Mapping[str, WidgetConfig]` | `{}`; per-field input config |
+| `widgets` | `Mapping[str, Mapping[str, Any]]` | `{}`; per-field input config |
 
 `fields` order defines the rendered form order; overriding `get_fields()` can reorder fields per action or request. `fieldsets` uses Django's `(title, options)` shape; the current subset supports a flat `fields` list and `description`, and cannot be combined with `fields`. Policy-hidden fields are removed from each group and empty groups are not rendered. Nested field rows and `classes` are not supported yet.
 
@@ -569,13 +570,8 @@ Form submissions must use CSRF checks when authenticated with cookies. The API f
 
 ## 13. Diagnostics and acceptance tests
 
-**Recommended tooling** (names are proposed, not guaranteed shipped CLI commands):
-
-```shell
-obox check --strict
-obox routes
-obox schema --json
-```
+Use `obox --help` to see the available commands. The CLI provides
+`startproject` and commands for the optional jobs integration.
 
 **Production-core acceptance criteria:**
 
@@ -604,11 +600,11 @@ Visual no-code editor, multi-step conditional forms, bulk CRUD operations, curso
 - SQLAlchemy version counters: https://docs.sqlalchemy.org/en/20/orm/versioning.html
 - SQLAlchemy query criteria: https://docs.sqlalchemy.org/en/20/orm/queryguide/api.html
 - SQLAlchemy relationships/cascade: https://docs.sqlalchemy.org/en/20/orm/cascades.html
-- Hasura authorization: https://hasura.io/docs/2.0/auth/authorization/permissions/
-- Payload access control: https://payloadcms.com/docs/access-control/collections
 - OWASP API Security Top 10: https://owasp.org/API-Security/
 - RFC 9457 Problem Details: https://www.rfc-editor.org/rfc/rfc9457.html
 
 ---
 
-**Implementation note:** These classes and signatures are **proposed contracts**. Types such as `Principal`, `DomainEvent`, `Diagnostic`, `WidgetConfig`, `FilterDefinition`, `OperationDefinition` and the exact validation exception are deliberately left as **TBD** until a working vertical slice fixes their shape. Avoid inventing a second abstraction layer merely to fill in these placeholders.
+**Implementation note:** This document describes the proposed v0.4 public
+contract, not every implementation detail. Items explicitly marked **TBD** are
+not frozen API. For setup instructions, use the [quickstart](quickstart.md).

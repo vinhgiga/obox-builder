@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  obox-builder\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-10-31 20:46+0700\n"
+"POT-Creation-Date: 2026-11-01 19:00+0700\n"
 "PO-Revision-Date: 2026-10-31 20:45+0700\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: vi\n"
@@ -18,31 +18,31 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 2.18.0\n"
 
-#: obox_builder/builder/service.py:207 obox_builder/builder/service.py:258
+#: obox_builder/builder/service.py:354 obox_builder/builder/service.py:405
 msgid "Field is required."
 msgstr "Trường này là bắt buộc."
 
-#: obox_builder/builder/ui.py:149
+#: obox_builder/builder/ui.py:341
 msgid "Unsupported form widget."
 msgstr "Kiểu nhập không được hỗ trợ."
 
-#: obox_builder/builder/ui.py:236
+#: obox_builder/builder/ui.py:428
 msgid "Enter valid JSON."
 msgstr "Nhập JSON hợp lệ."
 
-#: obox_builder/builder/ui.py:374 obox_builder/builder/ui.py:377
+#: obox_builder/builder/ui.py:569 obox_builder/builder/ui.py:572
 msgid "Invalid inline count."
 msgstr "Số dòng không hợp lệ."
 
-#: obox_builder/builder/ui.py:389 obox_builder/builder/ui.py:418
+#: obox_builder/builder/ui.py:584 obox_builder/builder/ui.py:613
 msgid "An inline record is unavailable."
 msgstr "Không tìm thấy bản ghi inline."
 
-#: obox_builder/builder/ui.py:460
+#: obox_builder/builder/ui.py:655
 msgid "Unknown inline field."
 msgstr "Trường inline không hợp lệ."
 
-#: obox_builder/builder/ui.py:579
+#: obox_builder/builder/ui.py:840
 msgid "Duplicate form fields are not permitted."
 msgstr "Không được gửi trường trùng lặp."
 
@@ -80,7 +80,7 @@ msgid "Edit"
 msgstr "Sửa"
 
 #: obox_builder/builder/templates/obox/detail.html:7
-#: obox_builder/builder/templates/obox/list.html:63
+#: obox_builder/builder/templates/obox/list.html:404
 msgid "No records."
 msgstr "Không có bản ghi."
 
@@ -115,11 +115,11 @@ msgstr "Thêm %(name)s khác"
 msgid "Save"
 msgstr "Lưu"
 
-#: obox_builder/builder/templates/obox/form.html:122
+#: obox_builder/builder/templates/obox/form.html:123
 msgid "Save and add another"
 msgstr "Lưu và thêm mới"
 
-#: obox_builder/builder/templates/obox/form.html:123
+#: obox_builder/builder/templates/obox/form.html:125
 msgid "Save and continue editing"
 msgstr "Lưu và tiếp tục sửa"
 
@@ -127,49 +127,166 @@ msgstr "Lưu và tiếp tục sửa"
 msgid "Grid view"
 msgstr "Dạng lưới"
 
-#: obox_builder/builder/templates/obox/list.html:11
-msgid "Search"
-msgstr "Tìm kiếm"
-
-#: obox_builder/builder/templates/obox/list.html:24
+#: obox_builder/builder/templates/obox/list.html:21
+#: obox_builder/builder/templates/obox/list.html:57
 msgid "Sort"
 msgstr "Sắp xếp"
 
-#: obox_builder/builder/templates/obox/list.html:26
-msgid "Default"
-msgstr "Mặc định"
+#: obox_builder/builder/templates/obox/list.html:25
+msgid "Sort by"
+msgstr "Sắp xếp theo"
 
-#: obox_builder/builder/templates/obox/list.html:36
+#: obox_builder/builder/templates/obox/list.html:28
+#: obox_builder/builder/templates/obox/list.html:29
+msgid ""
+"Sort records by one or more fields. Fields higher in the list take "
+"priority."
+msgstr ""
+"Sắp xếp bản ghi theo một hoặc nhiều trường. Trường ở vị trí cao hơn có "
+"độ ưu tiên cao hơn."
+
+#: obox_builder/builder/templates/obox/list.html:43
+#: obox_builder/builder/templates/obox/list.html:44
+#: obox_builder/builder/templates/obox/list.html:102
+#: obox_builder/builder/templates/obox/list.html:103
+#: obox_builder/builder/templates/obox/list.html:167
+#: obox_builder/builder/templates/obox/list.html:170
+msgid "Find a field"
+msgstr "Tìm trường"
+
+#: obox_builder/builder/templates/obox/list.html:51
+msgid "Add another sort"
+msgstr "Thêm tiêu chí sắp xếp"
+
+#: obox_builder/builder/templates/obox/list.html:56
+msgid "Cancel"
+msgstr "Hủy"
+
+#: obox_builder/builder/templates/obox/list.html:77
+msgid "Group"
+msgstr "Nhóm"
+
+#: obox_builder/builder/templates/obox/list.html:84
+msgid "Group by"
+msgstr "Nhóm theo"
+
+#: obox_builder/builder/templates/obox/list.html:87
+#: obox_builder/builder/templates/obox/list.html:88
+msgid ""
+"Group records by one or more fields. Fields higher in the list take "
+"priority."
+msgstr ""
+"Nhóm bản ghi theo một hoặc nhiều trường. Trường ở vị trí cao hơn có "
+"độ ưu tiên cao hơn."
+
+#: obox_builder/builder/templates/obox/list.html:110
+msgid "Add subgroup"
+msgstr "Thêm nhóm con"
+
+#: obox_builder/builder/templates/obox/list.html:130
+#: obox_builder/builder/templates/obox/list.html:136
+msgid "Filter"
+msgstr "Lọc"
+
+#: obox_builder/builder/templates/obox/list.html:137
+msgid "In this view, show records"
+msgstr "Trong chế độ xem này, hiển thị bản ghi"
+
+#: obox_builder/builder/templates/obox/list.html:140
 msgid "Apply"
 msgstr "Áp dụng"
 
-#: obox_builder/builder/templates/obox/list.html:41
+#: obox_builder/builder/templates/obox/list.html:141
+msgid "Reset"
+msgstr "Đặt lại"
+
+#: obox_builder/builder/templates/obox/list.html:163
+msgid "Hide fields"
+msgstr "Ẩn trường"
+
+#: obox_builder/builder/templates/obox/list.html:175
+msgid "Fields"
+msgstr "Trường"
+
+#: obox_builder/builder/templates/obox/list.html:204
+msgid "No fields found."
+msgstr "Không tìm thấy trường."
+
+#: obox_builder/builder/templates/obox/list.html:209
+msgid "Hide all"
+msgstr "Ẩn tất cả"
+
+#: obox_builder/builder/templates/obox/list.html:212
+msgid "Show all"
+msgstr "Hiện tất cả"
+
+#: obox_builder/builder/templates/obox/list.html:227
+#: obox_builder/builder/templates/obox/list.html:232
+msgid "Row height"
+msgstr "Chiều cao dòng"
+
+#: obox_builder/builder/templates/obox/list.html:273
+msgid "Wrap headers"
+msgstr "Xuống dòng tiêu đề"
+
+#: obox_builder/builder/templates/obox/list.html:283
+#: obox_builder/builder/templates/obox/list.html:284
+#: obox_builder/builder/templates/obox/list.html:301
+#: obox_builder/builder/templates/obox/list.html:305
+#: obox_builder/builder/templates/obox/list.html:306
+msgid "Search records"
+msgstr "Tìm bản ghi"
+
+#: obox_builder/builder/templates/obox/list.html:298
+msgid "No matches"
+msgstr "Không có kết quả"
+
+#: obox_builder/builder/templates/obox/list.html:299
+msgid "of"
+msgstr "trong"
+
+#: obox_builder/builder/templates/obox/list.html:313
+#: obox_builder/builder/templates/obox/list.html:314
+msgid "Previous match"
+msgstr "Kết quả trước"
+
+#: obox_builder/builder/templates/obox/list.html:327
+#: obox_builder/builder/templates/obox/list.html:328
+msgid "Next match"
+msgstr "Kết quả tiếp theo"
+
+#: obox_builder/builder/templates/obox/list.html:341
+#: obox_builder/builder/templates/obox/list.html:342
+msgid "Close search"
+msgstr "Đóng tìm kiếm"
+
+#: obox_builder/builder/templates/obox/list.html:355
 msgid "records"
 msgstr "bản ghi"
 
-#: obox_builder/builder/templates/obox/list.html:47
+#: obox_builder/builder/templates/obox/list.html:365
 msgid "Row"
 msgstr "Dòng"
 
-#: obox_builder/builder/templates/obox/list.html:49
+#: obox_builder/builder/templates/obox/list.html:370
 msgid "Record"
 msgstr "Bản ghi"
 
-#: obox_builder/builder/templates/obox/list.html:59
+#: obox_builder/builder/templates/obox/list.html:400
 msgid "View"
 msgstr "Xem"
 
-#: obox_builder/builder/templates/obox/list.html:69
+#: obox_builder/builder/templates/obox/list.html:410
 msgid "Create"
 msgstr "Tạo"
 
-#: obox_builder/builder/templates/obox/list.html:72
+#: obox_builder/builder/templates/obox/list.html:413
 #, python-format
 msgid "%(count)s record on this page"
 msgid_plural "%(count)s records on this page"
 msgstr[0] "%(count)s bản ghi trên trang này"
 
-#: obox_builder/builder/templates/obox/list.html:73
+#: obox_builder/builder/templates/obox/list.html:414
 msgid "Next page →"
 msgstr "Trang sau →"
 
@@ -194,38 +311,20 @@ msgstr "Tên đăng nhập hoặc mật khẩu không đúng."
 msgid "Account"
 msgstr "Tài khoản"
 
-msgid "Row height"
-msgstr "Chiều cao dòng"
+#~ msgid "Search"
+#~ msgstr "Tìm kiếm"
 
-msgid "Short"
-msgstr "Thấp"
+#~ msgid "Default"
+#~ msgstr "Mặc định"
 
-msgid "Medium"
-msgstr "Trung bình"
+#~ msgid "Short"
+#~ msgstr "Thấp"
 
-msgid "Tall"
-msgstr "Cao"
+#~ msgid "Medium"
+#~ msgstr "Trung bình"
 
-msgid "Extra Tall"
-msgstr "Rất cao"
+#~ msgid "Tall"
+#~ msgstr "Cao"
 
-msgid "Wrap headers"
-msgstr "Xuống dòng tiêu đề"
-
-msgid "Search records"
-msgstr "Tìm bản ghi"
-
-msgid "No matches"
-msgstr "Không có kết quả"
-
-msgid "of"
-msgstr "trong"
-
-msgid "Previous match"
-msgstr "Kết quả trước"
-
-msgid "Next match"
-msgstr "Kết quả tiếp theo"
-
-msgid "Close search"
-msgstr "Đóng tìm kiếm"
+#~ msgid "Extra Tall"
+#~ msgstr "Rất cao"

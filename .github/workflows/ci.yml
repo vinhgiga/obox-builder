@@ -2,27 +2,26 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   pull_request:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  UV_FROZEN: "1"
+permissions:
+  contents: read
 
 jobs:
   commitlint:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
+          persist-credentials: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
           cache: pnpm
@@ -42,25 +41,64 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10.3.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          cache: pnpm
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           enable-cache: true
-      - run: uv sync --all-extras
-      - run: uv run ruff check --output-format=github obox_builder
-      - run: uv run ruff format --check obox_builder
-      - run: uv run mypy obox_builder
-      - run: uv run pyright
-      - run: uv run lint-imports
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.25.0"
+      - run: pnpm install --frozen-lockfile
+      - run: uv sync --all-extras --locked
+      - name: Verify pinned action references
+        uses: suzuki-shunsuke/pinact-action@896d595f299e71d65b9d28349d6956abe144390a # v3.0.0
+        with:
+          fix: "false"
+          no_api: "true"
+      - run: uv run pre-commit run --all-files
+      - run: uv run pre-commit run actionlint --hook-stage manual --all-files
+      - run: pnpm lint
+      - run: pnpm test:commitlint
+      - run: uv run validate-pyproject pyproject.toml
+      - name: Check gettext catalogs
+        run: |
+          uv run pybabel extract -F babel.cfg -k translate:2 -o "$RUNNER_TEMP/obox.pot" obox_builder
+          uv run python - <<'PY'
+          from pathlib import Path
+          import os
+
+          path = Path(os.environ["RUNNER_TEMP"]) / "obox.pot"
+          path.write_text(path.read_text().rstrip("\n") + "\n")
+          PY
+          diff -u \
+            <(sed '/^"POT-Creation-Date:/d' obox_builder/locale/obox.pot) \
+            <(sed '/^"POT-Creation-Date:/d' "$RUNNER_TEMP/obox.pot")
+          uv run pybabel update --check --ignore-pot-creation-date -i "$RUNNER_TEMP/obox.pot" -d obox_builder/locale -D obox
+          uv run pybabel compile -d obox_builder/locale -D obox
+          git diff --exit-code -- obox_builder/locale
 
   test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
     steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10.3.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          python-version: ${{ matrix.python-version }}
           enable-cache: true
-      - run: uv sync --all-extras
+      - run: uv sync --all-extras --locked
       - run: uv run pytest -q
 
   wheel:
@@ -69,20 +107,24 @@ jobs:
       matrix:
         python-version: ["3.11", "3.12", "3.13", "3.14"]
     steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm build:css
-      - uses: astral-sh/setup-uv@v10.3.0
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
-      - run: uv sync --all-extras
+      - run: uv sync --all-extras --locked
+      - run: uv run validate-pyproject pyproject.toml
       - run: uv build
+      - run: uv run twine check dist/*
       - name: Install the wheel in a clean environment
         run: |
           uv venv "$RUNNER_TEMP/wheel-env"

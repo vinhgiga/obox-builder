@@ -20,7 +20,7 @@
     section.addEventListener("change", (event) => {
       const checkbox = event.target.closest("[data-inline-delete]");
       if (checkbox) {
-        checkbox.closest("[data-inline-row]").style.opacity = checkbox.checked ? "0.5" : "";
+        checkbox.closest("[data-inline-row]").toggleAttribute("data-deleted", checkbox.checked);
       }
     });
 
@@ -32,10 +32,7 @@
           for (const attribute of ["name", "id", "for"]) {
             const value = element.getAttribute(attribute);
             if (value) {
-              element.setAttribute(
-                attribute,
-                value.replace(pattern, `${prefix}${index}:`),
-              );
+              element.setAttribute(attribute, value.replace(pattern, `${prefix}${index}:`));
             }
           }
         }

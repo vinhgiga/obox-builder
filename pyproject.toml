@@ -2,7 +2,22 @@
 name = "obox-builder"
 version = "0.4.0"
 description = "Model-driven forms, views and REST APIs for native FastAPI applications."
+readme = "README.md"
+license = "MIT"
 requires-python = ">=3.11"
+classifiers = [
+    "Framework :: FastAPI",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Internet :: WWW/HTTP",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
 dependencies = [
     "babel>=2.18,<3",
     "fastapi>=0.143.3,<0.144",
@@ -13,6 +28,11 @@ dependencies = [
 
 [project.scripts]
 obox = "obox_builder.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/vinhgiga/obox-builder"
+Repository = "https://github.com/vinhgiga/obox-builder"
+Issues = "https://github.com/vinhgiga/obox-builder/issues"
 
 [project.optional-dependencies]
 postgres = ["psycopg[binary,pool]>=3.3,<4", "asyncpg>=0.32,<1"]
@@ -29,11 +49,15 @@ dev = [
     "httpx>=0.28.1,<1",
     "import-linter>=2.15,<3",
     "mypy>=1.19,<2",
+    "pip-audit>=2.10.1",
     "pre-commit>=4.6,<5",
     "psycopg[binary,pool]>=3.3,<4",
     "pyright>=1.1.414,<2",
     "pytest>=9.2.0",
+    "pytest-cov>=7.1.0",
     "ruff>=0.17.1,<1",
+    "twine>=7.0.0",
+    "validate-pyproject>=0.27",
 ]
 
 [build-system]
@@ -47,7 +71,7 @@ artifacts = ["/obox_builder/builder/static/ui.css"]
 packages = ["obox_builder"]
 
 [tool.hatch.build.targets.sdist]
-include = ["obox_builder", "pyproject.toml"]
+include = ["LICENSE", "README.md", "docs", "obox_builder", "pyproject.toml"]
 
 [tool.ruff]
 line-length = 100
@@ -55,11 +79,13 @@ src = ["obox_builder"]
 target-version = "py311"
 
 [tool.ruff.lint]
-select = ["B", "C4", "E", "F", "G", "I", "N", "S", "SIM", "TID", "UP", "W"]
-ignore = ["N818"]
+select = ["A", "ASYNC", "B", "BLE", "C4", "DTZ", "E", "F", "FAST", "G", "I", "LOG", "N", "PERF", "PIE", "PT", "RET", "RUF", "S", "SIM", "T20", "TID", "UP", "W"]
+ignore = ["A002", "N818"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101"]
+"tests/**" = ["S101", "T20"]
+"obox_builder/cli.py" = ["T201"]
+"obox_builder/contrib/jobs/cli.py" = ["T201"]
 
 [tool.ruff.lint.flake8-bugbear]
 extend-immutable-calls = ["fastapi.Depends"]
@@ -74,10 +100,21 @@ max_line_length = 100
 
 [tool.mypy]
 python_version = "3.11"
-check_untyped_defs = true
+strict = true
+warn_unreachable = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = ["-ra", "--strict-markers", "--strict-config", "--cov=obox_builder", "--cov-branch", "--cov-report=term-missing"]
+filterwarnings = ["error"]
+xfail_strict = true
+
+[tool.coverage.run]
+branch = true
+source = ["obox_builder"]
+
+[tool.coverage.report]
+show_missing = true
 
 [tool.pyright]
 include = ["obox_builder"]

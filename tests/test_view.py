@@ -1,5 +1,6 @@
 import asyncio
 import json
+import re
 from typing import Any
 
 import httpx
@@ -108,6 +109,22 @@ def test_list_display_controls_columns_and_order() -> None:
     assert "alpha" in html
 
 
+def test_form_actions_explicitly_submit() -> None:
+    async def run() -> None:
+        app, engine = await make_app(OrderedBuilder)
+        try:
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+                response = await client.get("/admin/widgets/new")
+            assert response.status_code == 200
+            for name in ("_save", "_addanother", "_continue"):
+                assert re.search(rf'<button\s+type="submit"\s+name="{name}">', response.text)
+        finally:
+            await engine.dispose()
+
+    asyncio.run(run())
+
+
 def test_list_exposes_row_height_controls() -> None:
     html, _ = asyncio.run(get_list(OrderedBuilder))
     assert 'data-row-height="medium"' in html
@@ -172,7 +189,9 @@ def test_list_filter_groups_match_nested_conditions() -> None:
                 page = await client.get("/admin/widgets", params={"filter": json.dumps(tree)})
                 html = page.text
             assert {row["name"] for row in response.json()} == {"alpha", "beta"}
-            assert "alpha" in html and "beta" in html and "gamma" not in html
+            assert "alpha" in html
+            assert "beta" in html
+            assert "gamma" not in html
         finally:
             await engine.dispose()
 
@@ -234,7 +253,8 @@ def test_list_groups_nested_rows_with_cross_page_counts() -> None:
             html = first.text
             assert 'data-group-header="1"' in html
             assert 'data-group-header="2"' in html
-            assert ">Status<" in html and ">draft<" in html
+            assert ">Status<" in html
+            assert ">draft<" in html
             assert '<span class="group-count">2</span>' in html
             config = json.loads(html.split("data-list-group-config>")[1].split("</script>")[0])
             assert config["group"] == [

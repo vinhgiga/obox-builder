@@ -6,7 +6,7 @@ import inspect
 from collections.abc import AsyncIterator, Iterable, Mapping, Sequence
 from contextlib import asynccontextmanager
 from types import MappingProxyType
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, TypeVar, cast
 
 import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError
@@ -281,7 +281,7 @@ class ResourceService(Generic[T]):
         if obj is None:
             raise NotFound("Record is unavailable.")
         await self.authorize(action, ctx, obj)
-        return obj
+        return cast(T, obj)
 
     async def get(self, id: Any, *, ctx: Context) -> T:
         return await self._get(id, ctx, "retrieve")
@@ -311,7 +311,7 @@ class ResourceService(Generic[T]):
         if surface == "form":
             requested = self.builder.form.get_fields(ctx, action=action, instance=obj)
             allowed = tuple(dict.fromkeys(key for key in requested if key in allowed))
-        return allowed
+        return cast(tuple[str, ...], allowed)
 
     def _check_fields(self, data: Mapping[str, Any], allowed: Sequence[str]) -> None:
         unknown = set(data) - self.builder.specs.keys()
@@ -463,7 +463,7 @@ class ResourceService(Generic[T]):
                 created=True,
             )
             await self._finish("create", obj, presets, ctx)
-            return obj
+            return cast(T, obj)
 
     async def update(
         self, id: Any, changes: Mapping[str, Any], *, ctx: Context, version: Any = None

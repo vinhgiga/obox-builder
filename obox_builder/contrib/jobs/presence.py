@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager, suppress
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from obox_builder.contrib.jobs.models import Worker, utcnow
@@ -28,7 +29,7 @@ async def _pulse(sessions: async_sessionmaker[AsyncSession], hostname: str) -> N
                     .where(Worker.hostname == hostname)
                     .values(heartbeat_at=utcnow())
                 )
-        except Exception as exc:
+        except SQLAlchemyError as exc:
             logger.warning("Worker heartbeat failed: %s.", type(exc).__name__)
 
 
@@ -71,5 +72,5 @@ async def presence(
                 await db.execute(
                     sa.update(Worker).where(Worker.hostname == hostname).values(stopped_at=utcnow())
                 )
-        except Exception as exc:
+        except SQLAlchemyError as exc:
             logger.warning("Worker shutdown presence update failed: %s.", type(exc).__name__)

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from pydantic import BaseModel
 
@@ -24,7 +24,9 @@ class Form:
     def get_fields(
         self, ctx: Context, *, action: Literal["create", "update"], instance: Any = None
     ) -> Sequence[str]:
-        return self._builder.writable(ctx, action, obj=instance, surface="form")
+        return cast(
+            Sequence[str], self._builder.writable(ctx, action, obj=instance, surface="form")
+        )
 
     def get_initial(self, ctx: Context) -> Mapping[str, Any]:
         return {}
@@ -52,7 +54,7 @@ class View:
     _builder: Any
 
     def get_list_display(self, ctx: Context) -> Sequence[str]:
-        return self._builder.list_display(ctx)
+        return cast(Sequence[str], self._builder.list_display(ctx))
 
     def get_list_filter(self, ctx: Context) -> Sequence[str]:
         allowed = self._builder.readable(ctx)

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-10-31 20:46+0700\n"
+"POT-Creation-Date: 2026-11-01 19:00+0700\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -17,31 +17,31 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 2.18.0\n"
 
-#: obox_builder/builder/service.py:207 obox_builder/builder/service.py:258
+#: obox_builder/builder/service.py:354 obox_builder/builder/service.py:405
 msgid "Field is required."
 msgstr ""
 
-#: obox_builder/builder/ui.py:149
+#: obox_builder/builder/ui.py:341
 msgid "Unsupported form widget."
 msgstr ""
 
-#: obox_builder/builder/ui.py:236
+#: obox_builder/builder/ui.py:428
 msgid "Enter valid JSON."
 msgstr ""
 
-#: obox_builder/builder/ui.py:374 obox_builder/builder/ui.py:377
+#: obox_builder/builder/ui.py:569 obox_builder/builder/ui.py:572
 msgid "Invalid inline count."
 msgstr ""
 
-#: obox_builder/builder/ui.py:389 obox_builder/builder/ui.py:418
+#: obox_builder/builder/ui.py:584 obox_builder/builder/ui.py:613
 msgid "An inline record is unavailable."
 msgstr ""
 
-#: obox_builder/builder/ui.py:460
+#: obox_builder/builder/ui.py:655
 msgid "Unknown inline field."
 msgstr ""
 
-#: obox_builder/builder/ui.py:579
+#: obox_builder/builder/ui.py:840
 msgid "Duplicate form fields are not permitted."
 msgstr ""
 
@@ -79,7 +79,7 @@ msgid "Edit"
 msgstr ""
 
 #: obox_builder/builder/templates/obox/detail.html:7
-#: obox_builder/builder/templates/obox/list.html:63
+#: obox_builder/builder/templates/obox/list.html:404
 msgid "No records."
 msgstr ""
 
@@ -114,11 +114,11 @@ msgstr ""
 msgid "Save"
 msgstr ""
 
-#: obox_builder/builder/templates/obox/form.html:122
+#: obox_builder/builder/templates/obox/form.html:123
 msgid "Save and add another"
 msgstr ""
 
-#: obox_builder/builder/templates/obox/form.html:123
+#: obox_builder/builder/templates/obox/form.html:125
 msgid "Save and continue editing"
 msgstr ""
 
@@ -126,50 +126,163 @@ msgstr ""
 msgid "Grid view"
 msgstr ""
 
-#: obox_builder/builder/templates/obox/list.html:11
-msgid "Search"
-msgstr ""
-
-#: obox_builder/builder/templates/obox/list.html:24
+#: obox_builder/builder/templates/obox/list.html:21
+#: obox_builder/builder/templates/obox/list.html:57
 msgid "Sort"
 msgstr ""
 
-#: obox_builder/builder/templates/obox/list.html:26
-msgid "Default"
+#: obox_builder/builder/templates/obox/list.html:25
+msgid "Sort by"
 msgstr ""
 
-#: obox_builder/builder/templates/obox/list.html:36
+#: obox_builder/builder/templates/obox/list.html:28
+#: obox_builder/builder/templates/obox/list.html:29
+msgid ""
+"Sort records by one or more fields. Fields higher in the list take "
+"priority."
+msgstr ""
+
+#: obox_builder/builder/templates/obox/list.html:43
+#: obox_builder/builder/templates/obox/list.html:44
+#: obox_builder/builder/templates/obox/list.html:102
+#: obox_builder/builder/templates/obox/list.html:103
+#: obox_builder/builder/templates/obox/list.html:167
+#: obox_builder/builder/templates/obox/list.html:170
+msgid "Find a field"
+msgstr ""
+
+#: obox_builder/builder/templates/obox/list.html:51
+msgid "Add another sort"
+msgstr ""
+
+#: obox_builder/builder/templates/obox/list.html:56
+msgid "Cancel"
+msgstr ""
+
+#: obox_builder/builder/templates/obox/list.html:77
+msgid "Group"
+msgstr ""
+
+#: obox_builder/builder/templates/obox/list.html:84
+msgid "Group by"
+msgstr ""
+
+#: obox_builder/builder/templates/obox/list.html:87
+#: obox_builder/builder/templates/obox/list.html:88
+msgid ""
+"Group records by one or more fields. Fields higher in the list take "
+"priority."
+msgstr ""
+
+#: obox_builder/builder/templates/obox/list.html:110
+msgid "Add subgroup"
+msgstr ""
+
+#: obox_builder/builder/templates/obox/list.html:130
+#: obox_builder/builder/templates/obox/list.html:136
+msgid "Filter"
+msgstr ""
+
+#: obox_builder/builder/templates/obox/list.html:137
+msgid "In this view, show records"
+msgstr ""
+
+#: obox_builder/builder/templates/obox/list.html:140
 msgid "Apply"
 msgstr ""
 
-#: obox_builder/builder/templates/obox/list.html:41
+#: obox_builder/builder/templates/obox/list.html:141
+msgid "Reset"
+msgstr ""
+
+#: obox_builder/builder/templates/obox/list.html:163
+msgid "Hide fields"
+msgstr ""
+
+#: obox_builder/builder/templates/obox/list.html:175
+msgid "Fields"
+msgstr ""
+
+#: obox_builder/builder/templates/obox/list.html:204
+msgid "No fields found."
+msgstr ""
+
+#: obox_builder/builder/templates/obox/list.html:209
+msgid "Hide all"
+msgstr ""
+
+#: obox_builder/builder/templates/obox/list.html:212
+msgid "Show all"
+msgstr ""
+
+#: obox_builder/builder/templates/obox/list.html:227
+#: obox_builder/builder/templates/obox/list.html:232
+msgid "Row height"
+msgstr ""
+
+#: obox_builder/builder/templates/obox/list.html:273
+msgid "Wrap headers"
+msgstr ""
+
+#: obox_builder/builder/templates/obox/list.html:283
+#: obox_builder/builder/templates/obox/list.html:284
+#: obox_builder/builder/templates/obox/list.html:301
+#: obox_builder/builder/templates/obox/list.html:305
+#: obox_builder/builder/templates/obox/list.html:306
+msgid "Search records"
+msgstr ""
+
+#: obox_builder/builder/templates/obox/list.html:298
+msgid "No matches"
+msgstr ""
+
+#: obox_builder/builder/templates/obox/list.html:299
+msgid "of"
+msgstr ""
+
+#: obox_builder/builder/templates/obox/list.html:313
+#: obox_builder/builder/templates/obox/list.html:314
+msgid "Previous match"
+msgstr ""
+
+#: obox_builder/builder/templates/obox/list.html:327
+#: obox_builder/builder/templates/obox/list.html:328
+msgid "Next match"
+msgstr ""
+
+#: obox_builder/builder/templates/obox/list.html:341
+#: obox_builder/builder/templates/obox/list.html:342
+msgid "Close search"
+msgstr ""
+
+#: obox_builder/builder/templates/obox/list.html:355
 msgid "records"
 msgstr ""
 
-#: obox_builder/builder/templates/obox/list.html:47
+#: obox_builder/builder/templates/obox/list.html:365
 msgid "Row"
 msgstr ""
 
-#: obox_builder/builder/templates/obox/list.html:49
+#: obox_builder/builder/templates/obox/list.html:370
 msgid "Record"
 msgstr ""
 
-#: obox_builder/builder/templates/obox/list.html:59
+#: obox_builder/builder/templates/obox/list.html:400
 msgid "View"
 msgstr ""
 
-#: obox_builder/builder/templates/obox/list.html:69
+#: obox_builder/builder/templates/obox/list.html:410
 msgid "Create"
 msgstr ""
 
-#: obox_builder/builder/templates/obox/list.html:72
+#: obox_builder/builder/templates/obox/list.html:413
 #, python-format
 msgid "%(count)s record on this page"
 msgid_plural "%(count)s records on this page"
 msgstr[0] ""
 msgstr[1] ""
 
-#: obox_builder/builder/templates/obox/list.html:73
+#: obox_builder/builder/templates/obox/list.html:414
 msgid "Next page →"
 msgstr ""
 

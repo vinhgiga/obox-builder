@@ -37,7 +37,9 @@
         storageKey,
         JSON.stringify({
           ...readState(),
-          hidden: toggles.filter((input) => !input.checked).map((input) => input.dataset.fieldToggle),
+          hidden: toggles
+            .filter((input) => !input.checked)
+            .map((input) => input.dataset.fieldToggle),
           order,
         }),
       );
@@ -90,11 +92,15 @@
   apply();
 
   menu.querySelector("[data-hide-all]")?.addEventListener("click", () => {
-    toggles.forEach((input) => { input.checked = false; });
+    toggles.forEach((input) => {
+      input.checked = false;
+    });
     apply();
   });
   menu.querySelector("[data-show-all]")?.addEventListener("click", () => {
-    toggles.forEach((input) => { input.checked = true; });
+    toggles.forEach((input) => {
+      input.checked = true;
+    });
     apply();
   });
 
@@ -224,19 +230,36 @@
     if (!ids.has(term)) ids.set(term, `filter-${++nextId}`);
     return ids.get(term);
   };
-  const defaultOp = (spec) => (spec.operators.includes("contains") ? "contains" : spec.operators[0]);
+  const defaultOp = (spec) =>
+    spec.operators.includes("contains") ? "contains" : spec.operators[0];
   const control = (label, options, value, className) => {
     const node = document.createElement("select");
     node.className = className;
     node.setAttribute("aria-label", label);
-    options.forEach(([key, text]) => node.add(new Option(text, key)));
+    options.forEach(([key, text]) => {
+      node.add(new Option(text, key));
+    });
     node.value = value;
     return node;
   };
-  const trashIcon =
-    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m-8 0 1 13h8l1-13"/></svg>';
-  const plusIcon =
-    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
+  const svgIcon = (shapes) => {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("fill", "none");
+    svg.setAttribute("stroke", "currentColor");
+    svg.setAttribute("stroke-width", "1.5");
+    svg.setAttribute("aria-hidden", "true");
+    shapes.forEach(([tag, attributes]) => {
+      const shape = document.createElementNS("http://www.w3.org/2000/svg", tag);
+      Object.entries(attributes).forEach(([name, value]) => {
+        shape.setAttribute(name, value);
+      });
+      svg.append(shape);
+    });
+    return svg;
+  };
+  const trashIcon = () => svgIcon([["path", { d: "M4 7h16M9 7V4h6v3m-8 0 1 13h8l1-13" }]]);
+  const plusIcon = () => svgIcon([["path", { d: "M12 5v14M5 12h14" }]]);
   const closeAddMenus = () => {
     document.querySelectorAll("[data-filter-add-menu]:not([hidden])").forEach((popover) => {
       popover.hidden = true;
@@ -273,7 +296,12 @@
   };
 
   if (!state.children.length && fields.length) {
-    state.children.push({ field: fields[0].name, op: defaultOp(fields[0]), value: "", draft: true });
+    state.children.push({
+      field: fields[0].name,
+      op: defaultOp(fields[0]),
+      value: "",
+      draft: true,
+    });
   }
 
   const addTerm = (node) => {
@@ -288,9 +316,7 @@
     const child = { conjunction: "and", children: [] };
     node.children.push(child);
     render();
-    list
-      .querySelector(`[data-filter-group-id="${idOf(child)}"] [data-filter-add-toggle]`)
-      ?.focus();
+    list.querySelector(`[data-filter-group-id="${idOf(child)}"] [data-filter-add-toggle]`)?.focus();
   };
 
   const group = (node, depth, parent, index) => {
@@ -317,7 +343,7 @@
       toggle.dataset.filterAddToggle = "";
       toggle.setAttribute("aria-label", "Add to group");
       toggle.setAttribute("aria-expanded", "false");
-      toggle.innerHTML = plusIcon;
+      toggle.append(plusIcon());
       const addMenu = make("div", "filter-add-menu");
       addMenu.dataset.filterAddMenu = "";
       addMenu.hidden = true;
@@ -349,7 +375,7 @@
         remove.type = "button";
         remove.className = "filter-remove";
         remove.setAttribute("aria-label", "Delete group");
-        remove.innerHTML = trashIcon;
+        remove.append(trashIcon());
         remove.addEventListener("click", () => {
           parent.children.splice(parent.children.indexOf(node), 1);
           render();
@@ -391,7 +417,10 @@
       } else {
         const join = control(
           "Group join",
-          [["and", "and"], ["or", "or"]],
+          [
+            ["and", "and"],
+            ["or", "or"],
+          ],
           parent.conjunction,
           "filter-join",
         );
@@ -423,7 +452,10 @@
     } else {
       const join = control(
         "Condition join",
-        [["and", "and"], ["or", "or"]],
+        [
+          ["and", "and"],
+          ["or", "or"],
+        ],
         parent.conjunction,
         "filter-join",
       );
@@ -440,7 +472,9 @@
     const field = document.createElement("select");
     field.dataset.filterField = term.field;
     field.setAttribute("aria-label", "Filter field");
-    fields.forEach((option) => field.add(new Option(option.label, option.name)));
+    fields.forEach((option) => {
+      field.add(new Option(option.label, option.name));
+    });
     field.value = term.field;
     field.addEventListener("change", () => {
       term.field = field.value;
@@ -456,7 +490,9 @@
     const op = document.createElement("select");
     op.dataset.filterOp = term.field;
     op.setAttribute("aria-label", "Filter operator");
-    spec.operators.forEach((name) => op.add(new Option(labels[name], name)));
+    spec.operators.forEach((name) => {
+      op.add(new Option(labels[name], name));
+    });
     op.value = term.op;
     op.addEventListener("change", () => {
       term.op = op.value;
@@ -479,7 +515,9 @@
                 ["false", "No"],
               ]
             : spec.choices.map((item) => [item, item]);
-        choices.forEach(([key, label]) => value.add(new Option(label, key)));
+        choices.forEach(([key, label]) => {
+          value.add(new Option(label, key));
+        });
         value.value = term.value ?? "";
         value.addEventListener("change", () => {
           term.value = value.value;
@@ -507,8 +545,7 @@
     remove.type = "button";
     remove.className = "filter-remove";
     remove.setAttribute("aria-label", "Delete condition");
-    remove.innerHTML =
-      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m-8 0 1 13h8l1-13"/></svg>';
+    remove.append(trashIcon());
     remove.addEventListener("click", () => {
       parent.children.splice(parent.children.indexOf(term), 1);
       render();
@@ -562,10 +599,33 @@
     if (text) node.textContent = text;
     return node;
   };
-  const xIcon =
-    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>';
-  const gripIcon =
-    '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>';
+  const svgIcon = (shapes, fill = "none") => {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("fill", fill);
+    svg.setAttribute("stroke", fill === "none" ? "currentColor" : "none");
+    svg.setAttribute("stroke-width", "1.5");
+    svg.setAttribute("aria-hidden", "true");
+    for (const [tag, attributes] of shapes) {
+      const shape = document.createElementNS("http://www.w3.org/2000/svg", tag);
+      for (const [name, value] of Object.entries(attributes)) shape.setAttribute(name, value);
+      svg.append(shape);
+    }
+    return svg;
+  };
+  const xIcon = () => svgIcon([["path", { d: "m6 6 12 12M18 6 6 18" }]]);
+  const gripIcon = () =>
+    svgIcon(
+      [
+        ["circle", { cx: "9", cy: "6", r: "1.5" }],
+        ["circle", { cx: "15", cy: "6", r: "1.5" }],
+        ["circle", { cx: "9", cy: "12", r: "1.5" }],
+        ["circle", { cx: "15", cy: "12", r: "1.5" }],
+        ["circle", { cx: "9", cy: "18", r: "1.5" }],
+        ["circle", { cx: "15", cy: "18", r: "1.5" }],
+      ],
+      "currentColor",
+    );
   const available = () =>
     [...specs.keys()].filter((name) => !terms.some((term) => term.field === name));
   const directions = (kind) =>
@@ -663,7 +723,7 @@
       const remove = make("button", "sort-icon");
       remove.type = "button";
       remove.setAttribute("aria-label", `Remove ${spec.label} sort`);
-      remove.innerHTML = xIcon;
+      remove.append(xIcon());
       remove.addEventListener("click", () => {
         terms.splice(index, 1);
         picking = !terms.length;
@@ -676,7 +736,7 @@
       grip.type = "button";
       grip.setAttribute("aria-label", `Reorder ${spec.label} sort`);
       grip.title = "Drag or use Alt+Up/Down";
-      grip.innerHTML = gripIcon;
+      grip.append(gripIcon());
       grip.draggable = true;
       grip.addEventListener("keydown", (event) => {
         if (!event.altKey || !["ArrowUp", "ArrowDown"].includes(event.key)) return;
@@ -752,7 +812,7 @@
   const add = menu.querySelector("[data-group-add]");
   const input = menu.querySelector("[data-group-input]");
   const count = menu.querySelector("[data-group-count]");
-  let terms = config.group.map((term) => ({ ...term }));
+  const terms = config.group.map((term) => ({ ...term }));
   let picking = !terms.length;
   let query = "";
 
@@ -762,10 +822,33 @@
     if (text) node.textContent = text;
     return node;
   };
-  const xIcon =
-    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>';
-  const gripIcon =
-    '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>';
+  const svgIcon = (shapes, fill = "none") => {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("fill", fill);
+    svg.setAttribute("stroke", fill === "none" ? "currentColor" : "none");
+    svg.setAttribute("stroke-width", "1.5");
+    svg.setAttribute("aria-hidden", "true");
+    for (const [tag, attributes] of shapes) {
+      const shape = document.createElementNS("http://www.w3.org/2000/svg", tag);
+      for (const [name, value] of Object.entries(attributes)) shape.setAttribute(name, value);
+      svg.append(shape);
+    }
+    return svg;
+  };
+  const xIcon = () => svgIcon([["path", { d: "m6 6 12 12M18 6 6 18" }]]);
+  const gripIcon = () =>
+    svgIcon(
+      [
+        ["circle", { cx: "9", cy: "6", r: "1.5" }],
+        ["circle", { cx: "15", cy: "6", r: "1.5" }],
+        ["circle", { cx: "9", cy: "12", r: "1.5" }],
+        ["circle", { cx: "15", cy: "12", r: "1.5" }],
+        ["circle", { cx: "9", cy: "18", r: "1.5" }],
+        ["circle", { cx: "15", cy: "18", r: "1.5" }],
+      ],
+      "currentColor",
+    );
   const available = () =>
     [...specs.keys()].filter((name) => !terms.some((term) => term.field === name));
   const directions = (kind) =>
@@ -864,7 +947,7 @@
       const remove = make("button", "sort-icon");
       remove.type = "button";
       remove.setAttribute("aria-label", `Remove ${spec.label} grouping`);
-      remove.innerHTML = xIcon;
+      remove.append(xIcon());
       remove.addEventListener("click", () => {
         terms.splice(index, 1);
         picking = !terms.length;
@@ -877,7 +960,7 @@
       grip.type = "button";
       grip.setAttribute("aria-label", `Reorder ${spec.label} grouping`);
       grip.title = "Drag or use Alt+Up/Down";
-      grip.innerHTML = gripIcon;
+      grip.append(gripIcon());
       grip.draggable = true;
       grip.addEventListener("keydown", (event) => {
         if (!event.altKey || !["ArrowUp", "ArrowDown"].includes(event.key)) return;
@@ -951,10 +1034,9 @@
       }
       path.length = Number(row.dataset.groupHeader) - 1;
       row.hidden = path.some((id) => collapsed.has(id));
-      row.querySelector("[data-group-toggle]")?.setAttribute(
-        "aria-expanded",
-        String(!collapsed.has(row.dataset.groupId)),
-      );
+      row
+        .querySelector("[data-group-toggle]")
+        ?.setAttribute("aria-expanded", String(!collapsed.has(row.dataset.groupId)));
       path.push(row.dataset.groupId);
     }
   };
@@ -1067,7 +1149,7 @@
   const clear = () => {
     for (const mark of table.querySelectorAll("mark[data-search-mark]")) {
       const value = mark.closest(".cell-value");
-      if (value) value.textContent = value.textContent;
+      if (value) value.replaceChildren(value.textContent);
     }
     table.querySelectorAll("[data-search-current]").forEach((cell) => {
       cell.removeAttribute("data-search-current");
@@ -1082,13 +1164,13 @@
     const text = value.textContent || "";
     const { folded, positions } = fold(text);
     const ranges = [];
-    let index = 0;
-    while ((index = folded.indexOf(needle, index)) !== -1) {
+    let index = folded.indexOf(needle);
+    while (index !== -1) {
       const end = index + needle.length;
       let to = positions[end - 1] + 1;
       while (to < text.length && /\p{M}/u.test(text[to])) to += 1;
       ranges.push([positions[index], to]);
-      index = end;
+      index = folded.indexOf(needle, end);
     }
     if (!ranges.length) return false;
 

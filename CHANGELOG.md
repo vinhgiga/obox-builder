@@ -64,9 +64,9 @@ Follows [Keep a Changelog](https://keepachangelog.com/), versions follow
 ### Removed
 
 - External product comparisons, product-specific commentary and unused vendor icon branding.
-- Unverified documentation, README files and generated project READMEs. Keep the
-  quickstart, changelog and implementation plans; package metadata uses the quickstart.
-- MkDocs dependencies, build commands and documentation deployment workflow.
+- Obsolete framework-specific documentation, generated project READMEs, MkDocs
+  dependencies, build commands and documentation deployment workflow. Current
+  guides live under `docs/`; package metadata uses `README.md`.
 
 ## [0.2.0] - 2026-10-17
 

@@ -7,16 +7,22 @@ dev:
     uv run pre-commit install
 
 lint:
-    uv run ruff check obox_builder
-    uv run ruff format --check obox_builder
-    uv run mypy obox_builder
-    uv run pyright
-    uv run lint-imports
+    uv run pre-commit run --all-files
+    uv run pre-commit run actionlint --hook-stage manual --all-files
     pnpm lint
+    pnpm test:commitlint
 
 fmt:
-    uv run ruff check --fix obox_builder
-    uv run ruff format obox_builder
+    uv run ruff check --fix .
+    uv run ruff format .
+    pnpm exec biome format --write .
+
+test:
+    uv run pytest -q
+
+ci:
+    just lint
+    just test
 
 # Extract messages and refresh locale catalogs.
 messages:
@@ -27,7 +33,10 @@ messages:
 compile-messages:
     uv run pybabel compile -d obox_builder/locale -D obox
 
-check: fmt lint
+check: ci
 
 build:
+    pnpm build:css
+    uv run validate-pyproject pyproject.toml
     uv build
+    uv run twine check dist/*

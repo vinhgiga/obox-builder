@@ -12,7 +12,10 @@ const root = new URL("../../", import.meta.url);
 
 function lint(message, args = []) {
   const result = spawnSync("pnpm", ["exec", "commitlint", ...args], {
-    cwd: root, input: message, encoding: "utf8", timeout: 10000,
+    cwd: root,
+    input: message,
+    encoding: "utf8",
+    timeout: 10000,
   });
   assert.ifError(result.error);
   return result;
@@ -20,13 +23,12 @@ function lint(message, args = []) {
 
 const valid = [
   ...["build", "ci", "feat", "fix", "perf", "refactor", "test"].map(
-    (type) => `${type}: validate commit messages\n\n${body}`
+    (type) => `${type}: validate commit messages\n\n${body}`,
   ),
   "docs: explain commit messages",
   `docs: explain commit messages\n\n${body}`,
-  `fix(admin): preserve HTTP headers\n\n${body}`,
-  `fix(db/migrations): preserve SQL defaults\n\n${body}`,
-  `feat(@example/package): add export\n\n${body}`,
+  `fix(auth): preserve HTTP headers\n\n${body}`,
+  `build(deps): bump runtime dependencies`,
   `fix: handle empty input\n\n${"a".repeat(20)}`,
   `fix: handle empty input\n\n${body}\n\nFixes #123`,
   `fix: update the setting\n\n${body}\n\nBREAKING CHANGE: rename the setting\n\nreplace OLD_SETTING with NEW_SETTING\n\nCloses #123`,
@@ -56,19 +58,35 @@ const invalid = [
   ["padded short body", "fix: update commit checks\n\n                 short", "body-required"],
   ["footer without body", "fix: update commit checks\n\nFixes #123", "body-required"],
   ["missing body separator", `fix: update commit checks\n${body}`, "body-leading-blank"],
-  ["missing footer separator", `fix: update commit checks\n\n${body}\nFixes #123`, "footer-leading-blank"],
-  ["missing breaking details", `fix: update the setting\n\n${body}\n\nBREAKING CHANGE: rename the setting`, "notice-format"],
-  ["missing deprecation details", `feat: replace the setting\n\n${body}\n\nDEPRECATED: retire the setting`, "notice-format"],
+  [
+    "missing footer separator",
+    `fix: update commit checks\n\n${body}\nFixes #123`,
+    "footer-leading-blank",
+  ],
+  [
+    "missing breaking details",
+    `fix: update the setting\n\n${body}\n\nBREAKING CHANGE: rename the setting`,
+    "notice-format",
+  ],
+  [
+    "missing deprecation details",
+    `feat: replace the setting\n\n${body}\n\nDEPRECATED: retire the setting`,
+    "notice-format",
+  ],
   ["breaking header shorthand", `feat!: replace the setting\n\n${body}`, "header-format"],
-  ["automatic merge", "Merge branch 'main'\n\nmerge the latest upstream changes", "header-format"],
+  ["invalid scope", `fix(admin): update the widget\n\n${body}`, "scope-enum"],
   ["fixup bypass", `fixup! fix: update commit checks\n\n${body}`, "header-format"],
-  ["automatic revert bypass", `Revert \"add export\"\n\n${revertBody}`, "header-format"],
+  ["automatic revert bypass", `Revert "add export"\n\n${revertBody}`, "header-format"],
   ["missing revert target", `revert: undo changes\n\n${revertBody}`, "revert-format"],
   ["scoped revert", `revert(admin): feat(admin): add export\n\n${revertBody}`, "revert-format"],
   ["invalid revert type", `revert: chore: add export\n\n${revertBody}`, "revert-format"],
   ["uppercase revert target", `revert: feat: Add export\n\n${revertBody}`, "revert-format"],
   ["missing revert SHA", `revert: feat: add export\n\n${body}`, "revert-format"],
-  ["missing revert reason", `revert: feat: add export\n\nThis reverts commit ${sha}.`, "revert-format"],
+  [
+    "missing revert reason",
+    `revert: feat: add export\n\nThis reverts commit ${sha}.`,
+    "revert-format",
+  ],
 ];
 for (const [name, message, rule] of invalid) {
   test(`reject ${name}`, () => {
@@ -77,6 +95,11 @@ for (const [name, message, rule] of invalid) {
     assert.ok(result.stdout.includes(`[${rule}]`), result.stdout + result.stderr);
   });
 }
+
+test("ignore automatic merge messages", () => {
+  const result = lint("Merge branch 'main'\n\nmerge the latest upstream changes");
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+});
 
 test("--edit validates the file passed by the commit-msg hook", () => {
   const directory = mkdtempSync(join(tmpdir(), "obox-commitlint-"));

@@ -334,4 +334,4 @@ class ModelBuilder(Generic[T]):
         pass
 
 
-__all__ = ["API", "Form", "ModelBuilder", "View"]
+__all__ = ["API", "Form", "Inline", "ModelBuilder", "View"]

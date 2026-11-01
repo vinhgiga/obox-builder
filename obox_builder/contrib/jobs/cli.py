@@ -46,11 +46,10 @@ async def run(arguments: argparse.Namespace) -> None:
     project_root = str(Path.cwd().resolve())
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
-    settings_module = (
-        arguments.settings
-        or os.environ.get("OBOX_SETTINGS_MODULE")
-        or ("app.settings" if Path("app/settings.py").is_file() else "setting")
-    )
+    settings_module = arguments.settings or os.environ.get("OBOX_SETTINGS_MODULE")
+    if settings_module is None:
+        has_app_settings = await asyncio.to_thread(Path("app/settings.py").is_file)
+        settings_module = "app.settings" if has_app_settings else "setting"
     os.environ["OBOX_SETTINGS_MODULE"] = settings_module
     sessions = load_settings(settings_module).session_factory
     try:
@@ -66,11 +65,10 @@ async def _run(arguments: argparse.Namespace, sessions: async_sessionmaker[Async
     package, _, _ = settings_module.rpartition(".")
     task_module = f"{package}.jobs.tasks" if package else "tasks"
     task_path = Path(*task_module.split("."))
-    modules = arguments.module or (
-        [task_module]
-        if task_path.with_suffix(".py").is_file() or (task_path / "__init__.py").is_file()
-        else []
+    has_task_module = await asyncio.to_thread(
+        lambda: task_path.with_suffix(".py").is_file() or (task_path / "__init__.py").is_file()
     )
+    modules = arguments.module or ([task_module] if has_task_module else [])
     for module in modules:
         import_module(module)
     if arguments.action == "worker":

@@ -23,7 +23,7 @@
                   action="{{ auth.logout_url(request) }}">
               <span>{{ principal.username }}</span>
               <input type="hidden" name="csrf_token" value="{{ csrf }}">
-              <button>{% trans %}Sign out{% endtrans %}</button>
+              <button type="submit">{% trans %}Sign out{% endtrans %}</button>
             </form>
           {% endif %}
           {% if languages %}

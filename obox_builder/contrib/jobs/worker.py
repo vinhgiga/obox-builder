@@ -291,7 +291,7 @@ async def execute(
     except LeaseLost:
         logger.info("Task %s lost its lease; execution stopped.", task.id)
         return
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - task and database failures must settle the attempt.
         response = {"status": "FAILURE", "traceback": type(exc).__name__, "retryable": True}
     finally:
         execution.cancel()
@@ -358,7 +358,7 @@ class Worker:
             try:
                 if await self._run_once():
                     continue
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - keep the long-running worker alive.
                 logger.error("Background worker operation failed: %s.", type(exc).__name__)
             with suppress(asyncio.TimeoutError):
                 await asyncio.wait_for(self._stopping.wait(), timeout=self.poll_interval)
@@ -382,10 +382,10 @@ class Worker:
             )
 
 
-async def shutdown(worker: Worker, task: asyncio.Task[None], timeout: float = 30) -> None:
+async def shutdown(worker: Worker, task: asyncio.Task[None], grace_period: float = 30) -> None:
     worker.stop()
     try:
-        await asyncio.wait_for(asyncio.shield(task), timeout=timeout)
+        await asyncio.wait_for(asyncio.shield(task), timeout=grace_period)
     except TimeoutError:
         task.cancel()
         with suppress(asyncio.CancelledError):

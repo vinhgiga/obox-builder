@@ -52,7 +52,7 @@ async def execute(data: dict[str, Any]) -> dict[str, Any]:
         finally:
             _request.reset(token)
         return {"status": "SUCCESS", "result": result}
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - task callbacks may raise application exceptions.
         return {"status": "FAILURE", "traceback": error_trace(exc), "retryable": retryable}
 
 

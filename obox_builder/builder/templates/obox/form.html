@@ -64,7 +64,7 @@
           </thead>
           <tbody data-inline-rows>
             {% for row in inline['rows'] %}
-              <tr data-inline-row {% if row['delete'] %}style="opacity: 0.5"{% endif %}>
+              <tr data-inline-row {% if row['delete'] %}data-deleted="true"{% endif %}>
                 {% for field in row['fields'] %}
                   <td>{{ control(field, row['values'], row['errors'], row['prefix'], false, false) }}</td>
                 {% endfor %}
@@ -118,9 +118,11 @@
       </section>
     {% endfor %}
     <p class="submit-row">
-      <button name="_save">{% trans %}Save{% endtrans %}</button>
-      <button name="_addanother">{% trans %}Save and add another{% endtrans %}</button>
-      <button name="_continue">{% trans %}Save and continue editing{% endtrans %}</button>
+      <button type="submit" name="_save">{% trans %}Save{% endtrans %}</button>
+      <button type="submit"
+              name="_addanother">{% trans %}Save and add another{% endtrans %}</button>
+      <button type="submit"
+              name="_continue">{% trans %}Save and continue editing{% endtrans %}</button>
     </p>
   </form>
   <script src="{{ request.url_for('obox_static', path='inline.js') }}"></script>

@@ -193,7 +193,9 @@ class Obox(FastAPI):
         if not left.path or not right.path:
             return False
         if isinstance(right.original_route, Mount):
-            return left.path == right.path or left.path.startswith(right.path.rstrip("/") + "/")
+            return bool(
+                left.path == right.path or left.path.startswith(right.path.rstrip("/") + "/")
+            )
         if not set(left.methods or ()).intersection(right.methods or ()):
             return False
         if internal and left.path != right.path:
@@ -295,16 +297,16 @@ class Obox(FastAPI):
                                 "falling back to the raw key.",
                             )
                         )
-            for key in b.fields:
-                for fk in b.specs[key].column.foreign_keys:
-                    if self._for_table(fk.column.table) is None and key not in b.read_only_fields:
-                        diagnostics.append(
-                            Diagnostic(
-                                "warning",
-                                "relationship.unregistered",
-                                f"{item.slug}.{key}: selection is blocked; register its target.",
-                            )
-                        )
+            diagnostics.extend(
+                Diagnostic(
+                    "warning",
+                    "relationship.unregistered",
+                    f"{item.slug}.{key}: selection is blocked; register its target.",
+                )
+                for key in b.fields
+                for fk in b.specs[key].column.foreign_keys
+                if self._for_table(fk.column.table) is None and key not in b.read_only_fields
+            )
         if strict and any(d.level == "error" for d in diagnostics):
             raise ImproperlyConfigured(
                 "; ".join(d.message for d in diagnostics if d.level == "error")
