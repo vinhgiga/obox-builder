@@ -161,11 +161,11 @@ def test_list_displays_relation_label_and_keeps_api_raw() -> None:
         try:
             await seed(app)
             html = await get_html(app)
-            assert '<th scope="col">Parent</th>' in html
+            assert 'data-list-column="parent">Parent</th>' in html
             assert "Visible" in html
             assert "Hidden" in html
             assert "TOP-SECRET" not in html
-            assert 'name="filter.parent_id"' in html
+            assert '"name": "parent_id"' in html
 
             transport = httpx.ASGITransport(app=app)
             async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:

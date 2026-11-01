@@ -6,6 +6,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Request, Response
 
+from obox_builder.builder.filters import parse_filter
 from obox_builder.context import Context
 from obox_builder.errors import BuilderValidationError
 
@@ -16,14 +17,25 @@ def query_options(request: Request, builder: Any, *, pagination: bool) -> dict[s
     if pagination:
         permitted.update(("offset", "limit"))
     filters = {}
+    filter_ops = {}
+    filter_group = None
     for key in query:
-        if key.startswith("filter."):
+        if key == "filter":
+            filter_group = parse_filter(query[key])
+        elif key.startswith("filter."):
             filters[key[7:]] = query[key]
+        elif key.startswith("filter_op."):
+            filter_ops[key[10:]] = query[key]
         elif key not in permitted:
             raise BuilderValidationError({key: ["Unknown query parameter."]})
         if len(query.getlist(key)) > 1:
             raise BuilderValidationError({key: ["Supply this parameter once."]})
-    result: dict[str, Any] = {"filters": filters, "search": query.get("search")}
+    result: dict[str, Any] = {
+        "filters": filters,
+        "filter_ops": filter_ops,
+        "filter_group": filter_group,
+        "search": query.get("search"),
+    }
     if query.get("ordering"):
         result["ordering"] = tuple(query["ordering"].split(","))
     for name in ("offset", "limit"):

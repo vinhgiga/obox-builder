@@ -64,6 +64,42 @@
   .field-menu-empty { @apply m-0 px-2 py-1 text-xs text-slate-500; }
   .field-menu-actions { @apply flex gap-2 border-t border-slate-200 pt-2; }
   .field-menu-action { @apply flex-1 rounded border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-50; }
+  .filter-menu-panel { @apply w-[44rem] max-w-[calc(100vw-2rem)]; }
+  .filter-title { @apply m-0 text-sm font-semibold; }
+  .filter-subtitle { @apply my-2 text-xs text-slate-500; }
+  .filter-group-nested { @apply mt-2 border-l-2 border-slate-200 pl-3; }
+  .filter-group-row { @apply mt-2 flex items-start gap-2; }
+  .filter-group-row > .filter-group { @apply mt-0 min-w-0 flex-1; }
+  .filter-group-header { @apply mb-2 flex items-center justify-between gap-2; }
+  .filter-group-header .filter-group-heading { @apply mb-0; }
+  .filter-group-tools { @apply flex items-center gap-1; }
+  .filter-group-heading { @apply mt-0 mb-2 text-xs font-medium text-slate-500; }
+  .filter-add { @apply relative; }
+  button.filter-add-icon { @apply flex size-7 shrink-0 items-center justify-center rounded border-0 bg-transparent p-0 text-slate-500 hover:bg-slate-100 hover:text-slate-900; }
+  .filter-add-icon svg { @apply size-4; }
+  .filter-add-menu { @apply absolute right-0 z-20 mt-1 w-44 rounded border border-slate-200 bg-white p-1 shadow-lg; }
+  .filter-add-menu-item { @apply block w-full rounded border-0 bg-transparent px-2 py-1 text-left text-xs text-slate-700 hover:bg-slate-100; }
+  .filter-add-menu-item:disabled { @apply cursor-not-allowed text-slate-300 hover:bg-transparent; }
+  .filter-group-actions { @apply mt-1 flex flex-wrap items-center gap-2; }
+  .filter-condition { @apply m-0 flex flex-wrap items-center gap-2; }
+  .filter-condition + .filter-condition { @apply mt-2; }
+  .filter-join { @apply w-14 shrink-0 text-xs text-slate-500; }
+  .filter-join-static { @apply py-1; }
+  .filter-condition select.filter-join { @apply w-14 flex-none px-1; }
+  .filter-group-row select.filter-join { @apply w-14 flex-none px-1; }
+  .filter-condition select, .filter-condition input { @apply min-w-0 flex-1 px-2 py-1 text-sm; }
+  .filter-condition [data-filter-field] { @apply w-32 flex-none; }
+  .filter-condition [data-filter-op] { @apply w-36 flex-none; }
+  .filter-condition [data-filter-value-control] { @apply w-36 max-w-36 min-w-28 flex-1; }
+  button.filter-remove { @apply flex size-7 shrink-0 items-center justify-center rounded border-0 bg-transparent p-0 text-slate-400 hover:bg-slate-100 hover:text-red-700; }
+  .filter-remove svg { @apply size-4; }
+  button.filter-add { @apply mt-1 border-0 bg-transparent p-0 text-xs text-blue-700 hover:underline; }
+  .filter-add:disabled { @apply cursor-not-allowed text-slate-400 no-underline; }
+  .filter-actions { @apply mt-3 flex items-center gap-2 border-t border-slate-200 pt-2; }
+  .filter-apply { @apply rounded bg-blue-700 px-3 py-1 text-xs text-white; }
+  .filter-reset { @apply rounded border border-slate-300 bg-white px-3 py-1 text-xs text-slate-700 no-underline hover:bg-slate-50; }
+  .filter-empty { @apply m-0 px-2 py-1 text-xs text-slate-500; }
+  .filter-count { @apply rounded-full bg-slate-100 px-2 py-0.5 text-xs font-normal text-slate-600; }
   .grid-scroll { @apply min-h-0 flex-1 overflow-auto; }
   .record-grid { @apply w-max border-separate border-spacing-0 bg-white text-xs; }
   .record-grid th, .record-grid td { @apply h-8 min-w-44 max-w-72 truncate border-r border-b border-slate-200 px-3 py-1 font-normal; }

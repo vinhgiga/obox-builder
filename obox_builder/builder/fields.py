@@ -20,6 +20,11 @@ from obox_builder.errors import BuilderValidationError, ImproperlyConfigured
 
 FieldRefs = Iterable[Any]
 
+FILTER_EMPTY_OPERATORS = frozenset({"is_empty", "is_not_empty"})
+FILTER_OPERATORS = frozenset(
+    {"is", "is_not", "contains", "does_not_contain", *FILTER_EMPTY_OPERATORS}
+)
+
 
 @dataclass(frozen=True)
 class ModelField:

@@ -17,6 +17,8 @@ from fastapi.templating import Jinja2Templates
 from jinja2 import ChoiceLoader, Environment, FileSystemLoader, PackageLoader, select_autoescape
 
 from obox_builder.builder.api import query_options
+from obox_builder.builder.fields import FILTER_EMPTY_OPERATORS
+from obox_builder.builder.filters import FilterGroup, FilterTerm
 from obox_builder.builder.http import read_form
 from obox_builder.builder.service import invoke
 from obox_builder.conf import Settings
@@ -90,6 +92,52 @@ def list_columns(builder: Any, ctx: Context, requested: Sequence[str]) -> tuple[
         elif name in readable:
             columns.append(name)
     return tuple(columns)
+
+
+def filter_columns(builder: Any, ctx: Context, requested: Sequence[str]) -> list[dict[str, Any]]:
+    readable = set(builder.readable(ctx))
+    columns = []
+    for name in requested:
+        if name not in builder.filter_fields or name not in readable:
+            continue
+        column_type = builder.specs[name].column.type
+        choices: list[str] = []
+        if isinstance(column_type, sa.Enum):
+            kind, choices = "choice", list(column_type.enums)
+        elif isinstance(column_type, sa.Boolean):
+            kind = "boolean"
+        elif isinstance(column_type, sa.String):
+            kind = "text"
+        elif isinstance(column_type, (sa.Integer, sa.Numeric, sa.Float)):
+            kind = "number"
+        elif isinstance(column_type, sa.DateTime):
+            kind = "datetime"
+        elif isinstance(column_type, sa.Date):
+            kind = "date"
+        elif isinstance(column_type, sa.Time):
+            kind = "time"
+        else:
+            kind = "text"
+        columns.append(
+            {
+                "name": name,
+                "label": name.replace("_", " ").capitalize(),
+                "kind": kind,
+                "choices": choices,
+                "operators": (
+                    ["contains", "does_not_contain", "is", "is_not", "is_empty", "is_not_empty"]
+                    if kind == "text"
+                    else ["is", "is_not", "is_empty", "is_not_empty"]
+                ),
+            }
+        )
+    return columns
+
+
+def count_filter_terms(node: FilterGroup | FilterTerm) -> int:
+    if isinstance(node, FilterTerm):
+        return 1
+    return sum(count_filter_terms(child) for child in node.children)
 
 
 async def relation_labels(
@@ -545,9 +593,32 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
 
     async def list_records(request: Request, ctx: Context = dependency) -> HTMLResponse:
         options = query_options(request, builder, pagination=True)
+        filter_ops = options.get("filter_ops") or {}
+        requested = options["filters"]
         options["filters"] = {
-            key: value for key, value in options["filters"].items() if value != ""
+            key: value
+            for key, value in requested.items()
+            if value != "" or filter_ops.get(key) in FILTER_EMPTY_OPERATORS
         }
+        active = set(options["filters"])
+        options["filter_ops"] = {
+            key: value for key, value in filter_ops.items() if key in active or key not in requested
+        }
+        flat = tuple(
+            FilterTerm(key, options["filter_ops"].get(key) or "is", value)
+            for key, value in options["filters"].items()
+        )
+        tree = options.get("filter_group")
+        if tree is not None and not tree.children:
+            tree = None
+        if not flat:
+            display = tree or FilterGroup()
+        elif tree is None:
+            display = FilterGroup(children=flat)
+        elif tree.conjunction == "and":
+            display = FilterGroup(children=(*flat, *tree.children))
+        else:
+            display = FilterGroup(children=(*flat, tree))
         if builder.view.page_size is not None:
             options.setdefault("limit", builder.view.page_size)
         objects = await service.list(ctx=ctx, **options)
@@ -569,11 +640,8 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
         next_query = dict(request.query_params)
         if limit is not None:
             next_query.update(offset=str(offset + limit), limit=str(limit))
-        filters = tuple(
-            key
-            for key in builder.view.get_list_filter(ctx)
-            if key in builder.filter_fields and key in builder.readable(ctx)
-        )
+        filters = filter_columns(builder, ctx, builder.view.get_list_filter(ctx))
+        filter_config = {"fields": filters, "filter": display.to_dict()}
         return await page(
             builder.view.list_template,
             request,
@@ -586,6 +654,8 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
             operations=await allowed_operations(builder, ctx),
             search=any(key in builder.readable(ctx) for key in builder.search_fields),
             filters=filters,
+            filter_count=count_filter_terms(display),
+            filter_config=filter_config,
             sort_fields=tuple(key for key in builder.sort_fields if key in builder.readable(ctx)),
             query=request.query_params,
             next_url="?" + urlencode(next_query) if limit and len(objects) == limit else None,

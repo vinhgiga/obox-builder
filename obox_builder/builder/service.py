@@ -13,7 +13,13 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import with_parent
 from sqlalchemy.orm.exc import StaleDataError
 
-from obox_builder.builder.fields import schema, validate
+from obox_builder.builder.fields import (
+    FILTER_EMPTY_OPERATORS,
+    FILTER_OPERATORS,
+    schema,
+    validate,
+)
+from obox_builder.builder.filters import FilterGroup, FilterTerm
 from obox_builder.context import Context, DomainEvent
 from obox_builder.errors import (
     N_,
@@ -31,6 +37,51 @@ T = TypeVar("T")
 async def invoke(method: Any, *args: Any, **kwargs: Any) -> Any:
     result = method(*args, **kwargs)
     return await result if inspect.isawaitable(result) else result
+
+
+def _filter_condition(builder: Any, readable: set[str], field: str, op: str, value: Any) -> Any:
+    if field not in builder.filter_fields or field not in readable:
+        raise BuilderValidationError({field: ["Filtering this field is not permitted."]})
+    column = getattr(builder.model, field)
+    spec = builder.specs[field]
+    if op not in FILTER_OPERATORS:
+        raise BuilderValidationError({f"filter_op.{field}": ["Unknown filter operator."]})
+    if op in FILTER_EMPTY_OPERATORS:
+        empty = column.is_(None)
+        if isinstance(spec.column.type, sa.String):
+            empty = sa.or_(empty, column == "")
+        return empty if op == "is_empty" else sa.not_(empty)
+    parsed = validate(schema("Filter", builder.specs, (field,), partial=True), {field: value})
+    if op in {"contains", "does_not_contain"}:
+        if not isinstance(spec.column.type, sa.String):
+            raise BuilderValidationError(
+                {f"filter_op.{field}": ["This operator requires a text field."]}
+            )
+        match = column.icontains(parsed[field], autoescape=True)
+        if op == "does_not_contain":
+            match = sa.not_(match)
+            if spec.column.nullable:
+                match = sa.or_(column.is_(None), match)
+    else:
+        match = column == parsed[field]
+        if op == "is_not":
+            match = column != parsed[field]
+            if spec.column.nullable:
+                match = sa.or_(column.is_(None), match)
+    return match
+
+
+def _filter_tree(builder: Any, readable: set[str], node: FilterGroup | FilterTerm) -> Any | None:
+    if isinstance(node, FilterTerm):
+        return _filter_condition(builder, readable, node.field, node.op, node.value)
+    children = [
+        condition
+        for child in node.children
+        if (condition := _filter_tree(builder, readable, child)) is not None
+    ]
+    if not children:
+        return None
+    return (sa.and_ if node.conjunction == "and" else sa.or_)(*children)
 
 
 class ResourceService(Generic[T]):
@@ -60,6 +111,8 @@ class ResourceService(Generic[T]):
         *,
         ctx: Context,
         filters: Mapping[str, Any] | None = None,
+        filter_ops: Mapping[str, str] | None = None,
+        filter_group: FilterGroup | None = None,
         search: str | None = None,
         ordering: Sequence[str] | None = None,
         offset: int = 0,
@@ -77,11 +130,22 @@ class ResourceService(Generic[T]):
         if ctx.source == "api":
             readable.intersection_update(b.api_read)
         stmt = self._statement("list", ctx)
-        for key, value in (filters or {}).items():
-            if key not in b.filter_fields or key not in readable:
-                raise BuilderValidationError({key: ["Filtering this field is not permitted."]})
-            parsed = validate(schema("Filter", b.specs, (key,), partial=True), {key: value})
-            stmt = stmt.where(getattr(b.model, key) == parsed[key])
+        ops = filter_ops or {}
+        for key in ops:
+            if key not in (filters or {}):
+                raise BuilderValidationError(
+                    {f"filter_op.{key}": ["Filter operator has no value."]}
+                )
+        conditions = [
+            _filter_condition(b, readable, key, ops.get(key) or "is", value)
+            for key, value in (filters or {}).items()
+        ]
+        if filter_group is not None:
+            tree = _filter_tree(b, readable, filter_group)
+            if tree is not None:
+                conditions.append(tree)
+        if conditions:
+            stmt = stmt.where(sa.and_(*conditions))
         if search:
             names = tuple(key for key in b.search_fields if key in readable)
             if not names:

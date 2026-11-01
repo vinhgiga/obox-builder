@@ -13,13 +13,6 @@
             <input name="search" value="{{ query.get('search', '') }}">
           </label>
         {% endif %}
-        {% for field in filters %}
-          <label>
-            {{ field.replace('_', ' ').capitalize() }}
-            <input name="filter.{{ field }}"
-                   value="{{ query.get('filter.' ~ field, '') }}">
-          </label>
-        {% endfor %}
         {% if sort_fields %}
           <label>
             {% trans %}Sort{% endtrans %}
@@ -34,7 +27,39 @@
             </select>
           </label>
         {% endif %}
-        {% if search or filters or sort_fields %}<button>{% trans %}Apply{% endtrans %}</button>{% endif %}
+        {% if filters %}
+          <details class="field-menu filter-menu" data-filter-menu>
+            <summary>
+              <svg class="field-menu-icon"
+                   viewBox="0 0 24 24"
+                   fill="none"
+                   stroke="currentColor"
+                   stroke-width="1.5"
+                   aria-hidden="true">
+                <path d="M4 5h16l-6.5 7.5V19l-3 1.5v-8z" />
+              </svg>
+              {% trans %}Filter{% endtrans %}
+              <span class="filter-count"
+                    data-filter-count
+                    {% if not filter_count %}hidden{% endif %}>{{ filter_count }}</span>
+            </summary>
+            <div class="field-menu-panel filter-menu-panel">
+              <p class="filter-title">{% trans %}Filter{% endtrans %}</p>
+              <p class="filter-subtitle">{% trans %}In this view, show records{% endtrans %}</p>
+              <div class="filter-conditions" data-filter-conditions></div>
+              <div class="filter-actions">
+                <button class="filter-apply" type="submit">{% trans %}Apply{% endtrans %}</button>
+                <a class="filter-reset" href="{{ base }}">{% trans %}Reset{% endtrans %}</a>
+              </div>
+              <input type="hidden"
+                     name="filter"
+                     value="{{ filter_config.filter|tojson|forceescape }}"
+                     {% if not filter_count %}disabled{% endif %}
+                     data-filter-input>
+            </div>
+          </details>
+        {% endif %}
+        {% if not filters and (search or sort_fields) %}<button>{% trans %}Apply{% endtrans %}</button>{% endif %}
       </form>
       {% if list_display %}
         <details class="field-menu" data-field-menu>
@@ -143,6 +168,7 @@
     <span>{% trans count=rows|length %}{{ count }} record on this page{% pluralize %}{{ count }} records on this page{% endtrans %}</span>
     {% if next_url %}<a href="{{ next_url }}">{% trans %}Next page →{% endtrans %}</a>{% endif %}
   </footer>
+  <script type="application/json" data-list-filter-config>{{ filter_config|tojson }}</script>
 {% endblock %}
 {% block scripts %}
   <script src="{{ request.url_for('obox_static', path='list.js') }}"></script>
