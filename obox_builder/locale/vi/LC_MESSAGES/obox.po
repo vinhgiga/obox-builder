@@ -193,3 +193,21 @@ msgstr "Tên đăng nhập hoặc mật khẩu không đúng."
 #: obox_builder/contrib/auth/views.py:105
 msgid "Account"
 msgstr "Tài khoản"
+
+msgid "Row height"
+msgstr "Chiều cao dòng"
+
+msgid "Short"
+msgstr "Thấp"
+
+msgid "Medium"
+msgstr "Trung bình"
+
+msgid "Tall"
+msgstr "Cao"
+
+msgid "Extra Tall"
+msgstr "Rất cao"
+
+msgid "Wrap headers"
+msgstr "Xuống dòng tiêu đề"

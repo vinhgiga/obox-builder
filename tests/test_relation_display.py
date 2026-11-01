@@ -191,7 +191,8 @@ def test_relation_label_respects_target_scope() -> None:
             html = await get_html(app)
             assert "Visible" in html
             assert "Hidden" not in html
-            assert 'title="2">2</td>' in html
+            assert 'title="2"' in html
+            assert '<div class="cell-value">2</div>' in html
             assert "beta" in html
         finally:
             await engine.dispose()
@@ -236,7 +237,8 @@ def test_relation_without_label_field_falls_back_to_raw_key() -> None:
             html = await get_html(app)
             assert "Visible" not in html
             assert "TOP-SECRET" not in html
-            assert 'title="1">1</td>' in html
+            assert 'title="1"' in html
+            assert '<div class="cell-value">1</div>' in html
         finally:
             await engine.dispose()
 

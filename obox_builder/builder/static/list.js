@@ -36,6 +36,7 @@
       localStorage.setItem(
         storageKey,
         JSON.stringify({
+          ...readState(),
           hidden: toggles.filter((input) => !input.checked).map((input) => input.dataset.fieldToggle),
           order,
         }),
@@ -966,4 +967,69 @@
     sync();
   });
   sync();
+})();
+(() => {
+  const menu = document.querySelector("[data-row-height-panel]");
+  const table = document.querySelector("[data-list-table]");
+  if (!menu || !table) return;
+  const storageKey = `obox-list:${table.dataset.listKey || window.location.pathname}`;
+  const choices = [...menu.querySelectorAll("[data-row-height-choice]")];
+  const wrap = menu.querySelector("[data-wrap-headers]");
+
+  const readState = () => {
+    try {
+      const value = JSON.parse(localStorage.getItem(storageKey) || "null");
+      if (Array.isArray(value)) return { hidden: value, order: [] };
+      return value && typeof value === "object" ? value : {};
+    } catch {
+      return {};
+    }
+  };
+  const saveState = () => {
+    try {
+      localStorage.setItem(
+        storageKey,
+        JSON.stringify({
+          ...readState(),
+          rowHeight: table.dataset.rowHeight,
+          wrapHeaders: table.dataset.wrapHeaders === "true",
+        }),
+      );
+    } catch {
+      // Keep the controls usable when browser storage is unavailable.
+    }
+  };
+  const setHeight = (height) => {
+    if (!choices.some((button) => button.dataset.rowHeightChoice === height)) height = "medium";
+    table.dataset.rowHeight = height;
+    choices.forEach((button) => {
+      button.setAttribute("aria-pressed", String(button.dataset.rowHeightChoice === height));
+    });
+  };
+  const setWrapHeaders = (wrapHeaders) => {
+    table.dataset.wrapHeaders = String(wrapHeaders);
+    wrap?.setAttribute("aria-pressed", String(wrapHeaders));
+  };
+
+  const state = readState();
+  setHeight(state.rowHeight || "medium");
+  setWrapHeaders(state.wrapHeaders === true);
+  choices.forEach((button) => {
+    button.addEventListener("click", () => {
+      setHeight(button.dataset.rowHeightChoice);
+      saveState();
+    });
+  });
+  wrap?.addEventListener("click", () => {
+    setWrapHeaders(table.dataset.wrapHeaders !== "true");
+    saveState();
+  });
+  document.addEventListener("click", (event) => {
+    if (menu.open && !event.composedPath().includes(menu)) menu.open = false;
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || !menu.open) return;
+    menu.open = false;
+    menu.querySelector("summary")?.focus();
+  });
 })();

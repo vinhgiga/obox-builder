@@ -104,6 +104,17 @@ def test_list_display_controls_columns_and_order() -> None:
     assert "alpha" in html
 
 
+def test_list_exposes_row_height_controls() -> None:
+    html, _ = asyncio.run(get_list(OrderedBuilder))
+    assert 'data-row-height="medium"' in html
+    assert 'data-wrap-headers="false"' in html
+    for value in ("compact", "medium", "tall", "extra-tall"):
+        assert f'data-row-height-choice="{value}"' in html
+    for label in ("Short", "Medium", "Tall", "Extra Tall", "Wrap headers"):
+        assert label in html
+    assert '<div class="cell-value">live</div>' in html
+
+
 def test_get_list_display_overrides_configured_fields() -> None:
     html, _ = asyncio.run(get_list(DynamicBuilder))
     assert 'data-list-column="name">Name</th>' in html

@@ -221,13 +221,78 @@
           </div>
         </details>
       {% endif %}
+      <details class="field-menu row-height-menu" data-row-height-panel>
+        <summary>
+          <svg class="field-menu-icon"
+               viewBox="0 0 24 24"
+               fill="none"
+               stroke="currentColor"
+               stroke-width="1.5"
+               aria-hidden="true">
+            <path d="M6 4v16M3 7l3-3 3 3M3 17l3 3 3-3M13 6h8M13 12h8M13 18h8" />
+          </svg>
+          {% trans %}Row height{% endtrans %}
+        </summary>
+        <div class="field-menu-panel row-height-menu-panel">
+          <div class="row-height-options"
+               role="group"
+               aria-label="{% trans %}Row height{% endtrans %}">
+            {% for value, label, path in [
+              ('compact', 'Short', 'M3 6h11M3 12h11M3 18h11'),
+              ('medium', 'Medium', 'M3 3h11v6H3zM3 15h11M3 21h11'),
+              ('tall', 'Tall', 'M3 3h11v12H3zM3 21h11'),
+              ('extra-tall', 'Extra Tall', 'M3 3h11v18H3z')
+            ] %}
+              <button class="row-height-option"
+                      type="button"
+                      data-row-height-choice="{{ value }}"
+                      aria-pressed="{{ 'true' if value == 'medium' else 'false' }}">
+                <svg class="row-height-icon"
+                     viewBox="0 0 24 24"
+                     fill="none"
+                     stroke="currentColor"
+                     stroke-width="1.5"
+                     stroke-linecap="round"
+                     stroke-linejoin="round"
+                     aria-hidden="true">
+                  <path d="{{ path }}M20 4v16m-2-2 2 2 2-2M18 6l2-2 2 2" />
+                </svg>
+                <span>{{ _(label) }}</span>
+                <span class="row-height-check" aria-hidden="true">✓</span>
+              </button>
+            {% endfor %}
+          </div>
+          <div class="row-height-divider"></div>
+          <button class="row-height-option"
+                  type="button"
+                  data-wrap-headers
+                  aria-pressed="false">
+            <svg class="row-height-icon"
+                 viewBox="0 0 24 24"
+                 fill="none"
+                 stroke="currentColor"
+                 stroke-width="1.5"
+                 stroke-linecap="round"
+                 stroke-linejoin="round"
+                 aria-hidden="true">
+              <path d="M4 6h16M4 12h10a3 3 0 1 1 0 6H8m3-3-3 3 3 3M4 18h4" />
+            </svg>
+            <span>{% trans %}Wrap headers{% endtrans %}</span>
+            <span class="row-height-check" aria-hidden="true">✓</span>
+          </button>
+        </div>
+      </details>
     </div>
   </div>
   <div class="grid-scroll"
        role="region"
        aria-label="{{ title }} {{ _('records') }}"
        tabindex="0">
-    <table class="record-grid" data-list-table data-list-key="{{ base }}">
+    <table class="record-grid"
+           data-list-table
+           data-list-key="{{ base }}"
+           data-row-height="medium"
+           data-wrap-headers="false">
       <thead>
         <tr>
           <th scope="col"
@@ -262,7 +327,9 @@
             <td class="row-number">{{ query.get('offset', 0)|int + loop.index }}</td>
             {% for field in list_display %}
               <td data-list-column="{{ field }}"
-                  title="{{ row['values'].get(field, '') }}">{{ row['values'].get(field, '') }}</td>
+                  title="{{ row['values'].get(field, '') }}">
+                <div class="cell-value">{{ row['values'].get(field, '') }}</div>
+              </td>
             {% endfor %}
             <td>{% if row.detail %}<a href="{{ row.url }}">{% trans %}View{% endtrans %}</a>{% endif %}</td>
           </tr>

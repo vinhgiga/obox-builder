@@ -64,6 +64,15 @@
   .field-menu-empty { @apply m-0 px-2 py-1 text-xs text-slate-500; }
   .field-menu-actions { @apply flex gap-2 border-t border-slate-200 pt-2; }
   .field-menu-action { @apply flex-1 rounded border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-50; }
+  .row-height-menu-panel { @apply w-56; }
+  .row-height-options { @apply flex flex-col; }
+  button.row-height-option { @apply flex w-full items-center gap-2 rounded border-0 bg-transparent px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-100; }
+  .row-height-option > span:not(.row-height-check) { @apply flex-1; }
+  .row-height-icon { @apply size-4 shrink-0; }
+  .row-height-check { @apply text-blue-700; }
+  .row-height-option[aria-pressed="false"] .row-height-check { @apply invisible; }
+  .row-height-option[data-row-height-choice][aria-pressed="true"] { @apply bg-slate-100; }
+  .row-height-divider { @apply my-1 border-t border-slate-200; }
   .filter-menu-panel { @apply w-[44rem] max-w-[calc(100vw-2rem)]; }
   .filter-title { @apply m-0 text-sm font-semibold; }
   .filter-subtitle { @apply my-2 text-xs text-slate-500; }
@@ -132,9 +141,16 @@
   .group-value { @apply rounded-full bg-slate-200 px-2 py-0.5 text-xs font-medium text-slate-800; }
   .group-count { @apply text-xs text-slate-500; }
   .grid-scroll { @apply min-h-0 flex-1 overflow-auto; }
-  .record-grid { @apply w-max border-separate border-spacing-0 bg-white text-xs; }
+  .record-grid { --cell-lines: 2; --row-height: 3.5rem; @apply w-max border-separate border-spacing-0 bg-white text-xs; }
+  .record-grid[data-row-height="compact"] { --cell-lines: 1; --row-height: 2.5rem; }
+  .record-grid[data-row-height="tall"] { --cell-lines: 4; --row-height: 6rem; }
+  .record-grid[data-row-height="extra-tall"] { --cell-lines: 6; --row-height: 9rem; }
   .record-grid th, .record-grid td { @apply h-8 min-w-44 max-w-72 truncate border-r border-b border-slate-200 px-3 py-1 font-normal; }
   .record-grid th { @apply sticky top-0 z-10 bg-white; }
+  .record-grid td { vertical-align: top; }
+  .record-grid[data-wrap-headers="true"] th { white-space: normal; overflow-wrap: anywhere; }
+  .record-grid td[data-list-column] { height: var(--row-height); }
+  .record-grid .cell-value { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: var(--cell-lines); overflow: hidden; overflow-wrap: anywhere; white-space: pre-line; line-height: 1.25rem; }
   .record-grid tbody tr:hover { @apply bg-blue-50; }
   .record-grid .row-number { @apply w-12 min-w-12 text-center text-slate-500; }
   .grid-add { @apply block border-b border-slate-200 bg-white px-4 py-1 text-slate-500 hover:bg-slate-50 hover:no-underline; }
