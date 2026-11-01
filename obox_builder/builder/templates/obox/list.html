@@ -5,47 +5,117 @@
 {% block content %}
   <div class="grid-toolbar">
     <span class="shrink-0 font-semibold">▦ {% trans %}Grid view{% endtrans %}</span>
-    <form method="get" class="query-controls">
-      {% if search %}
-        <label>
-          {% trans %}Search{% endtrans %}
-          <input name="search" value="{{ query.get('search', '') }}">
-        </label>
+    <div class="grid-tools">
+      <form method="get" class="query-controls">
+        {% if search %}
+          <label>
+            {% trans %}Search{% endtrans %}
+            <input name="search" value="{{ query.get('search', '') }}">
+          </label>
+        {% endif %}
+        {% for field in filters %}
+          <label>
+            {{ field.replace('_', ' ').capitalize() }}
+            <input name="filter.{{ field }}"
+                   value="{{ query.get('filter.' ~ field, '') }}">
+          </label>
+        {% endfor %}
+        {% if sort_fields %}
+          <label>
+            {% trans %}Sort{% endtrans %}
+            <select name="ordering">
+              <option value="">{% trans %}Default{% endtrans %}</option>
+              {% for field in sort_fields %}
+                <option value="{{ field }}"
+                        {% if query.get('ordering') == field %}selected{% endif %}>{{ field }} ↑</option>
+                <option value="-{{ field }}"
+                        {% if query.get('ordering') == '-' ~ field %}selected{% endif %}>{{ field }} ↓</option>
+              {% endfor %}
+            </select>
+          </label>
+        {% endif %}
+        {% if search or filters or sort_fields %}<button>{% trans %}Apply{% endtrans %}</button>{% endif %}
+      </form>
+      {% if list_display %}
+        <details class="field-menu" data-field-menu>
+          <summary>
+            <svg class="field-menu-icon"
+                 viewBox="0 0 24 24"
+                 fill="none"
+                 stroke="currentColor"
+                 stroke-width="1.5"
+                 aria-hidden="true">
+              <path d="m3 3 18 18M10.6 10.7a2 2 0 0 0 2.7 2.7M9.9 5.2A9.7 9.7 0 0 1 12 5c5 0 9 4.5 9 7a11.8 11.8 0 0 1-2.2 2.6M6.6 6.6C4 8.2 3 10.2 3 12c0 2.5 4 7 9 7 1 0 2-.2 2.9-.5" />
+            </svg>
+            {% trans %}Hide fields{% endtrans %}
+          </summary>
+          <div class="field-menu-panel">
+            <label class="sr-only"
+                   for="field-menu-search">{% trans %}Find a field{% endtrans %}</label>
+            <input id="field-menu-search"
+                   type="search"
+                   placeholder="{% trans %}Find a field{% endtrans %}"
+                   autocomplete="off"
+                   data-field-search>
+            <div class="field-menu-list"
+                 role="group"
+                 aria-label="{% trans %}Fields{% endtrans %}">
+              {% for field in list_display %}
+                {% set label = field.replace('_', ' ').capitalize() %}
+                <div class="field-menu-option"
+                     data-field-option="{{ field }}"
+                     data-field-label="{{ label|lower }}">
+                  <label class="field-menu-toggle">
+                    <input type="checkbox" checked data-field-toggle="{{ field }}">
+                    <span>{{ label }}</span>
+                  </label>
+                  <button class="field-menu-handle"
+                          type="button"
+                          data-field-reorder="{{ field }}"
+                          aria-label="Reorder {{ label }}"
+                          aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
+                          title="Drag to reorder (Alt+Up/Down)">
+                    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                      <circle cx="9" cy="6" r="1.5" />
+                      <circle cx="15" cy="6" r="1.5" />
+                      <circle cx="9" cy="12" r="1.5" />
+                      <circle cx="15" cy="12" r="1.5" />
+                      <circle cx="9" cy="18" r="1.5" />
+                      <circle cx="15" cy="18" r="1.5" />
+                    </svg>
+                  </button>
+                </div>
+              {% endfor %}
+              <p class="field-menu-empty"
+                 hidden
+                 data-field-empty>{% trans %}No fields found.{% endtrans %}</p>
+            </div>
+            <div class="field-menu-actions">
+              <button class="field-menu-action"
+                      type="button"
+                      data-hide-all>{% trans %}Hide all{% endtrans %}</button>
+              <button class="field-menu-action"
+                      type="button"
+                      data-show-all>{% trans %}Show all{% endtrans %}</button>
+            </div>
+          </div>
+        </details>
       {% endif %}
-      {% for field in filters %}
-        <label>
-          {{ field.replace('_', ' ').capitalize() }}
-          <input name="filter.{{ field }}"
-                 value="{{ query.get('filter.' ~ field, '') }}">
-        </label>
-      {% endfor %}
-      {% if sort_fields %}
-        <label>
-          {% trans %}Sort{% endtrans %}
-          <select name="ordering">
-            <option value="">{% trans %}Default{% endtrans %}</option>
-            {% for field in sort_fields %}
-              <option value="{{ field }}"
-                      {% if query.get('ordering') == field %}selected{% endif %}>{{ field }} ↑</option>
-              <option value="-{{ field }}"
-                      {% if query.get('ordering') == '-' ~ field %}selected{% endif %}>{{ field }} ↓</option>
-            {% endfor %}
-          </select>
-        </label>
-      {% endif %}
-      {% if search or filters or sort_fields %}<button>{% trans %}Apply{% endtrans %}</button>{% endif %}
-    </form>
+    </div>
   </div>
   <div class="grid-scroll"
        role="region"
        aria-label="{{ title }} {{ _('records') }}"
        tabindex="0">
-    <table class="record-grid">
+    <table class="record-grid" data-list-table data-list-key="{{ base }}">
       <thead>
         <tr>
           <th scope="col"
               class="row-number"><span class="sr-only">{% trans %}Row{% endtrans %}</span>#</th>
-          {% for field in list_display %}<th scope="col">{{ field.replace('_', ' ').capitalize() }}</th>{% endfor %}
+          {% for field in list_display %}
+            <th scope="col"
+                data-list-column="{{ field }}">{{ field.replace('_', ' ').capitalize() }}</th>
+          {% endfor %}
           <th scope="col">{% trans %}Record{% endtrans %}</th>
         </tr>
       </thead>
@@ -54,7 +124,8 @@
           <tr>
             <td class="row-number">{{ query.get('offset', 0)|int + loop.index }}</td>
             {% for field in list_display %}
-              <td title="{{ row['values'].get(field, '') }}">{{ row['values'].get(field, '') }}</td>
+              <td data-list-column="{{ field }}"
+                  title="{{ row['values'].get(field, '') }}">{{ row['values'].get(field, '') }}</td>
             {% endfor %}
             <td>{% if row.detail %}<a href="{{ row.url }}">{% trans %}View{% endtrans %}</a>{% endif %}</td>
           </tr>
@@ -72,4 +143,7 @@
     <span>{% trans count=rows|length %}{{ count }} record on this page{% pluralize %}{{ count }} records on this page{% endtrans %}</span>
     {% if next_url %}<a href="{{ next_url }}">{% trans %}Next page →{% endtrans %}</a>{% endif %}
   </footer>
+{% endblock %}
+{% block scripts %}
+  <script src="{{ request.url_for('obox_static', path='list.js') }}"></script>
 {% endblock %}
