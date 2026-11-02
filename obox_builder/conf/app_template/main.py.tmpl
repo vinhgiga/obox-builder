@@ -1,29 +1,9 @@
-import os
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
-from importlib import import_module
-
+import setting
 from fastapi import FastAPI
 from obox_builder import Obox
 
-settings_module = os.environ.setdefault("OBOX_SETTINGS_MODULE", "setting")
-setting = import_module(settings_module)
-
-
-@asynccontextmanager
-async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-    try:
-        yield
-    finally:
-        await setting.engine.dispose()
-
-
-app = Obox(
-    settings=settings_module,
-    lifespan=lifespan,
-    title=setting.PROJECT_NAME,
-    debug=setting.DEBUG,
-)
+app = FastAPI(title=setting.PROJECT_NAME, debug=setting.DEBUG)
+obox = Obox(app, settings="setting")
 
 
 @app.get("/")

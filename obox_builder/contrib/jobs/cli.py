@@ -13,12 +13,13 @@ from pathlib import Path
 from typing import Any
 
 import sqlalchemy as sa
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from obox_builder.conf import load_settings
 from obox_builder.contrib.jobs.models import Task, TaskAttempt, utcnow
 from obox_builder.contrib.jobs.services import enqueue, retry, revoke
 from obox_builder.contrib.jobs.worker import Worker, shutdown
+from obox_builder.db import Database
 
 
 def add_parser(commands: Any) -> None:
@@ -46,18 +47,11 @@ async def run(arguments: argparse.Namespace) -> None:
     project_root = str(Path.cwd().resolve())
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
-    settings_module = arguments.settings or os.environ.get("OBOX_SETTINGS_MODULE")
-    if settings_module is None:
-        has_app_settings = await asyncio.to_thread(Path("app/settings.py").is_file)
-        settings_module = "app.settings" if has_app_settings else "setting"
+    settings_module = arguments.settings or os.environ.get("OBOX_SETTINGS_MODULE", "setting")
     os.environ["OBOX_SETTINGS_MODULE"] = settings_module
-    sessions = load_settings(settings_module).session_factory
-    try:
-        await _run(arguments, sessions)
-    finally:
-        bind = sessions.kw.get("bind")
-        if isinstance(bind, AsyncEngine):
-            await bind.dispose()
+    database = Database(load_settings(settings_module))
+    async with database.lifespan():
+        await _run(arguments, database.sessions)
 
 
 async def _run(arguments: argparse.Namespace, sessions: async_sessionmaker[AsyncSession]) -> None:

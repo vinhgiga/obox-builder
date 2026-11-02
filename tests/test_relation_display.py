@@ -4,7 +4,8 @@ from typing import Any
 import httpx
 import pytest
 import sqlalchemy as sa
-from obox_builder import ModelBuilder, Obox, Principal, View
+from fastapi import FastAPI
+from obox_builder import ModelBuilder, Obox, Principal, View, builder
 from obox_builder.auth import StaffOnly
 from obox_builder.conf import Settings
 from obox_builder.context import Context
@@ -39,39 +40,44 @@ class Child(Base):
 
 
 class ParentBuilder(ModelBuilder[Parent]):
+    model = Parent
     fields = ("name",)
-    label_field = "name"
+    label_field: str | None = "name"
     slug = "parents"
 
 
+class ChildListView(View):
+    list_display = ("parent", "name")
+
+
 class ChildBuilder(ModelBuilder[Child]):
-    fields = ("parent_id", "name")
+    model = Child
+    fields: tuple[str, ...] = ("parent_id", "name")
     filter_fields = ("parent_id",)
     ordering = ("parent_id", "id")
     slug = "children"
 
-    class View(View):
-        list_display = ("parent", "name")
+    View: type[builder.View] = ChildListView
 
 
-class ScopedParentPolicy(StaffOnly):
+class ScopedParentPolicy(StaffOnly[Parent]):
     def scope(self, action: str, ctx: Context) -> Any:
         return Parent.id != 2 if action == "retrieve" else sa.true()
 
 
-class ObjectDeniedParentPolicy(StaffOnly):
+class ObjectDeniedParentPolicy(StaffOnly[Parent]):
     async def allow(self, action: str, ctx: Context, *, obj: Any = None) -> bool:
         if obj is not None and obj.name == "Hidden":
             return False
         return await super().allow(action, ctx, obj=obj)
 
 
-class LabelDeniedParentPolicy(StaffOnly):
+class LabelDeniedParentPolicy(StaffOnly[Parent]):
     def read_fields(self, ctx: Context, *, obj: Any = None) -> frozenset[str] | None:
         return frozenset() if obj is not None else None
 
 
-class ChildNameOnlyPolicy(StaffOnly):
+class ChildNameOnlyPolicy(StaffOnly[Child]):
     def read_fields(self, ctx: Context, *, obj: Any = None) -> frozenset[str] | None:
         return frozenset({"name"}) if obj is not None else None
 
@@ -121,6 +127,7 @@ async def make_app(
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
     app = Obox(
+        FastAPI(),
         settings=Settings(
             session_factory=async_sessionmaker(engine, expire_on_commit=False),
             principal_dependency=lambda: STAFF,
@@ -128,8 +135,8 @@ async def make_app(
             csrf_secret="x" * 32,
         ),
     )
-    for model, builder in registrations:
-        app.register(model, builder=builder)
+    for _model, definition in registrations:
+        app.register(definition)
     return app, engine
 
 
@@ -148,7 +155,7 @@ async def seed(app: Obox) -> None:
 
 
 async def get_html(app: Obox) -> str:
-    transport = httpx.ASGITransport(app=app)
+    transport = httpx.ASGITransport(app=app.app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.get("/admin/children")
         assert response.status_code == 200
@@ -167,7 +174,7 @@ def test_list_displays_relation_label_and_keeps_api_raw() -> None:
             assert "TOP-SECRET" not in html
             assert '"name": "parent_id"' in html
 
-            transport = httpx.ASGITransport(app=app)
+            transport = httpx.ASGITransport(app=app.app)
             async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
                 response = await client.get("/api/children")
                 form = (await client.get("/admin/children/new")).text

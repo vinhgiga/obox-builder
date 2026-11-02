@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Sequence
 from functools import cache
 from gettext import NullTranslations
 from pathlib import Path
@@ -10,9 +10,11 @@ from typing import Any
 
 from babel import negotiate_locale
 from babel.support import Translations
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette._utils import get_route_path
 from starlette.requests import Request
-from starlette.responses import Response
+from starlette.responses import RedirectResponse
+from starlette.routing import BaseRoute, Match
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 LANGUAGES = {"en": "English", "vi": "Tiếng Việt"}
 DEFAULT_LANGUAGE = "en"
@@ -55,12 +57,16 @@ def translations(request: Request) -> NullTranslations:
 
 def _path_parts(request: Request, path: str) -> tuple[str, str]:
     root = request.scope.get("root_path", "")
-    return root, path[len(root) :] if root and path.startswith(root) else path
+    if root and (path == root or path.startswith(root + "/")):
+        path = path[len(root) :]
+    return root, path
 
 
-def localize(request: Request, path: str) -> str:
+def localize(request: Request, path: str, *, rooted: bool = False) -> str:
     """Prefix an application path with the current language."""
-    root, path = _path_parts(request, path)
+    root = request.scope.get("root_path", "")
+    if rooted:
+        _, path = _path_parts(request, path)
     return f"{root}/{resolve_language(request)}{path}"
 
 
@@ -70,7 +76,10 @@ def translate(request: Request, text: str, **values: Any) -> str:
 
 
 def language_url(request: Request, code: str) -> str:
-    root, path = _path_parts(request, request.scope.get("obox_path", request.url.path))
+    root = request.scope.get("root_path", "")
+    path = request.scope.get("obox_path")
+    if path is None:
+        _, path = _path_parts(request, request.url.path)
     query = request.url.query
     return f"{root}/{code}{path}" + (f"?{query}" if query else "")
 
@@ -88,18 +97,44 @@ def context(request: Request) -> dict[str, Any]:
     }
 
 
-class LanguageMiddleware(BaseHTTPMiddleware):
-    async def dispatch(
-        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
-    ) -> Response:
-        first, _, rest = request.scope["path"].removeprefix("/").partition("/")
-        if first in LANGUAGES:
-            language = first
-            request.scope["obox_path"] = "/" + rest if rest else "/"
-            request.scope["path"] = request.scope["obox_path"]
-            request.scope["raw_path"] = request.scope["path"].encode()
-        else:
-            language = negotiate(request.headers.get("accept-language", ""))
-            request.scope["obox_path"] = request.scope["path"]
-        request.state.language = language
-        return await call_next(request)
+class LanguageMiddleware:
+    def __init__(
+        self, app: ASGIApp, *, prefixes: Sequence[str], routes: Sequence[BaseRoute]
+    ) -> None:
+        self.app, self.prefixes, self.routes = app, prefixes, routes
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        path = get_route_path(scope)
+        first, _, rest = path.removeprefix("/").partition("/")
+        localized = first in LANGUAGES
+        target = "/" + rest if localized else path
+        if not any(target == p or target.startswith(p + "/") for p in self.prefixes):
+            await self.app(scope, receive, send)
+            return
+        scope = dict(scope)
+        root = scope.get("root_path", "")
+        target_scope = {**scope, "path": root + target}
+        if not any(route.matches(target_scope)[0] != Match.NONE for route in self.routes):
+            redirect_target = target.rstrip("/") if target.endswith("/") else target + "/"
+            target_scope["path"] = root + redirect_target
+            if localized and any(
+                route.matches(target_scope)[0] != Match.NONE for route in self.routes
+            ):
+                url = Request(scope).url.replace(path=f"{root}/{first}{redirect_target}")
+                await RedirectResponse(str(url))(scope, receive, send)
+                return
+            await self.app(scope, receive, send)
+            return
+        scope["state"] = dict(scope.get("state", {}))
+        request = Request(scope)
+        request.state.language = (
+            first if localized else negotiate(request.headers.get("accept-language", ""))
+        )
+        scope["obox_path"] = target
+        if localized:
+            scope["path"] = root + target
+            scope["raw_path"] = scope["path"].encode("utf-8")
+        await self.app(scope, receive, send)

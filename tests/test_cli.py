@@ -1,10 +1,17 @@
 from __future__ import annotations
 
+import asyncio
+import importlib.util
+from pathlib import Path
+
+import httpx
 import pytest
+from fastapi import FastAPI
+from obox_builder import cli
 from obox_builder.cli import main, startproject
 
 
-def test_startproject_creates_runnable_skeleton(tmp_path) -> None:
+def test_startproject_creates_runnable_skeleton(tmp_path: Path) -> None:
     project = startproject("demo", tmp_path / "demo")
 
     assert project == tmp_path / "demo"
@@ -26,11 +33,11 @@ def test_startproject_creates_runnable_skeleton(tmp_path) -> None:
     compile((project / "main.py").read_text(), str(project / "main.py"), "exec")
 
 
-def test_startproject_generates_a_unique_secret_per_project(tmp_path) -> None:
+def test_startproject_generates_a_unique_secret_per_project(tmp_path: Path) -> None:
     first = startproject("first", tmp_path / "first")
     second = startproject("second", tmp_path / "second")
 
-    def configured_secret(project) -> str:
+    def configured_secret(project: Path) -> str:
         line = next(
             line
             for line in (project / "setting.py").read_text().splitlines()
@@ -45,7 +52,7 @@ def test_startproject_generates_a_unique_secret_per_project(tmp_path) -> None:
 
 
 @pytest.mark.parametrize("name", ["bad-name", "class", "../demo"])
-def test_startproject_rejects_invalid_names(name: str, tmp_path) -> None:
+def test_startproject_rejects_invalid_names(name: str, tmp_path: Path) -> None:
     destination = tmp_path / "demo"
 
     with pytest.raises(ValueError, match="valid Python identifier"):
@@ -54,7 +61,7 @@ def test_startproject_rejects_invalid_names(name: str, tmp_path) -> None:
     assert not destination.exists()
 
 
-def test_startproject_refuses_to_overwrite_nonempty_directory(tmp_path) -> None:
+def test_startproject_refuses_to_overwrite_nonempty_directory(tmp_path: Path) -> None:
     destination = tmp_path / "demo"
     destination.mkdir()
     marker = destination / "keep.txt"
@@ -67,7 +74,9 @@ def test_startproject_refuses_to_overwrite_nonempty_directory(tmp_path) -> None:
     assert list(destination.iterdir()) == [marker]
 
 
-def test_startproject_command_defaults_to_named_directory(tmp_path, monkeypatch, capsys) -> None:
+def test_startproject_command_defaults_to_named_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     monkeypatch.chdir(tmp_path)
 
     assert main(["startproject", "demo"]) == 0
@@ -80,3 +89,56 @@ def test_startproject_command_defaults_to_named_directory(tmp_path, monkeypatch,
         "main.py",
         "setting.py",
     }
+
+
+def test_generated_project_runs_with_plain_fastapi(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import sys
+
+    project = startproject("generated", tmp_path / "generated")
+    monkeypatch.delenv("OBOX_DATABASE_URL", raising=False)
+    spec = importlib.util.spec_from_file_location("setting", project / "setting.py")
+    assert spec is not None
+    assert spec.loader is not None
+    setting = importlib.util.module_from_spec(spec)
+    monkeypatch.setitem(sys.modules, "setting", setting)
+    spec.loader.exec_module(setting)
+    main_spec = importlib.util.spec_from_file_location("generated_main", project / "main.py")
+    assert main_spec is not None
+    assert main_spec.loader is not None
+    module = importlib.util.module_from_spec(main_spec)
+    main_spec.loader.exec_module(module)
+    assert type(module.app) is FastAPI
+    assert module.app.state.obox is module.obox
+
+    async def scenario() -> None:
+        async with (
+            module.app.router.lifespan_context(module.app),
+            httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=module.app), base_url="http://test"
+            ) as client,
+        ):
+            response = await client.get("/")
+            assert response.json() == {"message": "Welcome to generated"}
+            assert (await client.get("/auth/login")).status_code == 404
+        assert module.obox.database.engine is None
+        assert not (project / "db.sqlite3").exists()
+
+    asyncio.run(scenario())
+
+
+def test_generation_failure_preserves_existing_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    templates = tmp_path / "templates"
+    (templates / "app_template").mkdir(parents=True)
+    (templates / "app_template" / "editorconfig.tmpl").write_text("root = true\n")
+    monkeypatch.setattr(cli, "files", lambda _: templates)
+    project = tmp_path / "existing"
+    project.mkdir()
+    (project / "keep.txt").write_text("keep")
+    with pytest.raises(SystemExit):
+        main(["startproject", str(project)])
+    assert {p.name for p in project.iterdir()} == {"keep.txt"}
+    assert (project / "keep.txt").read_text() == "keep"

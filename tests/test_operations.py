@@ -4,6 +4,7 @@ from typing import Any
 import httpx
 import pytest
 import sqlalchemy as sa
+from fastapi import FastAPI
 from obox_builder import API, ModelBuilder, Obox, Principal, View
 from obox_builder.auth import StaffOnly
 from obox_builder.builder.ui import allowed_operations
@@ -34,6 +35,7 @@ class NoCreateView(View):
 
 
 class NoCreateBuilder(ModelBuilder[Widget]):
+    model = Widget
     View = NoCreateView
 
 
@@ -42,6 +44,7 @@ class ReadOnlyAPI(API):
 
 
 class ReadOnlyAPIBuilder(ModelBuilder[Widget]):
+    model = Widget
     API = ReadOnlyAPI
 
 
@@ -55,6 +58,7 @@ async def make_app(
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
     app = Obox(
+        FastAPI(),
         settings=Settings(
             session_factory=async_sessionmaker(engine, expire_on_commit=False),
             principal_dependency=lambda: principal,
@@ -62,7 +66,7 @@ async def make_app(
             csrf_secret="x" * 32,
         ),
     )
-    app.register(Widget, builder=builder)
+    app.register(builder)
     return app, engine
 
 
@@ -70,6 +74,7 @@ def compile_error(builder: type[ModelBuilder[Widget]]) -> str:
     async def scenario() -> str:
         engine = create_async_engine("sqlite+aiosqlite://", poolclass=StaticPool)
         app = Obox(
+            FastAPI(),
             settings=Settings(
                 session_factory=async_sessionmaker(engine, expire_on_commit=False),
                 principal_dependency=lambda: None,
@@ -79,7 +84,7 @@ def compile_error(builder: type[ModelBuilder[Widget]]) -> str:
         )
         try:
             with pytest.raises(ImproperlyConfigured) as error:
-                app.register(Widget, builder=builder)
+                app.register(builder)
             return str(error.value)
         finally:
             await engine.dispose()
@@ -96,7 +101,7 @@ def test_view_get_operations_controls_rendered_operations() -> None:
                 assert await allowed_operations(builder, ctx) == ()
             async with app.uow(principal=STAFF) as ctx:
                 widget_id = (await app.service(Widget).create({"name": "alpha"}, ctx=ctx)).id
-            transport = httpx.ASGITransport(app=app)
+            transport = httpx.ASGITransport(app=app.app)
             async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
                 list_response = await client.get("/admin/widgets")
                 detail_response = await client.get(f"/admin/widgets/{widget_id}")
@@ -116,7 +121,7 @@ def test_api_operations_control_registered_routes() -> None:
         builder = app.get_builder(Widget)
         try:
             assert builder.api.operations == ("list", "retrieve")
-            transport = httpx.ASGITransport(app=app)
+            transport = httpx.ASGITransport(app=app.app)
             async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
                 listed = await client.get("/api/widgets")
                 created = await client.post("/api/widgets", json={"name": "alpha"})
@@ -145,7 +150,7 @@ def test_unknown_or_duplicate_operations_are_rejected(
     builder = type(
         "TestBuilder",
         (ModelBuilder,),
-        {"View" if surface is View else "API": configured},
+        {"model": Widget, "View" if surface is View else "API": configured},
     )
     assert compile_error(builder) == "Unknown or duplicate surface operations."
 

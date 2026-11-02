@@ -3,7 +3,8 @@ from typing import Any
 
 import httpx
 import sqlalchemy as sa
-from obox_builder import Obox, Principal
+from fastapi import FastAPI
+from obox_builder import ModelBuilder, Obox, Principal
 from obox_builder.auth import StaffOnly
 from obox_builder.conf import Settings
 from obox_builder.contrib.auth import Auth
@@ -21,6 +22,10 @@ class Widget(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(sa.String(50))
+
+
+class WidgetBuilder(ModelBuilder[Widget]):
+    model = Widget
 
 
 STAFF = Principal(id=1, is_authenticated=True, is_staff=True)
@@ -50,6 +55,7 @@ async def make_app(*, principal: Principal | None = STAFF, auth: bool = False) -
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
     app = Obox(
+        FastAPI(),
         settings=Settings(
             session_factory=async_sessionmaker(engine, expire_on_commit=False),
             principal_dependency=lambda: principal,
@@ -59,7 +65,7 @@ async def make_app(*, principal: Principal | None = STAFF, auth: bool = False) -
     )
     if auth:
         Auth(backend=AnonymousBackend(), secure=False).install(app)
-    app.register(Widget)
+    app.register(WidgetBuilder)
     return app, engine
 
 
@@ -78,7 +84,7 @@ async def get(
                 session.add_all(Widget(name=f"Widget {index}") for index in range(records))
                 await session.commit()
         async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app),
+            transport=httpx.ASGITransport(app=app.app),
             base_url="http://test",
             follow_redirects=True,
         ) as client:
@@ -93,7 +99,7 @@ async def post(
     app, engine = await make_app(principal=principal)
     try:
         async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app),
+            transport=httpx.ASGITransport(app=app.app),
             base_url="http://test",
             follow_redirects=True,
         ) as client:

@@ -5,6 +5,7 @@ from typing import Any
 
 import httpx
 import sqlalchemy as sa
+from fastapi import FastAPI
 from obox_builder import ModelBuilder, Obox, Principal, View
 from obox_builder.auth import StaffOnly
 from obox_builder.conf import Settings
@@ -30,6 +31,7 @@ class OrderedView(View):
 
 
 class OrderedBuilder(ModelBuilder[Widget]):
+    model = Widget
     View = OrderedView
 
 
@@ -41,6 +43,7 @@ class DynamicView(View):
 
 
 class DynamicBuilder(ModelBuilder[Widget]):
+    model = Widget
     View = DynamicView
 
 
@@ -50,6 +53,7 @@ class FilterView(View):
 
 
 class FilterBuilder(ModelBuilder[Widget]):
+    model = Widget
     View = FilterView
     filter_fields = ("status",)
 
@@ -60,10 +64,12 @@ class GroupedView(View):
 
 
 class GroupedBuilder(ModelBuilder[Widget]):
+    model = Widget
     View = GroupedView
 
 
 class SearchBuilder(ModelBuilder[Widget]):
+    model = Widget
     search_fields = ("name",)
 
 
@@ -75,6 +81,7 @@ async def make_app(builder: type[ModelBuilder[Widget]]) -> tuple[Obox, Any]:
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
     app = Obox(
+        FastAPI(),
         settings=Settings(
             session_factory=async_sessionmaker(engine, expire_on_commit=False),
             principal_dependency=lambda: STAFF,
@@ -82,7 +89,7 @@ async def make_app(builder: type[ModelBuilder[Widget]]) -> tuple[Obox, Any]:
             csrf_secret="x" * 32,
         ),
     )
-    app.register(Widget, builder=builder)
+    app.register(builder)
     return app, engine
 
 
@@ -91,7 +98,7 @@ async def get_list(builder: type[ModelBuilder[Widget]]) -> tuple[str, Any]:
     try:
         async with app.uow(principal=STAFF) as ctx:
             await app.service(Widget).create({"name": "alpha", "status": "live"}, ctx=ctx)
-        transport = httpx.ASGITransport(app=app)
+        transport = httpx.ASGITransport(app=app.app)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.get("/admin/widgets")
         return response.text, app.get_builder(Widget)
@@ -113,7 +120,7 @@ def test_form_actions_explicitly_submit() -> None:
     async def run() -> None:
         app, engine = await make_app(OrderedBuilder)
         try:
-            transport = httpx.ASGITransport(app=app)
+            transport = httpx.ASGITransport(app=app.app)
             async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
                 response = await client.get("/admin/widgets/new")
             assert response.status_code == 200
@@ -183,7 +190,7 @@ def test_list_filter_groups_match_nested_conditions() -> None:
                     },
                 ],
             }
-            transport = httpx.ASGITransport(app=app)
+            transport = httpx.ASGITransport(app=app.app)
             async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
                 response = await client.get("/api/widgets", params={"filter": json.dumps(tree)})
                 page = await client.get("/admin/widgets", params={"filter": json.dumps(tree)})
@@ -205,7 +212,7 @@ def test_list_sorts_by_multiple_fields_and_exposes_sort_config() -> None:
             async with app.uow(principal=STAFF) as ctx:
                 for name, status in (("beta", "live"), ("alpha", "live"), ("gamma", "draft")):
                     await app.service(Widget).create({"name": name, "status": status}, ctx=ctx)
-            transport = httpx.ASGITransport(app=app)
+            transport = httpx.ASGITransport(app=app.app)
             async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
                 response = await client.get("/admin/widgets", params={"ordering": "status,-name"})
             html = response.text
@@ -245,7 +252,7 @@ def test_list_groups_nested_rows_with_cross_page_counts() -> None:
                     prefixes=[("draft",), ("draft", "delta")],
                 )
                 assert counts == {("draft",): 2, ("draft", "delta"): 1}
-            transport = httpx.ASGITransport(app=app)
+            transport = httpx.ASGITransport(app=app.app)
             async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
                 first = await client.get("/admin/widgets", params={"group": "status,name"})
                 second = await client.get("/admin/widgets", params={"group": "status", "offset": 2})
@@ -274,7 +281,7 @@ def test_list_filter_rejects_invalid_groups() -> None:
     async def run() -> None:
         app, engine = await make_app(FilterBuilder)
         try:
-            transport = httpx.ASGITransport(app=app)
+            transport = httpx.ASGITransport(app=app.app)
             async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
                 for raw in (
                     "{",

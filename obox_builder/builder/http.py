@@ -2,10 +2,24 @@
 
 from urllib.parse import parse_qsl
 
+from fastapi.exceptions import RequestValidationError
+from fastapi.routing import APIRoute
 from starlette.datastructures import FormData
+from starlette.middleware.exceptions import ExceptionMiddleware
 from starlette.requests import Request
+from starlette.types import Receive, Scope, Send
 
-from obox_builder.errors import BuilderValidationError
+from obox_builder.errors import BuilderValidationError, OboxError
+
+
+class OboxRoute(APIRoute):
+    async def handle(self, scope: Scope, receive: Receive, send: Send) -> None:
+        obox = scope["app"].state.obox
+        middleware = ExceptionMiddleware(
+            super().handle,
+            handlers={OboxError: obox._problem, RequestValidationError: obox._validation_problem},
+        )
+        await middleware(dict(scope), receive, send)
 
 
 async def read_form(request: Request) -> FormData:

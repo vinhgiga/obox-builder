@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import RedirectResponse
 
-from obox_builder.builder.http import read_form
+from obox_builder.builder.http import OboxRoute, read_form
 from obox_builder.builder.service import invoke
 from obox_builder.errors import N_, PermissionDenied
 from obox_builder.i18n import context as translation_context
@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
 
 def router(app: Obox, auth: Auth) -> APIRouter:
-    routes = APIRouter(prefix=auth.prefix)
+    routes = APIRouter(prefix=auth.prefix, route_class=OboxRoute)
 
     async def login(request: Request) -> Response:
         anonymous = auth.anonymous()
@@ -57,7 +57,7 @@ def router(app: Obox, auth: Auth) -> APIRouter:
             context={
                 **translation_context(request),
                 "title": translate(request, "Sign in"),
-                "site_title": app.title,
+                "site_title": app.app.title,
                 "base_template": app.settings.base_template,
                 "navigation": [],
                 "error": error,
@@ -94,6 +94,7 @@ def router(app: Obox, auth: Auth) -> APIRouter:
                         localize(
                             request,
                             str(request.url_for(f"obox_ui_{builder.slug}_list").path),
+                            rooted=True,
                         ),
                         status_code=303,
                     )
@@ -103,7 +104,7 @@ def router(app: Obox, auth: Auth) -> APIRouter:
             context={
                 **translation_context(request),
                 "title": translate(request, "Account"),
-                "site_title": app.title,
+                "site_title": app.app.title,
                 "base_template": app.settings.base_template,
                 "navigation": [],
                 "auth": auth,

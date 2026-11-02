@@ -19,7 +19,7 @@ from jinja2 import ChoiceLoader, Environment, FileSystemLoader, PackageLoader, s
 from obox_builder.builder.api import query_options
 from obox_builder.builder.fields import FILTER_EMPTY_OPERATORS
 from obox_builder.builder.filters import FilterGroup, FilterTerm
-from obox_builder.builder.http import read_form
+from obox_builder.builder.http import OboxRoute, read_form
 from obox_builder.builder.service import invoke
 from obox_builder.conf import Settings
 from obox_builder.context import Context
@@ -437,7 +437,7 @@ async def inline_fields(
 
 
 def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
-    router = APIRouter()
+    router = APIRouter(route_class=OboxRoute)
     path = f"{app.settings.ui_prefix}/{builder.slug}"
     dependency = Depends(app.context_dependency("ui"), scope="function")
 
@@ -461,7 +461,9 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
                     {
                         "label": target.model.__name__,
                         "url": localize(
-                            request, str(request.url_for(f"obox_ui_{target.slug}_list").path)
+                            request,
+                            str(request.url_for(f"obox_ui_{target.slug}_list").path),
+                            rooted=True,
                         ),
                         "active": target is builder,
                     }
@@ -476,10 +478,10 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
                     **context,
                     "request": request,
                     "navigation": navigation,
-                    "site_title": app.title,
+                    "site_title": app.app.title,
                     "base_template": app.settings.base_template,
                     "principal": ctx.principal,
-                    "auth": getattr(app.state, "obox_auth", None),
+                    "auth": app.auth,
                     "csrf": app.csrf.token(request, ctx.principal),
                     **translation_context(request),
                 },

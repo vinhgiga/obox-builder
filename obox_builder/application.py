@@ -1,4 +1,4 @@
-"""Native FastAPI application, registration and transaction ownership."""
+"""FastAPI integration, builder registration and transaction ownership."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any, Generic, TypeVar
 
-from fastapi import Depends, FastAPI, Request
+from fastapi import APIRouter, Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.routing import iter_route_contexts
@@ -16,13 +16,14 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import event
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm.exc import StaleDataError
-from starlette.routing import Mount
+from starlette.routing import BaseRoute, Mount
 
 from obox_builder.auth import Policy
 from obox_builder.builder import ModelBuilder
 from obox_builder.builder.service import ResourceService, invoke
 from obox_builder.conf import Settings, load_settings
 from obox_builder.context import Context
+from obox_builder.db import Database
 from obox_builder.errors import (
     BuilderValidationError,
     ImproperlyConfigured,
@@ -30,7 +31,7 @@ from obox_builder.errors import (
     OboxError,
     ResourceConflict,
 )
-from obox_builder.i18n import LanguageMiddleware
+from obox_builder.i18n import LANGUAGES, LanguageMiddleware
 
 T = TypeVar("T")
 logger = logging.getLogger(__name__)
@@ -60,56 +61,65 @@ def _overlap(left: str, right: str) -> bool:
     )
 
 
-class Obox(FastAPI):
+class Obox:
     def __init__(
         self,
+        app: FastAPI,
         *,
         settings: Settings | str | None = None,
-        **fastapi_kwargs: Any,
     ) -> None:
         from obox_builder.builder.csrf import CSRF
         from obox_builder.builder.ui import create_templates
 
+        if getattr(app.state, "obox", None) is not None:
+            raise ImproperlyConfigured("Obox is already installed on this application.")
+        if app.middleware_stack is not None:
+            raise ImproperlyConfigured("Install Obox before the application starts.")
+        self.app = app
         self.settings = load_settings(settings)
+        self.database = Database(self.settings)
+        self.session_factory = self.database.sessions
+        self.auth: Any = None
+        self.ui_prefixes = [self.settings.ui_prefix]
+        self._ui_routes: list[BaseRoute] = []
         self._registrations: dict[type[Any], Registration[Any]] = {}
         self._generated: dict[Callable[..., Any] | None, type[Any]] = {}
+        self._owned_routes: set[int] = set()
         self._frozen = False
         self.csrf = CSRF(self.settings.csrf_secret)
         self.templates = create_templates(self.settings)
-        user_lifespan = fastapi_kwargs.pop("lifespan", None)
-        fastapi_kwargs.setdefault("version", "0.4.0")
+        original_lifespan = app.router.lifespan_context
 
         @asynccontextmanager
         async def lifespan(app: FastAPI) -> AsyncIterator[Any]:
             self.check(strict=True)
             self._frozen = True
-            async with original_lifespan(app) as state:
+            async with self.database.lifespan(), original_lifespan(app) as state:
                 self.check(strict=True)
                 yield state
 
-        super().__init__(lifespan=user_lifespan, **fastapi_kwargs)
-        original_lifespan = self.router.lifespan_context
-        self.router.lifespan_context = lifespan
-        self.add_middleware(LanguageMiddleware)
-        self.add_exception_handler(OboxError, self._problem)
-        self.add_exception_handler(RequestValidationError, self._validation_problem)
-        self.mount(
+        app.router.lifespan_context = lifespan
+        app.add_middleware(LanguageMiddleware, prefixes=self.ui_prefixes, routes=self._ui_routes)
+        app.mount(
             f"{self.settings.ui_prefix}/_static",
             StaticFiles(packages=[("obox_builder.builder", "static")]),
             name="obox_static",
         )
+        self._owned_routes.add(id(app.routes[-1]))
+        self._ui_routes.append(app.routes[-1])
+        app.state.obox = self
 
     @staticmethod
     async def _problem(request: Request, exc: Exception) -> JSONResponse | RedirectResponse:
         if (
             isinstance(exc, NotAuthenticated)
             and request.method == "GET"
-            and getattr(request.app.state, "obox_auth", None) is not None
-            and request.url.path.removeprefix(request.scope.get("root_path", "")).startswith(
-                request.app.settings.ui_prefix + "/"
+            and request.app.state.obox.auth is not None
+            and request.scope.get("obox_path", "").startswith(
+                request.app.state.obox.settings.ui_prefix + "/"
             )
         ):
-            return RedirectResponse(request.app.state.obox_auth.login_url(request), status_code=303)
+            return RedirectResponse(request.app.state.obox.auth.login_url(request), status_code=303)
         error = exc if isinstance(exc, OboxError) else OboxError(str(exc))
         body: dict[str, Any] = {
             "type": "about:blank",
@@ -137,27 +147,24 @@ class Obox(FastAPI):
             media_type="application/problem+json",
         )
 
-    def register(
-        self, model: type[T], *, builder: type[ModelBuilder[T]] | None = None
-    ) -> Registration[T]:
+    def register(self, builder: type[ModelBuilder[T]]) -> Registration[T]:
         from obox_builder.builder.api import build_api
         from obox_builder.builder.ui import build_ui
 
         if self._frozen:
             raise ImproperlyConfigured("Registration is frozen after application startup.")
-        if not isinstance(model, type):
-            raise ImproperlyConfigured("Register a SQLAlchemy mapped class.")
-        if builder is not None and (
-            not isinstance(builder, type) or not issubclass(builder, ModelBuilder)
-        ):
-            raise ImproperlyConfigured("builder must be a ModelBuilder subclass.")
+        if not isinstance(builder, type) or not issubclass(builder, ModelBuilder):
+            raise ImproperlyConfigured("Register a ModelBuilder subclass with a model.")
+        definition = builder()
+        model = definition.model
+        if model is None:
+            raise ImproperlyConfigured("Builder.model must be a SQLAlchemy mapped class.")
         if not callable(self.settings.principal_dependency) or not isinstance(
             self.settings.default_policy, Policy
         ):
             raise ImproperlyConfigured("Registration requires authentication and a default policy.")
         if model in self._registrations:
             raise ImproperlyConfigured("This model is already registered.")
-        definition = (builder or ModelBuilder)()
         definition._compile(model, self.settings.default_policy, self)
         if definition.slug is None:
             raise ImproperlyConfigured("The compiled builder has no slug.")
@@ -166,7 +173,7 @@ class Obox(FastAPI):
         service = ResourceService[T](definition, self)
         routers = (build_api(self, definition, service), build_ui(self, definition, service))
         candidates = [route for router in routers for route in iter_route_contexts(router.routes)]
-        existing = list(iter_route_contexts(self.routes))
+        existing = list(iter_route_contexts(self.app.routes))
         for i, candidate in enumerate(candidates):
             for other in (*existing, *candidates[:i]):
                 if self._conflict(candidate, other, internal=other in candidates[:i]):
@@ -182,26 +189,41 @@ class Obox(FastAPI):
         for route in candidates:
             self._generated[route.endpoint] = model
         for router in routers:
-            self.include_router(router)
-        self.openapi_schema = None
+            self.include_router(router, ui=router is routers[1])
+        self.app.openapi_schema = None
         return registration
 
+    def include_router(self, router: APIRouter, *, ui: bool = False) -> None:
+        if self._frozen:
+            raise ImproperlyConfigured("Registration is frozen after application startup.")
+        self.app.include_router(router)
+        self._owned_routes.update(id(r.original_route) for r in iter_route_contexts(router.routes))
+        if ui:
+            self._ui_routes.extend(r.original_route for r in iter_route_contexts(router.routes))
+
     @staticmethod
-    def _conflict(left: Any, right: Any, *, internal: bool = False) -> bool:
-        if left.name and left.name == right.name:
+    def _conflict(
+        left: Any, right: Any, *, internal: bool = False, path: str | None = None
+    ) -> bool:
+        if path is None and left.name and left.name == right.name:
             return True
-        if not left.path or not right.path:
+        left_path = left.path if path is None else path
+        if not left_path or not right.path:
             return False
         if isinstance(right.original_route, Mount):
             return bool(
-                left.path == right.path or left.path.startswith(right.path.rstrip("/") + "/")
+                left_path == right.path or left_path.startswith(right.path.rstrip("/") + "/")
+            )
+        if isinstance(left.original_route, Mount):
+            return bool(
+                right.path == left_path or right.path.startswith(left_path.rstrip("/") + "/")
             )
         if not set(left.methods or ()).intersection(right.methods or ()):
             return False
-        if internal and left.path != right.path:
+        if internal and left_path != right.path:
             # Generated /new precedes /{id}; both are intentional within one resource.
             return False
-        return _overlap(left.path, right.path)
+        return _overlap(left_path, right.path)
 
     def get_builder(self, model: type[T]) -> ModelBuilder[T]:
         return self._registrations[model].builder
@@ -225,20 +247,32 @@ class Obox(FastAPI):
         from obox_builder.auth import Policy
 
         diagnostics = []
-        routes = list(iter_route_contexts(self.routes))
+        routes = list(iter_route_contexts(self.app.routes))
         for i, route in enumerate(routes):
             for other in routes[:i]:
                 model = self._generated.get(route.endpoint)
                 other_model = self._generated.get(other.endpoint)
-                if model is None and other_model is None:
+                if not any(id(r.original_route) in self._owned_routes for r in (route, other)):
                     continue
                 internal = model is not None and model is other_model
-                if self._conflict(route, other, internal=internal) or (
-                    isinstance(route.original_route, Mount) and self._conflict(other, route)
-                ):
+                if self._conflict(route, other, internal=internal):
                     diagnostics.append(
                         Diagnostic("error", "route.conflict", f"Route conflict: {route.path}.")
                     )
+                for owned, host in ((route, other), (other, route)):
+                    if id(owned.original_route) not in self._owned_routes or not owned.path:
+                        continue
+                    if not any(
+                        owned.path == p or owned.path.startswith(p + "/") for p in self.ui_prefixes
+                    ):
+                        continue
+                    if host.path and any(
+                        self._conflict(owned, host, path=f"/{language}{owned.path}")
+                        for language in LANGUAGES
+                    ):
+                        diagnostics.append(
+                            Diagnostic("error", "route.conflict", f"Route conflict: {host.path}.")
+                        )
         for item in self._registrations.values():
             b = item.builder
             if b.policy is None or b.fields is None:
@@ -327,7 +361,8 @@ class Obox(FastAPI):
         ctx = None
         committing = False
         try:
-            async with self.settings.session_factory(
+            self.database.check()
+            async with self.session_factory(
                 expire_on_commit=False, close_resets_only=False
             ) as session:
                 ctx = Context(

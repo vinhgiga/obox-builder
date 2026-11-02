@@ -1,9 +1,10 @@
 import asyncio
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, Literal
 
 import pytest
 import sqlalchemy as sa
+from fastapi import FastAPI
 from obox_builder import Form, ModelBuilder, Obox, Principal
 from obox_builder.auth import StaffOnly
 from obox_builder.builder.ui import form_fields
@@ -27,6 +28,8 @@ class Widget(Base):
 
 
 class RecordingBuilder(ModelBuilder[Widget]):
+    model = Widget
+
     def __init__(self) -> None:
         self.saved: list[tuple[bool, dict[str, Any], str]] = []
         self.deleted: list[int] = []
@@ -51,6 +54,8 @@ class RecordingBuilder(ModelBuilder[Widget]):
 
 
 class FailingBuilder(ModelBuilder[Widget]):
+    model = Widget
+
     async def before_save(
         self,
         instance: Widget,
@@ -67,15 +72,19 @@ class OrderedForm(Form):
 
 
 class OrderedBuilder(ModelBuilder[Widget]):
+    model = Widget
     Form = OrderedForm
 
 
 class ReorderedForm(OrderedForm):
-    def get_fields(self, ctx: Context, *, action: str, instance: Any = None) -> tuple[str, ...]:
+    def get_fields(
+        self, ctx: Context, *, action: Literal["create", "update"], instance: Any = None
+    ) -> tuple[str, ...]:
         return tuple(reversed(super().get_fields(ctx, action=action, instance=instance)))
 
 
 class ReorderedBuilder(ModelBuilder[Widget]):
+    model = Widget
     Form = ReorderedForm
 
 
@@ -85,6 +94,7 @@ class DuplicateForm(OrderedForm):
 
 
 class DuplicateBuilder(ModelBuilder[Widget]):
+    model = Widget
     Form = DuplicateForm
 
 
@@ -96,6 +106,7 @@ async def make_app(builder: type[ModelBuilder[Widget]]) -> tuple[Obox, Any]:
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
     app = Obox(
+        FastAPI(),
         settings=Settings(
             session_factory=async_sessionmaker(engine, expire_on_commit=False),
             principal_dependency=lambda: None,
@@ -103,7 +114,7 @@ async def make_app(builder: type[ModelBuilder[Widget]]) -> tuple[Obox, Any]:
             csrf_secret="x" * 32,
         ),
     )
-    app.register(Widget, builder=builder)
+    app.register(builder)
     return app, engine
 
 
@@ -111,6 +122,7 @@ def test_before_save_receives_created_and_changes() -> None:
     async def scenario() -> None:
         app, engine = await make_app(RecordingBuilder)
         builder = app.get_builder(Widget)
+        assert isinstance(builder, RecordingBuilder)
         principal = Principal(id=1, is_authenticated=True, is_staff=True)
         try:
             async with app.uow(principal=principal) as ctx:

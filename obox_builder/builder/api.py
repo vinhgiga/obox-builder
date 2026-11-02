@@ -7,6 +7,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Request, Response
 
 from obox_builder.builder.filters import parse_filter
+from obox_builder.builder.http import OboxRoute
 from obox_builder.context import Context
 from obox_builder.errors import BuilderValidationError
 
@@ -54,7 +55,7 @@ def query_options(
 
 
 def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
-    router = APIRouter()
+    router = APIRouter(route_class=OboxRoute)
     if not builder.api.enabled:
         return router
     path = f"{app.settings.api_prefix}/{builder.api.prefix or builder.slug}"

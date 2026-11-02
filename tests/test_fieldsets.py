@@ -4,6 +4,7 @@ from typing import Any
 import httpx
 import pytest
 import sqlalchemy as sa
+from fastapi import FastAPI
 from obox_builder import Form, ModelBuilder, Obox, Principal
 from obox_builder.auth import StaffOnly
 from obox_builder.builder.ui import fieldset_groups, form_fields
@@ -28,6 +29,10 @@ class Widget(Base):
     note: Mapped[str | None] = mapped_column(sa.String(200), nullable=True)
 
 
+class WidgetBuilder(ModelBuilder[Widget]):
+    model = Widget
+
+
 class GroupedForm(Form):
     fieldsets = (
         ("Basics", {"fields": ("name", "status")}),
@@ -36,15 +41,17 @@ class GroupedForm(Form):
 
 
 class GroupedBuilder(ModelBuilder[Widget]):
+    model = Widget
     Form = GroupedForm
 
 
-class NameOnlyPolicy(StaffOnly):
+class NameOnlyPolicy(StaffOnly[Widget]):
     def write_fields(self, action: str, ctx: Context, *, obj: Any = None) -> frozenset[str]:
         return frozenset({"name"})
 
 
 class FilteredBuilder(ModelBuilder[Widget]):
+    model = Widget
     Form = GroupedForm
     fields = ("name", "status", "note")
     policy = NameOnlyPolicy()
@@ -60,6 +67,7 @@ async def make_app(
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
     app = Obox(
+        FastAPI(),
         settings=Settings(
             session_factory=async_sessionmaker(engine, expire_on_commit=False),
             principal_dependency=lambda: principal,
@@ -67,7 +75,7 @@ async def make_app(
             csrf_secret="x" * 32,
         ),
     )
-    app.register(Widget, builder=builder)
+    app.register(builder)
     return app, engine
 
 
@@ -79,6 +87,7 @@ def compile_error(form: type[Form], **builder_attrs: Any) -> str:
     async def scenario() -> str:
         engine = create_async_engine("sqlite+aiosqlite://", poolclass=StaticPool)
         app = Obox(
+            FastAPI(),
             settings=Settings(
                 session_factory=async_sessionmaker(engine, expire_on_commit=False),
                 principal_dependency=lambda: None,
@@ -86,10 +95,12 @@ def compile_error(form: type[Form], **builder_attrs: Any) -> str:
                 csrf_secret="x" * 32,
             ),
         )
-        builder = type("TestBuilder", (ModelBuilder,), {"Form": form, **builder_attrs})
+        builder = type(
+            "TestBuilder", (ModelBuilder,), {"model": Widget, "Form": form, **builder_attrs}
+        )
         try:
             with pytest.raises(ImproperlyConfigured) as error:
-                app.register(Widget, builder=builder)
+                app.register(builder)
             return str(error.value)
         finally:
             await engine.dispose()
@@ -144,7 +155,7 @@ def test_form_page_renders_fieldsets() -> None:
     async def scenario() -> None:
         app, engine = await make_app(GroupedBuilder, principal=STAFF)
         try:
-            transport = httpx.ASGITransport(app=app)
+            transport = httpx.ASGITransport(app=app.app)
             async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
                 response = await client.get("/admin/widgets/new")
             assert response.status_code == 200
@@ -162,9 +173,9 @@ def test_form_page_renders_fieldsets() -> None:
 
 def test_form_page_without_fieldsets_stays_flat() -> None:
     async def scenario() -> None:
-        app, engine = await make_app(ModelBuilder, principal=STAFF)
+        app, engine = await make_app(WidgetBuilder, principal=STAFF)
         try:
-            transport = httpx.ASGITransport(app=app)
+            transport = httpx.ASGITransport(app=app.app)
             async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
                 response = await client.get("/admin/widgets/new")
             assert response.status_code == 200
@@ -177,7 +188,7 @@ def test_form_page_without_fieldsets_stays_flat() -> None:
 
 def test_empty_fieldsets_fall_back_to_form_fields() -> None:
     async def scenario() -> None:
-        builder_type = type("EmptyBuilder", (ModelBuilder,), {"Form": form_with(())})
+        builder_type = type("EmptyBuilder", (WidgetBuilder,), {"Form": form_with(())})
         app, engine = await make_app(builder_type)
         builder = app.get_builder(Widget)
         try:
