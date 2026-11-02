@@ -5,7 +5,7 @@ from obox_builder import Settings
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 BASE_DIR = Path(__file__).resolve().parent
-PROJECT_NAME = "__PROJECT_NAME__"
+PROJECT_NAME = __PROJECT_NAME__
 DEBUG = os.getenv("OBOX_DEBUG", "true").lower() in {"1", "true", "yes", "on"}
 DATABASE_URL = os.getenv(
     "OBOX_DATABASE_URL", f"sqlite+aiosqlite:///{BASE_DIR / 'db.sqlite3'}"

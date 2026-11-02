@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import keyword
 import secrets
 import shutil
@@ -19,14 +20,22 @@ _TEMPLATE_FILES = {
 }
 
 
-def startproject(name: str, directory: Path | None = None) -> Path:
-    """Create a runnable project skeleton in the current directory or destination."""
-    if not name.isidentifier() or keyword.iskeyword(name):
-        raise ValueError("Project name must be a valid Python identifier.")
+def _create_project(name: str, destination: Path, *, allow_existing: bool) -> Path:
+    if not name:
+        raise ValueError("Project directory must have a name.")
 
-    destination = (directory or Path(name)).expanduser().resolve()
-    if destination.exists() and (not destination.is_dir() or any(destination.iterdir())):
-        raise FileExistsError(f"Destination already exists and is not empty: {destination}")
+    if destination.exists():
+        if not destination.is_dir():
+            raise FileExistsError(f"Destination is not a directory: {destination}")
+        if not allow_existing and any(destination.iterdir()):
+            raise FileExistsError(f"Destination already exists and is not empty: {destination}")
+        existing_files = [
+            str(destination / filename)
+            for filename in _TEMPLATE_FILES
+            if (destination / filename).exists()
+        ]
+        if existing_files:
+            raise FileExistsError(f"Project files already exist: {', '.join(existing_files)}")
 
     destination.parent.mkdir(parents=True, exist_ok=True)
     created_directory = not destination.exists()
@@ -41,7 +50,7 @@ def startproject(name: str, directory: Path | None = None) -> Path:
             content = (
                 template_root.joinpath(template_name)
                 .read_text(encoding="utf-8")
-                .replace("__PROJECT_NAME__", name)
+                .replace("__PROJECT_NAME__", json.dumps(name, ensure_ascii=False))
                 .replace("__SECRET_KEY__", secret_key)
             )
             output = destination / output_name
@@ -58,12 +67,27 @@ def startproject(name: str, directory: Path | None = None) -> Path:
     return destination
 
 
+def startproject(name: str, directory: Path | None = None) -> Path:
+    """Create a runnable project skeleton using a Python project name."""
+    if not name.isidentifier() or keyword.iskeyword(name):
+        raise ValueError("Project name must be a valid Python identifier.")
+
+    destination = (directory or Path(name)).expanduser().resolve()
+    return _create_project(name, destination, allow_existing=False)
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="obox")
     commands = parser.add_subparsers(dest="command", required=True)
     start = commands.add_parser("startproject", help="Create a runnable Obox project.")
-    start.add_argument("name", help="Python project name")
-    start.add_argument("directory", nargs="?", type=Path, help="Output directory")
+    start.add_argument(
+        "directory",
+        nargs="?",
+        type=Path,
+        default=Path("."),
+        help="Project directory (default: current directory)",
+    )
+    start.add_argument("legacy_directory", nargs="?", type=Path, help=argparse.SUPPRESS)
     from obox_builder.contrib.jobs.cli import add_parser
 
     add_parser(commands)
@@ -79,9 +103,15 @@ def main(argv: Sequence[str] | None = None) -> int:
 
             asyncio.run(run(arguments))
             return 0
-        destination = startproject(arguments.name, arguments.directory)
+        if arguments.legacy_directory is not None:
+            project_name = str(arguments.directory)
+            destination = startproject(project_name, arguments.legacy_directory)
+        else:
+            destination = arguments.directory.expanduser().resolve()
+            project_name = destination.name
+            destination = _create_project(project_name, destination, allow_existing=True)
     except (ValueError, OSError) as error:
         parser.exit(1, f"obox: error: {error}\n")
 
-    print(f"Created project {arguments.name!r} in {destination}")
+    print(f"Created project {project_name!r} in {destination}")
     return 0
