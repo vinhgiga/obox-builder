@@ -55,6 +55,42 @@
 }
 
 @layer components {
+  .login-page {
+    @apply px-4;
+  }
+  .login-card {
+    @apply mx-auto mt-24 w-full max-w-sm overflow-hidden rounded border border-slate-200 bg-white;
+  }
+  .login-card-header {
+    @apply bg-[#417690] px-4 py-3 text-center text-xl font-normal text-[#f5dd5d];
+  }
+  .login-card-body {
+    @apply p-5;
+  }
+  .login-error {
+    @apply m-0 mb-4 text-red-800;
+  }
+  .login-form {
+    @apply m-0;
+  }
+  .login-form label {
+    @apply mt-0 mb-1 block;
+  }
+  .login-text-input {
+    @apply mb-4 block w-full;
+  }
+  .login-form .login-show-password {
+    @apply mt-0 mb-4 flex cursor-pointer items-center gap-2;
+  }
+  .login-show-password input {
+    @apply m-0 size-4 p-0 accent-blue-700;
+  }
+  .login-actions {
+    @apply m-0 pt-2 text-center;
+  }
+  .login-actions button {
+    @apply rounded bg-[#417690] px-4 py-2 text-white;
+  }
   .workspace {
     @apply flex h-dvh flex-col;
   }

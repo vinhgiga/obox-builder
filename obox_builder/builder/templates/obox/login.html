@@ -1,24 +1,53 @@
-{% extends base_template %}
-{% block content %}
-  {% if error %}<p class="text-red-800" role="alert">{{ _(error) }}</p>{% endif %}
-  <form method="post">
-    <input type="hidden" name="csrf_token" value="{{ csrf }}">
-    <label for="username">{{ _(login_label) }}</label>
-    <input id="username"
-           name="username"
-           autocomplete="username"
-           maxlength="150"
-           required
-           autofocus>
-    <label for="password">{% trans %}Password{% endtrans %}</label>
-    <input id="password"
-           name="password"
-           type="password"
-           autocomplete="current-password"
-           maxlength="1024"
-           required>
-    <p>
-      <button type="submit">{% trans %}Sign in{% endtrans %}</button>
-    </p>
-  </form>
-{% endblock %}
+<!DOCTYPE html>
+<html lang="{{ language|default('en') }}">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ site_title }} · {{ title }}</title>
+    <link rel="stylesheet"
+          href="{{ request.url_for('obox_static', path='ui.css') }}">
+  </head>
+  <body class="m-0 bg-slate-50 font-sans text-sm/6 text-slate-800">
+    <main class="login-page">
+      <section class="login-card" aria-labelledby="login-title">
+        <header class="login-card-header">
+          <h1 id="login-title" class="m-0">{{ site_title }}</h1>
+        </header>
+        <div class="login-card-body">
+          {% if error %}<p class="login-error" role="alert">{{ _(error) }}</p>{% endif %}
+          <form class="login-form" method="post">
+            <input type="hidden" name="csrf_token" value="{{ csrf }}">
+            <label for="username">{{ _(login_label) }}</label>
+            <input class="login-text-input"
+                   id="username"
+                   name="username"
+                   autocomplete="username"
+                   maxlength="150"
+                   required
+                   autofocus>
+            <label for="password">{% trans %}Password{% endtrans %}</label>
+            <input class="login-text-input"
+                   id="password"
+                   name="password"
+                   type="password"
+                   autocomplete="current-password"
+                   maxlength="1024"
+                   required>
+            <label class="login-show-password" for="show-password">
+              <input id="show-password" type="checkbox">
+              {% trans %}Show password{% endtrans %}
+            </label>
+            <p class="login-actions">
+              <button type="submit">{% trans %}Sign in{% endtrans %}</button>
+            </p>
+          </form>
+        </div>
+      </section>
+    </main>
+    <script>
+      document.getElementById("show-password").addEventListener("change", (event) => {
+        document.getElementById("password").type = event.currentTarget.checked ? "text" : "password";
+      });
+    </script>
+  </body>
+</html>

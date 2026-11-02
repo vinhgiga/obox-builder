@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-11-01 19:00+0700\n"
+"POT-Creation-Date: 2026-11-02 14:10+0700\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -29,19 +29,19 @@ msgstr ""
 msgid "Enter valid JSON."
 msgstr ""
 
-#: obox_builder/builder/ui.py:569 obox_builder/builder/ui.py:572
+#: obox_builder/builder/ui.py:571 obox_builder/builder/ui.py:574
 msgid "Invalid inline count."
 msgstr ""
 
-#: obox_builder/builder/ui.py:584 obox_builder/builder/ui.py:613
+#: obox_builder/builder/ui.py:586 obox_builder/builder/ui.py:615
 msgid "An inline record is unavailable."
 msgstr ""
 
-#: obox_builder/builder/ui.py:655
+#: obox_builder/builder/ui.py:657
 msgid "Unknown inline field."
 msgstr ""
 
-#: obox_builder/builder/ui.py:840
+#: obox_builder/builder/ui.py:842
 msgid "Duplicate form fields are not permitted."
 msgstr ""
 
@@ -286,16 +286,20 @@ msgstr[1] ""
 msgid "Next page →"
 msgstr ""
 
-#: obox_builder/builder/templates/obox/login.html:13
+#: obox_builder/builder/templates/obox/login.html:28
 msgid "Password"
 msgstr ""
 
-#: obox_builder/builder/templates/obox/login.html:21
+#: obox_builder/builder/templates/obox/login.html:38
+msgid "Show password"
+msgstr ""
+
+#: obox_builder/builder/templates/obox/login.html:41
 #: obox_builder/contrib/auth/views.py:59
 msgid "Sign in"
 msgstr ""
 
-#: obox_builder/contrib/auth/__init__.py:71
+#: obox_builder/contrib/auth/__init__.py:72
 msgid "Username"
 msgstr ""
 
@@ -303,6 +307,6 @@ msgstr ""
 msgid "Invalid username or password."
 msgstr ""
 
-#: obox_builder/contrib/auth/views.py:105
+#: obox_builder/contrib/auth/views.py:106
 msgid "Account"
 msgstr ""

@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  obox-builder\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-11-01 19:00+0700\n"
+"POT-Creation-Date: 2026-11-02 14:10+0700\n"
 "PO-Revision-Date: 2026-10-31 20:45+0700\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: vi\n"
@@ -30,19 +30,19 @@ msgstr "Kiểu nhập không được hỗ trợ."
 msgid "Enter valid JSON."
 msgstr "Nhập JSON hợp lệ."
 
-#: obox_builder/builder/ui.py:569 obox_builder/builder/ui.py:572
+#: obox_builder/builder/ui.py:571 obox_builder/builder/ui.py:574
 msgid "Invalid inline count."
 msgstr "Số dòng không hợp lệ."
 
-#: obox_builder/builder/ui.py:584 obox_builder/builder/ui.py:613
+#: obox_builder/builder/ui.py:586 obox_builder/builder/ui.py:615
 msgid "An inline record is unavailable."
 msgstr "Không tìm thấy bản ghi inline."
 
-#: obox_builder/builder/ui.py:655
+#: obox_builder/builder/ui.py:657
 msgid "Unknown inline field."
 msgstr "Trường inline không hợp lệ."
 
-#: obox_builder/builder/ui.py:840
+#: obox_builder/builder/ui.py:842
 msgid "Duplicate form fields are not permitted."
 msgstr "Không được gửi trường trùng lặp."
 
@@ -290,16 +290,20 @@ msgstr[0] "%(count)s bản ghi trên trang này"
 msgid "Next page →"
 msgstr "Trang sau →"
 
-#: obox_builder/builder/templates/obox/login.html:13
+#: obox_builder/builder/templates/obox/login.html:28
 msgid "Password"
 msgstr "Mật khẩu"
 
-#: obox_builder/builder/templates/obox/login.html:21
+#: obox_builder/builder/templates/obox/login.html:38
+msgid "Show password"
+msgstr "Hiện mật khẩu"
+
+#: obox_builder/builder/templates/obox/login.html:41
 #: obox_builder/contrib/auth/views.py:59
 msgid "Sign in"
 msgstr "Đăng nhập"
 
-#: obox_builder/contrib/auth/__init__.py:71
+#: obox_builder/contrib/auth/__init__.py:72
 msgid "Username"
 msgstr "Tên đăng nhập"
 
@@ -307,7 +311,7 @@ msgstr "Tên đăng nhập"
 msgid "Invalid username or password."
 msgstr "Tên đăng nhập hoặc mật khẩu không đúng."
 
-#: obox_builder/contrib/auth/views.py:105
+#: obox_builder/contrib/auth/views.py:106
 msgid "Account"
 msgstr "Tài khoản"
 
