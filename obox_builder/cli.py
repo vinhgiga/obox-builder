@@ -16,7 +16,12 @@ _TEMPLATE_FILES = {
     ".editorconfig": "editorconfig.tmpl",
     "justfile": "justfile.tmpl",
     "main.py": "main.py.tmpl",
+    "models.py": "models.py.tmpl",
     "setting.py": "setting.py.tmpl",
+    "alembic.ini": "alembic.ini.tmpl",
+    "migrations/env.py": "migrations/env.py.tmpl",
+    "migrations/script.py.mako": "migrations/script.py.mako.tmpl",
+    "migrations/versions/__init__.py": "migrations/versions/__init__.py.tmpl",
 }
 
 
@@ -43,6 +48,7 @@ def _create_project(name: str, destination: Path, *, allow_existing: bool) -> Pa
         destination.mkdir()
 
     created_files: list[Path] = []
+    created_directories: list[Path] = []
     try:
         template_root = files("obox_builder.conf").joinpath("app_template")
         secret_key = secrets.token_urlsafe(48)
@@ -54,12 +60,21 @@ def _create_project(name: str, destination: Path, *, allow_existing: bool) -> Pa
                 .replace("__SECRET_KEY__", secret_key)
             )
             output = destination / output_name
+            missing_directories = []
+            parent = output.parent
+            while parent != destination and not parent.exists():
+                missing_directories.append(parent)
+                parent = parent.parent
+            output.parent.mkdir(parents=True, exist_ok=True)
+            created_directories.extend(reversed(missing_directories))
             with output.open("x", encoding="utf-8") as stream:
                 stream.write(content)
             created_files.append(output)
     except Exception:
         for output in created_files:
             output.unlink(missing_ok=True)
+        for directory in reversed(created_directories):
+            directory.rmdir()
         if created_directory:
             shutil.rmtree(destination)
         raise
@@ -88,9 +103,11 @@ def _parser() -> argparse.ArgumentParser:
         help="Project directory (default: current directory)",
     )
     start.add_argument("legacy_directory", nargs="?", type=Path, help=argparse.SUPPRESS)
+    from obox_builder.contrib.auth.cli import add_parser as add_auth_parser
     from obox_builder.contrib.jobs.cli import add_parser
 
     add_parser(commands)
+    add_auth_parser(commands)
     return parser
 
 
@@ -102,6 +119,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             from obox_builder.contrib.jobs.cli import run
 
             asyncio.run(run(arguments))
+            return 0
+        if arguments.command == "createsuperuser":
+            from obox_builder.contrib.auth.cli import run as run_superuser
+
+            asyncio.run(run_superuser(arguments))
             return 0
         if arguments.legacy_directory is not None:
             project_name = str(arguments.directory)

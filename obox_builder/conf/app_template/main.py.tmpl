@@ -1,9 +1,11 @@
 import setting
 from fastapi import FastAPI
 from obox_builder import Obox
+from obox_builder.contrib.auth import Auth
 
 app = FastAPI(title=setting.PROJECT_NAME, debug=setting.DEBUG)
 obox = Obox(app, settings="setting")
+Auth(secure=not setting.DEBUG).install(obox)
 
 
 @app.get("/")

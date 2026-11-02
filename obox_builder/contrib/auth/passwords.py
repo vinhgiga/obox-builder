@@ -26,9 +26,10 @@ def _dummy_hash() -> str:
     return _hasher().hash(secrets.token_urlsafe(32))
 
 
-async def hash_password(password: str) -> str:
-    if not 12 <= len(password) <= 1024:
-        raise BuilderValidationError({"password": ["Use between 12 and 1024 characters."]})
+async def hash_password(password: str, *, validate: bool = True) -> str:
+    if not password or len(password) > 1024 or (validate and len(password) < 12):
+        limits = "12 and 1024" if validate else "1 and 1024"
+        raise BuilderValidationError({"password": [f"Use between {limits} characters."]})
     return await run_in_threadpool(lambda: _hasher().hash(password))
 
 
