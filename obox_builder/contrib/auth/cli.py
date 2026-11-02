@@ -8,6 +8,7 @@ import getpass
 import os
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import sqlalchemy as sa
@@ -15,7 +16,9 @@ from sqlalchemy.exc import IntegrityError, OperationalError
 
 from obox_builder.conf import load_settings
 from obox_builder.contrib.auth.models import User
+from obox_builder.contrib.auth.password_validation import PasswordValidator, get_password_validators
 from obox_builder.db import Database
+from obox_builder.errors import BuilderValidationError
 
 
 def add_parser(commands: Any) -> None:
@@ -24,11 +27,13 @@ def add_parser(commands: Any) -> None:
     parser.add_argument("--noinput", "--no-input", action="store_false", dest="interactive")
 
 
-async def _hash_password(password: str, *, validate: bool = True) -> str:
+async def _hash_password(
+    password: str, validators: tuple[PasswordValidator, ...], user: Any
+) -> str:
     from obox_builder.contrib.auth.passwords import hash_password
 
     try:
-        return await hash_password(password, validate=validate)
+        return await hash_password(password, validators=validators, user=user)
     except ModuleNotFoundError as error:
         if error.name != "pwdlib":
             raise
@@ -66,7 +71,7 @@ async def _check_database(database: Database, username: str | None = None) -> No
         ) from error
 
 
-async def _prompt_password_hash() -> str:
+async def _prompt_password_hash(validators: tuple[PasswordValidator, ...], user: Any) -> str:
     while True:
         password = await asyncio.to_thread(getpass.getpass, "Password: ")
         confirmation = await asyncio.to_thread(getpass.getpass, "Password (again): ")
@@ -79,15 +84,11 @@ async def _prompt_password_hash() -> str:
         if len(password) > 1024:
             print("Use at most 1024 characters for the password.")
             continue
-        validate = len(password) >= 12
-        if not validate:
-            print("Use between 12 and 1024 characters for the password.")
-            bypass = await asyncio.to_thread(
-                input, "Bypass password validation and create user anyway? [y/N]: "
-            )
-            if bypass.lower() != "y":
-                continue
-        return await _hash_password(password, validate=validate)
+        try:
+            return await _hash_password(password, validators, user)
+        except BuilderValidationError as error:
+            for message in error.errors.get("password", []):
+                print(f"Error: {message}")
 
 
 async def run(arguments: argparse.Namespace) -> None:
@@ -97,6 +98,7 @@ async def run(arguments: argparse.Namespace) -> None:
     settings_module = os.environ.get("OBOX_SETTINGS_MODULE", "setting")
     os.environ["OBOX_SETTINGS_MODULE"] = settings_module
     settings = load_settings(settings_module)
+    validators = get_password_validators(settings.auth_password_validators)
     database = Database(settings)
     _check_password_support()
     await _check_database(database)
@@ -122,14 +124,17 @@ async def run(arguments: argparse.Namespace) -> None:
     await _check_database(database, username)
 
     if arguments.interactive:
-        password_hash = await _prompt_password_hash()
+        password_hash = await _prompt_password_hash(validators, SimpleNamespace(username=username))
     else:
         password = os.environ.get("OBOX_SUPERUSER_PASSWORD")
         if password is None:
             raise ValueError("Set OBOX_SUPERUSER_PASSWORD with --noinput.")
-        if not 12 <= len(password) <= 1024:
-            raise ValueError("Use between 12 and 1024 characters for the password.")
-        password_hash = await _hash_password(password)
+        try:
+            password_hash = await _hash_password(
+                password, validators, SimpleNamespace(username=username)
+            )
+        except BuilderValidationError as error:
+            raise ValueError(" ".join(error.errors.get("password", []))) from error
 
     try:
         async with database.lifespan(), database.sessions.begin() as session:

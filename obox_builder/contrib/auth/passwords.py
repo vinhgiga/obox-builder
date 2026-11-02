@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import secrets
+from collections.abc import Sequence
 from functools import cache
 from typing import TYPE_CHECKING
 
 from starlette.concurrency import run_in_threadpool
 
+from obox_builder.contrib.auth.password_validation import PasswordValidator, validate_password
 from obox_builder.errors import BuilderValidationError
 
 if TYPE_CHECKING:
@@ -26,10 +28,17 @@ def _dummy_hash() -> str:
     return _hasher().hash(secrets.token_urlsafe(32))
 
 
-async def hash_password(password: str, *, validate: bool = True) -> str:
-    if not password or len(password) > 1024 or (validate and len(password) < 12):
-        limits = "12 and 1024" if validate else "1 and 1024"
-        raise BuilderValidationError({"password": [f"Use between {limits} characters."]})
+async def hash_password(
+    password: str,
+    *,
+    validate: bool = True,
+    validators: Sequence[PasswordValidator] = (),
+    user: object | None = None,
+) -> str:
+    if not password or len(password) > 1024:
+        raise BuilderValidationError({"password": ["Use between 1 and 1024 characters."]})
+    if validate and validators:
+        validate_password(password, validators, user)
     return await run_in_threadpool(lambda: _hasher().hash(password))
 
 

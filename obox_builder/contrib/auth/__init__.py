@@ -19,6 +19,7 @@ from obox_builder.contrib.auth.models import (
     User,
     UserMixin,
 )
+from obox_builder.contrib.auth.password_validation import get_password_validators
 from obox_builder.contrib.auth.passwords import hash_password
 from obox_builder.errors import N_, ImproperlyConfigured
 from obox_builder.i18n import localize
@@ -127,6 +128,10 @@ class Auth:
         if app.auth is not None or getattr(self, "_installed", False):
             raise ImproperlyConfigured("Auth is already installed.")
         backend = self.backend if self.backend is not None else ModelBackend(app.session_factory)
+        if isinstance(backend, ModelBackend) and backend.password_validators is None:
+            backend.password_validators = get_password_validators(
+                app.settings.auth_password_validators
+            )
         routes = self.get_router(app) if router is None else router
         names = {getattr(route, "name", None) for route in routes.routes}
         if not {self.login_route, self.logout_route} <= names:

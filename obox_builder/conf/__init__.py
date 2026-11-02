@@ -1,10 +1,11 @@
 """Configuration and project scaffolding resources."""
 
 import os
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, fields
 from importlib import import_module
 from os import PathLike
+from types import MappingProxyType
 from typing import Any
 
 from fastapi.templating import Jinja2Templates
@@ -26,6 +27,7 @@ class Settings:
     template_dirs: Sequence[str | PathLike[str]] = ()
     templates: Jinja2Templates | None = field(default=None, repr=False)
     base_template: str = "obox/base.html"
+    auth_password_validators: Sequence[Mapping[str, Any]] = ()
 
     def __post_init__(self) -> None:
         if (self.database_url is None) == (self.session_factory is None):
@@ -60,6 +62,22 @@ class Settings:
             raise ImproperlyConfigured("TEMPLATES must be a Jinja2Templates instance.")
         if not isinstance(self.base_template, str) or not self.base_template:
             raise ImproperlyConfigured("BASE_TEMPLATE must be a nonempty string.")
+        if not isinstance(self.auth_password_validators, Sequence):
+            raise ImproperlyConfigured("AUTH_PASSWORD_VALIDATORS must be a sequence.")
+        validators: list[Mapping[str, Any]] = []
+        for validator in self.auth_password_validators:
+            if not isinstance(validator, Mapping) or not isinstance(validator.get("NAME"), str):
+                raise ImproperlyConfigured(
+                    "Each AUTH_PASSWORD_VALIDATORS entry must have a string NAME."
+                )
+            options = validator.get("OPTIONS", {})
+            if not isinstance(options, Mapping):
+                raise ImproperlyConfigured("Validator OPTIONS must be a mapping.")
+            validators.append(
+                MappingProxyType(
+                    {"NAME": validator["NAME"], "OPTIONS": MappingProxyType(dict(options))}
+                )
+            )
         for name in ("ui_prefix", "api_prefix"):
             value = getattr(self, name)
             if not isinstance(value, str):
@@ -71,6 +89,7 @@ class Settings:
         if self.templates is not None and self.template_dirs:
             raise ImproperlyConfigured("Pass either templates or template_dirs, not both.")
         object.__setattr__(self, "template_dirs", tuple(self.template_dirs))
+        object.__setattr__(self, "auth_password_validators", tuple(validators))
 
 
 def load_settings(settings: Settings | str | None = None) -> Settings:

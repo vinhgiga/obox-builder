@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import secrets
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 
@@ -15,6 +16,7 @@ from sqlalchemy.orm import selectinload
 
 from obox_builder.auth import Identity, Principal
 from obox_builder.contrib.auth.models import Session, User
+from obox_builder.contrib.auth.password_validation import PasswordValidator, get_password_validators
 from obox_builder.contrib.auth.passwords import hash_password, verify_password
 from obox_builder.errors import ImproperlyConfigured
 
@@ -49,6 +51,7 @@ class ModelBackend:
         user_model: type[Any] = User,
         session_model: type[Any] = Session,
         username_field: str | None = None,
+        password_validators: Sequence[Mapping[str, Any]] | None = None,
     ) -> None:
         self.session_factory = session_factory
         self.user_model, self.session_model = user_model, session_model
@@ -65,9 +68,12 @@ class ModelBackend:
             if username_field is not None
             else str(getattr(user_model, "USERNAME_FIELD", "username"))
         )
+        self.password_validators: tuple[PasswordValidator, ...] | None = (
+            None if password_validators is None else get_password_validators(password_validators)
+        )
 
-    async def hash_password(self, password: str) -> str:
-        return await hash_password(password)
+    async def hash_password(self, password: str, *, user: Any = None) -> str:
+        return await hash_password(password, validators=self.password_validators or (), user=user)
 
     async def verify_password(self, password: str, encoded: str | None) -> bool:
         return await verify_password(password, encoded)
