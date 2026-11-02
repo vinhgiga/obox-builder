@@ -1,0 +1,112 @@
+{% extends base_template %}
+{% macro permission_tree(tree, form) %}
+  <div class="permission-tree">
+    {% for service in tree %}
+      <details class="permission-group">
+        <summary>
+          <span class="tree-arrow" aria-hidden="true"></span>
+          <input type="checkbox"
+                 data-tree-node
+                 data-tree-level="service"
+                 aria-label="{{ service.name }}">
+          <span class="permission-name">{{ service.name }}</span>
+        </summary>
+        <div class="permission-children">
+          {% for resource in service.resources %}
+            <details class="permission-group">
+              <summary>
+                <span class="tree-arrow" aria-hidden="true"></span>
+                <input type="checkbox"
+                       data-tree-node
+                       data-tree-level="resource"
+                       aria-label="{{ resource.name }}">
+                <span class="permission-name">{{ resource.name }}</span>
+              </summary>
+              <div class="permission-actions">
+                {% for action in resource.actions %}
+                  <label class="permission-action">
+                    <input type="checkbox"
+                           name="permissions"
+                           value="{{ action.value }}"
+                           data-tree-node
+                           data-tree-level="action"
+                           {% if action.value in form.permissions %}checked{% endif %}>
+                    <span>{{ action.action }}</span>
+                  </label>
+                {% endfor %}
+              </div>
+            </details>
+          {% endfor %}
+        </div>
+      </details>
+    {% endfor %}
+  </div>
+{% endmacro %}
+{% macro role_editor(tree, form, csrf, roles_url) %}
+  <details class="role-accordion" {% if form.open %}open{% endif %}>
+    <summary>
+      <span class="role-title">{{ form.name or _("New role") }}</span>
+      <span class="badge">{{ form.permissions|length }}</span>
+    </summary>
+    <div class="role-body">
+      <form method="post"
+            action="{{ roles_url }}{% if form.id is not none %}/{{ form.id }}{% endif %}"
+            data-permission-form>
+        <input type="hidden" name="csrf_token" value="{{ csrf }}">
+        {% for error in form.errors.get('__all__', []) %}
+          <p class="alert" role="alert">{{ _(error) }}</p>
+        {% endfor %}
+        <div class="field">
+          <label for="role-name-{{ form.key }}">{% trans %}Name{% endtrans %} <span class="required" aria-hidden="true">*</span></label>
+          <input id="role-name-{{ form.key }}"
+                 name="name"
+                 value="{{ form.name }}"
+                 maxlength="150"
+                 required>
+          {% for error in form.errors.get('name', []) %}
+            <p class="field-error" role="alert">{{ _(error) }}</p>
+          {% endfor %}
+        </div>
+        <fieldset>
+          <legend>{% trans %}Permissions{% endtrans %}</legend>
+          {{ permission_tree(tree, form) }}
+          {% for error in form.errors.get('permissions', []) %}
+            <p class="field-error" role="alert">{{ _(error) }}</p>
+          {% endfor %}
+        </fieldset>
+        <p class="submit-row">
+          <button type="submit">
+            {% if form.id is none %}
+              {% trans %}Create role{% endtrans %}
+            {% else %}
+              {% trans %}Save{% endtrans %}
+            {% endif %}
+          </button>
+        </p>
+      </form>
+      {% if form.id is not none %}
+        <form method="post"
+              action="{{ roles_url }}/{{ form.id }}/delete"
+              data-confirm="{% trans %}Delete this role?{% endtrans %}">
+          <input type="hidden" name="csrf_token" value="{{ csrf }}">
+          <button class="link-danger" type="submit">{% trans %}Delete role{% endtrans %}</button>
+        </form>
+      {% endif %}
+    </div>
+  </details>
+{% endmacro %}
+{% block content %}
+  {% if saved %}
+    <p class="notice" role="status">{% trans %}Role saved.{% endtrans %}</p>
+  {% endif %}
+  {% if deleted %}
+    <p class="notice" role="status">{% trans %}Role deleted.{% endtrans %}</p>
+  {% endif %}
+  <div class="role-list">
+    {{ role_editor(tree, new_form, csrf, roles_url) }}
+    {% for form in forms %}{{ role_editor(tree, form, csrf, roles_url) }}{% endfor %}
+  </div>
+{% endblock %}
+{% block scripts %}
+  <script src="{{ request.url_for('obox_static', path='auth-admin.js') }}"></script>
+{% endblock %}

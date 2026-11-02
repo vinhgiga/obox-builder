@@ -25,7 +25,7 @@ from obox_builder.conf import Settings
 from obox_builder.context import Context
 from obox_builder.errors import N_, BuilderValidationError, PermissionDenied
 from obox_builder.i18n import context as translation_context
-from obox_builder.i18n import localize
+from obox_builder.i18n import localize, translate
 
 
 def create_templates(settings: Settings) -> Jinja2Templates:
@@ -36,6 +36,7 @@ def create_templates(settings: Settings) -> Jinja2Templates:
             [
                 FileSystemLoader(settings.template_dirs),
                 PackageLoader("obox_builder.builder", "templates"),
+                PackageLoader("obox_builder.contrib.auth", "templates"),
             ]
         ),
         autoescape=select_autoescape(("html",)),
@@ -436,6 +437,52 @@ async def inline_fields(
     return [control for control in controls if control["name"] != fk_name]
 
 
+async def build_navigation(
+    app: Any,
+    request: Request,
+    ctx: Context,
+    *,
+    active_builder: Any = None,
+    active_admin: str | None = None,
+) -> list[dict[str, Any]]:
+    navigation = []
+    for registration in app._registrations.values():
+        target = registration.builder
+        if target.view.enabled and await invoke(target.policy.allow, "list", ctx):
+            navigation.append(
+                {
+                    "label": target.model.__name__,
+                    "url": localize(
+                        request,
+                        str(request.url_for(f"obox_ui_{target.slug}_list").path),
+                        rooted=True,
+                    ),
+                    "active": target is active_builder,
+                }
+            )
+    auth = getattr(app, "auth", None)
+    if (
+        auth is not None
+        and getattr(auth, "_admin_installed", False)
+        and getattr(ctx.principal, "is_superuser", False)
+    ):
+        navigation.extend(
+            [
+                {
+                    "label": translate(request, "Users"),
+                    "url": auth.users_url(request),
+                    "active": active_admin == "users",
+                },
+                {
+                    "label": translate(request, "Roles"),
+                    "url": auth.roles_url(request),
+                    "active": active_admin == "roles",
+                },
+            ]
+        )
+    return navigation
+
+
 def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
     router = APIRouter(route_class=OboxRoute)
     path = f"{app.settings.ui_prefix}/{builder.slug}"
@@ -453,21 +500,7 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
         status: int = 200,
         **context: Any,
     ) -> HTMLResponse:
-        navigation = []
-        for registration in app._registrations.values():
-            target = registration.builder
-            if target.view.enabled and await invoke(target.policy.allow, "list", ctx):
-                navigation.append(
-                    {
-                        "label": target.model.__name__,
-                        "url": localize(
-                            request,
-                            str(request.url_for(f"obox_ui_{target.slug}_list").path),
-                            rooted=True,
-                        ),
-                        "active": target is builder,
-                    }
-                )
+        navigation = await build_navigation(app, request, ctx, active_builder=builder)
         return cast(
             HTMLResponse,
             app.templates.TemplateResponse(

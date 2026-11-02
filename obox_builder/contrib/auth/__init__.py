@@ -45,6 +45,8 @@ class Auth:
     login_route = "obox_login"
     logout_route = "obox_logout"
     account_route = "obox_account"
+    users_route = "obox_auth_users"
+    roles_route = "obox_auth_roles"
 
     def __init__(
         self,
@@ -56,12 +58,15 @@ class Auth:
         prefix: str = "/auth",
         login_template: str = "obox/login.html",
         account_template: str = "obox/account.html",
+        admin: bool = True,
     ) -> None:
         if max_age <= 0:
             raise ValueError("max_age must be positive.")
         if backend is None and session_factory is not None:
             backend = ModelBackend(session_factory)
         self.backend = backend
+        self.admin = admin
+        self._admin_installed = False
         self.secure, self.max_age = secure, max_age
         self.prefix = prefix.rstrip("/")
         if not self.prefix.startswith("/") or any(char in self.prefix for char in "{}?#"):
@@ -116,8 +121,19 @@ class Auth:
     def account_url(self, request: Request) -> str:
         return self._url(request, self.account_route)
 
+    def users_url(self, request: Request) -> str:
+        return self._url(request, self.users_route)
+
+    def roles_url(self, request: Request) -> str:
+        return self._url(request, self.roles_route)
+
     def get_router(self, app: Obox) -> APIRouter:
         from obox_builder.contrib.auth.views import router
+
+        return router(app, self)
+
+    def get_admin_router(self, app: Obox) -> APIRouter:
+        from obox_builder.contrib.auth.admin import router
 
         return router(app, self)
 
@@ -133,8 +149,15 @@ class Auth:
             raise ImproperlyConfigured(
                 "Auth routes must include the configured login and logout names."
             )
-        app.include_router(routes, ui=True)
         self.backend = backend
+        user_model = getattr(backend, "user_model", None)
+        if self.admin and user_model is not None:
+            from sqlalchemy import inspect
+
+            if "roles" in inspect(user_model).relationships:
+                app.include_router(self.get_admin_router(app), ui=True)
+                self._admin_installed = True
+        app.include_router(routes, ui=True)
         app.auth = self
         app.settings = replace(
             app.settings,

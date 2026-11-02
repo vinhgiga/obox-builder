@@ -1,7 +1,7 @@
 {% extends base_template %}
 {% macro control(field, values, errors, prefix='', required=true, label=true) %}
   {% if label %}
-    <label for="{{ prefix }}{{ field.name }}">{{ field.label }}{% if field.required %} *{% endif %}</label>
+    <label for="{{ prefix }}{{ field.name }}">{{ field.label }}{% if field.required %} <span class="required" aria-hidden="true">*</span>{% endif %}</label>
   {% endif %}
   {% if field.widget == "select" %}
     <select id="{{ prefix }}{{ field.name }}"
