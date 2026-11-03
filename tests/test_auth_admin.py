@@ -89,6 +89,12 @@ async def make_app(principal: Principal = SUPERUSER, *, admin: bool = True) -> t
             principal_dependency=lambda: principal,
             default_policy=StaffOnly(),
             csrf_secret="x" * 32,
+            auth_password_validators=(
+                {
+                    "NAME": "obox_builder.contrib.auth.password_validation.MinimumLengthValidator",
+                    "OPTIONS": {"min_length": 12},
+                },
+            ),
         ),
     )
     Auth(backend=StubBackend(principal), secure=False, admin=admin).install(app)
@@ -113,7 +119,8 @@ async def seed_user(
     is_superuser: bool = False,
     is_active: bool = True,
     email: str = "",
-    display_name: str = "",
+    first_name: str = "",
+    last_name: str = "",
     department: str = "",
     role_ids: Sequence[int] = (),
 ) -> int:
@@ -129,7 +136,8 @@ async def seed_user(
             is_active=is_active,
             is_superuser=is_superuser,
             email=email,
-            display_name=display_name,
+            first_name=first_name,
+            last_name=last_name,
             department=department,
             roles=roles,
         )
@@ -224,7 +232,8 @@ def test_user_list_navigation_and_non_superuser_navigation() -> None:
                 app,
                 "ada",
                 email="ada@example.com",
-                display_name="Ada Lovelace",
+                first_name="Ada",
+                last_name="Lovelace",
                 department="Engineering",
                 is_superuser=True,
             )
@@ -232,7 +241,8 @@ def test_user_list_navigation_and_non_superuser_navigation() -> None:
                 app,
                 "bob",
                 email="bob@example.com",
-                display_name="Bob Stone",
+                first_name="Bob",
+                last_name="Stone",
                 department="Operations",
                 is_active=False,
             )
@@ -247,7 +257,8 @@ def test_user_list_navigation_and_non_superuser_navigation() -> None:
                 "ID",
                 "Username",
                 "Email",
-                "Display name",
+                "First name",
+                "Last name",
                 "Department",
                 "Active",
             ]
@@ -257,9 +268,11 @@ def test_user_list_navigation_and_non_superuser_navigation() -> None:
             )
             assert "ada@example.com" in page.text
             assert "bob@example.com" in page.text
-            assert "Ada Lovelace" in page.text
+            assert "Ada" in page.text
+            assert "Lovelace" in page.text
             assert "Engineering" in page.text
-            assert "Bob Stone" in page.text
+            assert "Bob" in page.text
+            assert "Stone" in page.text
             assert "Operations" in page.text
             assert "badge-superuser" in page.text
             assert "inactive" in page.text
@@ -300,7 +313,8 @@ def test_create_user_with_roles_and_defaults() -> None:
             assert form.text.index('name="password"') < form.text.index('name="confirm_password"')
             assert "field-grid" not in form.text
             assert len(re.findall(r'<span class="required"[^>]*>\*</span>', form.text)) == 3
-            assert 'name="display_name"' in form.text
+            assert 'name="first_name"' in form.text
+            assert 'name="last_name"' in form.text
             assert 'name="department"' in form.text
             assert re.search(r'name="is_active"\s+value="1"\s+checked', form.text)
             assert "data-role-select" in form.text
@@ -323,7 +337,8 @@ def test_create_user_with_roles_and_defaults() -> None:
                     "email": "alice@example.com",
                     "password": PASSWORD,
                     "confirm_password": PASSWORD,
-                    "display_name": "Alice Smith",
+                    "first_name": "Alice",
+                    "last_name": "Smith",
                     "department": "Research",
                     "is_active": "1",
                     "role_ids": str(role_id),
@@ -340,7 +355,8 @@ def test_create_user_with_roles_and_defaults() -> None:
                 )
                 assert user is not None
                 assert user.email == "alice@example.com"
-                assert user.display_name == "Alice Smith"
+                assert user.first_name == "Alice"
+                assert user.last_name == "Smith"
                 assert user.department == "Research"
                 assert user.is_active is True
                 assert user.is_superuser is False
@@ -424,7 +440,7 @@ def test_user_validation_errors() -> None:
                         "password": "short",
                         "confirm_password": "short",
                     },
-                    "Use between 12 and 1024 characters.",
+                    "This password is too short. It must contain at least 12 characters.",
                 ),
                 (
                     {
@@ -463,7 +479,7 @@ def test_user_validation_errors() -> None:
             ]
             for data, message in cases:
                 response = await post(app, "/auth/users/new", data)
-                assert response.status_code == 422
+                assert response.status_code == 422, (data, message)
                 assert message in response.text
 
             async with app.uow(principal=SUPERUSER) as ctx:
@@ -485,7 +501,8 @@ def test_edit_user_preserves_password_and_updates_roles() -> None:
                 app,
                 "alice",
                 email="alice@example.com",
-                display_name="Alice",
+                first_name="Alice",
+                last_name="Smith",
                 department="Research",
                 role_ids=[first_role],
             )
@@ -495,7 +512,10 @@ def test_edit_user_preserves_password_and_updates_roles() -> None:
             assert form.status_code == 200
             assert 'value="alice"' in form.text
             assert 'value="alice@example.com"' in form.text
+            assert 'name="first_name"' in form.text
             assert 'value="Alice"' in form.text
+            assert 'name="last_name"' in form.text
+            assert 'value="Smith"' in form.text
             assert 'value="Research"' in form.text
             first_option = re.search(
                 rf'<input[^>]+name="role_ids"[^>]+value="{first_role}"[^>]*>', form.text
@@ -521,7 +541,8 @@ def test_edit_user_preserves_password_and_updates_roles() -> None:
                     "email": "alice@platform.example",
                     "password": "",
                     "confirm_password": "",
-                    "display_name": "Alice Updated",
+                    "first_name": "Alice",
+                    "last_name": "Updated",
                     "department": "Platform",
                     "is_active": "1",
                     "role_ids": str(second_role),
@@ -531,7 +552,8 @@ def test_edit_user_preserves_password_and_updates_roles() -> None:
 
             updated = await fetch_user(app, user_id)
             assert updated.email == "alice@platform.example"
-            assert updated.display_name == "Alice Updated"
+            assert updated.first_name == "Alice"
+            assert updated.last_name == "Updated"
             assert updated.department == "Platform"
             assert updated.password_hash == original.password_hash
             assert [role.name for role in updated.roles] == ["Writers"]
@@ -554,7 +576,8 @@ def test_self_and_last_superuser_guards() -> None:
                     "username": "root",
                     "password": "",
                     "confirm_password": "",
-                    "display_name": "",
+                    "first_name": "",
+                    "last_name": "",
                     "department": "",
                 },
             )
@@ -581,7 +604,8 @@ def test_self_and_last_superuser_guards() -> None:
                     "username": "root",
                     "password": "",
                     "confirm_password": "",
-                    "display_name": "",
+                    "first_name": "",
+                    "last_name": "",
                     "department": "",
                 },
             )

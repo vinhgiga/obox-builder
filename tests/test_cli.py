@@ -10,17 +10,28 @@ from fastapi import FastAPI
 from obox_builder import cli
 from obox_builder.cli import main, startproject
 
+PROJECT_FILES = {
+    ".editorconfig",
+    "alembic.ini",
+    "justfile",
+    "main.py",
+    "migrations",
+    "models.py",
+    "setting.py",
+}
+
 
 def test_startproject_creates_runnable_skeleton(tmp_path: Path) -> None:
     project = startproject("demo", tmp_path / "demo")
 
     assert project == tmp_path / "demo"
-    assert {path.name for path in project.iterdir()} == {
-        ".editorconfig",
-        "justfile",
-        "main.py",
-        "setting.py",
+    assert {path.name for path in project.iterdir()} == PROJECT_FILES
+    assert {path.name for path in (project / "migrations").iterdir()} == {
+        "env.py",
+        "script.py.mako",
+        "versions",
     }
+    assert (project / "migrations" / "versions" / "__init__.py").is_file()
     editorconfig = (project / ".editorconfig").read_text()
     assert "[*.html]\nindent_style = space\nindent_size = 2" in editorconfig
     justfile = (project / "justfile").read_text()
@@ -83,12 +94,7 @@ def test_startproject_command_defaults_to_named_directory(
 
     output = capsys.readouterr().out
     assert "Created project 'demo'" in output
-    assert {path.name for path in (tmp_path / "demo").iterdir()} == {
-        ".editorconfig",
-        "justfile",
-        "main.py",
-        "setting.py",
-    }
+    assert {path.name for path in (tmp_path / "demo").iterdir()} == PROJECT_FILES
 
 
 def test_generated_project_runs_with_plain_fastapi(
@@ -121,7 +127,11 @@ def test_generated_project_runs_with_plain_fastapi(
         ):
             response = await client.get("/")
             assert response.json() == {"message": "Welcome to generated"}
-            assert (await client.get("/auth/login")).status_code == 404
+            login_redirect = await client.get("/auth/login")
+            assert login_redirect.status_code == 303
+            assert login_redirect.headers["location"].endswith("/auth/login")
+            login_form = await client.get(login_redirect.headers["location"])
+            assert login_form.status_code == 200
         assert module.obox.database.engine is None
         assert not (project / "db.sqlite3").exists()
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 
 import sqlalchemy as sa
@@ -15,6 +16,7 @@ from obox_builder.auth import RBAC, Identity
 from obox_builder.builder.http import OboxRoute, read_form
 from obox_builder.builder.ui import build_navigation
 from obox_builder.contrib.auth.models import Role, User
+from obox_builder.contrib.auth.password_validation import get_password_validators
 from obox_builder.contrib.auth.passwords import hash_password
 from obox_builder.errors import (
     N_,
@@ -172,6 +174,7 @@ def admin_error(request: Request, code: str) -> str:
 
 def router(app: Obox, auth: Auth) -> APIRouter:
     routes = APIRouter(prefix=auth.prefix, route_class=OboxRoute)
+    password_validators = get_password_validators(app.settings.auth_password_validators)
 
     async def superuser(request: Request) -> Identity:
         principal = await auth.principal(request)
@@ -337,7 +340,17 @@ def router(app: Obox, auth: Auth) -> APIRouter:
                 errors["confirm_password"] = [N_("Passwords do not match.")]
             if password:
                 try:
-                    encoded = await hash_password(password)
+                    encoded = await hash_password(
+                        password,
+                        validators=password_validators,
+                        user=SimpleNamespace(
+                            username=username,
+                            email=email,
+                            first_name=first_name,
+                            last_name=last_name,
+                            department=department,
+                        ),
+                    )
                 except BuilderValidationError as error:
                     errors.setdefault("password", []).extend(error.errors.get("password", []))
 
