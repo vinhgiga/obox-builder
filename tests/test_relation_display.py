@@ -40,7 +40,6 @@ class Child(Base):
 
 
 class ParentBuilder(ModelBuilder[Parent]):
-    model = Parent
     fields = ("name",)
     label_field: str | None = "name"
     slug = "parents"
@@ -51,7 +50,6 @@ class ChildListView(View):
 
 
 class ChildBuilder(ModelBuilder[Child]):
-    model = Child
     fields: tuple[str, ...] = ("parent_id", "name")
     filter_fields = ("parent_id",)
     ordering = ("parent_id", "id")

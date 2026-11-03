@@ -6,7 +6,7 @@ import inspect
 import re
 from collections.abc import Mapping, Sequence
 from types import MappingProxyType
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, TypeVar, get_args, get_origin
 
 import sqlalchemy as sa
 from sqlalchemy.orm import raiseload, undefer
@@ -22,8 +22,53 @@ from obox_builder.errors import ImproperlyConfigured
 T = TypeVar("T")
 
 
+def _substitute_typevar(value: Any, substitutions: Mapping[TypeVar, Any]) -> Any:
+    seen: set[TypeVar] = set()
+    while isinstance(value, TypeVar) and value in substitutions and value not in seen:
+        seen.add(value)
+        value = substitutions[value]
+    return value
+
+
+def _infer_model(builder: type[Any]) -> type[Any] | None:
+    models: set[type[Any]] = set()
+
+    def visit(
+        current: type[Any], substitutions: Mapping[TypeVar, Any], ancestors: frozenset[type[Any]]
+    ) -> None:
+        if current in ancestors:
+            return
+        ancestors = ancestors | {current}
+        bases = current.__dict__.get("__orig_bases__", current.__bases__)
+        for base in bases:
+            origin = get_origin(base)
+            parent = origin if isinstance(origin, type) else base
+            if not isinstance(parent, type) or not issubclass(parent, ModelBuilder):
+                continue
+            arguments = get_args(base)
+            if parent is ModelBuilder:
+                if len(arguments) == 1:
+                    model = _substitute_typevar(arguments[0], substitutions)
+                    if isinstance(model, type) and model is not Any:
+                        models.add(model)
+                continue
+            parent_substitutions = dict(substitutions)
+            parent_substitutions.update(
+                {
+                    parameter: _substitute_typevar(argument, substitutions)
+                    for parameter, argument in zip(
+                        getattr(parent, "__parameters__", ()), arguments, strict=False
+                    )
+                }
+            )
+            visit(parent, parent_substitutions, ancestors)
+
+    visit(builder, {}, frozenset())
+    return next(iter(models)) if len(models) == 1 else None
+
+
 class ModelBuilder(Generic[T]):
-    model: type[T] | None = None
+    model: type[T] | None
     slug: str | None = None
     label_field: str | None = None
     fields: FieldRefs | None = None
@@ -39,9 +84,11 @@ class ModelBuilder(Generic[T]):
     View = View
     API = API
 
+    @classmethod
+    def _model_type(cls) -> type[T] | None:
+        return _infer_model(cls)
+
     def _compile(self, model: type[T], default_policy: Policy[Any], app: Any) -> None:
-        if self.model is not None and self.model is not model:
-            raise ImproperlyConfigured("Builder.model differs from the registered model.")
         self.model, self.app = model, app
         self.policy = self.policy if self.policy is not None else default_policy
         if not isinstance(self.policy, Policy):

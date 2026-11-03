@@ -28,8 +28,6 @@ class Widget(Base):
 
 
 class RecordingBuilder(ModelBuilder[Widget]):
-    model = Widget
-
     def __init__(self) -> None:
         self.saved: list[tuple[bool, dict[str, Any], str]] = []
         self.deleted: list[int] = []
@@ -54,8 +52,6 @@ class RecordingBuilder(ModelBuilder[Widget]):
 
 
 class FailingBuilder(ModelBuilder[Widget]):
-    model = Widget
-
     async def before_save(
         self,
         instance: Widget,
@@ -72,7 +68,6 @@ class OrderedForm(Form):
 
 
 class OrderedBuilder(ModelBuilder[Widget]):
-    model = Widget
     Form = OrderedForm
 
 
@@ -84,7 +79,6 @@ class ReorderedForm(OrderedForm):
 
 
 class ReorderedBuilder(ModelBuilder[Widget]):
-    model = Widget
     Form = ReorderedForm
 
 
@@ -94,7 +88,6 @@ class DuplicateForm(OrderedForm):
 
 
 class DuplicateBuilder(ModelBuilder[Widget]):
-    model = Widget
     Form = DuplicateForm
 
 

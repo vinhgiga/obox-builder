@@ -3,7 +3,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import FrozenInstanceError
 from types import ModuleType
-from typing import Any
+from typing import Any, Generic, TypeVar
 
 import httpx
 import pytest
@@ -33,6 +33,21 @@ class Item(Base):
 
 
 class ItemBuilder(ModelBuilder[Item]):
+    pass
+
+
+TItem = TypeVar("TItem")
+
+
+class BaseBuilder(ModelBuilder[TItem], Generic[TItem]):
+    pass
+
+
+class InheritedItemBuilder(BaseBuilder[Item]):
+    pass
+
+
+class LegacyItemBuilder(ModelBuilder[Item]):
     model = Item
 
 
@@ -217,6 +232,19 @@ def test_app_and_builder_instances_are_isolated() -> None:
         a.register(ModelBuilder)
     with pytest.raises(ImproperlyConfigured, match="ModelBuilder"):
         a.register(Item)
+
+
+def test_model_is_inferred_through_generic_builder_base() -> None:
+    obox = Obox(FastAPI(), settings=configured(database_url="sqlite+aiosqlite://"))
+
+    registration = obox.register(InheritedItemBuilder)
+
+    assert registration.model is Item
+    assert registration.builder.model is Item
+    with pytest.raises(ImproperlyConfigured, match="no longer supported"):
+        Obox(FastAPI(), settings=configured(database_url="sqlite+aiosqlite://")).register(
+            LegacyItemBuilder
+        )
 
 
 def test_databases_and_units_of_work_are_isolated() -> None:

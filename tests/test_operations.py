@@ -27,6 +27,10 @@ class Widget(Base):
     name: Mapped[str] = mapped_column(sa.String(50))
 
 
+class WidgetBuilder(ModelBuilder[Widget]):
+    pass
+
+
 class NoCreateView(View):
     operations = ("create", "update", "delete")
 
@@ -35,7 +39,6 @@ class NoCreateView(View):
 
 
 class NoCreateBuilder(ModelBuilder[Widget]):
-    model = Widget
     View = NoCreateView
 
 
@@ -44,7 +47,6 @@ class ReadOnlyAPI(API):
 
 
 class ReadOnlyAPIBuilder(ModelBuilder[Widget]):
-    model = Widget
     API = ReadOnlyAPI
 
 
@@ -149,8 +151,8 @@ def test_unknown_or_duplicate_operations_are_rejected(
     configured = type("Surface", (surface,), {"operations": operations})
     builder = type(
         "TestBuilder",
-        (ModelBuilder,),
-        {"model": Widget, "View" if surface is View else "API": configured},
+        (WidgetBuilder,),
+        {"View" if surface is View else "API": configured},
     )
     assert compile_error(builder) == "Unknown or duplicate surface operations."
 

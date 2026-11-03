@@ -159,11 +159,17 @@ class Obox:
         if self._frozen:
             raise ImproperlyConfigured("Registration is frozen after application startup.")
         if not isinstance(builder, type) or not issubclass(builder, ModelBuilder):
-            raise ImproperlyConfigured("Register a ModelBuilder subclass with a model.")
+            raise ImproperlyConfigured("Register a ModelBuilder subclass.")
+        if getattr(builder, "model", None) is not None:
+            raise ImproperlyConfigured(
+                "Builder.model is no longer supported; specialize ModelBuilder[Model]."
+            )
         definition = builder()
-        model = definition.model
+        model = builder._model_type()
         if model is None:
-            raise ImproperlyConfigured("Builder.model must be a SQLAlchemy mapped class.")
+            raise ImproperlyConfigured(
+                "Builder must specialize ModelBuilder with one concrete model class."
+            )
         if not callable(self.settings.principal_dependency) or not isinstance(
             self.settings.default_policy, Policy
         ):

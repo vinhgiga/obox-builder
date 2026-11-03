@@ -31,7 +31,7 @@ class Widget(Base):
 
 
 class WidgetBuilder(ModelBuilder[Widget]):
-    model = Widget
+    pass
 
 
 class Article(Base):
@@ -42,7 +42,6 @@ class Article(Base):
 
 
 class ArticleBuilder(ModelBuilder[Article]):
-    model = Article
     fields = ("id", "title")
     policy = RBAC("blog.articles")
 

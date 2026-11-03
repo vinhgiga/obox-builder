@@ -30,7 +30,7 @@ class Widget(Base):
 
 
 class WidgetBuilder(ModelBuilder[Widget]):
-    model = Widget
+    pass
 
 
 class GroupedForm(Form):
@@ -41,7 +41,6 @@ class GroupedForm(Form):
 
 
 class GroupedBuilder(ModelBuilder[Widget]):
-    model = Widget
     Form = GroupedForm
 
 
@@ -51,7 +50,6 @@ class NameOnlyPolicy(StaffOnly[Widget]):
 
 
 class FilteredBuilder(ModelBuilder[Widget]):
-    model = Widget
     Form = GroupedForm
     fields = ("name", "status", "note")
     policy = NameOnlyPolicy()
@@ -95,9 +93,7 @@ def compile_error(form: type[Form], **builder_attrs: Any) -> str:
                 csrf_secret="x" * 32,
             ),
         )
-        builder = type(
-            "TestBuilder", (ModelBuilder,), {"model": Widget, "Form": form, **builder_attrs}
-        )
+        builder = type("TestBuilder", (WidgetBuilder,), {"Form": form, **builder_attrs})
         try:
             with pytest.raises(ImproperlyConfigured) as error:
                 app.register(builder)

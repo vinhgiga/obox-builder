@@ -31,7 +31,6 @@ class OrderedView(View):
 
 
 class OrderedBuilder(ModelBuilder[Widget]):
-    model = Widget
     View = OrderedView
 
 
@@ -43,7 +42,6 @@ class DynamicView(View):
 
 
 class DynamicBuilder(ModelBuilder[Widget]):
-    model = Widget
     View = DynamicView
 
 
@@ -53,7 +51,6 @@ class FilterView(View):
 
 
 class FilterBuilder(ModelBuilder[Widget]):
-    model = Widget
     View = FilterView
     filter_fields = ("status",)
 
@@ -64,12 +61,10 @@ class GroupedView(View):
 
 
 class GroupedBuilder(ModelBuilder[Widget]):
-    model = Widget
     View = GroupedView
 
 
 class SearchBuilder(ModelBuilder[Widget]):
-    model = Widget
     search_fields = ("name",)
 
 

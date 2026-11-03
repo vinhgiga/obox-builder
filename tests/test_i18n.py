@@ -25,7 +25,7 @@ class Widget(Base):
 
 
 class WidgetBuilder(ModelBuilder[Widget]):
-    model = Widget
+    pass
 
 
 STAFF = Principal(id=1, is_authenticated=True, is_staff=True)

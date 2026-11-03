@@ -9,7 +9,7 @@
 
 ## 1. Purpose and concepts
 
-OBOX generates a CRUD UI and REST API from a SQLAlchemy mapped class. Developers register the model once, then override only what they need. It extends FastAPI rather than replacing it and does not replace SQLAlchemy or Alembic.
+OBOX generates a CRUD UI and REST API from a SQLAlchemy mapped class. Developers register one `ModelBuilder[Model]` per resource, then override only what they need. It extends FastAPI rather than replacing it and does not replace SQLAlchemy or Alembic.
 
 | Concept | Responsibility |
 | --- | --- |
@@ -27,11 +27,12 @@ OBOX generates a CRUD UI and REST API from a SQLAlchemy mapped class. Developers
 
 ## 2. Quickstart and registration
 
-### 2.1 Level 1 — Register a SQLAlchemy model
+### 2.1 Level 1 — Register builders for SQLAlchemy models
 
 ```python
-from obox_builder import Obox, Settings
+from obox_builder import ModelBuilder, Obox, Settings
 from obox_builder.auth import StaffOnly
+from apps.polls.models import Choice, Question
 
 settings = Settings(
     session_factory=AsyncSessionLocal,
@@ -40,8 +41,17 @@ settings = Settings(
 )
 app = Obox(settings=settings)
 
-app.register(Question)
-app.register(Choice)
+
+class QuestionBuilder(ModelBuilder[Question]):
+    pass
+
+
+class ChoiceBuilder(ModelBuilder[Choice]):
+    pass
+
+
+app.register(QuestionBuilder)
+app.register(ChoiceBuilder)
 
 
 @app.get("/health")
@@ -53,15 +63,15 @@ async def health():
 - `get_principal` is a FastAPI dependency that resolves the caller (or an explicit anonymous principal).
 - `StaffOnly()` is an example policy for authenticated staff users; it is not multi-tenant isolation.
 - When authentication or the default policy is missing, registration/build validation fails instead of silently exposing CRUD operations.
-- `app.register(Model)` generates Form, View and API with secure, documented defaults.
+- `app.register(Builder)` generates Form, View and API with secure, documented defaults.
 
 ### 2.2 Level 2/3 — Customize one model
 
 ```python
-from obox_builder import builder
+from obox_builder import ModelBuilder, builder
 
 
-class QuestionBuilder(builder.ModelBuilder[Question]):
+class QuestionBuilder(ModelBuilder[Question]):
     fields = ("question_text", "pub_date")
     search_fields = ("question_text",)
     filter_fields = ("pub_date",)
@@ -77,10 +87,10 @@ class QuestionBuilder(builder.ModelBuilder[Question]):
         operations = ("list", "retrieve", "create", "update")
 
 
-app.register(Question, builder=QuestionBuilder)
+app.register(QuestionBuilder)
 ```
 
-**Registration contract:** v0.4 deliberately supports one explicit method, `app.register(model, *, builder=None)`. It is **not** also a decorator. Import builders at the application composition root to avoid circular imports. `app.include_router()` remains available for ordinary FastAPI routers.
+**Registration contract:** v0.4 registers a `ModelBuilder[T]` subclass with `app.register(Builder)`. The concrete SQLAlchemy model is inferred from `T`; a separate `model` attribute is not supported. Registration is **not** also a decorator. Import builders at the application composition root to avoid circular imports. `app.include_router()` remains available for ordinary FastAPI routers.
 
 ### 2.3 `Obox` methods
 
@@ -96,12 +106,7 @@ class Obox(FastAPI):
         **fastapi_kwargs: Any,
     ) -> None: ...
 
-    def register(
-        self,
-        model: type[T],
-        *,
-        builder: type[ModelBuilder[T]] | None = None,
-    ) -> Registration[T]: ...
+    def register(self, builder: type[ModelBuilder[T]]) -> Registration[T]: ...
 
     def get_builder(self, model: type[T]) -> ModelBuilder[T]: ...
 
@@ -123,7 +128,7 @@ class Obox(FastAPI):
 
 | Method | Behavior |
 | --- | --- |
-| `register(model, builder=None)` | Inspect metadata, validate builder, compile schemas and include generated routers; return stable `Registration` |
+| `register(builder)` | Infer the model from `ModelBuilder[T]`, validate configuration, compile schemas and include generated routers; return stable `Registration` |
 | `get_builder(model)` | Return the active registered builder |
 | `service(model)` | Return the resource service for non-HTTP use |
 | `check(strict=False)` | Validate registration/routes/security and report exposure diagnostics; strict mode raises on errors |
@@ -139,7 +144,7 @@ class Obox(FastAPI):
 
 | Property | Type | Default / meaning |
 | --- | --- | --- |
-| `model` | `type[T] \| None` | From `app.register(Model)`; may be declared for tooling |
+| `model` | `type[T] \| None` | Inferred from `ModelBuilder[T]` at registration; available on the compiled builder instance |
 | `slug` | `str \| None` | Stable pluralized model name, e.g. `questions` |
 | `fields` | `FieldRefs \| None` | `None` = infer safe supported scalar fields for staff-only resources |
 | `read_only_fields` | `FieldRefs` | Includes primary keys and known generated/computed fields |
@@ -152,7 +157,9 @@ class Obox(FastAPI):
 | `View` | `type[View]` | Default View configuration |
 | `API` | `type[API]` | Default API configuration |
 
-`FieldRefs` accepts mapped SQLAlchemy attributes and strings, e.g. `("pub_date",)` or `(Question.pub_date,)`. The compiler normalizes and checks them. No `exclude` property is defined in v0.4; use a single allowlist instead.
+The model type comes from the builder's generic parameter, including through a specialized generic base class. A builder registered without one concrete mapped model fails configuration. `model` is runtime metadata on the compiled builder, not a class attribute to configure. `FieldRefs` accepts mapped SQLAlchemy attributes and strings, e.g. `("pub_date",)` or `(Question.pub_date,)`. The compiler normalizes and checks them. No `exclude` property is defined in v0.4; use a single allowlist instead.
+
+`Form`, `View`, and `API` configurations must extend their corresponding base surface so defaults and extension hooks remain available.
 
 ### 3.2 Methods and hooks
 
@@ -575,7 +582,7 @@ Use `obox --help` to see the available commands. The CLI provides
 
 **Production-core acceptance criteria:**
 
-1. `app.register(Question)` creates the expected Form, View and API without colliding with native FastAPI endpoints.
+1. `app.register(QuestionBuilder)` creates the expected Form, View and API without colliding with native FastAPI endpoints.
 2. Unauthenticated users cannot access staff-only endpoints; public access is never implicit.
 3. Row-scoped list, detail, update, delete and relationship lookups prevent broken object-level authorization.
 4. API/Form/Service reject unauthorized field writes, including primary keys, read-only fields and server-controlled presets.
