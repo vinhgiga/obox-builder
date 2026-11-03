@@ -1,5 +1,7 @@
 @import "tailwindcss" source(none);
 @source "./templates";
+@source "../contrib/auth/templates";
+@source "../contrib/auth/static";
 
 [data-inline-row][data-deleted="true"] {
   opacity: 0.5;
@@ -153,6 +155,218 @@
   }
   .submit-row {
     @apply flex flex-wrap gap-2;
+  }
+  .page-toolbar {
+    @apply -mt-2 mb-4 flex justify-start;
+  }
+  .button-secondary {
+    @apply inline-block rounded border border-slate-300 bg-white px-3 py-2 text-slate-700 no-underline hover:bg-slate-50 hover:no-underline;
+  }
+  .auth-table {
+    @apply text-sm;
+  }
+  .auth-table th {
+    @apply whitespace-nowrap;
+  }
+  .row-actions {
+    @apply flex flex-wrap items-center gap-3;
+  }
+  .inline-form {
+    @apply m-0 inline;
+  }
+  button.link-danger {
+    @apply border-0 bg-transparent p-0 text-red-800 hover:underline;
+  }
+  .badge {
+    @apply ml-2 inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700;
+  }
+  .badge-superuser {
+    @apply bg-purple-100 text-purple-800;
+  }
+  .badge-muted {
+    @apply text-slate-500;
+  }
+  .notice {
+    @apply rounded border border-green-200 bg-green-50 px-3 py-2 text-green-800;
+  }
+  .alert {
+    @apply rounded border border-red-200 bg-red-50 px-3 py-2 text-red-800;
+  }
+  .field {
+    @apply mt-4;
+  }
+  .field > label {
+    @apply mt-0;
+  }
+  .required {
+    @apply text-red-600;
+  }
+  .field-help {
+    @apply mt-1 text-xs text-slate-500;
+  }
+  .field-error {
+    @apply mt-1 text-sm text-red-800;
+  }
+  .role-select {
+    @apply relative mt-2;
+  }
+  .role-select > summary {
+    @apply flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm;
+  }
+  .role-select > summary::-webkit-details-marker {
+    display: none;
+  }
+  .role-select[open] > summary {
+    @apply border-blue-600 ring-2 ring-blue-600/20;
+  }
+  .role-select-chips {
+    @apply flex min-w-0 flex-1 flex-wrap items-center gap-2;
+  }
+  .role-select-placeholder {
+    @apply text-slate-400;
+  }
+  .role-select-chip {
+    @apply inline-flex items-center gap-1 rounded-full bg-slate-100 py-1 pl-3 pr-2 text-slate-800;
+  }
+  .role-select-remove {
+    @apply size-5 shrink-0 items-center justify-center rounded-full border-0 bg-transparent p-0 text-lg leading-none text-slate-600 hover:bg-slate-200 hover:text-slate-900;
+    display: none;
+  }
+  .role-select[data-enhanced] .role-select-remove {
+    display: inline-flex;
+  }
+  .role-select-chevron {
+    @apply size-4 shrink-0 text-slate-500 transition-transform;
+  }
+  .role-select[open] .role-select-chevron {
+    rotate: 180deg;
+  }
+  .role-select-menu {
+    @apply absolute top-full right-0 left-0 z-30 mt-2 max-h-64 overflow-y-auto rounded-lg border border-slate-200 bg-white p-1 shadow-lg;
+  }
+  .role-select-option {
+    @apply m-0 flex cursor-pointer items-center gap-3 rounded-md px-3 py-2 text-sm text-slate-800 hover:bg-slate-50;
+  }
+  .role-select-option:has(input:focus-visible) {
+    @apply bg-blue-50 ring-2 ring-blue-600 ring-inset;
+  }
+  .role-select-check {
+    @apply size-5 shrink-0 text-blue-700 opacity-0;
+  }
+  .role-select-option input:checked ~ .role-select-check {
+    @apply opacity-100;
+  }
+  .role-select-check svg {
+    @apply size-4;
+  }
+  .role-select-empty {
+    @apply m-0 px-3 py-2;
+  }
+  .permission-preview {
+    @apply mt-3 rounded-lg border border-slate-200 bg-slate-50;
+  }
+  .permission-preview > summary {
+    @apply flex cursor-pointer list-none items-center justify-between gap-2 px-4 py-3 font-medium text-slate-700;
+  }
+  .permission-preview > summary::-webkit-details-marker {
+    display: none;
+  }
+  .permission-preview > summary::after {
+    content: "▾";
+    @apply text-xs text-slate-500;
+  }
+  .permission-preview[open] > summary::after {
+    content: "▴";
+  }
+  .permission-preview[open] > summary {
+    @apply border-b border-slate-200;
+  }
+  .permission-preview-body {
+    @apply space-y-4 p-4;
+  }
+  .permission-preview-service-name {
+    @apply font-semibold text-slate-700;
+  }
+  .permission-preview-resource {
+    @apply mt-2 pl-3;
+  }
+  .permission-preview-resource-name {
+    @apply text-sm text-slate-500;
+  }
+  .permission-preview-actions {
+    @apply mt-1 flex flex-wrap gap-2;
+  }
+  .permission-preview-actions li {
+    @apply rounded bg-white px-2 py-0.5 text-xs text-slate-700 ring-1 ring-slate-200;
+  }
+  .permission-preview-empty {
+    @apply text-sm text-slate-500;
+  }
+  .checkbox-field input {
+    @apply m-0 size-4 p-0 accent-blue-600;
+  }
+  .checkbox-field {
+    @apply mt-4 flex items-center gap-2;
+  }
+  .role-list {
+    @apply space-y-3;
+  }
+  .role-accordion {
+    @apply rounded border border-slate-200;
+  }
+  .role-accordion > summary {
+    @apply flex cursor-pointer list-none items-center justify-between gap-3 bg-slate-50 px-4 py-2 font-semibold;
+  }
+  .role-accordion > summary::-webkit-details-marker {
+    display: none;
+  }
+  .role-title {
+    @apply min-w-0 truncate;
+  }
+  .role-body {
+    @apply border-t border-slate-200 px-4 pb-4;
+  }
+  .role-body form {
+    @apply m-0;
+  }
+  .role-accordion .badge {
+    @apply ml-0 shrink-0;
+  }
+  .permission-tree {
+    @apply mt-2 space-y-1;
+  }
+  .permission-group {
+    @apply rounded border border-slate-200;
+  }
+  .permission-group > summary {
+    @apply flex cursor-pointer list-none items-center gap-2 px-3 py-1.5 text-sm;
+  }
+  .permission-group > summary::-webkit-details-marker {
+    display: none;
+  }
+  .tree-arrow {
+    @apply size-3 shrink-0 rotate-45 border-r-2 border-t-2 border-slate-500 transition-transform;
+  }
+  .permission-group[open] > summary > .tree-arrow {
+    rotate: 135deg;
+  }
+  .permission-group > summary input {
+    @apply m-0 size-4 p-0 accent-blue-600;
+  }
+  .permission-children {
+    @apply space-y-2 border-t border-slate-200 px-4 py-2;
+  }
+  .permission-name {
+    @apply font-medium;
+  }
+  .permission-actions {
+    @apply grid gap-1 border-t border-slate-200 px-4 py-2 sm:grid-cols-2 md:grid-cols-5;
+  }
+  .permission-action {
+    @apply m-0 inline-flex items-center gap-2 text-sm;
+  }
+  .permission-action input {
+    @apply m-0 size-4 p-0 accent-blue-600;
   }
   .grid-page,
   .grid-content {

@@ -102,7 +102,12 @@ class Obox:
         app.add_middleware(LanguageMiddleware, prefixes=self.ui_prefixes, routes=self._ui_routes)
         app.mount(
             f"{self.settings.ui_prefix}/_static",
-            StaticFiles(packages=[("obox_builder.builder", "static")]),
+            StaticFiles(
+                packages=[
+                    ("obox_builder.builder", "static"),
+                    ("obox_builder.contrib.auth", "static"),
+                ]
+            ),
             name="obox_static",
         )
         self._owned_routes.add(id(app.routes[-1]))
@@ -111,15 +116,15 @@ class Obox:
 
     @staticmethod
     async def _problem(request: Request, exc: Exception) -> JSONResponse | RedirectResponse:
+        obox = request.app.state.obox
+        path = request.scope.get("obox_path", "")
         if (
             isinstance(exc, NotAuthenticated)
             and request.method == "GET"
-            and request.app.state.obox.auth is not None
-            and request.scope.get("obox_path", "").startswith(
-                request.app.state.obox.settings.ui_prefix + "/"
-            )
+            and obox.auth is not None
+            and any(path == prefix or path.startswith(prefix + "/") for prefix in obox.ui_prefixes)
         ):
-            return RedirectResponse(request.app.state.obox.auth.login_url(request), status_code=303)
+            return RedirectResponse(obox.auth.login_url(request), status_code=303)
         error = exc if isinstance(exc, OboxError) else OboxError(str(exc))
         body: dict[str, Any] = {
             "type": "about:blank",

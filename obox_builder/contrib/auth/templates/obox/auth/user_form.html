@@ -1,0 +1,183 @@
+{% extends base_template %}
+{% block content_class %}record-content overflow-visible{% endblock %}
+{% macro field_errors(errors, name) %}
+  {% for error in errors.get(name, []) %}
+    <p class="field-error" role="alert">{{ _(error) }}</p>
+  {% endfor %}
+{% endmacro %}
+{% block content %}
+  <nav>
+    <a href="{{ users_url }}">{% trans %}Back to users{% endtrans %}</a>
+  </nav>
+  {% for error in errors.get('__all__', []) %}
+    <p class="alert" role="alert">{{ _(error) }}</p>
+  {% endfor %}
+  <form method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <div class="field">
+      <label for="username">{% trans %}Username{% endtrans %} <span class="required"
+       aria-hidden="true">*</span></label>
+      <input id="username"
+             name="username"
+             value="{{ values.get('username', '') }}"
+             maxlength="150"
+             autocomplete="off"
+             required>
+      {{ field_errors(errors, 'username') }}
+    </div>
+    <div class="field">
+      <label for="email">{% trans %}Email{% endtrans %}</label>
+      <input id="email"
+             name="email"
+             type="email"
+             value="{{ values.get('email', '') }}"
+             maxlength="254"
+             autocomplete="email">
+      {{ field_errors(errors, 'email') }}
+    </div>
+    <div class="field">
+      <label for="password">
+        {% if user %}
+          {% trans %}New password{% endtrans %}
+        {% else %}
+          {% trans %}Password{% endtrans %}
+        {% endif %}
+        {% if not user %}<span class="required" aria-hidden="true">*</span>{% endif %}
+      </label>
+      <input id="password"
+             name="password"
+             type="password"
+             autocomplete="new-password"
+             {% if not user %}required{% endif %}>
+      {% if user %}<p class="field-help">{% trans %}Leave blank to keep the current password.{% endtrans %}</p>{% endif %}
+      {{ field_errors(errors, 'password') }}
+    </div>
+    <div class="field">
+      <label for="confirm_password">{% trans %}Confirm password{% endtrans %}{% if not user %} <span class="required" aria-hidden="true">*</span>{% endif %}</label>
+      <input id="confirm_password"
+             name="confirm_password"
+             type="password"
+             autocomplete="new-password"
+             {% if not user %}required{% endif %}>
+      {{ field_errors(errors, 'confirm_password') }}
+    </div>
+    <div class="field">
+      <label for="display_name">{% trans %}Display name{% endtrans %}</label>
+      <input id="display_name"
+             name="display_name"
+             value="{{ values.get('display_name', '') }}"
+             maxlength="150">
+      {{ field_errors(errors, 'display_name') }}
+    </div>
+    <div class="field">
+      <label for="department">{% trans %}Department{% endtrans %}</label>
+      <input id="department"
+             name="department"
+             value="{{ values.get('department', '') }}"
+             maxlength="150">
+      {{ field_errors(errors, 'department') }}
+    </div>
+    <fieldset class="mt-4">
+      <legend>{% trans %}Roles{% endtrans %}</legend>
+      <details class="role-select"
+               data-role-select
+               data-remove-label="{% trans %}Remove{% endtrans %}">
+        <summary>
+          <span class="role-select-chips" data-role-select-chips>
+            {% for role in roles if role.id in selected_roles %}
+              <span class="role-select-chip" data-role-chip="{{ role.id }}">
+                {{ role.name }}
+                <button type="button"
+                        class="role-select-remove"
+                        data-role-select-remove="{{ role.id }}"
+                        aria-label="{% trans %}Remove{% endtrans %} {{ role.name }}">×</button>
+              </span>
+            {% endfor %}
+            <span class="role-select-placeholder"
+                  data-role-select-placeholder
+                  {% if selected_roles %}hidden{% endif %}>{% trans %}Choose roles{% endtrans %}</span>
+          </span>
+          <svg class="role-select-chevron"
+               viewBox="0 0 20 20"
+               fill="none"
+               stroke="currentColor"
+               stroke-width="1.5"
+               aria-hidden="true">
+            <path d="m6 8 4 4 4-4" />
+          </svg>
+        </summary>
+        <div class="role-select-menu">
+          {% for role in roles %}
+            <label class="role-select-option">
+              <input class="sr-only"
+                     type="checkbox"
+                     name="role_ids"
+                     value="{{ role.id }}"
+                     data-role-option
+                     data-role-name="{{ role.name }}"
+                     {% if role.id in selected_roles %}checked{% endif %}>
+              <span class="role-select-check" aria-hidden="true">
+                <svg viewBox="0 0 20 20"
+                     fill="none"
+                     stroke="currentColor"
+                     stroke-width="2">
+                  <path d="m5 10 3 3 7-7" />
+                </svg>
+              </span>
+              <span>{{ role.name }}</span>
+            </label>
+          {% else %}
+            <p class="field-help role-select-empty">{% trans %}No roles have been created yet.{% endtrans %}</p>
+          {% endfor %}
+        </div>
+      </details>
+      {{ field_errors(errors, 'role_ids') }}
+    </fieldset>
+    <details class="permission-preview" data-permission-preview>
+      <summary>{% trans %}Preview permissions{% endtrans %}</summary>
+      <div class="permission-preview-body">
+        <p class="permission-preview-empty"
+           data-preview-empty
+           {% if preview_has_permissions %}hidden{% endif %}>
+          {% trans %}No permissions are granted by the selected roles.{% endtrans %}
+        </p>
+        {% for service in permission_preview %}
+          <section class="permission-preview-service"
+                   data-preview-service="{{ service.name }}"
+                   {% if not service.has_permissions %}hidden{% endif %}>
+            <p class="permission-preview-service-name">{{ service.name }}</p>
+            {% for resource in service.resources %}
+              <div class="permission-preview-resource"
+                   data-preview-resource="{{ resource.name }}"
+                   {% if not resource.has_permissions %}hidden{% endif %}>
+                <p class="permission-preview-resource-name">{{ resource.name }}</p>
+                <ul class="permission-preview-actions">
+                  {% for action in resource.actions %}
+                    <li data-preview-permission="{{ action.value }}"
+                        data-preview-roles="{{ action.role_ids|join(' ') }}"
+                        {% if not action.selected %}hidden{% endif %}>{{ action.action }}</li>
+                  {% endfor %}
+                </ul>
+              </div>
+            {% endfor %}
+          </section>
+        {% endfor %}
+      </div>
+    </details>
+    <label class="checkbox-field">
+      <input type="checkbox"
+             name="is_active"
+             value="1"
+             {% if values.get('is_active', '') == '1' %}checked{% endif %}>
+      <span>{% trans %}Active{% endtrans %}</span>
+    </label>
+    {{ field_errors(errors, 'is_active') }}
+    <p class="submit-row">
+      <button type="submit">{% trans %}Save{% endtrans %}</button>
+      <a class="button-secondary" href="{{ users_url }}">{% trans %}Cancel{% endtrans %}</a>
+    </p>
+  </form>
+{% endblock %}
+{% block scripts %}
+  <script src="{{ request.url_for('obox_static', path='auth-admin.js') }}"></script>
+{% endblock %}
