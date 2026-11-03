@@ -367,7 +367,6 @@
             <th scope="col"
                 data-list-column="{{ field }}">{{ field.replace('_', ' ').capitalize() }}</th>
           {% endfor %}
-          <th scope="col">{% trans %}Record{% endtrans %}</th>
         </tr>
       </thead>
       <tbody>
@@ -376,7 +375,7 @@
             <tr class="group-header"
                 data-group-header="{{ group.level }}"
                 data-group-id="{{ group.id }}">
-              <td colspan="{{ list_display|length + 2 }}">
+              <td colspan="{{ list_display|length + 1 }}">
                 <button class="group-toggle group-level-{{ group.level }}"
                         type="button"
                         data-group-toggle
@@ -392,16 +391,15 @@
           <tr data-group-row>
             <td class="row-number">{{ query.get('offset', 0)|int + loop.index }}</td>
             {% for field in list_display %}
-              <td data-list-column="{{ field }}"
-                  title="{{ row['values'].get(field, '') }}">
-                <div class="cell-value">{{ row['values'].get(field, '') }}</div>
+              {% set value = row['values'].get(field, '') %}
+              <td data-list-column="{{ field }}" title="{{ value }}">
+                <div class="cell-value">{% if field == link_field and row.detail %}<a href="{{ row.url }}">{{ value }}</a>{% else %}{{ value }}{% endif %}</div>
               </td>
             {% endfor %}
-            <td>{% if row.detail %}<a href="{{ row.url }}">{% trans %}View{% endtrans %}</a>{% endif %}</td>
           </tr>
         {% else %}
           <tr>
-            <td colspan="{{ list_display|length + 2 }}">{% trans %}No records.{% endtrans %}</td>
+            <td colspan="{{ list_display|length + 1 }}">{% trans %}No records.{% endtrans %}</td>
           </tr>
         {% endfor %}
       </tbody>

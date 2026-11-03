@@ -321,6 +321,24 @@ msgstr "Tài khoản"
 #~ msgid "Default"
 #~ msgstr "Mặc định"
 
+#: obox_builder/builder/templates/obox/confirm_delete.html:3
+#: obox_builder/builder/ui.py:1050
+msgid "Are you sure?"
+msgstr "Bạn có chắc không?"
+
+#: obox_builder/builder/templates/obox/confirm_delete.html:4
+#, python-format
+msgid "Are you sure you want to delete “%(label)s”?"
+msgstr "Bạn có chắc muốn xoá “%(label)s”?"
+
+#: obox_builder/builder/templates/obox/confirm_delete.html:8
+msgid "Yes, I'm sure"
+msgstr "Có, tôi chắc chắn"
+
+#: obox_builder/builder/templates/obox/confirm_delete.html:9
+msgid "No, take me back"
+msgstr "Không, quay lại"
+
 #~ msgid "Short"
 #~ msgstr "Thấp"
 

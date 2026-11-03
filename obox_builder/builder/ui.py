@@ -23,7 +23,7 @@ from obox_builder.builder.http import OboxRoute, read_form
 from obox_builder.builder.service import invoke
 from obox_builder.conf import Settings
 from obox_builder.context import Context
-from obox_builder.errors import N_, BuilderValidationError, PermissionDenied
+from obox_builder.errors import N_, BuilderValidationError, NotAuthenticated, PermissionDenied
 from obox_builder.i18n import context as translation_context
 from obox_builder.i18n import localize, translate
 
@@ -79,6 +79,17 @@ async def reference(app: Any, spec: Any, value: Any, ctx: Context, request: Requ
             record_id = quote(str(getattr(obj, target.pk_name)), safe="")
             return localize(request, f"{app.settings.ui_prefix}/{target.slug}/{record_id}")
     return None
+
+
+def object_label(builder: Any, ctx: Context, obj: Any) -> str:
+    readable = builder.readable(ctx, obj=obj)
+    name = builder.label_field if builder.label_field in readable else builder.pk_name
+    return str(getattr(obj, name))
+
+
+def list_link_field(fields: Sequence[str]) -> str | None:
+    # Django links the first displayed column by default.
+    return fields[0] if fields else None
 
 
 def list_columns(builder: Any, ctx: Context, requested: Sequence[str]) -> tuple[str, ...]:
@@ -522,6 +533,46 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
             ),
         )
 
+    async def related_collections(
+        request: Request,
+        ctx: Context,
+        obj: Any,
+        *,
+        exclude: Sequence[str] = (),
+    ) -> list[dict[str, Any]]:
+        collections = []
+        allowed = builder.policy.read_fields(ctx, obj=obj)
+        identity = getattr(obj, builder.pk_name)
+        for name in builder.view_related:
+            if name in exclude or (allowed is not None and name not in allowed):
+                continue
+            relation = sa.inspect(builder.model).relationships[name]
+            target = app.get_builder(relation.mapper.class_)
+            if not await invoke(target.policy.allow, "list", ctx):
+                continue
+            records = await service.related(identity, name, ctx=ctx)
+            list_display = list_columns(target, ctx, target.view.get_list_display(ctx))
+            rows = await list_rows(target, ctx, records, list_display)
+            link_field = list_link_field(list_display)
+            for record, row in zip(records, rows, strict=True):
+                record_id = quote(str(getattr(record, target.pk_name)), safe="")
+                row["url"] = localize(
+                    request, f"{app.settings.ui_prefix}/{target.slug}/{record_id}"
+                )
+                row["detail"] = bool(
+                    target.view.enabled
+                    and await invoke(target.policy.allow, "retrieve", ctx, obj=record)
+                )
+            collections.append(
+                {
+                    "name": name,
+                    "list_display": list_display,
+                    "link_field": link_field,
+                    "rows": rows,
+                }
+            )
+        return collections
+
     async def inline_rows(
         ctx: Context, obj: Any, *, submitted: Mapping[str, str] | None = None
     ) -> list[dict[str, Any]]:
@@ -724,6 +775,7 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
             options.setdefault("limit", builder.view.page_size)
         objects = await service.list(ctx=ctx, **options)
         list_display = list_columns(builder, ctx, builder.view.get_list_display(ctx))
+        link_field = list_link_field(list_display)
         group_names = [term["field"] for term in group]
         visible_rows = await list_rows(
             builder, ctx, objects, tuple(dict.fromkeys((*list_display, *group_names)))
@@ -798,6 +850,7 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
             title=extra.get("title", builder.model.__name__),
             base=base(request),
             list_display=list_display,
+            link_field=link_field,
             rows=rows,
             operations=await allowed_operations(builder, ctx),
             search=any(key in builder.readable(ctx) for key in builder.search_fields),
@@ -811,8 +864,20 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
             next_url="?" + urlencode(next_query) if limit and len(objects) == limit else None,
         )
 
-    async def detail(request: Request, id: str, ctx: Context = dependency) -> HTMLResponse:
-        obj = await service.get(id, ctx=ctx)
+    async def detail(request: Request, id: str, ctx: Context = dependency) -> Any:
+        if request.method == "POST":
+            return await form_page(request, ctx, id)
+        obj = None
+        if builder.form.enabled and "update" in builder.view.operations:
+            try:
+                obj = await service._get(id, ctx, "update")
+            except (NotAuthenticated, PermissionDenied):
+                pass
+            else:
+                if "update" in await allowed_operations(builder, ctx, obj):
+                    return await form_page(request, ctx, obj=obj)
+        if obj is None:
+            obj = await service.get(id, ctx=ctx)
         visible = await service.serialize(obj, ctx=ctx, fields=builder.view_details)
         links = {
             key: await reference(app, builder.specs[key], value, ctx, request)
@@ -820,24 +885,6 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
         }
         links = {key: value for key, value in links.items() if value}
         extra = builder.view.get_context(ctx, instance=obj)
-        collections = []
-        allowed = builder.policy.read_fields(ctx, obj=obj)
-        for name in builder.view_related:
-            if allowed is not None and name not in allowed:
-                continue
-            relation = sa.inspect(builder.model).relationships[name]
-            target = app.get_builder(relation.mapper.class_)
-            if not await invoke(target.policy.allow, "list", ctx):
-                continue
-            records = await service.related(id, name, ctx=ctx)
-            list_display = list_columns(target, ctx, target.view.get_list_display(ctx))
-            collections.append(
-                {
-                    "name": name,
-                    "list_display": list_display,
-                    "rows": await list_rows(target, ctx, records, list_display),
-                }
-            )
         return await page(
             builder.view.detail_template,
             request,
@@ -846,15 +893,18 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
             title=extra.get("title", builder.model.__name__),
             base=base(request),
             values=visible,
-            collections=collections,
+            collections=await related_collections(request, ctx, obj),
             links=links,
             operations=await allowed_operations(builder, ctx, obj),
             url=f"{base(request)}/{quote(str(getattr(obj, builder.pk_name)), safe='')}",
             csrf=app.csrf.token(request, ctx.principal),
         )
 
-    async def form_page(request: Request, ctx: Context, id: str | None = None) -> Any:
-        obj = await service._get(id, ctx, "update") if id is not None else None
+    async def form_page(
+        request: Request, ctx: Context, id: str | None = None, *, obj: Any = None
+    ) -> Any:
+        if obj is None:
+            obj = await service._get(id, ctx, "update") if id is not None else None
         action = "create" if obj is None else "update"
         await service.authorize(action, ctx, obj)
         controls = await form_fields(builder, service, ctx, obj)
@@ -867,6 +917,26 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
         errors = {}
         status = 200
         inline_groups = []
+        record_url = (
+            f"{base(request)}/{quote(str(getattr(obj, builder.pk_name)), safe='')}"
+            if obj is not None and builder.view.enabled
+            else None
+        )
+        operations = (
+            await allowed_operations(builder, ctx, obj)
+            if obj is not None and builder.view.enabled
+            else ()
+        )
+        collections = (
+            await related_collections(
+                request,
+                ctx,
+                obj,
+                exclude=tuple(inline.relation_name for inline in builder.inline_instances),
+            )
+            if obj is not None and builder.view.enabled
+            else []
+        )
         if request.method == "POST":
             form = await read_form(request)
             app.csrf.validate(request, ctx.principal, str(form.get("csrf_token", "")))
@@ -913,7 +983,11 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
                         location = f"{base(request)}/new"
                     elif "_continue" in submitted:
                         record = quote(str(getattr(instance, builder.pk_name)), safe="")
-                        location = f"{base(request)}/{record}/edit"
+                        location = (
+                            f"{base(request)}/{record}"
+                            if builder.view.enabled
+                            else f"{base(request)}/{record}/edit"
+                        )
                     else:
                         location = (
                             base(request)
@@ -929,7 +1003,10 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
                 status = 422
         else:
             inline_groups = await inline_rows(ctx, obj)
-        extra = builder.form.get_context(ctx, instance=obj, action=action)
+        extra = {
+            **builder.view.get_context(ctx, instance=obj),
+            **builder.form.get_context(ctx, instance=obj, action=action),
+        }
         return await page(
             builder.form.template,
             request,
@@ -942,6 +1019,9 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
             values=values if request.method == "POST" else input_values(builder, values),
             errors=errors,
             inlines=inline_groups,
+            collections=collections,
+            operations=operations,
+            record_url=record_url,
             csrf=app.csrf.token(request, ctx.principal),
             action=action,
         )
@@ -950,9 +1030,26 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
         return await form_page(request, ctx)
 
     async def update_form(request: Request, id: str, ctx: Context = dependency) -> Any:
+        if request.method == "GET" and builder.view.enabled:
+            obj = await service._get(id, ctx, "update")
+            record = quote(str(getattr(obj, builder.pk_name)), safe="")
+            return RedirectResponse(f"{base(request)}/{record}", status_code=303)
         return await form_page(request, ctx, id)
 
-    async def delete(request: Request, id: str, ctx: Context = dependency) -> RedirectResponse:
+    async def delete(request: Request, id: str, ctx: Context = dependency) -> Any:
+        if request.method == "GET":
+            obj = await service._get(id, ctx, "delete")
+            record = quote(str(getattr(obj, builder.pk_name)), safe="")
+            return await page(
+                "obox/confirm_delete.html",
+                request,
+                ctx,
+                extra={},
+                title=translate(request, "Are you sure?"),
+                base=base(request),
+                object_label=object_label(builder, ctx, obj),
+                url=f"{base(request)}/{record}",
+            )
         form = await read_form(request)
         app.csrf.validate(request, ctx.principal, str(form.get("csrf_token", "")))
         await service.delete(id, ctx=ctx)
@@ -967,7 +1064,7 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
             builder.form.enabled,
             "create",
         ),
-        (detail, "/{id}", ["GET"], builder.view.enabled, "detail"),
+        (detail, "/{id}", ["GET", "POST"], builder.view.enabled, "detail"),
         (
             update_form,
             "/{id}/edit",
@@ -978,7 +1075,7 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
         (
             delete,
             "/{id}/delete",
-            ["POST"],
+            ["GET", "POST"],
             builder.view.enabled,
             "delete",
         ),

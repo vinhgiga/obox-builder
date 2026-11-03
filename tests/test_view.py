@@ -135,7 +135,9 @@ def test_list_exposes_row_height_controls() -> None:
         assert f'data-row-height-choice="{value}"' in html
     for label in ("Short", "Medium", "Tall", "Extra Tall", "Wrap headers"):
         assert label in html
-    assert '<div class="cell-value">live</div>' in html
+    assert re.search(
+        r'<div class="cell-value"><a href="[^"]*/admin/widgets/1">live</a></div>', html
+    )
 
 
 def test_list_exposes_global_search_controls() -> None:

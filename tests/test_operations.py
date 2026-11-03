@@ -108,9 +108,10 @@ def test_view_get_operations_controls_rendered_operations() -> None:
                 list_response = await client.get("/admin/widgets")
                 detail_response = await client.get(f"/admin/widgets/{widget_id}")
             assert "/admin/widgets/new" not in list_response.text
-            assert f"/admin/widgets/{widget_id}/edit" in detail_response.text
+            for name in ("_save", "_addanother", "_continue"):
+                assert f'name="{name}"' in detail_response.text
             assert f"/admin/widgets/{widget_id}/delete" in detail_response.text
-            assert '<button type="submit">Delete</button>' in detail_response.text
+            assert 'class="deletelink"' in detail_response.text
         finally:
             await engine.dispose()
 

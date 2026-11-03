@@ -123,7 +123,11 @@
               name="_addanother">{% trans %}Save and add another{% endtrans %}</button>
       <button type="submit"
               name="_continue">{% trans %}Save and continue editing{% endtrans %}</button>
+      {% if record_url and "delete" in operations %}
+        <a class="deletelink" href="{{ record_url }}/delete">{% trans %}Delete{% endtrans %}</a>
+      {% endif %}
     </p>
   </form>
+  {% include "obox/_related.html" %}
   <script src="{{ request.url_for('obox_static', path='inline.js') }}"></script>
 {% endblock %}

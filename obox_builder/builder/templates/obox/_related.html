@@ -1,0 +1,26 @@
+{% for collection in collections %}
+  <h2>{{ collection.name.replace('_', ' ').capitalize() }}</h2>
+  <table>
+    <thead>
+      <tr>
+        {% for field in collection.list_display %}<th scope="col">{{ field }}</th>{% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in collection.rows %}
+        <tr>
+          {% for field in collection.list_display %}
+            {% set value = row.get(field, '') %}
+            <td>
+              {% if field == collection.link_field and row.detail %}<a href="{{ row.url }}">{{ value }}</a>{% else %}{{ value }}{% endif %}
+            </td>
+          {% endfor %}
+        </tr>
+      {% else %}
+        <tr>
+          <td>{% trans %}No records.{% endtrans %}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endfor %}

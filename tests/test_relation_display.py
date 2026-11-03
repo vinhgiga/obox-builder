@@ -1,4 +1,5 @@
 import asyncio
+import re
 from typing import Any
 
 import httpx
@@ -197,7 +198,7 @@ def test_relation_label_respects_target_scope() -> None:
             assert "Visible" in html
             assert "Hidden" not in html
             assert 'title="2"' in html
-            assert '<div class="cell-value">2</div>' in html
+            assert re.search(r'<a href="[^"]*/admin/children/2">2</a>', html)
             assert "beta" in html
         finally:
             await engine.dispose()
@@ -243,7 +244,7 @@ def test_relation_without_label_field_falls_back_to_raw_key() -> None:
             assert "Visible" not in html
             assert "TOP-SECRET" not in html
             assert 'title="1"' in html
-            assert '<div class="cell-value">1</div>' in html
+            assert re.search(r'<a href="[^"]*/admin/children/1">1</a>', html)
         finally:
             await engine.dispose()
 

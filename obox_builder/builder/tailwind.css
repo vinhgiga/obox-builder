@@ -156,6 +156,9 @@
   .submit-row {
     @apply flex flex-wrap gap-2;
   }
+  .submit-row .deletelink {
+    @apply ml-auto inline-block rounded border border-red-700 bg-red-700 px-3 py-2 text-white no-underline hover:border-red-800 hover:bg-red-800 hover:no-underline;
+  }
   .page-toolbar {
     @apply -mt-2 mb-4 flex justify-start;
   }

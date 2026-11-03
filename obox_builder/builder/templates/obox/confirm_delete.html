@@ -1,0 +1,12 @@
+{% extends base_template %}
+{% block content %}
+  <h1>{% trans %}Are you sure?{% endtrans %}</h1>
+  <p>{% trans label=object_label %}Are you sure you want to delete “{{ label }}”?{% endtrans %}</p>
+  <form method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <p class="submit-row">
+      <button type="submit">{% trans %}Yes, I'm sure{% endtrans %}</button>
+      <a class="button-secondary" href="{{ url }}">{% trans %}No, take me back{% endtrans %}</a>
+    </p>
+  </form>
+{% endblock %}
