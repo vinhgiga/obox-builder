@@ -137,7 +137,8 @@ def user_values(user: Any | None) -> tuple[dict[str, str], set[int]]:
             {
                 "username": "",
                 "email": "",
-                "display_name": "",
+                "first_name": "",
+                "last_name": "",
                 "department": "",
                 "is_active": "1",
                 "password": "",
@@ -149,7 +150,8 @@ def user_values(user: Any | None) -> tuple[dict[str, str], set[int]]:
         {
             "username": user.username,
             "email": user.email,
-            "display_name": user.display_name,
+            "first_name": user.first_name,
+            "last_name": user.last_name,
             "department": user.department,
             "is_active": "1" if user.is_active else "",
             "password": "",
@@ -289,7 +291,8 @@ def router(app: Obox, auth: Auth) -> APIRouter:
             errors: dict[str, list[str]] = {}
             username = str(form.get("username", "")).strip()
             email = str(form.get("email", "")).strip()
-            display_name = str(form.get("display_name", "")).strip()
+            first_name = str(form.get("first_name", "")).strip()
+            last_name = str(form.get("last_name", "")).strip()
             department = str(form.get("department", "")).strip()
             password = str(form.get("password", ""))
             confirmation = str(form.get("confirm_password", ""))
@@ -308,8 +311,10 @@ def router(app: Obox, auth: Auth) -> APIRouter:
                     errors["username"] = [N_("This username is already taken.")]
             if len(email) > EMAIL_MAX_LENGTH:
                 errors["email"] = [N_("Use at most 254 characters.")]
-            if len(display_name) > MAX_LENGTH:
-                errors["display_name"] = [N_("Use at most 150 characters.")]
+            if len(first_name) > MAX_LENGTH:
+                errors["first_name"] = [N_("Use at most 150 characters.")]
+            if len(last_name) > MAX_LENGTH:
+                errors["last_name"] = [N_("Use at most 150 characters.")]
             if len(department) > MAX_LENGTH:
                 errors["department"] = [N_("Use at most 150 characters.")]
 
@@ -352,7 +357,8 @@ def router(app: Obox, auth: Auth) -> APIRouter:
                 values = {
                     "username": username,
                     "email": email,
-                    "display_name": display_name,
+                    "first_name": first_name,
+                    "last_name": last_name,
                     "department": department,
                     "is_active": "1" if is_active else "",
                     "password": "",
@@ -380,7 +386,8 @@ def router(app: Obox, auth: Auth) -> APIRouter:
                     username=username,
                     email=email,
                     password_hash=encoded,
-                    display_name=display_name,
+                    first_name=first_name,
+                    last_name=last_name,
                     department=department,
                     is_active=is_active,
                 )
@@ -388,7 +395,8 @@ def router(app: Obox, auth: Auth) -> APIRouter:
             else:
                 user.username = username
                 user.email = email
-                user.display_name = display_name
+                user.first_name = first_name
+                user.last_name = last_name
                 user.department = department
                 user.is_active = is_active
                 if encoded is not None:

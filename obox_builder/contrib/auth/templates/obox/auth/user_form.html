@@ -62,12 +62,20 @@
       {{ field_errors(errors, 'confirm_password') }}
     </div>
     <div class="field">
-      <label for="display_name">{% trans %}Display name{% endtrans %}</label>
-      <input id="display_name"
-             name="display_name"
-             value="{{ values.get('display_name', '') }}"
+      <label for="first_name">{% trans %}First name{% endtrans %}</label>
+      <input id="first_name"
+             name="first_name"
+             value="{{ values.get('first_name', '') }}"
              maxlength="150">
-      {{ field_errors(errors, 'display_name') }}
+      {{ field_errors(errors, 'first_name') }}
+    </div>
+    <div class="field">
+      <label for="last_name">{% trans %}Last name{% endtrans %}</label>
+      <input id="last_name"
+             name="last_name"
+             value="{{ values.get('last_name', '') }}"
+             maxlength="150">
+      {{ field_errors(errors, 'last_name') }}
     </div>
     <div class="field">
       <label for="department">{% trans %}Department{% endtrans %}</label>

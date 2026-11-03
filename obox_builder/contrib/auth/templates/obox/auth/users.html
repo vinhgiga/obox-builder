@@ -17,7 +17,8 @@
         <th scope="col">ID</th>
         <th scope="col">{% trans %}Username{% endtrans %}</th>
         <th scope="col">{% trans %}Email{% endtrans %}</th>
-        <th scope="col">{% trans %}Display name{% endtrans %}</th>
+        <th scope="col">{% trans %}First name{% endtrans %}</th>
+        <th scope="col">{% trans %}Last name{% endtrans %}</th>
         <th scope="col">{% trans %}Department{% endtrans %}</th>
         <th scope="col">{% trans %}Active{% endtrans %}</th>
       </tr>
@@ -43,7 +44,8 @@
             {% if user.is_superuser %}<span class="badge badge-superuser">superuser</span>{% endif %}
           </td>
           <td>{{ user.email }}</td>
-          <td>{{ user.display_name }}</td>
+          <td>{{ user.first_name }}</td>
+          <td>{{ user.last_name }}</td>
           <td>{{ user.department }}</td>
           <td>
             {% if user.is_active %}
@@ -55,7 +57,7 @@
         </tr>
       {% else %}
         <tr>
-          <td colspan="7">{% trans %}No users found.{% endtrans %}</td>
+          <td colspan="8">{% trans %}No users found.{% endtrans %}</td>
         </tr>
       {% endfor %}
     </tbody>

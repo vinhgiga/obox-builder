@@ -31,11 +31,11 @@ class UserMixin:
     USERNAME_FIELD: ClassVar[str] = "username"
 
     email: Mapped[str] = mapped_column(sa.String(254), default="")
-    display_name: Mapped[str] = mapped_column(sa.String(150), default="")
+    first_name: Mapped[str] = mapped_column(sa.String(150), default="")
+    last_name: Mapped[str] = mapped_column(sa.String(150), default="")
     department: Mapped[str] = mapped_column(sa.String(150), default="")
     password_hash: Mapped[str] = mapped_column(sa.String(255))
     is_active: Mapped[bool] = mapped_column(default=True)
-    is_staff: Mapped[bool] = mapped_column(default=False)
     is_superuser: Mapped[bool] = mapped_column(default=False)
 
 

@@ -146,7 +146,6 @@ async def run(arguments: argparse.Namespace) -> None:
                     username=username,
                     password_hash=password_hash,
                     is_active=True,
-                    is_staff=True,
                     is_superuser=True,
                 )
             )
