@@ -114,17 +114,18 @@ def test_language_prefix_translates_admin_pages() -> None:
     english = asyncio.run(get("/en/admin/widgets"))
     assert vietnamese.status_code == english.status_code == 200
     assert 'lang="vi"' in vietnamese.text
-    assert "Quản trị" in vietnamese.text
+    assert "Dạng lưới" in vietnamese.text
+    assert "Thêm bản ghi" in vietnamese.text
     assert 'href="/en/admin/widgets"' in vietnamese.text
     assert 'href="/vi/admin/widgets"' in vietnamese.text
     assert 'lang="en"' in english.text
-    assert "Administration" in english.text
+    assert "Grid view" in english.text
 
 
 def test_accept_language_selects_unprefixed_language() -> None:
     response = asyncio.run(get("/admin/widgets", headers={"accept-language": "vi-VN,vi;q=0.9"}))
     assert 'lang="vi"' in response.text
-    assert "Quản trị" in response.text
+    assert "Dạng lưới" in response.text
     assert 'href="/vi/admin/widgets"' in response.text
 
 

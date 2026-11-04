@@ -54,19 +54,15 @@ msgstr "Không có tài nguyên nào cho tài khoản của bạn."
 msgid "Skip to content"
 msgstr "Bỏ qua nội dung"
 
-#: obox_builder/builder/templates/obox/base.html:19
-msgid "Administration"
-msgstr "Quản trị"
-
-#: obox_builder/builder/templates/obox/base.html:26
+#: obox_builder/builder/templates/obox/base.html:27
 msgid "Sign out"
 msgstr "Đăng xuất"
 
-#: obox_builder/builder/templates/obox/base.html:30
+#: obox_builder/builder/templates/obox/base.html:32
 msgid "Language"
 msgstr "Ngôn ngữ"
 
-#: obox_builder/builder/templates/obox/base.html:40
+#: obox_builder/builder/templates/obox/base.html:45
 msgid "Resources"
 msgstr "Tài nguyên"
 
@@ -276,9 +272,9 @@ msgstr "Bản ghi"
 msgid "View"
 msgstr "Xem"
 
-#: obox_builder/builder/templates/obox/list.html:410
-msgid "Create"
-msgstr "Tạo"
+#: obox_builder/builder/templates/obox/list.html:479
+msgid "Add record"
+msgstr "Thêm bản ghi"
 
 #: obox_builder/builder/templates/obox/list.html:413
 #, python-format

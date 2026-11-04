@@ -127,6 +127,17 @@ def test_list_exposes_bulk_delete_controls() -> None:
     assert "Run" in html
 
 
+def test_list_renders_create_action_above_footer() -> None:
+    html, _ = asyncio.run(get_list(OrderedBuilder))
+    assert re.search(r'<a class="grid-add" href="/en/admin/widgets/new">', html)
+    assert "Add record" in html
+    assert (
+        html.index('class="grid-scroll"')
+        < html.index('class="grid-add"')
+        < html.index('class="grid-footer"')
+    )
+
+
 def test_bulk_delete_validates_and_deletes_selected_records() -> None:
     async def scenario() -> None:
         app, engine = await make_app(FilterBuilder)
@@ -199,7 +210,7 @@ def test_form_actions_explicitly_submit() -> None:
 
 def test_list_exposes_row_height_controls() -> None:
     html, _ = asyncio.run(get_list(OrderedBuilder))
-    assert 'data-row-height="medium"' in html
+    assert 'data-row-height="compact"' in html
     assert 'data-wrap-headers="false"' in html
     for value in ("compact", "medium", "tall", "extra-tall"):
         assert f'data-row-height-choice="{value}"' in html

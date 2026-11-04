@@ -1,5 +1,6 @@
 {% extends base_template %}
 {% macro control(field, values, errors, prefix='', required=true, label=true) %}
+  {% if label %}<div class="field">{% endif %}
   {% if label %}
     <label class="form-label" for="{{ prefix }}{{ field.name }}">{{ field.label }}{% if field.required %} <span class="text-danger" aria-hidden="true">*</span>{% endif %}</label>
   {% endif %}
@@ -34,6 +35,7 @@
   {% if field.help %}<div class="form-hint">{{ field.help }}</div>{% endif %}
   {% for error in errors.get(field.name, []) %}<div class="invalid-feedback d-block"
      role="alert">{{ _(error) }}</div>{% endfor %}
+  {% if label %}</div>{% endif %}
 {% endmacro %}
 {% block content %}
   <nav class="mb-3">
@@ -116,7 +118,7 @@
               </tbody>
             </table>
           </template>
-          <button class="inline-add btn btn-link btn-sm mt-3"
+          <button class="inline-add btn btn-link btn-sm"
                   type="button"
                   data-inline-add>+ {% trans name=inline["name"] %}Add another {{ name }}{% endtrans %}</button>
         {% endif %}

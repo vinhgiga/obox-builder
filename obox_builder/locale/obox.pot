@@ -53,19 +53,15 @@ msgstr ""
 msgid "Skip to content"
 msgstr ""
 
-#: obox_builder/builder/templates/obox/base.html:19
-msgid "Administration"
-msgstr ""
-
-#: obox_builder/builder/templates/obox/base.html:26
+#: obox_builder/builder/templates/obox/base.html:27
 msgid "Sign out"
 msgstr ""
 
-#: obox_builder/builder/templates/obox/base.html:30
+#: obox_builder/builder/templates/obox/base.html:32
 msgid "Language"
 msgstr ""
 
-#: obox_builder/builder/templates/obox/base.html:40
+#: obox_builder/builder/templates/obox/base.html:45
 msgid "Resources"
 msgstr ""
 
@@ -271,8 +267,8 @@ msgstr ""
 msgid "View"
 msgstr ""
 
-#: obox_builder/builder/templates/obox/list.html:410
-msgid "Create"
+#: obox_builder/builder/templates/obox/list.html:479
+msgid "Add record"
 msgstr ""
 
 #: obox_builder/builder/templates/obox/list.html:413

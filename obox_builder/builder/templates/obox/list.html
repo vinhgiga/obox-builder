@@ -269,7 +269,7 @@
               <button class="row-height-option"
                       type="button"
                       data-row-height-choice="{{ value }}"
-                      aria-pressed="{{ 'true' if value == 'medium' else 'false' }}">
+                      aria-pressed="{{ 'true' if value == 'compact' else 'false' }}">
                 <svg class="row-height-icon"
                      viewBox="0 0 24 24"
                      fill="none"
@@ -381,91 +381,104 @@
       </button>
     </div>
   </div>
-  <div class="grid-scroll"
-       role="region"
-       aria-label="{{ title }} {{ _('records') }}"
-       tabindex="0">
-    {% if "delete" in operations %}
-      <form id="bulk-action-form"
-            method="post"
-            action="{{ base }}/bulk-actions{% if request.url.query %}?{{ request.url.query }}{% endif %}"
-            data-bulk-form
-            data-confirm-one="{% trans %}Delete this selected record?{% endtrans %}"
-            data-confirm-many="{% trans %}Delete these selected records?{% endtrans %}">
-        <input type="hidden" name="csrf_token" value="{{ csrf }}">
-        <input type="hidden" name="select_across" value="0" data-select-across-input>
-    {% endif %}
-    <table class="table table-vcenter record-grid"
-           data-list-table
-           data-list-key="{{ base }}"
-           data-row-height="medium"
-           data-wrap-headers="false">
-      <thead>
-        <tr>
-          <th scope="col" class="row-number">
-            {% if "delete" in operations %}
-              <input class="grid-select form-check-input"
-                     type="checkbox"
-                     data-select-all
-                     aria-label="{% trans %}Select all records on this page{% endtrans %}">
-            {% else %}
-              <span class="sr-only">{% trans %}Row{% endtrans %}</span>#
-            {% endif %}
-          </th>
-          {% for field in list_display %}
-            <th scope="col"
-                data-list-column="{{ field }}">{{ field.replace('_', ' ').capitalize() }}</th>
-          {% endfor %}
-        </tr>
-      </thead>
-      <tbody>
-        {% for row in rows %}
-          {% for group in row.groups %}
-            <tr class="group-header"
-                data-group-header="{{ group.level }}"
-                data-group-id="{{ group.id }}">
-              <td colspan="{{ list_display|length + 1 }}">
-                <button class="group-toggle group-level-{{ group.level }}"
-                        type="button"
-                        data-group-toggle
-                        aria-expanded="true">
-                  <span class="group-caret" aria-hidden="true">▾</span>
-                  <span class="group-name">{{ group.label }}</span>
-                  <span class="group-value">{{ group.value }}</span>
-                  <span class="group-count">{{ group.count }}</span>
-                </button>
-              </td>
-            </tr>
-          {% endfor %}
-          <tr data-group-row{% if row.selectable %} data-selectable{% endif %}>
-            <td class="row-number">
-              <span class="row-index">{{ query.get('offset', 0)|int + loop.index }}</span>
-              {% if row.selectable %}
-                <input class="grid-select row-select form-check-input"
+  <div class="grid-body">
+    <div class="grid-scroll"
+         role="region"
+         aria-label="{{ title }} {{ _('records') }}"
+         tabindex="0">
+      {% if "delete" in operations %}
+        <form id="bulk-action-form"
+              method="post"
+              action="{{ base }}/bulk-actions{% if request.url.query %}?{{ request.url.query }}{% endif %}"
+              data-bulk-form
+              data-confirm-one="{% trans %}Delete this selected record?{% endtrans %}"
+              data-confirm-many="{% trans %}Delete these selected records?{% endtrans %}">
+          <input type="hidden" name="csrf_token" value="{{ csrf }}">
+          <input type="hidden" name="select_across" value="0" data-select-across-input>
+      {% endif %}
+      <table class="table table-vcenter record-grid"
+             data-list-table
+             data-list-key="{{ base }}"
+             data-row-height="compact"
+             data-wrap-headers="false">
+        <thead>
+          <tr>
+            <th scope="col" class="row-number">
+              {% if "delete" in operations %}
+                <input class="grid-select form-check-input"
                        type="checkbox"
-                       name="record_ids"
-                       value="{{ row.id }}"
-                       data-row-select
-                       aria-label="{% trans %}Select record{% endtrans %} {{ row.label }}">
+                       data-select-all
+                       aria-label="{% trans %}Select all records on this page{% endtrans %}">
+              {% else %}
+                <span class="sr-only">{% trans %}Row{% endtrans %}</span>#
               {% endif %}
-            </td>
+            </th>
             {% for field in list_display %}
-              {% set value = row['values'].get(field, '') %}
-              <td data-list-column="{{ field }}" title="{{ value }}">
-                <div class="cell-value">{% if field == link_field and row.detail %}<a href="{{ row.url }}">{{ value }}</a>{% else %}{{ value }}{% endif %}</div>
-              </td>
+              <th scope="col"
+                  data-list-column="{{ field }}">{{ field.replace('_', ' ').capitalize() }}</th>
             {% endfor %}
           </tr>
-        {% else %}
-          <tr>
-            <td colspan="{{ list_display|length + 1 }}">{% trans %}No records.{% endtrans %}</td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    {% if "delete" in operations %}</form>{% endif %}
-    {% if "create" in operations %}<a class="grid-add"
-   href="{{ base }}/new">＋ {% trans %}Create{% endtrans %}</a>{% endif %}
+        </thead>
+        <tbody>
+          {% for row in rows %}
+            {% for group in row.groups %}
+              <tr class="group-header"
+                  data-group-header="{{ group.level }}"
+                  data-group-id="{{ group.id }}">
+                <td colspan="{{ list_display|length + 1 }}">
+                  <button class="group-toggle group-level-{{ group.level }}"
+                          type="button"
+                          data-group-toggle
+                          aria-expanded="true">
+                    <span class="group-caret" aria-hidden="true">▾</span>
+                    <span class="group-name">{{ group.label }}</span>
+                    <span class="group-value">{{ group.value }}</span>
+                    <span class="group-count">{{ group.count }}</span>
+                  </button>
+                </td>
+              </tr>
+            {% endfor %}
+            <tr data-group-row{% if row.selectable %} data-selectable{% endif %}>
+              <td class="row-number">
+                <span class="row-index">{{ query.get('offset', 0)|int + loop.index }}</span>
+                {% if row.selectable %}
+                  <input class="grid-select row-select form-check-input"
+                         type="checkbox"
+                         name="record_ids"
+                         value="{{ row.id }}"
+                         data-row-select
+                         aria-label="{% trans %}Select record{% endtrans %} {{ row.label }}">
+                {% endif %}
+              </td>
+              {% for field in list_display %}
+                {% set value = row['values'].get(field, '') %}
+                <td data-list-column="{{ field }}" title="{{ value }}">
+                  <div class="cell-value">{% if field == link_field and row.detail %}<a href="{{ row.url }}">{{ value }}</a>{% else %}{{ value }}{% endif %}</div>
+                </td>
+              {% endfor %}
+            </tr>
+          {% else %}
+            <tr>
+              <td colspan="{{ list_display|length + 1 }}">{% trans %}No records.{% endtrans %}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% if "delete" in operations %}</form>{% endif %}
+    </div>
+    {% if "create" in operations %}
+      <a class="grid-add" href="{{ base }}/new">
+        <span class="grid-add-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"
+               fill="none"
+               stroke="currentColor"
+               stroke-width="1.5">
+            <path d="M12 5v14M5 12h14" />
+          </svg>
+        </span>
+        <span>{% trans %}Add record{% endtrans %}</span>
+      </a>
+    {% endif %}
   </div>
   <footer class="grid-footer">
     <div class="grid-footer-actions">
@@ -492,5 +505,5 @@
   <script type="application/json" data-list-group-config>{{ group_config|tojson }}</script>
 {% endblock %}
 {% block scripts %}
-  <script src="{{ request.url_for('obox_static', path='list.js') }}?v=20261104-4"></script>
+  <script src="{{ request.url_for('obox_static', path='list.js') }}?v=20261104-5"></script>
 {% endblock %}

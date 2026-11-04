@@ -1187,7 +1187,7 @@
     }
   };
   const setHeight = (height) => {
-    if (!choices.some((button) => button.dataset.rowHeightChoice === height)) height = "medium";
+    if (!choices.some((button) => button.dataset.rowHeightChoice === height)) height = "compact";
     table.dataset.rowHeight = height;
     choices.forEach((button) => {
       button.setAttribute("aria-pressed", String(button.dataset.rowHeightChoice === height));
@@ -1199,7 +1199,7 @@
   };
 
   const state = readState();
-  setHeight(state.rowHeight || "medium");
+  setHeight(state.rowHeight || "compact");
   setWrapHeaders(state.wrapHeaders === true);
   choices.forEach((button) => {
     button.addEventListener("click", () => {
