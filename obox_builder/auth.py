@@ -122,7 +122,7 @@ class RBAC(Policy[T]):
         return bool(
             getattr(actor, "is_authenticated", False) is True
             and getattr(actor, "is_active", False) is True
-            and action in {"list", "retrieve", "create", "update", "delete"}
+            and _valid_permission(f"{self.resource}.{action}")
             and callable(has_perm)
             and not iscoroutinefunction(has_perm)
             and has_perm(f"{self.resource}.{action}") is True

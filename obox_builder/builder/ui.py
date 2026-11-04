@@ -59,6 +59,14 @@ async def allowed_operations(builder: Any, ctx: Context, obj: Any = None) -> tup
     return tuple(allowed)
 
 
+async def action_choices(builder: Any, ctx: Context, obj: Any = None) -> dict[str, str]:
+    return {
+        name: method.obox_action[0]
+        for name, method in builder.action_methods.items()
+        if await invoke(builder.policy.allow, method.obox_action[1], ctx, obj=obj)
+    }
+
+
 def list_query_options(request: Request, builder: Any) -> dict[str, Any]:
     options = query_options(request, builder, pagination=True, grouping=True)
     filter_ops = options.get("filter_ops") or {}
@@ -817,6 +825,7 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
             await group_relations(builder, ctx, objects, group_names),
         )
         operations = await allowed_operations(builder, ctx)
+        actions = await action_choices(builder, ctx)
         total_count = (
             await service.count(
                 ctx=ctx,
@@ -825,20 +834,21 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
                 filter_group=options["filter_group"],
                 search=options["search"],
             )
-            if "delete" in operations
+            if "delete" in operations or actions
             else len(objects)
         )
         rows = []
         for index, (obj, visible) in enumerate(zip(objects, visible_rows, strict=True)):
             can_detail = await invoke(builder.policy.allow, "retrieve", ctx, obj=obj)
-            can_delete = "delete" in operations and await invoke(
-                builder.policy.allow, "delete", ctx, obj=obj
+            selectable = bool(await action_choices(builder, ctx, obj)) or (
+                "delete" in operations
+                and await invoke(builder.policy.allow, "delete", ctx, obj=obj)
             )
             rows.append(
                 {
                     "id": getattr(obj, builder.pk_name),
                     "label": object_label(builder, ctx, obj),
-                    "selectable": can_delete,
+                    "selectable": selectable,
                     "values": visible,
                     "groups": headers[index],
                     "url": f"{base(request)}/{quote(str(getattr(obj, builder.pk_name)), safe='')}",
@@ -877,6 +887,7 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
             link_field=link_field,
             rows=rows,
             operations=operations,
+            actions=actions,
             search=any(key in builder.readable(ctx) for key in builder.search_fields),
             filters=filters,
             filter_count=count_filter_terms(display),
@@ -1084,12 +1095,16 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
         form = await read_form(request)
         ids = [str(value) for value in form.getlist("record_ids")]
         select_across = form.get("select_across")
+        name = str(form.get("action", ""))
+        choices = await action_choices(builder, ctx)
+        if "delete" in await allowed_operations(builder, ctx):
+            choices["delete"] = "Delete selected"
         if (
             set(form.keys()) != {"csrf_token", "action", "record_ids", "select_across"}
             or len(form.getlist("csrf_token")) != 1
             or len(form.getlist("action")) != 1
             or len(form.getlist("select_across")) != 1
-            or form.get("action") != "delete"
+            or name not in choices
             or select_across not in {"0", "1"}
             or not ids
             or any(not value for value in ids)
@@ -1105,12 +1120,21 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
             ids = [
                 str(getattr(obj, builder.pk_name))
                 for obj in objects
-                if await invoke(builder.policy.allow, "delete", ctx, obj=obj)
+                if (
+                    await invoke(builder.policy.allow, "delete", ctx, obj=obj)
+                    if name == "delete"
+                    else name in await action_choices(builder, ctx, obj)
+                )
             ]
             if not ids:
-                raise BuilderValidationError({"__all__": [N_("Choose records to delete.")]})
-        for record_id in ids:
-            await service.delete(record_id, ctx=ctx)
+                raise BuilderValidationError(
+                    {"__all__": [N_("Choose a valid action and records.")]}
+                )
+        if name == "delete":
+            for record_id in ids:
+                await service.delete(record_id, ctx=ctx)
+        else:
+            await service.run_action(name, ids, ctx=ctx)
         location = f"{base(request)}?{request.url.query}" if request.url.query else base(request)
         return RedirectResponse(location, status_code=303)
 
@@ -1127,7 +1151,7 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
             bulk_action,
             "/bulk-actions",
             ["POST"],
-            builder.view.enabled and "delete" in builder.view.operations,
+            builder.view.enabled and ("delete" in builder.view.operations or bool(builder.actions)),
             "bulk_action",
         ),
         (detail, "/{id}", ["GET", "POST"], builder.view.enabled, "detail"),

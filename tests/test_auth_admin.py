@@ -44,6 +44,7 @@ class Article(Base):
 class ArticleBuilder(ModelBuilder[Article]):
     fields = ("id", "title")
     policy = RBAC("blog.articles")
+    permissions = ("approve", "export")
 
 
 class StubBackend:
@@ -686,6 +687,8 @@ def test_roles_page_builds_permission_tree_from_builders() -> None:
                 "admin.widgets.delete",
                 "blog.articles.update",
                 "blog.articles.retrieve",
+                "blog.articles.approve",
+                "blog.articles.export",
             ):
                 assert f'value="{value}"' in page.text
             assert re.search(r'value="auth\.users\.list"[^>]*checked', page.text)
@@ -709,7 +712,11 @@ def test_role_update_preserves_unknown_permissions_and_validates() -> None:
                 {
                     "csrf_token": "",
                     "name": "Editors",
-                    "permissions": ["auth.roles.update", "auth.roles.delete"],
+                    "permissions": [
+                        "auth.roles.update",
+                        "auth.roles.delete",
+                        "blog.articles.approve",
+                    ],
                 },
             )
             assert response.status_code == 303
@@ -721,6 +728,7 @@ def test_role_update_preserves_unknown_permissions_and_validates() -> None:
                 "legacy.permission.keep",
                 "auth.roles.update",
                 "auth.roles.delete",
+                "blog.articles.approve",
             }
 
             invalid = await post(
@@ -738,6 +746,7 @@ def test_role_update_preserves_unknown_permissions_and_validates() -> None:
                 "legacy.permission.keep",
                 "auth.roles.update",
                 "auth.roles.delete",
+                "blog.articles.approve",
             }
 
             duplicate = await post(

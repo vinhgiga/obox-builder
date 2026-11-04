@@ -5,11 +5,17 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request, Response
+from pydantic import BaseModel, ConfigDict, Field
 
 from obox_builder.builder.filters import parse_filter
 from obox_builder.builder.http import OboxRoute
 from obox_builder.context import Context
 from obox_builder.errors import BuilderValidationError
+
+
+class ActionInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    record_ids: list[str | int] = Field(min_length=1)
 
 
 def query_options(
@@ -86,6 +92,19 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
         app.csrf.validate(request, ctx.principal)
         await service.delete(id, ctx=ctx)
         return Response(status_code=204)
+
+    if builder.actions:
+
+        @router.post(
+            path + "/actions/{name}",
+            name=f"obox_api_{builder.slug}_action",
+            tags=list(builder.api.tags or (builder.model.__name__,)),
+        )
+        async def run_action(
+            request: Request, name: str, data: ActionInput, ctx: Context = dependency
+        ) -> dict[str, int]:
+            app.csrf.validate(request, ctx.principal)
+            return {"count": await service.run_action(name, data.record_ids, ctx=ctx)}
 
     create.__annotations__["data"] = builder.create_schema
     update.__annotations__["data"] = builder.update_schema

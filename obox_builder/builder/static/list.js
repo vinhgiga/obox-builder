@@ -84,11 +84,14 @@
     const count = allSelected
       ? Number(status.dataset.totalCount)
       : rows.filter((input) => input.checked).length;
-    if (!count || action.value !== "delete") {
+    if (!count || !action.value) {
       event.preventDefault();
       return;
     }
-    if (!window.confirm(count === 1 ? form.dataset.confirmOne : form.dataset.confirmMany)) {
+    if (
+      action.value === "delete" &&
+      !window.confirm(count === 1 ? form.dataset.confirmOne : form.dataset.confirmMany)
+    ) {
       event.preventDefault();
     }
   });

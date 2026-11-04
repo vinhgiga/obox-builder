@@ -57,7 +57,9 @@ def permission_tree(app: Obox) -> tuple[list[dict[str, Any]], set[str]]:
             if builder.slug is None:
                 continue
             service, resource = "admin", builder.slug
-        resources.setdefault(service, {}).setdefault(resource, set()).update(ACTIONS)
+        resources.setdefault(service, {}).setdefault(resource, set()).update(
+            (*ACTIONS, *builder.permissions)
+        )
     for resource in ("users", "roles"):
         resources.setdefault("auth", {}).setdefault(resource, set()).update(ACTIONS)
     tree: list[dict[str, Any]] = []
@@ -66,7 +68,7 @@ def permission_tree(app: Obox) -> tuple[list[dict[str, Any]], set[str]]:
         items = []
         for resource in sorted(resources[service]):
             actions = []
-            for action in ACTIONS:
+            for action in (*ACTIONS, *sorted(resources[service][resource] - set(ACTIONS))):
                 value = f"{service}.{resource}.{action}"
                 known.add(value)
                 actions.append({"action": action, "value": value})

@@ -292,7 +292,7 @@ class ResourceService(Generic[T]):
             counts.update({tuple(row[:-1]): row[-1] for row in result})
         return counts
 
-    async def _get(self, id: Any, ctx: Context, action: str) -> T:
+    async def _get(self, id: Any, ctx: Context, action: str, *, lock: bool = False) -> T:
         await self.authorize(action, ctx)
         b = self.builder
         try:
@@ -300,7 +300,7 @@ class ResourceService(Generic[T]):
         except BuilderValidationError as exc:
             raise NotFound("Record is unavailable.") from exc
         stmt = self._statement(action, ctx).where(getattr(b.model, b.pk_name) == key)
-        if action in {"update", "delete"}:
+        if lock or action in {"update", "delete"}:
             stmt = stmt.with_for_update(of=b.model).execution_options(populate_existing=True)
         obj = (await ctx.session.scalars(stmt)).unique().one_or_none()
         if obj is None:
@@ -310,6 +310,28 @@ class ResourceService(Generic[T]):
 
     async def get(self, id: Any, *, ctx: Context) -> T:
         return await self._get(id, ctx, "retrieve")
+
+    async def run_action(self, name: str, ids: Sequence[Any], *, ctx: Context) -> int:
+        self._context(ctx)
+        method = self.builder.action_methods.get(name)
+        if method is None:
+            raise BuilderValidationError({"action": ["Unknown action."]})
+        permission = method.obox_action[1]
+        async with self._mutation(ctx):
+            await self.authorize(permission, ctx)
+            identity = schema("Identity", self.builder.specs, (self.builder.pk_name,))
+            keys = [
+                validate(identity, {self.builder.pk_name: key})[self.builder.pk_name] for key in ids
+            ]
+            if not keys or len(set(keys)) != len(keys):
+                raise BuilderValidationError({"record_ids": ["Choose unique records."]})
+            objects = [
+                await self._get(key, ctx, permission, lock=True) for key in sorted(keys, key=str)
+            ]
+            await invoke(method, objects, ctx)
+            for obj in objects:
+                await self._finish(permission, obj, {}, ctx, event_action=name)
+            return len(objects)
 
     async def related(self, id: Any, name: str, *, ctx: Context) -> Sequence[Any]:
         obj = await self.get(id, ctx=ctx)
@@ -423,7 +445,15 @@ class ResourceService(Generic[T]):
             ctx._failed = True
             raise
 
-    async def _finish(self, action: str, obj: T, presets: Mapping[str, Any], ctx: Context) -> None:
+    async def _finish(
+        self,
+        action: str,
+        obj: T,
+        presets: Mapping[str, Any],
+        ctx: Context,
+        *,
+        event_action: str | None = None,
+    ) -> None:
         self._context(ctx)
         if action == "create":
             missing = {
@@ -440,7 +470,9 @@ class ResourceService(Generic[T]):
             raise PermissionDenied("A server-controlled field was changed.")
         self._context(ctx)
         ctx._events.append(
-            DomainEvent(action, self.builder.model, getattr(obj, self.builder.pk_name))
+            DomainEvent(
+                event_action or action, self.builder.model, getattr(obj, self.builder.pk_name)
+            )
         )
 
     async def validate_inline(

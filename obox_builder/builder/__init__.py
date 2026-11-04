@@ -13,6 +13,7 @@ from sqlalchemy.orm import raiseload, undefer
 from sqlalchemy.orm.interfaces import MANYTOONE
 
 from obox_builder.auth import Policy, StaffOnly
+from obox_builder.builder.actions import action
 from obox_builder.builder.fields import FieldRefs, inspect_fields, normalize
 from obox_builder.builder.inlines import Inline
 from obox_builder.builder.surfaces import API, Form, View
@@ -78,6 +79,8 @@ class ModelBuilder(Generic[T]):
     sort_fields: FieldRefs | None = None
     ordering: tuple[str, ...] | None = None
     policy: Policy[T] | None = None
+    permissions: Sequence[str] = ()
+    actions: Sequence[str] = ()
     inlines: Sequence[type[Inline[Any]]] = ()
     inline_instances: Sequence[Inline[Any]] = ()
     Form = Form
@@ -93,6 +96,33 @@ class ModelBuilder(Generic[T]):
         self.policy = self.policy if self.policy is not None else default_policy
         if not isinstance(self.policy, Policy):
             raise ImproperlyConfigured("Builder.policy must be a Policy instance.")
+        standard = {"list", "retrieve", "create", "update", "delete"}
+        for names in (self.permissions, self.actions):
+            if (
+                isinstance(names, str)
+                or any(
+                    not isinstance(name, str) or not name.isidentifier() or name.startswith("_")
+                    for name in names
+                )
+                or len(set(names)) != len(names)
+                or standard.intersection(names)
+            ):
+                raise ImproperlyConfigured("Use unique, nonreserved permission/action names.")
+        methods = {}
+        for name in self.actions:
+            method = getattr(self, name, None)
+            metadata = getattr(method, "obox_action", None)
+            if (
+                not callable(method)
+                or not isinstance(metadata, tuple)
+                or len(metadata) != 2
+                or not isinstance(metadata[0], str)
+                or not metadata[0].strip()
+                or metadata[1] not in (*standard, *self.permissions)
+            ):
+                raise ImproperlyConfigured("Actions need @action and a declared permission.")
+            methods[name] = method
+        self.action_methods = MappingProxyType(methods)
         for name in ("scope", "read_fields", "write_fields", "presets"):
             if inspect.iscoroutinefunction(getattr(self.policy, name)):
                 raise ImproperlyConfigured(f"Policy.{name} must be synchronous.")
@@ -381,4 +411,4 @@ class ModelBuilder(Generic[T]):
         pass
 
 
-__all__ = ["API", "Form", "Inline", "ModelBuilder", "View"]
+__all__ = ["API", "Form", "Inline", "ModelBuilder", "View", "action"]
