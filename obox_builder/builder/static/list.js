@@ -331,7 +331,7 @@
     spec.operators.includes("contains") ? "contains" : spec.operators[0];
   const control = (label, options, value, className) => {
     const node = document.createElement("select");
-    node.className = className;
+    node.className = `form-select form-select-sm ${className}`;
     node.setAttribute("aria-label", label);
     options.forEach(([key, text]) => {
       node.add(new Option(text, key));
@@ -567,6 +567,7 @@
     }
 
     const field = document.createElement("select");
+    field.className = "form-select form-select-sm";
     field.dataset.filterField = term.field;
     field.setAttribute("aria-label", "Filter field");
     fields.forEach((option) => {
@@ -585,6 +586,7 @@
     row.append(field);
 
     const op = document.createElement("select");
+    op.className = "form-select form-select-sm";
     op.dataset.filterOp = term.field;
     op.setAttribute("aria-label", "Filter operator");
     spec.operators.forEach((name) => {
@@ -604,6 +606,7 @@
       let value;
       if (spec.kind === "choice" || spec.kind === "boolean") {
         value = document.createElement("select");
+        value.className = "form-select form-select-sm";
         value.add(new Option("", ""));
         const choices =
           spec.kind === "boolean"
@@ -623,6 +626,7 @@
         });
       } else {
         value = document.createElement("input");
+        value.className = "form-control form-control-sm";
         value.type = { number: "number", date: "date", time: "time" }[spec.kind] || "text";
         if (spec.kind === "number") value.step = "any";
         value.value = term.value ?? "";
@@ -786,6 +790,7 @@
       row.dataset.sortIndex = index;
 
       const field = document.createElement("select");
+      field.className = "form-select form-select-sm";
       field.setAttribute("aria-label", `Sort field ${index + 1}`);
       specs.forEach((option) => {
         if (
@@ -806,6 +811,7 @@
       row.append(field);
 
       const direction = document.createElement("select");
+      direction.className = "form-select form-select-sm";
       direction.setAttribute("aria-label", `Sort direction for ${spec.label}`);
       const labels = directions(spec.kind);
       direction.add(new Option(labels[0], "asc"));
@@ -1009,6 +1015,7 @@
       row.dataset.groupIndex = index;
 
       const field = document.createElement("select");
+      field.className = "form-select form-select-sm";
       field.setAttribute("aria-label", `Group field ${index + 1}`);
       specs.forEach((option) => {
         if (
@@ -1029,6 +1036,7 @@
       row.append(field);
 
       const direction = document.createElement("select");
+      direction.className = "form-select form-select-sm";
       direction.setAttribute("aria-label", `Group direction for ${spec.label}`);
       const labels = directions(spec.kind);
       direction.add(new Option(labels[0], "asc"));

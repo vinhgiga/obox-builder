@@ -275,7 +275,7 @@ def test_public_read_only_detail_for_anonymous_user() -> None:
             await engine.dispose()
 
         assert detail.status_code == 200
-        assert "<dl>" in detail.text
+        assert '<dl class="row">' in detail.text
         assert 'name="_save"' not in detail.text
         assert "data-inline" not in detail.text
         assert re.search(r'<a href="[^"]*/admin/parents/1">alpha</a>', listing.text)
@@ -295,7 +295,7 @@ def test_read_only_detail_has_no_edit_form() -> None:
             await engine.dispose()
 
         assert detail.status_code == 200
-        assert "<dl>" in detail.text
+        assert '<dl class="row">' in detail.text
         assert 'name="_save"' not in detail.text
         assert "data-inline" not in detail.text
         assert "<h2>Children</h2>" in detail.text
@@ -402,7 +402,7 @@ def test_delete_link_opens_confirmation_page() -> None:
         finally:
             await engine.dispose()
 
-        assert 'class="deletelink"' in detail.text
+        assert 'class="btn btn-danger"' in detail.text
         assert "Confirm deletion" not in detail.text
         assert confirm.status_code == 200
         assert "Are you sure?" in confirm.text

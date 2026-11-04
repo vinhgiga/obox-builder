@@ -111,7 +111,7 @@ def test_view_get_operations_controls_rendered_operations() -> None:
             for name in ("_save", "_addanother", "_continue"):
                 assert f'name="{name}"' in detail_response.text
             assert f"/admin/widgets/{widget_id}/delete" in detail_response.text
-            assert 'class="deletelink"' in detail_response.text
+            assert 'class="btn btn-danger"' in detail_response.text
         finally:
             await engine.dispose()
 

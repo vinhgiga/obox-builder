@@ -1,3 +1,4 @@
+@import "@tabler/core/dist/css/tabler.min.css";
 @import "tailwindcss" source(none);
 @source "./templates";
 @source "../contrib/auth/templates";
@@ -7,815 +8,649 @@
   opacity: 0.5;
 }
 
-@layer base {
-  a {
-    @apply text-blue-700 hover:underline;
-  }
-  table {
-    @apply w-full border-collapse;
-  }
-  th,
-  td {
-    @apply border-b border-slate-200 p-3 text-left;
-  }
-  th {
-    @apply bg-slate-50 text-xs;
-  }
-  input,
-  select,
-  textarea,
-  button {
-    @apply max-w-full rounded border border-slate-300 px-3 py-2;
-  }
-  input,
-  select,
-  textarea {
-    @apply bg-white text-inherit;
-  }
-  button {
-    @apply cursor-pointer border-blue-700 bg-blue-700 text-white;
-  }
-  label {
-    @apply mt-4 block;
-  }
-  textarea {
-    @apply min-h-24 w-140;
-  }
-  nav,
-  form {
-    @apply my-4;
-  }
-  dt {
-    @apply font-semibold;
-  }
-  dd {
-    @apply mb-4 wrap-anywhere;
-  }
-  :focus-visible {
-    @apply outline-2 outline-offset-3 outline-blue-700;
-  }
+.login-page {
+  @apply flex min-h-screen items-start justify-center px-4 py-5;
+}
+.login-card {
+  @apply mt-24 w-full max-w-sm;
+}
+.record-page {
+  @apply w-full flex-1 overflow-auto py-4;
+}
+.record-content {
+  @apply overflow-x-auto;
+}
+.record-content > nav {
+  @apply mt-0 flex gap-2;
+}
+.record-content form > p {
+  @apply mt-6;
+}
+.record-content fieldset + fieldset {
+  @apply mt-6;
+}
+.record-content legend,
+.record-content h2 {
+  @apply font-semibold;
+}
+.submit-row {
+  @apply flex flex-wrap items-center gap-2;
+}
+.page-toolbar {
+  @apply mb-4 flex justify-start;
+}
+.field {
+  @apply mb-3;
+}
+.role-select {
+  @apply relative mt-2;
+}
+.role-select > summary {
+  @apply flex min-h-11 cursor-pointer list-none items-center gap-2;
+}
+.role-select > summary::-webkit-details-marker,
+.permission-preview > summary::-webkit-details-marker,
+.role-accordion > summary::-webkit-details-marker,
+.permission-group > summary::-webkit-details-marker {
+  display: none;
+}
+.role-select[open] > summary {
+  @apply border-blue-600 ring-2 ring-blue-600/20;
+}
+.role-select-chips {
+  @apply flex min-w-0 flex-1 flex-wrap items-center gap-2;
+}
+.role-select-placeholder {
+  @apply text-slate-400;
+}
+.role-select-chip {
+  @apply inline-flex items-center gap-1 rounded-full bg-slate-100 py-1 pl-3 pr-2 text-slate-800;
+}
+.role-select-remove {
+  @apply size-5 shrink-0 items-center justify-center rounded-full border-0 bg-transparent p-0 text-lg leading-none text-slate-600;
+  display: none;
+}
+.role-select[data-enhanced] .role-select-remove {
+  display: inline-flex;
+}
+.role-select-chevron {
+  @apply size-4 shrink-0 text-slate-500 transition-transform;
+}
+.role-select[open] .role-select-chevron {
+  rotate: 180deg;
+}
+.role-select-menu {
+  @apply absolute top-full right-0 left-0 z-30 mt-2 max-h-64 overflow-y-auto rounded border border-slate-200 bg-white p-1 shadow-lg;
+}
+.role-select-option {
+  @apply m-0 flex cursor-pointer items-center gap-3 rounded px-3 py-2 text-slate-800;
+}
+.role-select-option:hover,
+.role-select-option:has(input:focus-visible) {
+  @apply bg-slate-50;
+}
+.role-select-check {
+  @apply size-5 shrink-0 text-blue-700 opacity-0;
+}
+.role-select-option input:checked ~ .role-select-check {
+  @apply opacity-100;
+}
+.role-select-check svg {
+  @apply size-4;
+}
+.role-select-empty {
+  @apply m-0 px-3 py-2;
+}
+.permission-preview {
+  @apply mt-3;
+}
+.permission-preview > summary {
+  @apply flex cursor-pointer list-none items-center justify-between gap-2;
+}
+.permission-preview > summary::after {
+  content: "▾";
+  @apply text-slate-500;
+}
+.permission-preview[open] > summary::after {
+  content: "▴";
+}
+.permission-preview-body {
+  @apply space-y-4 p-4;
+}
+.permission-preview-service-name {
+  @apply font-semibold text-slate-700;
+}
+.permission-preview-resource {
+  @apply mt-2 pl-3;
+}
+.permission-preview-resource-name {
+  @apply text-slate-500;
+}
+.permission-preview-actions {
+  @apply mt-1 flex flex-wrap gap-2;
+}
+.permission-preview-actions li {
+  @apply rounded bg-white px-2 py-0.5 text-xs text-slate-700 ring-1 ring-slate-200;
+}
+.permission-preview-empty {
+  @apply text-slate-500;
+}
+.role-list {
+  @apply space-y-3;
+}
+.role-accordion > summary {
+  @apply flex cursor-pointer list-none items-center justify-between gap-3;
+}
+.role-title {
+  @apply min-w-0 truncate;
+}
+.role-body form {
+  @apply m-0;
+}
+.role-accordion .badge {
+  @apply ml-0 shrink-0;
+}
+.permission-tree {
+  @apply mt-2 space-y-1;
+}
+.permission-group {
+  @apply rounded border;
+}
+.permission-group > summary {
+  @apply flex cursor-pointer list-none items-center gap-2 px-3 py-1.5 text-sm;
+}
+.tree-arrow {
+  @apply size-3 shrink-0 rotate-45 border-r-2 border-t-2 border-slate-500 transition-transform;
+}
+.permission-group[open] > summary > .tree-arrow {
+  rotate: 135deg;
+}
+.permission-group > summary input,
+.permission-action input {
+  @apply m-0;
+}
+.permission-children {
+  @apply space-y-2 border-t border-slate-200 px-4 py-2;
+}
+.permission-name {
+  @apply font-medium;
+}
+.permission-actions {
+  @apply grid gap-1 border-t border-slate-200 px-4 py-2 sm:grid-cols-2 md:grid-cols-5;
+}
+.permission-action {
+  @apply m-0 inline-flex items-center gap-2 text-sm;
 }
 
-@layer components {
-  .login-page {
-    @apply px-4;
-  }
-  .login-card {
-    @apply mx-auto mt-24 w-full max-w-sm overflow-hidden rounded border border-slate-200 bg-white;
-  }
-  .login-card-header {
-    @apply bg-[#417690] px-4 py-3 text-center text-xl font-normal text-[#f5dd5d];
-  }
-  .login-card-body {
-    @apply p-5;
-  }
-  .login-error {
-    @apply m-0 mb-4 text-red-800;
-  }
-  .login-form {
-    @apply m-0;
-  }
-  .login-form label {
-    @apply mt-0 mb-1 block;
-  }
-  .login-text-input {
-    @apply mb-4 block w-full;
-  }
-  .login-form .login-show-password {
-    @apply mt-0 mb-4 flex cursor-pointer items-center gap-2;
-  }
-  .login-show-password input {
-    @apply m-0 size-4 p-0 accent-blue-700;
-  }
-  .login-actions {
-    @apply m-0 pt-2 text-center;
-  }
-  .login-actions button {
-    @apply rounded bg-[#417690] px-4 py-2 text-white;
-  }
-  .workspace {
-    @apply flex h-dvh flex-col;
-  }
-  .workspace-header {
-    @apply flex shrink-0 flex-wrap items-center gap-x-6 border-b border-slate-200 bg-white px-5 py-3;
-  }
-  .account-controls {
-    @apply m-0 ml-auto flex items-center gap-3;
-  }
-  .account-controls button {
-    @apply border-slate-200 bg-white px-2 py-1 text-slate-600;
-  }
-  .language-switcher {
-    @apply m-0 flex items-center gap-2;
-  }
-  .language-switcher a[aria-current="true"] {
-    @apply font-semibold text-slate-800 no-underline;
-  }
-  .resource-tabs {
-    @apply m-0 flex shrink-0 overflow-x-auto border-b border-slate-200 bg-white px-3;
-  }
-  .resource-tabs a {
-    @apply shrink-0 border-b-2 border-transparent px-4 py-2 text-slate-600 hover:bg-slate-50 hover:no-underline;
-  }
-  .resource-tabs a[aria-current="page"] {
-    @apply border-blue-600 font-semibold text-blue-700;
-  }
-  .record-page {
-    @apply w-full flex-1 overflow-auto p-4 md:p-8;
-  }
-  .record-page > h1,
-  .record-content {
-    @apply mx-auto max-w-240;
-  }
-  .record-content {
-    @apply overflow-x-auto rounded border border-slate-200 bg-white p-4 md:p-6;
-  }
-  .record-content > nav {
-    @apply mt-0 flex gap-2;
-  }
-  .record-content form > p {
-    @apply mt-6;
-  }
-  .record-content fieldset + fieldset {
-    @apply mt-6;
-  }
-  .record-content legend,
-  .record-content h2 {
-    @apply font-semibold;
-  }
-  .inline-add,
-  .inline-remove {
-    @apply border-0 bg-transparent p-0 text-blue-700 hover:underline;
-  }
-  .inline-add {
-    @apply mt-3;
-  }
-  .inline-remove {
-    @apply text-red-800;
-  }
-  .submit-row {
-    @apply flex flex-wrap gap-2;
-  }
-  .submit-row .deletelink {
-    @apply ml-auto inline-block rounded border border-red-700 bg-red-700 px-3 py-2 text-white no-underline hover:border-red-800 hover:bg-red-800 hover:no-underline;
-  }
-  .page-toolbar {
-    @apply -mt-2 mb-4 flex justify-start;
-  }
-  .button-secondary {
-    @apply inline-block rounded border border-slate-300 bg-white px-3 py-2 text-slate-700 no-underline hover:bg-slate-50 hover:no-underline;
-  }
-  .auth-table {
-    @apply text-sm;
-  }
-  .auth-table th {
-    @apply whitespace-nowrap;
-  }
-  .row-actions {
-    @apply flex flex-wrap items-center gap-3;
-  }
-  .inline-form {
-    @apply m-0 inline;
-  }
-  button.link-danger {
-    @apply border-0 bg-transparent p-0 text-red-800 hover:underline;
-  }
-  .badge {
-    @apply ml-2 inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700;
-  }
-  .badge-superuser {
-    @apply bg-purple-100 text-purple-800;
-  }
-  .badge-muted {
-    @apply text-slate-500;
-  }
-  .notice {
-    @apply rounded border border-green-200 bg-green-50 px-3 py-2 text-green-800;
-  }
-  .alert {
-    @apply rounded border border-red-200 bg-red-50 px-3 py-2 text-red-800;
-  }
-  .field {
-    @apply mt-4;
-  }
-  .field > label {
-    @apply mt-0;
-  }
-  .required {
-    @apply text-red-600;
-  }
-  .field-help {
-    @apply mt-1 text-xs text-slate-500;
-  }
-  .field-error {
-    @apply mt-1 text-sm text-red-800;
-  }
-  .role-select {
-    @apply relative mt-2;
-  }
-  .role-select > summary {
-    @apply flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm;
-  }
-  .role-select > summary::-webkit-details-marker {
-    display: none;
-  }
-  .role-select[open] > summary {
-    @apply border-blue-600 ring-2 ring-blue-600/20;
-  }
-  .role-select-chips {
-    @apply flex min-w-0 flex-1 flex-wrap items-center gap-2;
-  }
-  .role-select-placeholder {
-    @apply text-slate-400;
-  }
-  .role-select-chip {
-    @apply inline-flex items-center gap-1 rounded-full bg-slate-100 py-1 pl-3 pr-2 text-slate-800;
-  }
-  .role-select-remove {
-    @apply size-5 shrink-0 items-center justify-center rounded-full border-0 bg-transparent p-0 text-lg leading-none text-slate-600 hover:bg-slate-200 hover:text-slate-900;
-    display: none;
-  }
-  .role-select[data-enhanced] .role-select-remove {
-    display: inline-flex;
-  }
-  .role-select-chevron {
-    @apply size-4 shrink-0 text-slate-500 transition-transform;
-  }
-  .role-select[open] .role-select-chevron {
-    rotate: 180deg;
-  }
-  .role-select-menu {
-    @apply absolute top-full right-0 left-0 z-30 mt-2 max-h-64 overflow-y-auto rounded-lg border border-slate-200 bg-white p-1 shadow-lg;
-  }
-  .role-select-option {
-    @apply m-0 flex cursor-pointer items-center gap-3 rounded-md px-3 py-2 text-sm text-slate-800 hover:bg-slate-50;
-  }
-  .role-select-option:has(input:focus-visible) {
-    @apply bg-blue-50 ring-2 ring-blue-600 ring-inset;
-  }
-  .role-select-check {
-    @apply size-5 shrink-0 text-blue-700 opacity-0;
-  }
-  .role-select-option input:checked ~ .role-select-check {
-    @apply opacity-100;
-  }
-  .role-select-check svg {
-    @apply size-4;
-  }
-  .role-select-empty {
-    @apply m-0 px-3 py-2;
-  }
-  .permission-preview {
-    @apply mt-3 rounded-lg border border-slate-200 bg-slate-50;
-  }
-  .permission-preview > summary {
-    @apply flex cursor-pointer list-none items-center justify-between gap-2 px-4 py-3 font-medium text-slate-700;
-  }
-  .permission-preview > summary::-webkit-details-marker {
-    display: none;
-  }
-  .permission-preview > summary::after {
-    content: "▾";
-    @apply text-xs text-slate-500;
-  }
-  .permission-preview[open] > summary::after {
-    content: "▴";
-  }
-  .permission-preview[open] > summary {
-    @apply border-b border-slate-200;
-  }
-  .permission-preview-body {
-    @apply space-y-4 p-4;
-  }
-  .permission-preview-service-name {
-    @apply font-semibold text-slate-700;
-  }
-  .permission-preview-resource {
-    @apply mt-2 pl-3;
-  }
-  .permission-preview-resource-name {
-    @apply text-sm text-slate-500;
-  }
-  .permission-preview-actions {
-    @apply mt-1 flex flex-wrap gap-2;
-  }
-  .permission-preview-actions li {
-    @apply rounded bg-white px-2 py-0.5 text-xs text-slate-700 ring-1 ring-slate-200;
-  }
-  .permission-preview-empty {
-    @apply text-sm text-slate-500;
-  }
-  .checkbox-field input {
-    @apply m-0 size-4 p-0 accent-blue-600;
-  }
-  .checkbox-field {
-    @apply mt-4 flex items-center gap-2;
-  }
-  .role-list {
-    @apply space-y-3;
-  }
-  .role-accordion {
-    @apply rounded border border-slate-200;
-  }
-  .role-accordion > summary {
-    @apply flex cursor-pointer list-none items-center justify-between gap-3 bg-slate-50 px-4 py-2 font-semibold;
-  }
-  .role-accordion > summary::-webkit-details-marker {
-    display: none;
-  }
-  .role-title {
-    @apply min-w-0 truncate;
-  }
-  .role-body {
-    @apply border-t border-slate-200 px-4 pb-4;
-  }
-  .role-body form {
-    @apply m-0;
-  }
-  .role-accordion .badge {
-    @apply ml-0 shrink-0;
-  }
-  .permission-tree {
-    @apply mt-2 space-y-1;
-  }
-  .permission-group {
-    @apply rounded border border-slate-200;
-  }
-  .permission-group > summary {
-    @apply flex cursor-pointer list-none items-center gap-2 px-3 py-1.5 text-sm;
-  }
-  .permission-group > summary::-webkit-details-marker {
-    display: none;
-  }
-  .tree-arrow {
-    @apply size-3 shrink-0 rotate-45 border-r-2 border-t-2 border-slate-500 transition-transform;
-  }
-  .permission-group[open] > summary > .tree-arrow {
-    rotate: 135deg;
-  }
-  .permission-group > summary input {
-    @apply m-0 size-4 p-0 accent-blue-600;
-  }
-  .permission-children {
-    @apply space-y-2 border-t border-slate-200 px-4 py-2;
-  }
-  .permission-name {
-    @apply font-medium;
-  }
-  .permission-actions {
-    @apply grid gap-1 border-t border-slate-200 px-4 py-2 sm:grid-cols-2 md:grid-cols-5;
-  }
-  .permission-action {
-    @apply m-0 inline-flex items-center gap-2 text-sm;
-  }
-  .permission-action input {
-    @apply m-0 size-4 p-0 accent-blue-600;
-  }
-  .grid-page,
-  .grid-content {
-    @apply flex min-h-0 min-w-0 flex-1 flex-col;
-  }
-  .grid-toolbar {
-    @apply relative flex shrink-0 flex-wrap items-center gap-x-6 gap-y-2 border-b border-slate-200 bg-white px-5 py-2;
-  }
-  button.grid-search-toggle {
-    @apply flex size-8 shrink-0 items-center justify-center rounded border border-slate-300 bg-white p-0 text-slate-600 hover:bg-slate-50;
-  }
-  .grid-search-toggle svg {
-    @apply size-4;
-  }
-  .grid-search-toggle[aria-expanded="true"] {
-    @apply border-blue-600 bg-blue-50 text-blue-700;
-  }
-  .grid-search {
-    @apply absolute top-full right-5 z-30 mt-2 flex max-w-[calc(100vw-2.5rem)] items-center gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1.5 shadow-lg;
-  }
-  .grid-search[hidden] {
-    display: none;
-  }
-  .grid-search input[type="search"] {
-    @apply m-0 w-64 min-w-0 flex-1 border-0 bg-transparent px-2 py-1 text-sm shadow-none;
-  }
-  .grid-search-count {
-    @apply min-w-16 text-center text-xs whitespace-nowrap tabular-nums text-slate-500;
-  }
-  button.grid-search-button {
-    @apply flex size-7 shrink-0 items-center justify-center rounded border-0 bg-transparent p-0 text-slate-500 hover:bg-slate-100 hover:text-slate-900 disabled:cursor-default disabled:text-slate-300 disabled:hover:bg-transparent;
-  }
-  .grid-search-button svg {
-    @apply size-4;
-  }
-  .query-controls {
-    @apply m-0 flex flex-wrap items-end gap-3;
-  }
-  .query-controls label {
-    @apply mt-0 text-xs text-slate-600;
-  }
-  .query-controls input,
-  .query-controls select {
-    @apply block w-40 px-2 py-1 text-sm text-slate-800;
-  }
-  .query-controls button {
-    @apply px-3 py-1;
-  }
-  .grid-tools {
-    @apply ml-auto flex flex-wrap items-end justify-end gap-3;
-  }
-  .field-menu {
-    @apply relative m-0;
-  }
-  .field-menu > summary {
-    @apply flex cursor-pointer list-none items-center gap-2 rounded border border-slate-300 bg-white px-3 py-1 text-sm text-slate-700 hover:bg-slate-50;
-  }
-  .field-menu > summary::-webkit-details-marker {
-    display: none;
-  }
-  .field-menu[open] > summary {
-    @apply border-blue-600 bg-blue-50 text-blue-700;
-  }
-  .field-menu-icon {
-    @apply size-4 shrink-0;
-  }
-  .field-menu-panel {
-    @apply absolute right-0 top-full z-20 mt-2 w-80 max-w-[calc(100vw-2rem)] rounded border border-slate-200 bg-white p-3 shadow-lg;
-  }
-  .field-menu-panel > input {
-    @apply w-full px-2 py-1 text-sm;
-  }
-  .field-menu-list {
-    @apply my-2 max-h-80 overflow-y-auto;
-  }
-  .field-menu-option {
-    @apply m-0 flex items-center justify-between gap-2 rounded px-2 py-1.5 text-sm text-slate-700 hover:bg-slate-50;
-  }
-  .field-menu-toggle {
-    @apply m-0 flex min-w-0 flex-1 cursor-pointer items-center gap-2;
-  }
-  .field-menu-toggle > span {
-    @apply truncate;
-  }
-  .field-menu-option input {
-    @apply m-0 size-4 shrink-0 p-0 accent-blue-600;
-  }
-  .field-menu-handle {
-    @apply flex size-7 shrink-0 cursor-grab touch-none items-center justify-center rounded border-0 bg-transparent p-0 text-slate-400 hover:bg-slate-100 hover:text-slate-600 active:cursor-grabbing;
-  }
-  .field-menu-handle svg {
-    @apply size-4;
-  }
-  .field-menu-option.is-dragging {
-    @apply bg-blue-50 opacity-60;
-  }
-  .field-menu-dragging {
-    @apply select-none;
-  }
-  .field-menu-empty {
-    @apply m-0 px-2 py-1 text-xs text-slate-500;
-  }
-  .field-menu-actions {
-    @apply flex gap-2 border-t border-slate-200 pt-2;
-  }
-  .field-menu-action {
-    @apply flex-1 rounded border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-50;
-  }
-  .row-height-menu-panel {
-    @apply w-56;
-  }
-  .row-height-options {
-    @apply flex flex-col;
-  }
-  button.row-height-option {
-    @apply flex w-full items-center gap-2 rounded border-0 bg-transparent px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-100;
-  }
-  .row-height-option > span:not(.row-height-check) {
-    @apply flex-1;
-  }
-  .row-height-icon {
-    @apply size-4 shrink-0;
-  }
-  .row-height-check {
-    @apply text-blue-700;
-  }
-  .row-height-option[aria-pressed="false"] .row-height-check {
-    @apply invisible;
-  }
-  .row-height-option[data-row-height-choice][aria-pressed="true"] {
-    @apply bg-slate-100;
-  }
-  .row-height-divider {
-    @apply my-1 border-t border-slate-200;
-  }
-  .filter-menu-panel {
-    @apply w-[44rem] max-w-[calc(100vw-2rem)];
-  }
-  .filter-title {
-    @apply m-0 text-sm font-semibold;
-  }
-  .filter-subtitle {
-    @apply my-2 text-xs text-slate-500;
-  }
-  .filter-group-nested {
-    @apply mt-2 border-l-2 border-slate-200 pl-3;
-  }
-  .filter-group-row {
-    @apply mt-2 flex items-start gap-2;
-  }
-  .filter-group-row > .filter-group {
-    @apply mt-0 min-w-0 flex-1;
-  }
-  .filter-group-header {
-    @apply mb-2 flex items-center justify-between gap-2;
-  }
-  .filter-group-tools {
-    @apply flex items-center gap-1;
-  }
-  .filter-group-heading {
-    @apply mt-0 mb-2 text-xs font-medium text-slate-500;
-  }
-  .filter-group-header .filter-group-heading {
-    @apply mb-0;
-  }
-  .filter-add {
-    @apply relative;
-  }
-  button.filter-add-icon {
-    @apply flex size-7 shrink-0 items-center justify-center rounded border-0 bg-transparent p-0 text-slate-500 hover:bg-slate-100 hover:text-slate-900;
-  }
-  .filter-add-icon svg {
-    @apply size-4;
-  }
-  .filter-add-menu {
-    @apply absolute right-0 z-20 mt-1 w-44 rounded border border-slate-200 bg-white p-1 shadow-lg;
-  }
-  .filter-add-menu-item {
-    @apply block w-full rounded border-0 bg-transparent px-2 py-1 text-left text-xs text-slate-700 hover:bg-slate-100;
-  }
-  .filter-add-menu-item:disabled {
-    @apply cursor-not-allowed text-slate-300 hover:bg-transparent;
-  }
-  .filter-group-actions {
-    @apply mt-1 flex flex-wrap items-center gap-2;
-  }
-  .filter-condition {
-    @apply m-0 flex flex-wrap items-center gap-2;
-  }
-  .filter-condition + .filter-condition {
-    @apply mt-2;
-  }
-  .filter-join {
-    @apply w-14 shrink-0 text-xs text-slate-500;
-  }
-  .filter-join-static {
-    @apply py-1;
-  }
-  .filter-condition select.filter-join {
-    @apply w-14 flex-none px-1;
-  }
-  .filter-group-row select.filter-join {
-    @apply w-14 flex-none px-1;
-  }
-  .filter-condition select,
-  .filter-condition input {
-    @apply min-w-0 flex-1 px-2 py-1 text-sm;
-  }
-  .filter-condition [data-filter-field] {
-    @apply w-32 flex-none;
-  }
-  .filter-condition [data-filter-op] {
-    @apply w-36 flex-none;
-  }
-  .filter-condition [data-filter-value-control] {
-    @apply w-36 max-w-36 min-w-28 flex-1;
-  }
-  button.filter-remove {
-    @apply flex size-7 shrink-0 items-center justify-center rounded border-0 bg-transparent p-0 text-slate-400 hover:bg-slate-100 hover:text-red-700;
-  }
-  .filter-remove svg {
-    @apply size-4;
-  }
-  button.filter-add {
-    @apply mt-1 border-0 bg-transparent p-0 text-xs text-blue-700 hover:underline;
-  }
-  .filter-add:disabled {
-    @apply cursor-not-allowed text-slate-400 no-underline;
-  }
-  .filter-actions {
-    @apply mt-3 flex items-center gap-2 border-t border-slate-200 pt-2;
-  }
-  .filter-apply {
-    @apply rounded bg-blue-700 px-3 py-1 text-xs text-white;
-  }
-  .filter-reset {
-    @apply rounded border border-slate-300 bg-white px-3 py-1 text-xs text-slate-700 no-underline hover:bg-slate-50;
-  }
-  .filter-empty {
-    @apply m-0 px-2 py-1 text-xs text-slate-500;
-  }
-  .filter-count {
-    @apply rounded-full bg-slate-100 px-2 py-0.5 text-xs font-normal text-slate-600;
-  }
-  .sort-menu-panel {
-    @apply w-[28rem];
-  }
-  .sort-title {
-    @apply flex items-center gap-2;
-  }
-  .sort-help {
-    @apply flex size-4 shrink-0 items-center justify-center rounded-full border border-slate-300 text-[0.625rem] leading-none text-slate-500;
-  }
-  .sort-rows {
-    @apply mt-3;
-  }
-  .sort-picker {
-    @apply mt-3;
-  }
-  .sort-search {
-    @apply relative;
-  }
-  .sort-search svg {
-    @apply pointer-events-none absolute top-1/2 left-2 size-4 -translate-y-1/2 text-slate-400;
-  }
-  .sort-search input {
-    @apply w-full py-1.5 pr-2 pl-8 text-sm;
-  }
-  .sort-fields {
-    @apply mt-1 max-h-64 overflow-y-auto;
-  }
-  button.sort-field {
-    @apply flex w-full items-center border-0 bg-transparent px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50;
-  }
-  .sort-row {
-    @apply mt-2 grid grid-cols-[minmax(0,1fr)_minmax(0,0.8fr)_1.5rem_1.5rem] items-center gap-2;
-  }
-  .sort-row:first-child {
-    @apply mt-0;
-  }
-  .sort-row select {
-    @apply w-full min-w-0 px-2 py-1 text-sm;
-  }
-  button.sort-icon {
-    @apply flex size-6 shrink-0 items-center justify-center rounded border-0 bg-transparent p-0 text-slate-400 hover:bg-slate-100 hover:text-slate-700;
-  }
-  .sort-icon svg {
-    @apply size-4;
-  }
-  .sort-grip {
-    @apply cursor-grab active:cursor-grabbing;
-  }
-  button.sort-add {
-    @apply mt-2 flex items-center gap-1 border-0 bg-transparent p-0 text-xs text-slate-700 hover:text-slate-900;
-  }
-  .sort-add[hidden] {
-    @apply hidden;
-  }
-  .sort-empty {
-    @apply m-0 py-2 text-xs text-slate-500;
-  }
-  .sort-footer {
-    @apply mt-3 flex items-center justify-end gap-2 border-t border-slate-200 pt-3;
-  }
-  .sort-cancel {
-    @apply rounded border border-slate-300 bg-white px-3 py-1 text-xs text-slate-700 hover:bg-slate-50;
-  }
-  .sort-apply {
-    @apply rounded bg-blue-700 px-3 py-1 text-xs text-white;
-  }
-  .group-header > td {
-    @apply bg-slate-50 px-3 py-1;
-  }
-  .group-toggle {
-    @apply flex items-center gap-2 border-0 bg-transparent p-0 text-left text-xs text-slate-700;
-  }
-  .group-level-2 {
-    @apply pl-8;
-  }
-  .group-level-3 {
-    @apply pl-14;
-  }
-  .group-caret {
-    @apply text-slate-400 transition-transform;
-  }
-  .group-toggle[aria-expanded="false"] .group-caret {
-    @apply -rotate-90;
-  }
-  .group-name {
-    @apply text-[0.625rem] font-medium tracking-wide text-slate-500 uppercase;
-  }
-  .group-value {
-    @apply rounded-full bg-slate-200 px-2 py-0.5 text-xs font-medium text-slate-800;
-  }
-  .group-count {
-    @apply text-xs text-slate-500;
-  }
-  .grid-scroll {
-    @apply min-h-0 flex-1 overflow-auto;
-  }
-  .record-grid {
-    --cell-lines: 2;
-    --row-height: 3.5rem;
-    @apply w-max border-separate border-spacing-0 bg-white text-xs;
-  }
-  .record-grid[data-row-height="compact"] {
-    --cell-lines: 1;
-    --row-height: 2.5rem;
-  }
-  .record-grid[data-row-height="tall"] {
-    --cell-lines: 4;
-    --row-height: 6rem;
-  }
-  .record-grid[data-row-height="extra-tall"] {
-    --cell-lines: 6;
-    --row-height: 9rem;
-  }
-  .record-grid th,
-  .record-grid td {
-    @apply h-8 min-w-44 max-w-72 truncate border-r border-b border-slate-200 px-3 py-1 font-normal;
-  }
-  .record-grid th {
-    @apply sticky top-0 z-10 bg-white;
-  }
-  .record-grid td {
-    vertical-align: top;
-  }
-  .record-grid[data-wrap-headers="true"] th {
-    white-space: normal;
-    overflow-wrap: anywhere;
-  }
-  .record-grid td[data-list-column] {
-    height: var(--row-height);
-  }
-  .record-grid .cell-value {
-    display: -webkit-box;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: var(--cell-lines);
-    overflow: hidden;
-    overflow-wrap: anywhere;
-    white-space: pre-line;
-    line-height: 1.25rem;
-  }
-  .record-grid mark[data-search-mark] {
-    @apply rounded-sm bg-amber-200 text-inherit;
-  }
-  .record-grid td[data-search-current] {
-    @apply bg-orange-100 ring-2 ring-orange-400 ring-inset;
-  }
-  .record-grid td[data-search-current] mark[data-search-mark] {
-    @apply bg-orange-300;
-  }
-  .record-grid tbody tr[data-selectable]:hover .row-index,
-  .record-grid tr[data-selected="true"] .row-index {
-    @apply invisible;
-  }
-  .record-grid tbody tr:hover,
-  .record-grid tbody tr[data-selected="true"] {
-    @apply bg-blue-50;
-  }
-  .record-grid .row-number {
-    @apply relative w-12 min-w-12 text-center text-slate-500;
-    vertical-align: middle;
-  }
-  .grid-select {
-    @apply m-0 size-4 cursor-pointer accent-blue-600;
-  }
-  .grid-scroll [data-bulk-form] {
-    @apply m-0;
-  }
-  .row-select {
-    @apply absolute left-1/2 top-1/2 opacity-0;
-    transform: translate(-50%, -50%);
-  }
-  .record-grid tbody tr[data-selectable]:hover .row-select,
-  .row-select:checked,
-  .row-select:focus-visible {
-    @apply opacity-100;
-  }
-  .row-select:disabled {
-    @apply invisible;
-  }
-  .grid-select:disabled {
-    @apply cursor-not-allowed;
-  }
-  .grid-add {
-    @apply block border-b border-slate-200 bg-white px-4 py-1 text-slate-500 hover:bg-slate-50 hover:no-underline;
-  }
-  .grid-footer {
-    @apply flex shrink-0 items-center justify-between gap-4 border-t border-slate-200 bg-white px-3 py-1 text-xs;
-  }
-  .grid-footer-actions,
-  .grid-bulk-actions {
-    @apply flex items-center gap-3;
-  }
-  .grid-bulk-actions select,
-  .grid-bulk-actions button {
-    @apply m-0 px-2 py-1 text-sm;
-  }
-  .grid-selection-link {
-    @apply m-0 border-0 bg-transparent p-0 text-xs text-blue-700 hover:underline;
-  }
-  .grid-selection-link[hidden] {
-    display: none;
-  }
-  .grid-bulk-actions[hidden] {
-    display: none;
-  }
+.grid-page,
+.grid-content {
+  @apply flex min-h-0 min-w-0 flex-1 flex-col;
+}
+.grid-layout {
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+}
+.grid-layout .page-wrapper {
+  min-height: 0;
+  overflow: hidden;
+}
+.grid-layout .page-wrapper > .navbar,
+.grid-layout .page-wrapper > .nav-tabs {
+  flex-shrink: 0;
+}
+.grid-page {
+  padding: 0;
+  overflow: hidden;
+}
+.grid-page-container {
+  @apply flex min-h-0 min-w-0 flex-1 flex-col p-0;
+}
+.grid-toolbar {
+  @apply relative flex shrink-0 flex-wrap items-center gap-x-6 gap-y-2 border-b border-slate-200 bg-white px-5 py-2;
+}
+button.grid-search-toggle {
+  @apply flex size-8 shrink-0 items-center justify-center rounded border border-slate-300 bg-white p-0 text-slate-600 hover:bg-slate-50;
+}
+.grid-search-toggle svg {
+  @apply size-4;
+}
+.grid-search-toggle[aria-expanded="true"] {
+  @apply border-blue-600 bg-blue-50 text-blue-700;
+}
+.grid-search {
+  @apply absolute top-full right-5 z-30 mt-2 flex max-w-[calc(100vw-2.5rem)] items-center gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1.5 shadow-lg;
+}
+.grid-search[hidden] {
+  display: none;
+}
+.grid-search input[type="search"] {
+  @apply m-0 w-64 min-w-0 flex-1 border-0 bg-transparent px-2 py-1 text-sm shadow-none;
+}
+.grid-search-count {
+  @apply min-w-16 text-center text-xs whitespace-nowrap tabular-nums text-slate-500;
+}
+button.grid-search-button {
+  @apply flex size-7 shrink-0 items-center justify-center rounded border-0 bg-transparent p-0 text-slate-500 hover:bg-slate-100 hover:text-slate-900 disabled:cursor-default disabled:text-slate-300 disabled:hover:bg-transparent;
+}
+.grid-search-button svg {
+  @apply size-4;
+}
+.query-controls {
+  @apply m-0 flex flex-wrap items-end gap-3;
+}
+.query-controls label {
+  @apply mt-0 text-xs text-slate-600;
+}
+.query-controls input,
+.query-controls select {
+  @apply block w-40 px-2 py-1 text-sm text-slate-800;
+}
+.query-controls button {
+  @apply px-3 py-1;
+}
+.grid-tools {
+  @apply ml-auto flex flex-wrap items-end justify-end gap-3;
+}
+.field-menu {
+  @apply relative m-0;
+}
+.field-menu > summary {
+  @apply flex cursor-pointer list-none items-center gap-2 rounded border border-slate-300 bg-white px-3 py-1 text-sm text-slate-700 hover:bg-slate-50;
+}
+.field-menu > summary::-webkit-details-marker {
+  display: none;
+}
+.field-menu[open] > summary {
+  @apply border-blue-600 bg-blue-50 text-blue-700;
+}
+.field-menu-icon {
+  @apply size-4 shrink-0;
+}
+.field-menu-panel {
+  @apply absolute right-0 top-full z-20 mt-2 w-80 max-w-[calc(100vw-2rem)] rounded border border-slate-200 bg-white p-3 shadow-lg;
+}
+.field-menu-panel > input {
+  @apply w-full px-2 py-1 text-sm;
+}
+.field-menu-list {
+  @apply my-2 max-h-80 overflow-y-auto;
+}
+.field-menu-option {
+  @apply m-0 flex items-center justify-between gap-2 rounded px-2 py-1.5 text-sm text-slate-700 hover:bg-slate-50;
+}
+.field-menu-toggle {
+  @apply m-0 flex min-w-0 flex-1 cursor-pointer items-center gap-2;
+}
+.field-menu-toggle > span {
+  @apply truncate;
+}
+.field-menu-option input {
+  @apply m-0 size-4 shrink-0 p-0 accent-blue-600;
+}
+.field-menu-handle {
+  @apply flex size-7 shrink-0 cursor-grab touch-none items-center justify-center rounded border-0 bg-transparent p-0 text-slate-400 hover:bg-slate-100 hover:text-slate-600 active:cursor-grabbing;
+}
+.field-menu-handle svg {
+  @apply size-4;
+}
+.field-menu-option.is-dragging {
+  @apply bg-blue-50 opacity-60;
+}
+.field-menu-dragging {
+  @apply select-none;
+}
+.field-menu-empty {
+  @apply m-0 px-2 py-1 text-xs text-slate-500;
+}
+.field-menu-actions {
+  @apply flex gap-2 border-t border-slate-200 pt-2;
+}
+.field-menu-action {
+  @apply flex-1 rounded border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-50;
+}
+.row-height-menu-panel {
+  @apply w-56;
+}
+.row-height-options {
+  @apply flex flex-col;
+}
+button.row-height-option {
+  @apply flex w-full items-center gap-2 rounded border-0 bg-transparent px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-100;
+}
+.row-height-option > span:not(.row-height-check) {
+  @apply flex-1;
+}
+.row-height-icon {
+  @apply size-4 shrink-0;
+}
+.row-height-check {
+  @apply text-blue-700;
+}
+.row-height-option[aria-pressed="false"] .row-height-check {
+  @apply invisible;
+}
+.row-height-option[data-row-height-choice][aria-pressed="true"] {
+  @apply bg-slate-100;
+}
+.row-height-divider {
+  @apply my-1 border-t border-slate-200;
+}
+.filter-menu-panel {
+  @apply w-[44rem] max-w-[calc(100vw-2rem)];
+}
+.filter-title {
+  @apply m-0 text-sm font-semibold;
+}
+.filter-subtitle {
+  @apply my-2 text-xs text-slate-500;
+}
+.filter-group-nested {
+  @apply mt-2 border-l-2 border-slate-200 pl-3;
+}
+.filter-group-row {
+  @apply mt-2 flex items-start gap-2;
+}
+.filter-group-row > .filter-group {
+  @apply mt-0 min-w-0 flex-1;
+}
+.filter-group-header {
+  @apply mb-2 flex items-center justify-between gap-2;
+}
+.filter-group-tools {
+  @apply flex items-center gap-1;
+}
+.filter-group-heading {
+  @apply mt-0 mb-2 text-xs font-medium text-slate-500;
+}
+.filter-group-header .filter-group-heading {
+  @apply mb-0;
+}
+.filter-add {
+  @apply relative;
+}
+button.filter-add-icon {
+  @apply flex size-7 shrink-0 items-center justify-center rounded border-0 bg-transparent p-0 text-slate-500 hover:bg-slate-100 hover:text-slate-900;
+}
+.filter-add-icon svg {
+  @apply size-4;
+}
+.filter-add-menu {
+  @apply absolute right-0 z-20 mt-1 w-44 rounded border border-slate-200 bg-white p-1 shadow-lg;
+}
+.filter-add-menu-item {
+  @apply block w-full rounded border-0 bg-transparent px-2 py-1 text-left text-xs text-slate-700 hover:bg-slate-100;
+}
+.filter-add-menu-item:disabled {
+  @apply cursor-not-allowed text-slate-300 hover:bg-transparent;
+}
+.filter-group-actions {
+  @apply mt-1 flex flex-wrap items-center gap-2;
+}
+.filter-condition {
+  @apply m-0 flex flex-wrap items-center gap-2;
+}
+.filter-condition + .filter-condition {
+  @apply mt-2;
+}
+.filter-join {
+  @apply w-14 shrink-0 text-xs text-slate-500;
+}
+.filter-join-static {
+  @apply py-1;
+}
+.filter-condition select.filter-join {
+  @apply w-14 flex-none px-1;
+}
+.filter-group-row select.filter-join {
+  @apply w-14 flex-none px-1;
+}
+.filter-condition select,
+.filter-condition input {
+  @apply min-w-0 flex-1 px-2 py-1 text-sm;
+}
+.filter-condition [data-filter-field] {
+  @apply w-32 flex-none;
+}
+.filter-condition [data-filter-op] {
+  @apply w-36 flex-none;
+}
+.filter-condition [data-filter-value-control] {
+  @apply w-36 max-w-36 min-w-28 flex-1;
+}
+button.filter-remove {
+  @apply flex size-7 shrink-0 items-center justify-center rounded border-0 bg-transparent p-0 text-slate-400 hover:bg-slate-100 hover:text-red-700;
+}
+.filter-remove svg {
+  @apply size-4;
+}
+button.filter-add {
+  @apply mt-1 border-0 bg-transparent p-0 text-xs text-blue-700 hover:underline;
+}
+.filter-add:disabled {
+  @apply cursor-not-allowed text-slate-400 no-underline;
+}
+.filter-actions {
+  @apply mt-3 flex items-center gap-2 border-t border-slate-200 pt-2;
+}
+.filter-apply {
+  @apply rounded bg-blue-700 px-3 py-1 text-xs text-white;
+}
+.filter-reset {
+  @apply rounded border border-slate-300 bg-white px-3 py-1 text-xs text-slate-700 no-underline hover:bg-slate-50;
+}
+.filter-empty {
+  @apply m-0 px-2 py-1 text-xs text-slate-500;
+}
+.filter-count {
+  @apply rounded-full bg-slate-100 px-2 py-0.5 text-xs font-normal text-slate-600;
+}
+.sort-menu-panel {
+  @apply w-[28rem];
+}
+.sort-title {
+  @apply flex items-center gap-2;
+}
+.sort-help {
+  @apply flex size-4 shrink-0 items-center justify-center rounded-full border border-slate-300 text-[0.625rem] leading-none text-slate-500;
+}
+.sort-rows {
+  @apply mt-3;
+}
+.sort-picker {
+  @apply mt-3;
+}
+.sort-search {
+  @apply relative;
+}
+.sort-search svg {
+  @apply pointer-events-none absolute top-1/2 left-2 size-4 -translate-y-1/2 text-slate-400;
+}
+.sort-search input {
+  @apply w-full py-1.5 pr-2 pl-8 text-sm;
+}
+.sort-fields {
+  @apply mt-1 max-h-64 overflow-y-auto;
+}
+button.sort-field {
+  @apply flex w-full items-center border-0 bg-transparent px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50;
+}
+.sort-row {
+  @apply mt-2 grid grid-cols-[minmax(0,1fr)_minmax(0,0.8fr)_1.5rem_1.5rem] items-center gap-2;
+}
+.sort-row:first-child {
+  @apply mt-0;
+}
+.sort-row select {
+  @apply w-full min-w-0 px-2 py-1 text-sm;
+}
+button.sort-icon {
+  @apply flex size-6 shrink-0 items-center justify-center rounded border-0 bg-transparent p-0 text-slate-400 hover:bg-slate-100 hover:text-slate-700;
+}
+.sort-icon svg {
+  @apply size-4;
+}
+.sort-grip {
+  @apply cursor-grab active:cursor-grabbing;
+}
+button.sort-add {
+  @apply mt-2 flex items-center gap-1 border-0 bg-transparent p-0 text-xs text-slate-700 hover:text-slate-900;
+}
+.sort-add[hidden] {
+  @apply hidden;
+}
+.sort-empty {
+  @apply m-0 py-2 text-xs text-slate-500;
+}
+.sort-footer {
+  @apply mt-3 flex items-center justify-end gap-2 border-t border-slate-200 pt-3;
+}
+.sort-cancel {
+  @apply rounded border border-slate-300 bg-white px-3 py-1 text-xs text-slate-700 hover:bg-slate-50;
+}
+.sort-apply {
+  @apply rounded bg-blue-700 px-3 py-1 text-xs text-white;
+}
+.group-header > td {
+  @apply bg-slate-50 px-3 py-1;
+}
+.group-toggle {
+  @apply flex items-center gap-2 border-0 bg-transparent p-0 text-left text-xs text-slate-700;
+}
+.group-level-2 {
+  @apply pl-8;
+}
+.group-level-3 {
+  @apply pl-14;
+}
+.group-caret {
+  @apply text-slate-400 transition-transform;
+}
+.group-toggle[aria-expanded="false"] .group-caret {
+  @apply -rotate-90;
+}
+.group-name {
+  @apply text-[0.625rem] font-medium tracking-wide text-slate-500 uppercase;
+}
+.group-value {
+  @apply rounded-full bg-slate-200 px-2 py-0.5 text-xs font-medium text-slate-800;
+}
+.group-count {
+  @apply text-xs text-slate-500;
+}
+.grid-scroll {
+  @apply min-h-0 flex-1 overflow-auto;
+}
+.record-grid {
+  --cell-lines: 2;
+  --row-height: 3.5rem;
+  @apply mb-0 w-max border-separate border-spacing-0 bg-white text-xs;
+}
+.record-grid[data-row-height="compact"] {
+  --cell-lines: 1;
+  --row-height: 2.5rem;
+}
+.record-grid[data-row-height="tall"] {
+  --cell-lines: 4;
+  --row-height: 6rem;
+}
+.record-grid[data-row-height="extra-tall"] {
+  --cell-lines: 6;
+  --row-height: 9rem;
+}
+.table.record-grid th,
+.table.record-grid td {
+  @apply h-8 min-w-44 max-w-72 truncate border-r border-b border-slate-200 px-3 py-1 font-normal;
+}
+.table.record-grid th {
+  @apply sticky top-0 z-10 bg-white;
+}
+.record-grid[data-wrap-headers="true"] th {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.record-grid td[data-list-column] {
+  height: var(--row-height);
+}
+.record-grid .cell-value {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--cell-lines);
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  white-space: pre-line;
+  line-height: 1.25rem;
+}
+.record-grid mark[data-search-mark] {
+  @apply rounded-sm bg-amber-200 text-inherit;
+}
+.record-grid td[data-search-current] {
+  @apply bg-orange-100 ring-2 ring-orange-400 ring-inset;
+}
+.record-grid td[data-search-current] mark[data-search-mark] {
+  @apply bg-orange-300;
+}
+.record-grid tbody tr[data-selectable]:hover .row-index,
+.record-grid tr[data-selected="true"] .row-index {
+  @apply invisible;
+}
+.record-grid tbody tr:hover,
+.record-grid tbody tr[data-selected="true"] {
+  @apply bg-blue-50;
+}
+.record-grid .row-number {
+  @apply relative w-12 min-w-12 text-center text-slate-500;
+  vertical-align: middle;
+}
+.table.record-grid th.row-number,
+.table.record-grid td.row-number {
+  width: 3rem;
+  min-width: 3rem;
+  max-width: 3rem;
+}
+.grid-select {
+  @apply m-0 size-4 cursor-pointer accent-blue-600;
+}
+.grid-scroll [data-bulk-form] {
+  @apply m-0;
+}
+.row-select {
+  @apply absolute left-1/2 top-1/2 opacity-0;
+  transform: translate(-50%, -50%);
+}
+.record-grid tbody tr[data-selectable]:hover .row-select,
+.row-select:checked,
+.row-select:focus-visible {
+  @apply opacity-100;
+}
+.row-select:disabled {
+  @apply invisible;
+}
+.grid-select:disabled {
+  @apply cursor-not-allowed;
+}
+.grid-add {
+  @apply block border-b border-slate-200 bg-white px-4 py-1 text-slate-500 hover:bg-slate-50 hover:no-underline;
+}
+.grid-footer {
+  @apply flex shrink-0 items-center justify-between gap-4 border-t border-slate-200 bg-white px-3 py-1 text-xs;
+}
+.grid-footer-actions,
+.grid-bulk-actions {
+  @apply flex items-center gap-3;
+}
+.grid-bulk-actions select {
+  @apply m-0;
+}
+.grid-bulk-actions button {
+  @apply m-0 px-2 py-1 text-sm;
+}
+.grid-selection-link {
+  @apply m-0 border-0 bg-transparent p-0 text-xs text-blue-700 hover:underline;
+}
+.grid-selection-link[hidden] {
+  display: none;
+}
+.grid-bulk-actions[hidden] {
+  display: none;
 }

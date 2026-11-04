@@ -1,67 +1,71 @@
 {% extends base_template %}
 {% block content %}
   <div class="page-toolbar">
-    <a class="button-secondary" href="{{ users_url }}/new">{% trans %}New user{% endtrans %}</a>
+    <a class="btn btn-primary" href="{{ users_url }}/new">{% trans %}New user{% endtrans %}</a>
   </div>
   {% if saved %}
-    <p class="notice" role="status">{% trans %}User saved.{% endtrans %}</p>
+    <p class="alert alert-success" role="status">{% trans %}User saved.{% endtrans %}</p>
   {% endif %}
   {% if deleted %}
-    <p class="notice" role="status">{% trans %}User deleted.{% endtrans %}</p>
+    <p class="alert alert-success" role="status">{% trans %}User deleted.{% endtrans %}</p>
   {% endif %}
-  {% if error %}<p class="alert" role="alert">{{ error }}</p>{% endif %}
-  <table class="auth-table">
-    <thead>
-      <tr>
-        <th scope="col">{% trans %}Actions{% endtrans %}</th>
-        <th scope="col">ID</th>
-        <th scope="col">{% trans %}Username{% endtrans %}</th>
-        <th scope="col">{% trans %}Email{% endtrans %}</th>
-        <th scope="col">{% trans %}First name{% endtrans %}</th>
-        <th scope="col">{% trans %}Last name{% endtrans %}</th>
-        <th scope="col">{% trans %}Department{% endtrans %}</th>
-        <th scope="col">{% trans %}Active{% endtrans %}</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for user in users %}
+  {% if error %}<p class="alert alert-danger" role="alert">{{ error }}</p>{% endif %}
+  <div class="table-responsive">
+    <table class="table table-vcenter table-striped auth-table">
+      <thead>
         <tr>
-          <td>
-            <div class="row-actions">
-              <a href="{{ users_url }}/{{ user.id }}/edit">{% trans %}Edit{% endtrans %}</a>
-              <form class="inline-form"
-                    method="post"
-                    action="{{ users_url }}/{{ user.id }}/delete"
-                    data-confirm="{% trans %}Delete this user?{% endtrans %}">
-                <input type="hidden" name="csrf_token" value="{{ csrf }}">
-                <button class="link-danger" type="submit">{% trans %}Delete{% endtrans %}</button>
-              </form>
-            </div>
-          </td>
-          <td>{{ user.id }}</td>
-          <td>
-            <a href="{{ users_url }}/{{ user.id }}/edit">{{ user.username }}</a>
-            {% if user.is_superuser %}<span class="badge badge-superuser">superuser</span>{% endif %}
-          </td>
-          <td>{{ user.email }}</td>
-          <td>{{ user.first_name }}</td>
-          <td>{{ user.last_name }}</td>
-          <td>{{ user.department }}</td>
-          <td>
-            {% if user.is_active %}
-              <span class="badge">{% trans %}active{% endtrans %}</span>
-            {% else %}
-              <span class="badge badge-muted">{% trans %}inactive{% endtrans %}</span>
-            {% endif %}
-          </td>
+          <th scope="col">{% trans %}Actions{% endtrans %}</th>
+          <th scope="col">ID</th>
+          <th scope="col">{% trans %}Username{% endtrans %}</th>
+          <th scope="col">{% trans %}Email{% endtrans %}</th>
+          <th scope="col">{% trans %}First name{% endtrans %}</th>
+          <th scope="col">{% trans %}Last name{% endtrans %}</th>
+          <th scope="col">{% trans %}Department{% endtrans %}</th>
+          <th scope="col">{% trans %}Active{% endtrans %}</th>
         </tr>
-      {% else %}
-        <tr>
-          <td colspan="8">{% trans %}No users found.{% endtrans %}</td>
-        </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+      </thead>
+      <tbody>
+        {% for user in users %}
+          <tr>
+            <td>
+              <div class="d-flex flex-wrap gap-2 align-items-center">
+                <a class="btn btn-outline-primary btn-sm"
+                   href="{{ users_url }}/{{ user.id }}/edit">{% trans %}Edit{% endtrans %}</a>
+                <form class="d-inline"
+                      method="post"
+                      action="{{ users_url }}/{{ user.id }}/delete"
+                      data-confirm="{% trans %}Delete this user?{% endtrans %}">
+                  <input type="hidden" name="csrf_token" value="{{ csrf }}">
+                  <button class="btn btn-outline-danger btn-sm"
+                          type="submit">{% trans %}Delete{% endtrans %}</button>
+                </form>
+              </div>
+            </td>
+            <td>{{ user.id }}</td>
+            <td>
+              <a href="{{ users_url }}/{{ user.id }}/edit">{{ user.username }}</a>
+              {% if user.is_superuser %}<span class="badge bg-purple-lt text-purple">superuser</span>{% endif %}
+            </td>
+            <td>{{ user.email }}</td>
+            <td>{{ user.first_name }}</td>
+            <td>{{ user.last_name }}</td>
+            <td>{{ user.department }}</td>
+            <td>
+              {% if user.is_active %}
+                <span class="badge bg-green-lt text-green">{% trans %}active{% endtrans %}</span>
+              {% else %}
+                <span class="badge bg-secondary-lt text-secondary">{% trans %}inactive{% endtrans %}</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="8">{% trans %}No users found.{% endtrans %}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 {% endblock %}
 {% block scripts %}
   <script src="{{ request.url_for('obox_static', path='auth-admin.js') }}"></script>

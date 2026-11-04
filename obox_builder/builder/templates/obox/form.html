@@ -1,10 +1,11 @@
 {% extends base_template %}
 {% macro control(field, values, errors, prefix='', required=true, label=true) %}
   {% if label %}
-    <label for="{{ prefix }}{{ field.name }}">{{ field.label }}{% if field.required %} <span class="required" aria-hidden="true">*</span>{% endif %}</label>
+    <label class="form-label" for="{{ prefix }}{{ field.name }}">{{ field.label }}{% if field.required %} <span class="text-danger" aria-hidden="true">*</span>{% endif %}</label>
   {% endif %}
   {% if field.widget == "select" %}
-    <select id="{{ prefix }}{{ field.name }}"
+    <select class="form-select"
+            id="{{ prefix }}{{ field.name }}"
             name="{{ prefix }}{{ field.name }}"
             {% if not label %}aria-label="{{ field.label }}"{% endif %}
             {% if required and field.required %}required{% endif %}>
@@ -13,12 +14,14 @@
         {% if values.get(field.name) == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
     </select>
   {% elif field.widget == "textarea" %}
-    <textarea id="{{ prefix }}{{ field.name }}"
+    <textarea class="form-control"
+              id="{{ prefix }}{{ field.name }}"
               name="{{ prefix }}{{ field.name }}"
               {% if not label %}aria-label="{{ field.label }}"{% endif %}
               {% if required and field.required %}required{% endif %}>{{ values.get(field.name, '') }}</textarea>
   {% else %}
-    <input id="{{ prefix }}{{ field.name }}"
+    <input class="form-control"
+           id="{{ prefix }}{{ field.name }}"
            name="{{ prefix }}{{ field.name }}"
            type="{{ field.widget }}"
            value="{{ values.get(field.name, '') }}"
@@ -28,23 +31,24 @@
            {% if field.maxlength %}maxlength="{{ field.maxlength }}"{% endif %}
            {% if field.widget == "number" %}step="any"{% endif %}>
   {% endif %}
-  {% if field.help %}<div class="text-slate-600">{{ field.help }}</div>{% endif %}
-  {% for error in errors.get(field.name, []) %}<div class="text-red-800"
+  {% if field.help %}<div class="form-hint">{{ field.help }}</div>{% endif %}
+  {% for error in errors.get(field.name, []) %}<div class="invalid-feedback d-block"
      role="alert">{{ _(error) }}</div>{% endfor %}
 {% endmacro %}
 {% block content %}
-  <nav>
-    <a href="{{ base }}">{% trans %}Back to list{% endtrans %}</a>
+  <nav class="mb-3">
+    <a class="btn btn-outline-secondary btn-sm"
+       href="{{ base }}">{% trans %}Back to list{% endtrans %}</a>
   </nav>
-  {% for error in errors.get('__all__', []) %}<p class="text-red-800"
+  {% for error in errors.get('__all__', []) %}<p class="alert alert-danger"
    role="alert">{{ _(error) }}</p>{% endfor %}
   <form method="post">
     <input type="hidden" name="csrf_token" value="{{ csrf }}">
     {% for fieldset in fieldsets %}
       {% set wrapped = fieldset.title or fieldset.description %}
-      {% if wrapped %}<fieldset>{% endif %}
-      {% if fieldset.title %}<legend>{{ fieldset.title }}</legend>{% endif %}
-      {% if fieldset.description %}<p class="text-slate-600">{{ fieldset.description }}</p>{% endif %}
+      {% if wrapped %}<fieldset class="form-fieldset">{% endif %}
+      {% if fieldset.title %}<legend class="form-label">{{ fieldset.title }}</legend>{% endif %}
+      {% if fieldset.description %}<p class="form-hint">{{ fieldset.description }}</p>{% endif %}
       {% for field in fieldset.fields %}{{ control(field, values, errors) }}{% endfor %}
       {% if wrapped %}</fieldset>{% endif %}
     {% endfor %}
@@ -55,7 +59,7 @@
                name="inline:{{ inline['index'] }}:_total"
                value="{{ inline['rows'] | length }}"
                data-inline-total>
-        <table>
+        <table class="table table-vcenter">
           <thead>
             <tr>
               {% for field in inline['headers'] %}<th scope="col">{{ field['label'] }}</th>{% endfor %}
@@ -71,11 +75,12 @@
                 <td>
                   <input type="hidden" name="{{ row['prefix'] }}_pk" value="{{ row['id'] }}">
                   {% for error in row['errors'].get('__all__', []) %}
-                    <p class="text-red-800" role="alert">{{ _(error) }}</p>
+                    <p class="invalid-feedback d-block" role="alert">{{ _(error) }}</p>
                   {% endfor %}
                   {% if row["can_delete"] %}
                     <label>
-                      <input type="checkbox"
+                      <input class="form-check-input"
+                             type="checkbox"
                              name="{{ row['prefix'] }}_delete"
                              value="1"
                              data-inline-delete
@@ -84,8 +89,8 @@
                     </label>
                   {% endif %}
                   {% if not row["id"] %}
-                    <button type="button"
-                            class="inline-remove"
+                    <button class="inline-remove btn btn-link btn-sm text-danger"
+                            type="button"
                             data-inline-remove>{% trans %}Remove{% endtrans %}</button>
                   {% endif %}
                 </td>
@@ -95,7 +100,7 @@
         </table>
         {% if inline["prototype"] %}
           <template data-inline-template>
-            <table>
+            <table class="table table-vcenter">
               <tbody>
                 <tr data-inline-row>
                   {% for field in inline['prototype']['fields'] %}
@@ -103,28 +108,32 @@
                   {% endfor %}
                   <td>
                     <input type="hidden" name="{{ inline['prototype']['prefix'] }}_pk" value="">
-                    <button type="button"
-                            class="inline-remove"
+                    <button class="inline-remove btn btn-link btn-sm text-danger"
+                            type="button"
                             data-inline-remove>{% trans %}Remove{% endtrans %}</button>
                   </td>
                 </tr>
               </tbody>
             </table>
           </template>
-          <button type="button"
-                  class="inline-add"
+          <button class="inline-add btn btn-link btn-sm mt-3"
+                  type="button"
                   data-inline-add>+ {% trans name=inline["name"] %}Add another {{ name }}{% endtrans %}</button>
         {% endif %}
       </section>
     {% endfor %}
     <p class="submit-row">
-      <button type="submit" name="_save">{% trans %}Save{% endtrans %}</button>
-      <button type="submit"
+      <button class="btn btn-primary"
+              type="submit"
+              name="_save">{% trans %}Save{% endtrans %}</button>
+      <button class="btn btn-outline-primary"
+              type="submit"
               name="_addanother">{% trans %}Save and add another{% endtrans %}</button>
-      <button type="submit"
+      <button class="btn btn-outline-primary"
+              type="submit"
               name="_continue">{% trans %}Save and continue editing{% endtrans %}</button>
       {% if record_url and "delete" in operations %}
-        <a class="deletelink" href="{{ record_url }}/delete">{% trans %}Delete{% endtrans %}</a>
+        <a class="btn btn-danger" href="{{ record_url }}/delete">{% trans %}Delete{% endtrans %}</a>
       {% endif %}
     </p>
   </form>

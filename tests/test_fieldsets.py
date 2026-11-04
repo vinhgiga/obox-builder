@@ -156,9 +156,11 @@ def test_form_page_renders_fieldsets() -> None:
                 response = await client.get("/admin/widgets/new")
             assert response.status_code == 200
             html = response.text
-            assert html.count("<fieldset>") == 2
-            assert "<legend>Basics</legend>" in html
-            assert html.index("<legend>Basics</legend>") < html.index("Optional details.")
+            assert html.count('<fieldset class="form-fieldset">') == 2
+            assert '<legend class="form-label">Basics</legend>' in html
+            assert html.index('<legend class="form-label">Basics</legend>') < html.index(
+                "Optional details."
+            )
             assert html.index('name="name"') < html.index('name="status"')
             assert html.index('name="status"') < html.index('name="note"')
         finally:

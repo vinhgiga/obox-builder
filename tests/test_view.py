@@ -109,10 +109,12 @@ def test_list_display_controls_columns_and_order() -> None:
     assert 'data-list-column="id"' not in html
     assert "live" in html
     assert "alpha" in html
+    assert 'class="table table-vcenter record-grid"' in html
 
 
 def test_list_exposes_bulk_delete_controls() -> None:
     html, _ = asyncio.run(get_list(OrderedBuilder))
+    assert 'class="page grid-layout"' in html
     assert re.search(r'action="/en/admin/widgets/bulk-actions"', html)
     assert "data-select-all" in html
     assert 'name="record_ids"' in html
@@ -185,7 +187,10 @@ def test_form_actions_explicitly_submit() -> None:
                 response = await client.get("/admin/widgets/new")
             assert response.status_code == 200
             for name in ("_save", "_addanother", "_continue"):
-                assert re.search(rf'<button\s+type="submit"\s+name="{name}">', response.text)
+                assert re.search(
+                    rf'<button class="btn [^"]+"\s+type="submit"\s+name="{name}">',
+                    response.text,
+                )
         finally:
             await engine.dispose()
 

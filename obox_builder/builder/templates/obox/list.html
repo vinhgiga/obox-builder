@@ -1,5 +1,7 @@
 {% extends base_template %}
+{% block body_class %}page grid-layout{% endblock %}
 {% block main_class %}grid-page{% endblock %}
+{% block page_container_class %}grid-page-container{% endblock %}
 {% block heading_class %}sr-only{% endblock %}
 {% block content_class %}grid-content{% endblock %}
 {% block content %}
@@ -9,14 +11,16 @@
       <div class="grid-bulk-actions" data-bulk-controls hidden>
         <label class="sr-only"
                for="bulk-action">{% trans %}Choose a bulk action{% endtrans %}</label>
-        <select id="bulk-action"
+        <select class="form-select form-select-sm"
+                id="bulk-action"
                 name="action"
                 form="bulk-action-form"
                 data-bulk-action>
           <option value="">{% trans %}Choose an action{% endtrans %}</option>
           <option value="delete">{% trans %}Delete selected{% endtrans %}</option>
         </select>
-        <button type="submit"
+        <button class="btn btn-primary btn-sm"
+                type="submit"
                 form="bulk-action-form"
                 data-bulk-submit
                 disabled>{% trans %}Run{% endtrans %}</button>
@@ -56,7 +60,8 @@
                     <circle cx="11" cy="11" r="7" />
                     <path d="m20 20-3.5-3.5" />
                   </svg>
-                  <input type="search"
+                  <input class="form-control form-control-sm"
+                         type="search"
                          placeholder="{% trans %}Find a field{% endtrans %}"
                          aria-label="{% trans %}Find a field{% endtrans %}"
                          autocomplete="off"
@@ -64,14 +69,15 @@
                 </div>
                 <div class="sort-fields" data-sort-fields></div>
               </div>
-              <button class="sort-add" type="button" data-sort-add>
+              <button class="sort-add btn btn-link btn-sm" type="button" data-sort-add>
                 ＋ {% trans %}Add another sort{% endtrans %}
               </button>
               <div class="sort-footer">
-                <button class="sort-cancel"
+                <button class="sort-cancel btn btn-outline-secondary btn-sm"
                         type="button"
                         data-sort-cancel>{% trans %}Cancel{% endtrans %}</button>
-                <button class="sort-apply" type="submit">{% trans %}Sort{% endtrans %}</button>
+                <button class="sort-apply btn btn-primary btn-sm"
+                        type="submit">{% trans %}Sort{% endtrans %}</button>
               </div>
               <input type="hidden"
                      name="ordering"
@@ -115,7 +121,8 @@
                     <circle cx="11" cy="11" r="7" />
                     <path d="m20 20-3.5-3.5" />
                   </svg>
-                  <input type="search"
+                  <input class="form-control form-control-sm"
+                         type="search"
                          placeholder="{% trans %}Find a field{% endtrans %}"
                          aria-label="{% trans %}Find a field{% endtrans %}"
                          autocomplete="off"
@@ -123,7 +130,7 @@
                 </div>
                 <div class="sort-fields" data-group-fields></div>
               </div>
-              <button class="sort-add" type="button" data-group-add>
+              <button class="sort-add btn btn-link btn-sm" type="button" data-group-add>
                 ＋ {% trans %}Add subgroup{% endtrans %}
               </button>
               <input type="hidden"
@@ -154,8 +161,10 @@
               <p class="filter-subtitle">{% trans %}In this view, show records{% endtrans %}</p>
               <div class="filter-conditions" data-filter-conditions></div>
               <div class="filter-actions">
-                <button class="filter-apply" type="submit">{% trans %}Apply{% endtrans %}</button>
-                <a class="filter-reset" href="{{ base }}">{% trans %}Reset{% endtrans %}</a>
+                <button class="filter-apply btn btn-primary btn-sm"
+                        type="submit">{% trans %}Apply{% endtrans %}</button>
+                <a class="filter-reset btn btn-outline-secondary btn-sm"
+                   href="{{ base }}">{% trans %}Reset{% endtrans %}</a>
               </div>
               <input type="hidden"
                      name="filter"
@@ -182,7 +191,8 @@
           <div class="field-menu-panel">
             <label class="sr-only"
                    for="field-menu-search">{% trans %}Find a field{% endtrans %}</label>
-            <input id="field-menu-search"
+            <input class="form-control form-control-sm"
+                   id="field-menu-search"
                    type="search"
                    placeholder="{% trans %}Find a field{% endtrans %}"
                    autocomplete="off"
@@ -196,7 +206,10 @@
                      data-field-option="{{ field }}"
                      data-field-label="{{ label|lower }}">
                   <label class="field-menu-toggle">
-                    <input type="checkbox" checked data-field-toggle="{{ field }}">
+                    <input class="form-check-input"
+                           type="checkbox"
+                           checked
+                           data-field-toggle="{{ field }}">
                     <span>{{ label }}</span>
                   </label>
                   <button class="field-menu-handle"
@@ -221,10 +234,10 @@
                  data-field-empty>{% trans %}No fields found.{% endtrans %}</p>
             </div>
             <div class="field-menu-actions">
-              <button class="field-menu-action"
+              <button class="field-menu-action btn btn-outline-secondary btn-sm"
                       type="button"
                       data-hide-all>{% trans %}Hide all{% endtrans %}</button>
-              <button class="field-menu-action"
+              <button class="field-menu-action btn btn-outline-secondary btn-sm"
                       type="button"
                       data-show-all>{% trans %}Show all{% endtrans %}</button>
             </div>
@@ -317,14 +330,15 @@
          role="search"
          aria-label="{% trans %}Search records{% endtrans %}"
          hidden>
-      <input type="search"
+      <input class="form-control form-control-sm"
+             type="search"
              data-search-input
              placeholder="{% trans %}Search records{% endtrans %}"
              aria-label="{% trans %}Search records{% endtrans %}"
              autocomplete="off"
              spellcheck="false">
       <span class="grid-search-count" data-search-count aria-live="polite">0 / 0</span>
-      <button class="grid-search-button"
+      <button class="grid-search-button btn btn-outline-secondary btn-sm"
               type="button"
               data-search-prev
               aria-label="{% trans %}Previous match{% endtrans %}"
@@ -338,7 +352,7 @@
           <path d="m6 14 6-6 6 6" />
         </svg>
       </button>
-      <button class="grid-search-button"
+      <button class="grid-search-button btn btn-outline-secondary btn-sm"
               type="button"
               data-search-next
               aria-label="{% trans %}Next match{% endtrans %}"
@@ -352,7 +366,7 @@
           <path d="m6 10 6 6 6-6" />
         </svg>
       </button>
-      <button class="grid-search-button"
+      <button class="grid-search-button btn btn-outline-secondary btn-sm"
               type="button"
               data-search-close
               aria-label="{% trans %}Close search{% endtrans %}"
@@ -381,7 +395,7 @@
         <input type="hidden" name="csrf_token" value="{{ csrf }}">
         <input type="hidden" name="select_across" value="0" data-select-across-input>
     {% endif %}
-    <table class="record-grid"
+    <table class="table table-vcenter record-grid"
            data-list-table
            data-list-key="{{ base }}"
            data-row-height="medium"
@@ -390,7 +404,7 @@
         <tr>
           <th scope="col" class="row-number">
             {% if "delete" in operations %}
-              <input class="grid-select"
+              <input class="grid-select form-check-input"
                      type="checkbox"
                      data-select-all
                      aria-label="{% trans %}Select all records on this page{% endtrans %}">
@@ -427,7 +441,7 @@
             <td class="row-number">
               <span class="row-index">{{ query.get('offset', 0)|int + loop.index }}</span>
               {% if row.selectable %}
-                <input class="grid-select row-select"
+                <input class="grid-select row-select form-check-input"
                        type="checkbox"
                        name="record_ids"
                        value="{{ row.id }}"
@@ -478,5 +492,5 @@
   <script type="application/json" data-list-group-config>{{ group_config|tojson }}</script>
 {% endblock %}
 {% block scripts %}
-  <script src="{{ request.url_for('obox_static', path='list.js') }}?v=20261104-3"></script>
+  <script src="{{ request.url_for('obox_static', path='list.js') }}?v=20261104-4"></script>
 {% endblock %}

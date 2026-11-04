@@ -6,50 +6,59 @@
       <meta name="viewport" content="width=device-width, initial-scale=1">
       <title>{% block title %}{{ title }} · {{ site_title }}{% endblock %}</title>
       <link rel="stylesheet"
-            href="{{ request.url_for('obox_static', path='ui.css') }}?v=20261104-3">
+            href="{{ request.url_for('obox_static', path='ui.css') }}?v=20261104-6">
     {% endblock %}
   </head>
-  <body class="bg-slate-50 font-sans text-sm/6 text-slate-800">
-    <a class="absolute -top-20 bg-white px-4 py-2 focus:top-2"
+  <body class="{% block body_class %}page{% endblock %}">
+    <a class="visually-hidden-focusable position-absolute top-0 start-0 z-3 bg-white p-2"
        href="#main">{% trans %}Skip to content{% endtrans %}</a>
-    <div class="workspace">
+    <div class="page-wrapper">
       {% block sidebar %}
-        <header class="workspace-header">
-          <div class="font-semibold">{% block branding %}{{ site_title }}{% endblock %}</div>
-          <span class="text-slate-600">{% block header %}{% trans %}Administration{% endtrans %}{% endblock %}</span>
-          {% if auth and principal.is_authenticated %}
-            <form class="account-controls"
-                  method="post"
-                  action="{{ auth.logout_url(request) }}">
-              <span>{{ principal.username }}</span>
-              <input type="hidden" name="csrf_token" value="{{ csrf }}">
-              <button type="submit">{% trans %}Sign out{% endtrans %}</button>
-            </form>
-          {% endif %}
-          {% if languages %}
-            <nav class="language-switcher" aria-label="{{ _('Language') }}">
-              {% for code, label in languages.items() %}
-                <a href="{{ language_url(code) }}"
-                   lang="{{ code }}"
-                   hreflang="{{ code }}"
-                   {% if code == language %}aria-current="true"{% endif %}>{{ label }}</a>
-              {% endfor %}
-            </nav>
-          {% endif %}
+        <header class="navbar navbar-expand-md bg-white border-bottom">
+          <div class="container-xl">
+            <div class="navbar-brand">{% block branding %}{{ site_title }}{% endblock %}</div>
+            <span class="text-secondary">{% block header %}{% trans %}Administration{% endtrans %}{% endblock %}</span>
+            {% if auth and principal.is_authenticated %}
+              <form class="navbar-nav flex-row align-items-center gap-3 ms-auto m-0"
+                    method="post"
+                    action="{{ auth.logout_url(request) }}">
+                <span>{{ principal.username }}</span>
+                <input type="hidden" name="csrf_token" value="{{ csrf }}">
+                <button class="btn btn-outline-secondary btn-sm"
+                        type="submit">{% trans %}Sign out{% endtrans %}</button>
+              </form>
+            {% endif %}
+            {% if languages %}
+              <nav class="navbar-nav flex-row gap-2 ms-3 my-0"
+                   aria-label="{{ _('Language') }}">
+                {% for code, label in languages.items() %}
+                  <a class="nav-link{% if code == language %} active{% endif %}"
+                     href="{{ language_url(code) }}"
+                     lang="{{ code }}"
+                     hreflang="{{ code }}"
+                     {% if code == language %}aria-current="true"{% endif %}>{{ label }}</a>
+                {% endfor %}
+              </nav>
+            {% endif %}
+          </div>
         </header>
-        <nav class="resource-tabs" aria-label="{{ _('Resources') }}">
+        <nav class="nav nav-tabs flex-nowrap overflow-x-auto overflow-y-hidden bg-white px-3"
+             aria-label="{{ _('Resources') }}">
           {% for item in navigation %}
-            <a href="{{ item.url }}"
+            <a class="nav-link{% if item.active %} active{% endif %}"
+               href="{{ item.url }}"
                {% if item.active %} aria-current="page"{% endif %}>{{ item.label }}</a>
           {% endfor %}
         </nav>
       {% endblock %}
-      <main class="{% block main_class %}record-page{% endblock %}"
+      <main class="page-body {% block main_class %}record-page{% endblock %}"
             id="main"
             tabindex="-1">
-        <h1 class="{% block heading_class %}mb-6 text-2xl font-semibold{% endblock %}">{% block heading %}{{ title }}{% endblock %}</h1>
-        <div class="{% block content_class %}record-content{% endblock %}">
-          {% block content %}{% endblock %}
+        <div class="{% block page_container_class %}container-xl{% endblock %}">
+          <h1 class="{% block heading_class %}page-title mb-3{% endblock %}">{% block heading %}{{ title }}{% endblock %}</h1>
+          <div class="{% block content_class %}record-content card card-body{% endblock %}">
+            {% block content %}{% endblock %}
+          </div>
         </div>
       </main>
     </div>

@@ -274,7 +274,7 @@ def test_user_list_navigation_and_non_superuser_navigation() -> None:
             assert "Bob" in page.text
             assert "Stone" in page.text
             assert "Operations" in page.text
-            assert "badge-superuser" in page.text
+            assert 'class="badge bg-purple-lt text-purple"' in page.text
             assert "inactive" in page.text
             assert "Edit" in page.text
             assert "Delete" in page.text
@@ -312,7 +312,7 @@ def test_create_user_with_roles_and_defaults() -> None:
             assert 'name="confirm_password"' in form.text
             assert form.text.index('name="password"') < form.text.index('name="confirm_password"')
             assert "field-grid" not in form.text
-            assert len(re.findall(r'<span class="required"[^>]*>\*</span>', form.text)) == 3
+            assert len(re.findall(r'<span class="text-danger"[^>]*>\*</span>', form.text)) == 3
             assert 'name="first_name"' in form.text
             assert 'name="last_name"' in form.text
             assert 'name="department"' in form.text

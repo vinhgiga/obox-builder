@@ -5,8 +5,9 @@
   <form method="post">
     <input type="hidden" name="csrf_token" value="{{ csrf }}">
     <p class="submit-row">
-      <button type="submit">{% trans %}Yes, I'm sure{% endtrans %}</button>
-      <a class="button-secondary" href="{{ url }}">{% trans %}No, take me back{% endtrans %}</a>
+      <button class="btn btn-danger" type="submit">{% trans %}Yes, I'm sure{% endtrans %}</button>
+      <a class="btn btn-outline-secondary"
+         href="{{ url }}">{% trans %}No, take me back{% endtrans %}</a>
     </p>
   </form>
 {% endblock %}

@@ -1,11 +1,11 @@
 {% extends base_template %}
 {% block content %}
-  <nav><a href="{{ base }}">{% trans %}Back to list{% endtrans %}</a>{% if "update" in operations %} · <a href="{{ url }}/edit">{% trans %}Edit{% endtrans %}</a>{% endif %}</nav>
-  <dl>{% for field, value in values.items() %}<dt>{{ field.replace('_', ' ').capitalize() }}</dt><dd>{% if links.get(field) %}<a href="{{ links[field] }}">{{ value }}</a>{% else %}{{ value }}{% endif %}</dd>{% endfor %}</dl>
+  <nav class="mb-3"><a class="btn btn-outline-secondary btn-sm" href="{{ base }}">{% trans %}Back to list{% endtrans %}</a>{% if "update" in operations %} <a class="btn btn-outline-primary btn-sm" href="{{ url }}/edit">{% trans %}Edit{% endtrans %}</a>{% endif %}</nav>
+  <dl class="row">{% for field, value in values.items() %}<dt class="col-sm-3">{{ field.replace('_', ' ').capitalize() }}</dt><dd class="col-sm-9">{% if links.get(field) %}<a href="{{ links[field] }}">{{ value }}</a>{% else %}{{ value }}{% endif %}</dd>{% endfor %}</dl>
   {% include "obox/_related.html" %}
   {% if "delete" in operations %}
     <p class="submit-row mt-6">
-      <a class="deletelink" href="{{ url }}/delete">{% trans %}Delete{% endtrans %}</a>
+      <a class="btn btn-danger" href="{{ url }}/delete">{% trans %}Delete{% endtrans %}</a>
     </p>
   {% endif %}
 {% endblock %}

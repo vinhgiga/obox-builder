@@ -1,4 +1,5 @@
 import asyncio
+import re
 from typing import Any
 
 import httpx
@@ -139,7 +140,10 @@ def test_auth_redirect_keeps_language_prefix() -> None:
     assert response.url.path == "/vi/auth/login"
     assert 'lang="vi"' in response.text
     assert "Đăng nhập" in response.text
-    assert '<button type="submit">Đăng nhập</button>' in response.text
+    assert re.search(
+        r'<button class="btn btn-primary"\s+type="submit">Đăng nhập</button>',
+        response.text,
+    )
 
 
 def test_plural_form_uses_catalog() -> None:
