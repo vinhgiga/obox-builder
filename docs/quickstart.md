@@ -77,3 +77,28 @@ The generated settings use SQLite and a development secret by default. They can
 be overridden with `OBOX_DATABASE_URL`, `OBOX_DEBUG`, and `OBOX_SECRET_KEY`.
 Set `OBOX_DEBUG=false` and a private `OBOX_SECRET_KEY` before deploying the
 application.
+
+The generated entrypoint keeps FastAPI as the application and installs Auth
+before any resource registration:
+
+```python
+import setting
+from fastapi import FastAPI
+from obox_builder import Obox
+from obox_builder.contrib.auth import Auth
+
+app = FastAPI(title=setting.PROJECT_NAME, debug=setting.DEBUG)
+obox = Obox(app, settings="setting", plugins=[Auth(secure=not setting.DEBUG)])
+```
+
+Use `obox.register(MyBuilder)` for customized resources or
+`obox.register(MyModel)` for default staff-only resources. Additional plugins
+install with `obox.install(plugin)` before startup, in dependency order.
+
+To serve an existing SPA build, use FastAPI directly:
+
+```python
+app.frontend("/", directory="web/dist", fallback="index.html")
+```
+
+API routes retain priority. Set cache headers in the deployment configuration.

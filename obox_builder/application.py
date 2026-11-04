@@ -3,18 +3,22 @@
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
-from contextlib import asynccontextmanager
-from dataclasses import dataclass
-from typing import Any, Generic, TypeVar
+from contextlib import AsyncExitStack, asynccontextmanager
+from dataclasses import dataclass, replace
+from inspect import iscoroutinefunction
+from types import MappingProxyType, new_class
+from typing import Any, Generic, TypeVar, cast, overload
 
 from fastapi import APIRouter, Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.routing import iter_route_contexts
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import event
+from sqlalchemy import event, inspect
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Mapper
 from sqlalchemy.orm.exc import StaleDataError
 from starlette.routing import BaseRoute, Mount
 
@@ -32,8 +36,10 @@ from obox_builder.errors import (
     ResourceConflict,
 )
 from obox_builder.i18n import LANGUAGES, LanguageMiddleware
+from obox_builder.plugin import LifespanPlugin, Plugin
 
 T = TypeVar("T")
+P = TypeVar("P", bound=Plugin)
 logger = logging.getLogger(__name__)
 
 
@@ -67,6 +73,7 @@ class Obox:
         app: FastAPI,
         *,
         settings: Settings | str | None = None,
+        plugins: Sequence[Plugin] = (),
     ) -> None:
         from obox_builder.builder.csrf import CSRF
         from obox_builder.builder.ui import create_templates
@@ -79,7 +86,8 @@ class Obox:
         self.settings = load_settings(settings)
         self.database = Database(self.settings)
         self.session_factory = self.database.sessions
-        self.auth: Any = None
+        self._plugins: dict[str, Plugin] = {}
+        self._installation_failed = False
         self.ui_prefixes = [self.settings.ui_prefix]
         self._ui_routes: list[BaseRoute] = []
         self._registrations: dict[type[Any], Registration[Any]] = {}
@@ -94,9 +102,13 @@ class Obox:
         async def lifespan(app: FastAPI) -> AsyncIterator[Any]:
             self.check(strict=True)
             self._frozen = True
-            async with self.database.lifespan(), original_lifespan(app) as state:
-                self.check(strict=True)
-                yield state
+            async with self.database.lifespan(), AsyncExitStack() as stack:
+                for plugin in self._plugins.values():
+                    if isinstance(plugin, LifespanPlugin):
+                        await stack.enter_async_context(plugin.lifespan(self))
+                async with original_lifespan(app) as state:
+                    self.check(strict=True)
+                    yield state
 
         app.router.lifespan_context = lifespan
         app.add_middleware(LanguageMiddleware, prefixes=self.ui_prefixes, routes=self._ui_routes)
@@ -113,6 +125,85 @@ class Obox:
         self._owned_routes.add(id(app.routes[-1]))
         self._ui_routes.append(app.routes[-1])
         app.state.obox = self
+        for plugin in plugins:
+            self.install(plugin)
+
+    @property
+    def plugins(self) -> Mapping[str, Plugin]:
+        return MappingProxyType(self._plugins)
+
+    @property
+    def auth(self) -> Any:
+        return self.get_plugin("auth")
+
+    def get_plugin(self, name: str) -> Plugin | None:
+        return self._plugins.get(name)
+
+    def _check_mutable(self) -> None:
+        if self._installation_failed:
+            raise ImproperlyConfigured("Plugin setup failed; create a new application.")
+        if self._frozen or self.app.middleware_stack is not None:
+            raise ImproperlyConfigured("Registration is frozen after application startup.")
+
+    def install(self, plugin: P) -> P:
+        self._check_mutable()
+        lifespan_hook = getattr(plugin, "lifespan", None)
+        if (
+            not isinstance(plugin, Plugin)
+            or not callable(plugin.setup)
+            or iscoroutinefunction(plugin.setup)
+            or not isinstance(plugin.name, str)
+            or re.fullmatch(r"[a-z][a-z0-9_-]*", plugin.name) is None
+            or not isinstance(plugin.requires, tuple)
+            or any(not isinstance(name, str) for name in plugin.requires)
+            or (lifespan_hook is not None and not callable(lifespan_hook))
+        ):
+            raise ImproperlyConfigured(
+                "Install a plugin with a name, requires tuple and setup method."
+            )
+        name = plugin.name
+        if name in self._plugins:
+            raise ImproperlyConfigured(f"Plugin {name!r} is already installed.")
+        for dependency in plugin.requires:
+            if dependency not in self._plugins:
+                raise ImproperlyConfigured(
+                    f"Plugin {name!r} requires {dependency!r}; install it first."
+                )
+        self._plugins[name] = plugin
+        try:
+            plugin.setup(self)
+        except BaseException:
+            del self._plugins[name]
+            self._installation_failed = True
+            raise
+        return plugin
+
+    def provide_defaults(
+        self,
+        *,
+        principal_dependency: Callable[..., Any] | None = None,
+        default_policy: Policy[Any] | None = None,
+    ) -> None:
+        self._check_mutable()
+        self.settings = replace(
+            self.settings,
+            principal_dependency=self.settings.principal_dependency
+            if self.settings.principal_dependency is not None
+            else principal_dependency,
+            default_policy=self.settings.default_policy
+            if self.settings.default_policy is not None
+            else default_policy,
+        )
+
+    def add_ui_prefix(self, prefix: str) -> None:
+        self._check_mutable()
+        if not isinstance(prefix, str):
+            raise ImproperlyConfigured("UI prefixes must be nonempty absolute URL paths.")
+        prefix = prefix.rstrip("/")
+        if not prefix.startswith("/") or any(char in prefix for char in "{}?#"):
+            raise ImproperlyConfigured("UI prefixes must be nonempty absolute URL paths.")
+        if prefix not in self.ui_prefixes:
+            self.ui_prefixes.append(prefix)
 
     @staticmethod
     async def _problem(request: Request, exc: Exception) -> JSONResponse | RedirectResponse:
@@ -152,12 +243,24 @@ class Obox:
             media_type="application/problem+json",
         )
 
-    def register(self, builder: type[ModelBuilder[T]]) -> Registration[T]:
+    @overload
+    def register(self, builder: type[ModelBuilder[T]]) -> Registration[T]: ...
+
+    @overload
+    def register(self, builder: type[T]) -> Registration[T]: ...
+
+    def register(self, builder: type[Any]) -> Registration[Any]:
         from obox_builder.builder.api import build_api
         from obox_builder.builder.ui import build_ui
 
-        if self._frozen:
-            raise ImproperlyConfigured("Registration is frozen after application startup.")
+        self._check_mutable()
+        if isinstance(builder, type) and isinstance(inspect(builder, raiseerr=False), Mapper):
+            model_type = builder
+            builder = new_class(
+                f"{model_type.__name__}Builder",
+                (cast(Any, ModelBuilder)[model_type],),
+                exec_body=lambda namespace: namespace.update(__module__=model_type.__module__),
+            )
         if not isinstance(builder, type) or not issubclass(builder, ModelBuilder):
             raise ImproperlyConfigured("Register a ModelBuilder subclass.")
         if getattr(builder, "model", None) is not None:
@@ -181,7 +284,7 @@ class Obox:
             raise ImproperlyConfigured("The compiled builder has no slug.")
         if any(item.slug == definition.slug for item in self._registrations.values()):
             raise ImproperlyConfigured(f"Duplicate resource slug: {definition.slug!r}.")
-        service = ResourceService[T](definition, self)
+        service = ResourceService[Any](definition, self)
         routers = (build_api(self, definition, service), build_ui(self, definition, service))
         candidates = [route for router in routers for route in iter_route_contexts(router.routes)]
         existing = list(iter_route_contexts(self.app.routes))
@@ -205,8 +308,7 @@ class Obox:
         return registration
 
     def include_router(self, router: APIRouter, *, ui: bool = False) -> None:
-        if self._frozen:
-            raise ImproperlyConfigured("Registration is frozen after application startup.")
+        self._check_mutable()
         self.app.include_router(router)
         self._owned_routes.update(id(r.original_route) for r in iter_route_contexts(router.routes))
         if ui:
@@ -257,6 +359,8 @@ class Obox:
     def check(self, *, strict: bool = False) -> Sequence[Diagnostic]:
         from obox_builder.auth import Policy
 
+        if self._installation_failed:
+            raise ImproperlyConfigured("Plugin setup failed; create a new application.")
         diagnostics = []
         routes = list(iter_route_contexts(self.app.routes))
         for i, route in enumerate(routes):

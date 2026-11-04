@@ -231,7 +231,7 @@ def test_app_and_builder_instances_are_isolated() -> None:
     with pytest.raises(ImproperlyConfigured, match="model"):
         a.register(ModelBuilder)
     with pytest.raises(ImproperlyConfigured, match="ModelBuilder"):
-        a.register(Item)
+        a.register(object)
 
 
 def test_model_is_inferred_through_generic_builder_base() -> None:
@@ -398,7 +398,7 @@ def test_auth_is_explicit_and_uses_runtime_without_overriding_host() -> None:
     with pytest.raises(ImproperlyConfigured, match="authentication"):
         obox.register(ItemBuilder)
     auth = Auth(secure=False)
-    auth.install(obox)
+    obox.install(auth)
     assert isinstance(auth.backend, ModelBackend)
     assert auth.backend.session_factory is obox.session_factory
     assert obox.settings.principal_dependency == auth.principal
@@ -406,13 +406,13 @@ def test_auth_is_explicit_and_uses_runtime_without_overriding_host() -> None:
     obox.register(ItemBuilder)
     second = Obox(FastAPI(), settings=configured(database_url="sqlite+aiosqlite://"))
     original = second.settings
-    Auth(secure=False).install(second)
+    second.install(Auth(secure=False))
     assert second.settings.principal_dependency is original.principal_dependency
     assert second.settings.default_policy is original.default_policy
     with pytest.raises(ImproperlyConfigured, match="already installed"):
-        Auth().install(second)
+        second.install(Auth())
     with pytest.raises(ImproperlyConfigured, match="already installed"):
-        auth.install(Obox(FastAPI(), settings=original))
+        Obox(FastAPI(), settings=original).install(auth)
 
 
 @pytest.mark.parametrize("root_path", ["", "/prefix", "/auth"])
@@ -420,7 +420,7 @@ def test_auth_redirect_and_login_work_without_database_queries(root_path: str) -
     async def scenario() -> None:
         app = FastAPI()
         obox = Obox(app, settings=Settings(database_url="sqlite+aiosqlite://"))
-        Auth(secure=False).install(obox)
+        obox.install(Auth(secure=False))
         obox.register(ItemBuilder)
         async with (
             app.router.lifespan_context(app),

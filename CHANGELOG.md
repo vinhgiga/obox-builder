@@ -7,6 +7,10 @@ Follows [Keep a Changelog](https://keepachangelog.com/), versions follow
 
 ### Added
 
+- HTTP plugin composition through `Obox(app, plugins=[...])` and
+  `obox.install(plugin)`, dependency validation, a read-only plugin registry,
+  access defaults and optional asynchronous plugin lifespans.
+- `obox.register(Model)` as shorthand for an empty `ModelBuilder[Model]` subclass.
 - **Durable events, Phase 1** (`obox_builder.contrib.events`): transactional
   outbox, domain publishing, opt-in `Model.__events__` capture using history's
   privacy rules, code subscriptions, worker leases/fencing, retries and dead
@@ -63,6 +67,8 @@ Follows [Keep a Changelog](https://keepachangelog.com/), versions follow
 
 ### Removed
 
+- `Auth.install(obox)`: use `obox.install(Auth(...))` or constructor plugins.
+  Move custom `router=` arguments to `Auth(router=...)`.
 - External product comparisons, product-specific commentary and unused vendor icon branding.
 - Obsolete framework-specific documentation, generated project READMEs, MkDocs
   dependencies, build commands and documentation deployment workflow. Current

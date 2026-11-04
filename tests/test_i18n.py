@@ -64,7 +64,7 @@ async def make_app(*, principal: Principal | None = STAFF, auth: bool = False) -
         ),
     )
     if auth:
-        Auth(backend=AnonymousBackend(), secure=False).install(app)
+        app.install(Auth(backend=AnonymousBackend(), secure=False))
     app.register(WidgetBuilder)
     return app, engine
 

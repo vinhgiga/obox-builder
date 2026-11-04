@@ -97,7 +97,7 @@ async def make_app(principal: Principal = SUPERUSER, *, admin: bool = True) -> t
             ),
         ),
     )
-    Auth(backend=StubBackend(principal), secure=False, admin=admin).install(app)
+    app.install(Auth(backend=StubBackend(principal), secure=False, admin=admin))
     app.register(WidgetBuilder)
     app.register(ArticleBuilder)
     return app, engine

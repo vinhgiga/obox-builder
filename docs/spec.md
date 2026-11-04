@@ -13,7 +13,7 @@ OBOX generates a CRUD UI and REST API from a SQLAlchemy mapped class. Developers
 
 | Concept | Responsibility |
 | --- | --- |
-| `Obox(FastAPI)` | FastAPI app, builder registration, route generation, application-level defaults |
+| `Obox(app)` | Plugin installation, builder registration, route generation, database lifecycle |
 | `ModelBuilder[T]` | Resource metadata, shared field/query configuration, business hooks |
 | `Form` | Create/edit form presentation and form-only validation |
 | `View` | List/detail UI, search/filter controls, visible operations |
@@ -30,28 +30,22 @@ OBOX generates a CRUD UI and REST API from a SQLAlchemy mapped class. Developers
 ### 2.1 Level 1 — Register builders for SQLAlchemy models
 
 ```python
+from fastapi import FastAPI
 from obox_builder import ModelBuilder, Obox, Settings
-from obox_builder.auth import StaffOnly
+from obox_builder.contrib.auth import Auth
 from apps.polls.models import Choice, Question
 
-settings = Settings(
-    session_factory=AsyncSessionLocal,
-    principal_dependency=get_principal,
-    default_policy=StaffOnly(),
-)
-app = Obox(settings=settings)
+settings = Settings(session_factory=AsyncSessionLocal)
+app = FastAPI()
+obox = Obox(app, settings=settings, plugins=[Auth()])
 
 
 class QuestionBuilder(ModelBuilder[Question]):
     pass
 
 
-class ChoiceBuilder(ModelBuilder[Choice]):
-    pass
-
-
-app.register(QuestionBuilder)
-app.register(ChoiceBuilder)
+obox.register(QuestionBuilder)
+obox.register(Choice)
 
 
 @app.get("/health")
@@ -60,10 +54,11 @@ async def health():
 ```
 
 - `AsyncSessionLocal` is an `async_sessionmaker[AsyncSession]` configured by the host application.
-- `get_principal` is a FastAPI dependency that resolves the caller (or an explicit anonymous principal).
-- `StaffOnly()` is an example policy for authenticated staff users; it is not multi-tenant isolation.
+- `Auth()` supplies its principal dependency and a `StaffOnly()` policy unless the host supplies them.
+- `StaffOnly()` permits authenticated staff users; it is not multi-tenant isolation.
 - When authentication or the default policy is missing, registration/build validation fails instead of silently exposing CRUD operations.
-- `app.register(Builder)` generates Form, View and API with secure, documented defaults.
+- `obox.register(Builder)` generates Form, View and API with secure, documented defaults.
+- `obox.register(Model)` uses an empty builder subclass with the same defaults. Custom policies require a builder with explicit fields.
 
 ### 2.2 Level 2/3 — Customize one model
 
@@ -87,10 +82,10 @@ class QuestionBuilder(ModelBuilder[Question]):
         operations = ("list", "retrieve", "create", "update")
 
 
-app.register(QuestionBuilder)
+obox.register(QuestionBuilder)
 ```
 
-**Registration contract:** v0.4 registers a `ModelBuilder[T]` subclass with `app.register(Builder)`. The concrete SQLAlchemy model is inferred from `T`; a separate `model` attribute is not supported. Registration is **not** also a decorator. Import builders at the application composition root to avoid circular imports. `app.include_router()` remains available for ordinary FastAPI routers.
+**Registration contract:** Register a `ModelBuilder[T]` subclass with `obox.register(Builder)`, or a mapped SQLAlchemy class with `obox.register(Model)`. For builders, the concrete model is inferred from `T`; a separate `model` attribute is not supported. Registration is **not** also a decorator. Import builders at the application composition root to avoid circular imports. Use `app.include_router()` for ordinary FastAPI routers, and `obox.include_router(router, ui=True)` for routers that participate in the admin UI's language handling and conflict checks.
 
 ### 2.3 `Obox` methods
 
@@ -98,15 +93,20 @@ The constructor and methods below summarize the repository implementation;
 imports are omitted for brevity.
 
 ```python
-class Obox(FastAPI):
+class Obox:
     def __init__(
         self,
+        app: FastAPI,
         *,
         settings: Settings | str | None = None,
-        **fastapi_kwargs: Any,
+        plugins: Sequence[Plugin] = (),
     ) -> None: ...
 
-    def register(self, builder: type[ModelBuilder[T]]) -> Registration[T]: ...
+    def install(self, plugin: P) -> P: ...  # P is bound to Plugin
+
+    def get_plugin(self, name: str) -> Plugin | None: ...
+
+    def register(self, builder: type[ModelBuilder[T]] | type[T]) -> Registration[T]: ...
 
     def get_builder(self, model: type[T]) -> ModelBuilder[T]: ...
 
@@ -128,13 +128,69 @@ class Obox(FastAPI):
 
 | Method | Behavior |
 | --- | --- |
-| `register(builder)` | Infer the model from `ModelBuilder[T]`, validate configuration, compile schemas and include generated routers; return stable `Registration` |
+| `install(plugin)` | Wire a plugin immediately and return that instance; dependencies must already be installed |
+| `get_plugin(name)` | Return the installed plugin or `None`; `plugins` exposes a read-only mapping |
+| `register(builder_or_model)` | Resolve a builder or mapped model, validate configuration, compile schemas and include generated routers; return stable `Registration` |
 | `get_builder(model)` | Return the active registered builder |
 | `service(model)` | Return the resource service for non-HTTP use |
 | `check(strict=False)` | Validate registration/routes/security and report exposure diagnostics; strict mode raises on errors |
 | `uow(principal, source="job")` | Open an independent async session and unit of work for a task, job or test |
 
 **Lifecycle:** Register before startup; compile and include routes at registration time; verify conflicts and freeze the registry by startup. Runtime registration is not supported. Duplicate models, conflicting slugs and generated route conflicts fail explicitly. A registered builder must not silently override routes defined by the host FastAPI application.
+
+### 2.4 Plugins and settings
+
+`Plugin` is a structural protocol exported from `obox_builder`. Implement `name`
+(a unique lowercase identifier), `requires` (a tuple of plugin names), and
+`setup(obox)` for synchronous wiring. An empty `requires = ()` declares no
+dependencies. `plugins=[...]` calls `obox.install()` in declaration order;
+dependencies are checked, not reordered. Install authentication before registering
+builders because registration resolves the principal dependency and policy immediately.
+
+Plugins use `obox.provide_defaults(principal_dependency=..., default_policy=...)`
+to fill only unset access defaults. Host values always win. Database, CSRF and
+template configuration is fixed when `Obox` is constructed. Use
+`obox.add_ui_prefix(prefix)` to add a validated, deduplicated admin UI prefix.
+These methods and plugin installation reject changes after startup or the first request.
+
+A plugin may also provide `lifespan(obox)`, returning an asynchronous context
+manager that yields `None`. Database resources start first, followed by plugin
+lifespans in installation order, then the existing host lifespan. Plugin contexts
+exit in reverse order before database cleanup. If a plugin fails to enter, earlier
+contexts are closed and the host is not started. Each plugin must clean up its own
+partially acquired resources. Host lifespan state is preserved.
+
+If `setup()` raises, its registry entry is removed and configuration/startup are
+blocked. Discard both the `Obox` and FastAPI instances: routes or middleware already
+added by the plugin cannot be rolled back.
+
+`Auth.install()` has been removed. Replace `auth.install(obox)` with
+`obox.install(auth)`, or pass `plugins=[Auth(...)]` to `Obox`. Custom routers move
+from `auth.install(obox, router=router)` to `obox.install(Auth(router=router))`;
+overriding `Auth.get_router()` remains supported. `obox.auth` is read-only and
+returns the plugin named `auth`.
+
+Settings precedence is an explicit `Settings` instance, an explicit module name,
+`OBOX_SETTINGS_MODULE`, then the default module `setting`. An entrypoint may use
+`os.environ.setdefault("OBOX_SETTINGS_MODULE", "myproject.settings")` before
+constructing `Obox(app, plugins=[...])`; an existing environment value wins.
+The scaffold explicitly selects `setting`. Workers and CLI commands continue to
+load settings independently; HTTP plugin installation does not configure them.
+
+### 2.5 Frontend serving
+
+Use native FastAPI frontend serving alongside Obox:
+
+```python
+app.frontend("/", directory="web/dist", fallback="index.html")
+```
+
+Normal API routes take priority regardless of registration order. Explicit
+`fallback="index.html"` avoids `fallback="auto"` choosing a build's `404.html`.
+SPA deep links require an HTML Accept header. Configure deployment caching
+separately: the native frontend does not set `Cache-Control`. App/router
+dependencies also apply to frontend responses; protecting the shell requires an
+explicit dependency that rejects unauthenticated users.
 
 ## 3. `ModelBuilder[T]`
 
@@ -152,7 +208,7 @@ class Obox(FastAPI):
 | `filter_fields` | `FieldRefs` | `()`; shared by View and API |
 | `sort_fields` | `FieldRefs \| None` | Supported readable scalar fields; can be narrowed |
 | `ordering` | `tuple[str, ...] \| None` | Primary-key order by default; stable tie-breaker |
-| `policy` | `Policy[T] \| None` | `None` inherits `app.default_policy` |
+| `policy` | `Policy[T] \| None` | `None` inherits `obox.settings.default_policy` |
 | `Form` | `type[Form]` | Default Form configuration |
 | `View` | `type[View]` | Default View configuration |
 | `API` | `type[API]` | Default API configuration |
@@ -582,7 +638,7 @@ Use `obox --help` to see the available commands. The CLI provides
 
 **Production-core acceptance criteria:**
 
-1. `app.register(QuestionBuilder)` creates the expected Form, View and API without colliding with native FastAPI endpoints.
+1. `obox.register(QuestionBuilder)` creates the expected Form, View and API without colliding with native FastAPI endpoints.
 2. Unauthenticated users cannot access staff-only endpoints; public access is never implicit.
 3. Row-scoped list, detail, update, delete and relationship lookups prevent broken object-level authorization.
 4. API/Form/Service reject unauthorized field writes, including primary keys, read-only fields and server-controlled presets.

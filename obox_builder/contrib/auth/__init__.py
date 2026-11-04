@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Request, Response
@@ -43,6 +42,8 @@ __all__ = [
 
 
 class Auth:
+    name = "auth"
+    requires: tuple[str, ...] = ()
     login_route = "obox_login"
     logout_route = "obox_logout"
     account_route = "obox_account"
@@ -60,6 +61,7 @@ class Auth:
         login_template: str = "obox/login.html",
         account_template: str = "obox/account.html",
         admin: bool = True,
+        router: APIRouter | None = None,
     ) -> None:
         if max_age <= 0:
             raise ValueError("max_age must be positive.")
@@ -67,6 +69,7 @@ class Auth:
             backend = ModelBackend(session_factory)
         self.backend = backend
         self.admin = admin
+        self.router = router
         self._admin_installed = False
         self.secure, self.max_age = secure, max_age
         self.prefix = prefix.rstrip("/")
@@ -138,17 +141,15 @@ class Auth:
 
         return router(app, self)
 
-    def install(self, app: Obox, *, router: APIRouter | None = None) -> None:
-        if app._frozen:
-            raise ImproperlyConfigured("Install Auth before application startup.")
-        if app.auth is not None or getattr(self, "_installed", False):
+    def setup(self, app: Obox) -> None:
+        if getattr(self, "_installed", False):
             raise ImproperlyConfigured("Auth is already installed.")
         backend = self.backend if self.backend is not None else ModelBackend(app.session_factory)
         if isinstance(backend, ModelBackend) and backend.password_validators is None:
             backend.password_validators = get_password_validators(
                 app.settings.auth_password_validators
             )
-        routes = self.get_router(app) if router is None else router
+        routes = self.get_router(app) if self.router is None else self.router
         names = {getattr(route, "name", None) for route in routes.routes}
         if not {self.login_route, self.logout_route} <= names:
             raise ImproperlyConfigured(
@@ -163,11 +164,9 @@ class Auth:
                 app.include_router(self.get_admin_router(app), ui=True)
                 self._admin_installed = True
         app.include_router(routes, ui=True)
-        app.auth = self
-        app.settings = replace(
-            app.settings,
-            principal_dependency=app.settings.principal_dependency or self.principal,
-            default_policy=app.settings.default_policy or StaffOnly(),
+        app.provide_defaults(
+            principal_dependency=self.principal,
+            default_policy=StaffOnly(),
         )
-        app.ui_prefixes.append(self.prefix)
+        app.add_ui_prefix(self.prefix)
         self._installed = True

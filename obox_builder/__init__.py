@@ -10,6 +10,7 @@ from obox_builder.builder.service import ResourceService
 from obox_builder.conf import Settings
 from obox_builder.context import Context, DomainEvent
 from obox_builder.errors import BuilderValidationError, ImproperlyConfigured
+from obox_builder.plugin import Plugin
 
 __all__ = [
     "API",
@@ -22,6 +23,7 @@ __all__ = [
     "Inline",
     "ModelBuilder",
     "Obox",
+    "Plugin",
     "Policy",
     "Principal",
     "Registration",
