@@ -762,16 +762,60 @@
   .record-grid td[data-search-current] mark[data-search-mark] {
     @apply bg-orange-300;
   }
-  .record-grid tbody tr:hover {
+  .record-grid tbody tr[data-selectable]:hover .row-index,
+  .record-grid tr[data-selected="true"] .row-index {
+    @apply invisible;
+  }
+  .record-grid tbody tr:hover,
+  .record-grid tbody tr[data-selected="true"] {
     @apply bg-blue-50;
   }
   .record-grid .row-number {
-    @apply w-12 min-w-12 text-center text-slate-500;
+    @apply relative w-12 min-w-12 text-center text-slate-500;
+    vertical-align: middle;
+  }
+  .grid-select {
+    @apply m-0 size-4 cursor-pointer accent-blue-600;
+  }
+  .grid-scroll [data-bulk-form] {
+    @apply m-0;
+  }
+  .row-select {
+    @apply absolute left-1/2 top-1/2 opacity-0;
+    transform: translate(-50%, -50%);
+  }
+  .record-grid tbody tr[data-selectable]:hover .row-select,
+  .row-select:checked,
+  .row-select:focus-visible {
+    @apply opacity-100;
+  }
+  .row-select:disabled {
+    @apply invisible;
+  }
+  .grid-select:disabled {
+    @apply cursor-not-allowed;
   }
   .grid-add {
     @apply block border-b border-slate-200 bg-white px-4 py-1 text-slate-500 hover:bg-slate-50 hover:no-underline;
   }
   .grid-footer {
     @apply flex shrink-0 items-center justify-between gap-4 border-t border-slate-200 bg-white px-3 py-1 text-xs;
+  }
+  .grid-footer-actions,
+  .grid-bulk-actions {
+    @apply flex items-center gap-3;
+  }
+  .grid-bulk-actions select,
+  .grid-bulk-actions button {
+    @apply m-0 px-2 py-1 text-sm;
+  }
+  .grid-selection-link {
+    @apply m-0 border-0 bg-transparent p-0 text-xs text-blue-700 hover:underline;
+  }
+  .grid-selection-link[hidden] {
+    display: none;
+  }
+  .grid-bulk-actions[hidden] {
+    display: none;
   }
 }

@@ -217,6 +217,31 @@ class ResourceService(Generic[T]):
             stmt = stmt.limit(limit)
         return list((await ctx.session.scalars(stmt)).unique())
 
+    async def count(
+        self,
+        *,
+        ctx: Context,
+        filters: Mapping[str, Any] | None = None,
+        filter_ops: Mapping[str, str] | None = None,
+        filter_group: FilterGroup | None = None,
+        search: str | None = None,
+    ) -> int:
+        await self.authorize("list", ctx)
+        stmt, _ = await self._list_statement(
+            ctx=ctx,
+            filters=filters,
+            filter_ops=filter_ops,
+            filter_group=filter_group,
+            search=search,
+        )
+        selected = (
+            stmt.order_by(None)
+            .with_only_columns(self.builder.pk, maintain_column_froms=True)
+            .distinct()
+            .subquery()
+        )
+        return int(await ctx.session.scalar(sa.select(sa.func.count()).select_from(selected)) or 0)
+
     async def group_counts(
         self,
         *,

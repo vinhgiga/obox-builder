@@ -1,4 +1,101 @@
 (() => {
+  const form = document.querySelector("[data-bulk-form]");
+  const table = document.querySelector("[data-list-table]");
+  const status = document.querySelector("[data-selection-status]");
+  const controls = document.querySelector("[data-bulk-controls]");
+  const action = document.querySelector("[data-bulk-action]");
+  const submit = document.querySelector("[data-bulk-submit]");
+  const selectAll = document.querySelector("[data-select-all]");
+  const selectAcross = document.querySelector("[data-select-across]");
+  const clearSelection = document.querySelector("[data-clear-selection]");
+  const acrossInput = form?.querySelector("[data-select-across-input]");
+  if (
+    !form ||
+    !table ||
+    !status ||
+    !controls ||
+    !action ||
+    !submit ||
+    !selectAll ||
+    !selectAcross ||
+    !clearSelection ||
+    !acrossInput
+  )
+    return;
+
+  const rows = [...table.querySelectorAll("[data-row-select]")];
+  let allSelected = false;
+  const update = () => {
+    const selectable = rows.filter((input) => !input.disabled);
+    const count = rows.filter((input) => input.checked).length;
+    const pageCount = Number(status.dataset.pageCount);
+    const totalCount = Number(status.dataset.totalCount);
+    status.textContent = allSelected
+      ? status.dataset.allSelected
+      : `${count || pageCount} ${
+          count
+            ? count === 1
+              ? status.dataset.selectedOne
+              : status.dataset.selectedMany
+            : pageCount === 1
+              ? status.dataset.pageOne
+              : status.dataset.pageMany
+        }`;
+    controls.hidden = !count;
+    if (!count) action.value = "";
+    submit.disabled = !count || !action.value;
+    selectAll.disabled = !selectable.length;
+    selectAll.checked = selectable.length > 0 && selectable.every((input) => input.checked);
+    selectAll.indeterminate = count > 0 && !selectAll.checked;
+    selectAcross.hidden = allSelected || !selectAll.checked || totalCount <= pageCount;
+    clearSelection.hidden = !allSelected;
+    acrossInput.value = String(Number(allSelected));
+    rows.forEach((input) => {
+      input.closest("tr").dataset.selected = String(input.checked);
+    });
+  };
+
+  rows.forEach((input) => {
+    input.addEventListener("change", () => {
+      allSelected = false;
+      update();
+    });
+  });
+  selectAll.addEventListener("change", () => {
+    allSelected = false;
+    rows.forEach((input) => {
+      if (!input.disabled) input.checked = selectAll.checked;
+    });
+    update();
+  });
+  selectAcross.addEventListener("click", () => {
+    allSelected = true;
+    update();
+  });
+  clearSelection.addEventListener("click", () => {
+    allSelected = false;
+    rows.forEach((input) => {
+      input.checked = false;
+    });
+    update();
+  });
+  action.addEventListener("change", update);
+  form.addEventListener("submit", (event) => {
+    const count = allSelected
+      ? Number(status.dataset.totalCount)
+      : rows.filter((input) => input.checked).length;
+    if (!count || action.value !== "delete") {
+      event.preventDefault();
+      return;
+    }
+    if (!window.confirm(count === 1 ? form.dataset.confirmOne : form.dataset.confirmMany)) {
+      event.preventDefault();
+    }
+  });
+  update();
+})();
+
+(() => {
   const menu = document.querySelector("[data-field-menu]");
   const table = document.querySelector("[data-list-table]");
   if (!menu || !table) return;

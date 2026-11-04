@@ -5,6 +5,23 @@
 {% block content %}
   <div class="grid-toolbar">
     <span class="shrink-0 font-semibold">▦ {% trans %}Grid view{% endtrans %}</span>
+    {% if "delete" in operations %}
+      <div class="grid-bulk-actions" data-bulk-controls hidden>
+        <label class="sr-only"
+               for="bulk-action">{% trans %}Choose a bulk action{% endtrans %}</label>
+        <select id="bulk-action"
+                name="action"
+                form="bulk-action-form"
+                data-bulk-action>
+          <option value="">{% trans %}Choose an action{% endtrans %}</option>
+          <option value="delete">{% trans %}Delete selected{% endtrans %}</option>
+        </select>
+        <button type="submit"
+                form="bulk-action-form"
+                data-bulk-submit
+                disabled>{% trans %}Run{% endtrans %}</button>
+      </div>
+    {% endif %}
     <div class="grid-tools">
       <form method="get" class="query-controls">
         {% if sort_fields %}
@@ -354,6 +371,16 @@
        role="region"
        aria-label="{{ title }} {{ _('records') }}"
        tabindex="0">
+    {% if "delete" in operations %}
+      <form id="bulk-action-form"
+            method="post"
+            action="{{ base }}/bulk-actions{% if request.url.query %}?{{ request.url.query }}{% endif %}"
+            data-bulk-form
+            data-confirm-one="{% trans %}Delete this selected record?{% endtrans %}"
+            data-confirm-many="{% trans %}Delete these selected records?{% endtrans %}">
+        <input type="hidden" name="csrf_token" value="{{ csrf }}">
+        <input type="hidden" name="select_across" value="0" data-select-across-input>
+    {% endif %}
     <table class="record-grid"
            data-list-table
            data-list-key="{{ base }}"
@@ -361,8 +388,16 @@
            data-wrap-headers="false">
       <thead>
         <tr>
-          <th scope="col"
-              class="row-number"><span class="sr-only">{% trans %}Row{% endtrans %}</span>#</th>
+          <th scope="col" class="row-number">
+            {% if "delete" in operations %}
+              <input class="grid-select"
+                     type="checkbox"
+                     data-select-all
+                     aria-label="{% trans %}Select all records on this page{% endtrans %}">
+            {% else %}
+              <span class="sr-only">{% trans %}Row{% endtrans %}</span>#
+            {% endif %}
+          </th>
           {% for field in list_display %}
             <th scope="col"
                 data-list-column="{{ field }}">{{ field.replace('_', ' ').capitalize() }}</th>
@@ -388,8 +423,18 @@
               </td>
             </tr>
           {% endfor %}
-          <tr data-group-row>
-            <td class="row-number">{{ query.get('offset', 0)|int + loop.index }}</td>
+          <tr data-group-row{% if row.selectable %} data-selectable{% endif %}>
+            <td class="row-number">
+              <span class="row-index">{{ query.get('offset', 0)|int + loop.index }}</span>
+              {% if row.selectable %}
+                <input class="grid-select row-select"
+                       type="checkbox"
+                       name="record_ids"
+                       value="{{ row.id }}"
+                       data-row-select
+                       aria-label="{% trans %}Select record{% endtrans %} {{ row.label }}">
+              {% endif %}
+            </td>
             {% for field in list_display %}
               {% set value = row['values'].get(field, '') %}
               <td data-list-column="{{ field }}" title="{{ value }}">
@@ -404,11 +449,28 @@
         {% endfor %}
       </tbody>
     </table>
+    {% if "delete" in operations %}</form>{% endif %}
     {% if "create" in operations %}<a class="grid-add"
    href="{{ base }}/new">＋ {% trans %}Create{% endtrans %}</a>{% endif %}
   </div>
   <footer class="grid-footer">
-    <span>{% trans count=rows|length %}{{ count }} record on this page{% pluralize %}{{ count }} records on this page{% endtrans %}</span>
+    <div class="grid-footer-actions">
+      <span data-selection-status
+            data-page-count="{{ rows|length }}"
+            data-total-count="{{ total_count }}"
+            data-page-one="{% trans %}record on this page{% endtrans %}"
+            data-page-many="{% trans %}records on this page{% endtrans %}"
+            data-selected-one="{% trans %}record selected{% endtrans %}"
+            data-selected-many="{% trans %}records selected{% endtrans %}"
+            data-all-selected="{% trans count=total_count %}All {{ count }} record selected{% pluralize %}All {{ count }} records selected{% endtrans %}">{% trans count=rows|length %}{{ count }} record on this page{% pluralize %}{{ count }} records on this page{% endtrans %}</span>
+      {% if "delete" in operations %}
+        <button class="grid-selection-link" type="button" data-select-across hidden>{% trans count=total_count %}Select all {{ count }} record{% pluralize %}Select all {{ count }} records{% endtrans %}</button>
+        <button class="grid-selection-link"
+                type="button"
+                data-clear-selection
+                hidden>{% trans %}Clear selection{% endtrans %}</button>
+      {% endif %}
+    </div>
     {% if next_url %}<a href="{{ next_url }}">{% trans %}Next page →{% endtrans %}</a>{% endif %}
   </footer>
   <script type="application/json" data-list-filter-config>{{ filter_config|tojson }}</script>
@@ -416,5 +478,5 @@
   <script type="application/json" data-list-group-config>{{ group_config|tojson }}</script>
 {% endblock %}
 {% block scripts %}
-  <script src="{{ request.url_for('obox_static', path='list.js') }}"></script>
+  <script src="{{ request.url_for('obox_static', path='list.js') }}?v=20261104-3"></script>
 {% endblock %}

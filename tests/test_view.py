@@ -111,6 +111,71 @@ def test_list_display_controls_columns_and_order() -> None:
     assert "alpha" in html
 
 
+def test_list_exposes_bulk_delete_controls() -> None:
+    html, _ = asyncio.run(get_list(OrderedBuilder))
+    assert re.search(r'action="/en/admin/widgets/bulk-actions"', html)
+    assert "data-select-all" in html
+    assert 'name="record_ids"' in html
+    assert "data-selection-status" in html
+    assert "data-bulk-controls hidden" in html
+    assert html.index("data-bulk-controls") < html.index('class="grid-tools"')
+    assert "data-select-across" in html
+    assert "data-clear-selection" in html
+    assert "Delete selected" in html
+    assert "Run" in html
+
+
+def test_bulk_delete_validates_and_deletes_selected_records() -> None:
+    async def scenario() -> None:
+        app, engine = await make_app(FilterBuilder)
+        try:
+            async with app.uow(principal=STAFF) as ctx:
+                service = app.service(Widget)
+                first = await service.create({"name": "alpha", "status": "live"}, ctx=ctx)
+                await service.create({"name": "beta", "status": "draft"}, ctx=ctx)
+                third = await service.create({"name": "gamma", "status": "live"}, ctx=ctx)
+                await service.create({"name": "delta", "status": "draft"}, ctx=ctx)
+
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app.app), base_url="http://test"
+            ) as client:
+                page = await client.get("/admin/widgets?filter.status=live&limit=1&offset=0")
+                token = re.search(r'name="csrf_token" value="([^"]+)"', page.text)
+                assert token is not None
+                assert 'data-total-count="2"' in page.text
+                data = {
+                    "csrf_token": token.group(1),
+                    "action": "delete",
+                    "record_ids": [str(first.id), str(first.id)],
+                    "select_across": "0",
+                }
+                duplicate = await client.post("/admin/widgets/bulk-actions", data=data)
+                assert duplicate.status_code == 422
+
+                data["record_ids"] = [str(first.id)]
+                deleted = await client.post("/admin/widgets/bulk-actions", data=data)
+                assert deleted.status_code == 303
+                assert deleted.headers["location"] == "/en/admin/widgets"
+
+                data.update(record_ids=[str(third.id)], select_across="1")
+                across = await client.post(
+                    "/admin/widgets/bulk-actions?filter.status=live&limit=1&offset=0",
+                    data=data,
+                )
+                assert across.status_code == 303
+                assert across.headers["location"] == (
+                    "/en/admin/widgets?filter.status=live&limit=1&offset=0"
+                )
+
+            async with app.uow(principal=STAFF) as ctx:
+                remaining = list((await ctx.session.scalars(sa.select(Widget))).all())
+                assert {obj.name for obj in remaining} == {"beta", "delta"}
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
 def test_form_actions_explicitly_submit() -> None:
     async def run() -> None:
         app, engine = await make_app(OrderedBuilder)

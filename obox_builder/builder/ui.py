@@ -59,6 +59,22 @@ async def allowed_operations(builder: Any, ctx: Context, obj: Any = None) -> tup
     return tuple(allowed)
 
 
+def list_query_options(request: Request, builder: Any) -> dict[str, Any]:
+    options = query_options(request, builder, pagination=True, grouping=True)
+    filter_ops = options.get("filter_ops") or {}
+    requested = options["filters"]
+    options["filters"] = {
+        key: value
+        for key, value in requested.items()
+        if value != "" or filter_ops.get(key) in FILTER_EMPTY_OPERATORS
+    }
+    active = set(options["filters"])
+    options["filter_ops"] = {
+        key: value for key, value in filter_ops.items() if key in active or key not in requested
+    }
+    return options
+
+
 async def reference(app: Any, spec: Any, value: Any, ctx: Context, request: Request) -> str | None:
     if value is None:
         return None
@@ -742,22 +758,12 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
         return groups
 
     async def list_records(request: Request, ctx: Context = dependency) -> HTMLResponse:
-        options = query_options(request, builder, pagination=True, grouping=True)
+        options = list_query_options(request, builder)
         grouping = options.get("grouping", ())
         group = parse_order(request.query_params.get("group", ""))
-        filter_ops = options.get("filter_ops") or {}
-        requested = options["filters"]
-        options["filters"] = {
-            key: value
-            for key, value in requested.items()
-            if value != "" or filter_ops.get(key) in FILTER_EMPTY_OPERATORS
-        }
-        active = set(options["filters"])
-        options["filter_ops"] = {
-            key: value for key, value in filter_ops.items() if key in active or key not in requested
-        }
+        filter_ops = options["filter_ops"]
         flat = tuple(
-            FilterTerm(key, options["filter_ops"].get(key) or "is", value)
+            FilterTerm(key, filter_ops.get(key) or "is", value)
             for key, value in options["filters"].items()
         )
         tree = options.get("filter_group")
@@ -810,11 +816,29 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
             counts,
             await group_relations(builder, ctx, objects, group_names),
         )
+        operations = await allowed_operations(builder, ctx)
+        total_count = (
+            await service.count(
+                ctx=ctx,
+                filters=options["filters"],
+                filter_ops=options["filter_ops"],
+                filter_group=options["filter_group"],
+                search=options["search"],
+            )
+            if "delete" in operations
+            else len(objects)
+        )
         rows = []
         for index, (obj, visible) in enumerate(zip(objects, visible_rows, strict=True)):
             can_detail = await invoke(builder.policy.allow, "retrieve", ctx, obj=obj)
+            can_delete = "delete" in operations and await invoke(
+                builder.policy.allow, "delete", ctx, obj=obj
+            )
             rows.append(
                 {
+                    "id": getattr(obj, builder.pk_name),
+                    "label": object_label(builder, ctx, obj),
+                    "selectable": can_delete,
                     "values": visible,
                     "groups": headers[index],
                     "url": f"{base(request)}/{quote(str(getattr(obj, builder.pk_name)), safe='')}",
@@ -852,7 +876,7 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
             list_display=list_display,
             link_field=link_field,
             rows=rows,
-            operations=await allowed_operations(builder, ctx),
+            operations=operations,
             search=any(key in builder.readable(ctx) for key in builder.search_fields),
             filters=filters,
             filter_count=count_filter_terms(display),
@@ -861,6 +885,7 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
             sort_config=sort_config,
             group_config=group_config,
             query=request.query_params,
+            total_count=total_count,
             next_url="?" + urlencode(next_query) if limit and len(objects) == limit else None,
         )
 
@@ -1055,6 +1080,40 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
         await service.delete(id, ctx=ctx)
         return RedirectResponse(base(request), status_code=303)
 
+    async def bulk_action(request: Request, ctx: Context = dependency) -> Any:
+        form = await read_form(request)
+        ids = [str(value) for value in form.getlist("record_ids")]
+        select_across = form.get("select_across")
+        if (
+            set(form.keys()) != {"csrf_token", "action", "record_ids", "select_across"}
+            or len(form.getlist("csrf_token")) != 1
+            or len(form.getlist("action")) != 1
+            or len(form.getlist("select_across")) != 1
+            or form.get("action") != "delete"
+            or select_across not in {"0", "1"}
+            or not ids
+            or any(not value for value in ids)
+            or len(ids) != len(set(ids))
+        ):
+            raise BuilderValidationError({"__all__": [N_("Choose a valid action and records.")]})
+        app.csrf.validate(request, ctx.principal, str(form.get("csrf_token", "")))
+        if select_across == "1":
+            options = list_query_options(request, builder)
+            for key in ("offset", "limit", "grouping"):
+                options.pop(key, None)
+            objects = await service.list(ctx=ctx, **options)
+            ids = [
+                str(getattr(obj, builder.pk_name))
+                for obj in objects
+                if await invoke(builder.policy.allow, "delete", ctx, obj=obj)
+            ]
+            if not ids:
+                raise BuilderValidationError({"__all__": [N_("Choose records to delete.")]})
+        for record_id in ids:
+            await service.delete(record_id, ctx=ctx)
+        location = f"{base(request)}?{request.url.query}" if request.url.query else base(request)
+        return RedirectResponse(location, status_code=303)
+
     for endpoint, suffix, methods, enabled, name in (
         (list_records, "", ["GET"], builder.view.enabled, "list"),
         (
@@ -1063,6 +1122,13 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
             ["GET", "POST"],
             builder.form.enabled,
             "create",
+        ),
+        (
+            bulk_action,
+            "/bulk-actions",
+            ["POST"],
+            builder.view.enabled and "delete" in builder.view.operations,
+            "bulk_action",
         ),
         (detail, "/{id}", ["GET", "POST"], builder.view.enabled, "detail"),
         (
