@@ -208,6 +208,26 @@ def test_api_openapi_declares_stable_operations_and_query_parameters() -> None:
             assert list_operation["operationId"] == "records_list"
             assert schema["paths"]["/api/records/{id}"]["get"]["operationId"] == "records_retrieve"
             assert "Problem" in schema["components"]["schemas"]
+            assert "RecordListItem" in schema["components"]["schemas"]
+            assert "RecordResponse" in schema["components"]["schemas"]
+            assert not any(
+                name.startswith("obox_builder__") for name in schema["components"]["schemas"]
+            )
+            assert schema["components"]["schemas"]["RecordResponse"]["properties"]["amount"] == {
+                "title": "Amount",
+                "type": "string",
+            }
+            assert schema["components"]["schemas"]["Page"]["properties"]["offset"]["minimum"] == 0
+            assert (
+                schema["components"]["schemas"]["Problem"]["properties"]["traceId"]["pattern"]
+                == r"^[A-Za-z0-9._-]{1,128}$"
+            )
+            assert {parameter["name"] for parameter in list_operation["parameters"]} >= {
+                "and",
+                "or",
+                "not.and",
+                "not.or",
+            }
             assert list_operation["responses"]["422"]["content"]["application/problem+json"][
                 "schema"
             ] == {"$ref": "#/components/schemas/Problem"}

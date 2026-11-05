@@ -28,7 +28,7 @@ class ActionInput(ApiRequest):
 
 
 class ActionResult(ApiResponse):
-    count: int
+    count: int = Field(ge=0)
 
 
 class QueryInput(ApiRequest):
@@ -36,11 +36,11 @@ class QueryInput(ApiRequest):
 
 
 class Page(ApiResponse):
-    limit: int | None
-    offset: int
+    limit: int | None = Field(ge=0)
+    offset: int = Field(ge=0)
     has_more: bool
     next_cursor: str | None
-    total: int | None
+    total: int | None = Field(ge=0)
 
 
 def json_value(value: Any) -> Any:
@@ -82,36 +82,48 @@ def list_schema(builder: Any, *, expanded: bool = True) -> type[BaseModel]:
             def convert(value: Any) -> Any:
                 return None if value is None else str(value)
 
-            result: Any = str | None
+            result: Any = str | None if spec.column.nullable else str
+        elif isinstance(spec.column.type, sa.Numeric):
+
+            def convert(value: Any) -> Any:
+                return None if value is None else str(value)
+
+            result = str | None if spec.column.nullable else str
         elif isinstance(spec.column.type, sa.Integer | sa.DateTime):
             convert = json_value
-            result = int | str | None if isinstance(spec.column.type, sa.Integer) else str | None
+            if isinstance(spec.column.type, sa.Integer):
+                result = int | str | None if spec.column.nullable else int | str
+            else:
+                result = str | None if spec.column.nullable else str
         else:
             continue
         serializers["encode_" + name] = field_serializer(name, return_type=result)(convert)
     if any(field.alias == "expanded" for field in builder.read_schema.model_fields.values()):
         raise ImproperlyConfigured("The API field alias 'expanded' is reserved.")
-    relationships: dict[str, Any] = {
-        name: (RecordOption | None, None)
-        for name, fk in builder.list_relation_fields.items()
-        if fk in builder.api_read
-    }
-    aliases = [to_camel(name) for name in relationships]
-    if len(set(aliases)) != len(aliases):
-        raise ImproperlyConfigured("Relationship aliases must be unique.")
-    expanded_schema = create_model(
-        builder.model.__name__ + "Expanded", __base__=ApiResponse, **relationships
-    )
     definitions: dict[str, Any] = {}
     if expanded:
+        relationships: dict[str, Any] = {
+            name: (RecordOption | None, None)
+            for name, fk in builder.list_relation_fields.items()
+            if fk in builder.api_read
+        }
+        aliases = [to_camel(name) for name in relationships]
+        if len(set(aliases)) != len(aliases):
+            raise ImproperlyConfigured("Relationship aliases must be unique.")
+        expanded_schema = create_model(
+            builder.model.__name__ + "Expanded", __base__=ApiResponse, **relationships
+        )
         definitions["expanded"] = (expanded_schema, Field(default_factory=expanded_schema))
     for name, spec in builder.specs.items():
         if name not in builder.read_schema.model_fields:
             continue
         if isinstance(spec.column.type, sa.BigInteger):
-            definitions[name] = (str | None, None)
+            definitions[name] = (
+                str | None if spec.column.nullable else str,
+                None,
+            )
     return create_model(
-        builder.model.__name__ + "ListRead",
+        builder.model.__name__ + ("ListItem" if expanded else "Response"),
         __base__=builder.read_schema,
         __validators__=serializers,
         **definitions,
@@ -183,6 +195,11 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
     }
 
     def query_parameters(*, filters: bool = True, projection: bool = True) -> list[dict[str, Any]]:
+        limit_schema: dict[str, Any] = {"type": "integer", "minimum": 0}
+        if builder.api.max_limit is not None:
+            limit_schema["maximum"] = builder.api.max_limit
+        if builder.api.default_limit is not None:
+            limit_schema["default"] = builder.api.default_limit
         parameters = [
             {"name": "search", "in": "query", "required": False, "schema": {"type": "string"}},
             {"name": "order", "in": "query", "required": False, "schema": {"type": "string"}},
@@ -190,7 +207,7 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
                 "name": "limit",
                 "in": "query",
                 "required": False,
-                "schema": {"type": "integer", "minimum": 0},
+                "schema": limit_schema,
             },
             {
                 "name": "offset",
@@ -221,6 +238,16 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
                     "description": "Filter expression using field.operator.value.",
                 }
                 for name in builder.filter_fields
+            )
+            parameters.extend(
+                {
+                    "name": name,
+                    "in": "query",
+                    "required": False,
+                    "schema": {"type": "string"},
+                    "description": "Parenthesized logical filter group.",
+                }
+                for name in ("and", "or", "not.and", "not.or")
             )
         return parameters
 
