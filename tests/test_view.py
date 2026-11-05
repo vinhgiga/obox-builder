@@ -270,10 +270,14 @@ def test_list_filter_groups_match_nested_conditions() -> None:
             }
             transport = httpx.ASGITransport(app=app.app)
             async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-                response = await client.get("/api/widgets", params={"filter": json.dumps(tree)})
+                response = await client.get(
+                    "/api/widgets",
+                    params={"and": '(status.neq."",or(status.eq.live,status.eq.draft))'},
+                )
                 page = await client.get("/admin/widgets", params={"filter": json.dumps(tree)})
                 html = page.text
-            assert {row["name"] for row in response.json()} == {"alpha", "beta"}
+            assert response.status_code == 200
+            assert {row["name"] for row in response.json()["items"]} == {"alpha", "beta"}
             assert "alpha" in html
             assert "beta" in html
             assert "gamma" not in html

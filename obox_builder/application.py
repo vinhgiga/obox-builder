@@ -520,7 +520,12 @@ class Obox:
         async def dependency(
             request: Request, principal: Any = Depends(self.settings.principal_dependency)
         ) -> AsyncIterator[Context]:
-            async with self.uow(principal=principal, source=source, request=request) as ctx:
+            async with self.uow(
+                principal=principal,
+                source=source,
+                request=request,
+                trace_id=getattr(request.state, "trace_id", None),
+            ) as ctx:
                 yield ctx
 
         return dependency

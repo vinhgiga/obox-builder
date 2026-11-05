@@ -177,7 +177,8 @@ def test_list_displays_relation_label_and_keeps_api_raw() -> None:
             async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
                 response = await client.get("/api/children")
                 form = (await client.get("/admin/children/new")).text
-            assert response.json() == [
+            assert response.status_code == 200
+            assert response.json()["items"] == [
                 {"parent_id": 1, "name": "alpha"},
                 {"parent_id": 2, "name": "beta"},
             ]

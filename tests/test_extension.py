@@ -358,7 +358,18 @@ def test_http_crud_scoped_errors_locale_static_and_openapi(root_path: str) -> No
                 assert f'href="{root_path}/vi/admin/items/new"' in page.text
                 asset = await client.get(f"{root_path}/vi/admin/_static/list.js")
                 assert asset.status_code == 200
-            assert (await request(app, "GET", "/api/items")).json() == [created.json()]
+            listed = await request(app, "GET", "/api/items")
+            assert listed.status_code == 200
+            assert listed.json() == {
+                "items": [created.json()],
+                "page": {
+                    "limit": None,
+                    "offset": 0,
+                    "has_more": False,
+                    "next_cursor": None,
+                    "total": None,
+                },
+            }
 
     asyncio.run(scenario())
 

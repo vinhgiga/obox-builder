@@ -179,6 +179,17 @@ class ModelBuilder(Generic[T]):
             if not isinstance(configured, type) or not issubclass(configured, base):
                 raise ImproperlyConfigured("Surface configuration must extend Form, View or API.")
         self.form, self.view, self.api = self.Form(), self.View(), self.API()
+        for value in (self.api.default_limit, self.api.max_limit):
+            if value is not None and (
+                isinstance(value, bool) or not isinstance(value, int) or value < 0
+            ):
+                raise ImproperlyConfigured("API limits must be nonnegative integers or None.")
+        if (
+            self.api.max_limit is not None
+            and self.api.default_limit is not None
+            and self.api.default_limit > self.api.max_limit
+        ):
+            raise ImproperlyConfigured("API.default_limit must not exceed API.max_limit.")
         self.form._builder = self.view._builder = self
         instances: list[Inline[Any]] = []
         for inline_class in self.inlines:

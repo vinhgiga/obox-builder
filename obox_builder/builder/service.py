@@ -20,6 +20,7 @@ from obox_builder.builder.fields import (
     validate,
 )
 from obox_builder.builder.filters import FilterGroup, FilterTerm
+from obox_builder.builder.query import ListQuery, condition, invalid
 from obox_builder.context import Context, DomainEvent
 from obox_builder.errors import (
     N_,
@@ -39,7 +40,11 @@ async def invoke(method: Any, *args: Any, **kwargs: Any) -> Any:
     return await result if inspect.isawaitable(result) else result
 
 
-def _filter_condition(builder: Any, readable: set[str], field: str, op: str, value: Any) -> Any:
+def _filter_condition(
+    builder: Any, readable: set[str], field: str, op: str, value: Any, dialect: str = ""
+) -> Any:
+    if op.startswith("pg."):
+        return condition(builder, readable, FilterTerm(field, op, value), dialect)
     if field not in builder.filter_fields or field not in readable:
         raise BuilderValidationError({field: ["Filtering this field is not permitted."]})
     column = getattr(builder.model, field)
@@ -71,17 +76,20 @@ def _filter_condition(builder: Any, readable: set[str], field: str, op: str, val
     return match
 
 
-def _filter_tree(builder: Any, readable: set[str], node: FilterGroup | FilterTerm) -> Any | None:
+def _filter_tree(
+    builder: Any, readable: set[str], node: FilterGroup | FilterTerm, dialect: str
+) -> Any | None:
     if isinstance(node, FilterTerm):
-        return _filter_condition(builder, readable, node.field, node.op, node.value)
+        return _filter_condition(builder, readable, node.field, node.op, node.value, dialect)
     children = [
         condition
         for child in node.children
-        if (condition := _filter_tree(builder, readable, child)) is not None
+        if (condition := _filter_tree(builder, readable, child, dialect)) is not None
     ]
     if not children:
         return None
-    return (sa.and_ if node.conjunction == "and" else sa.or_)(*children)
+    result = (sa.and_ if node.conjunction.removeprefix("not.") == "and" else sa.or_)(*children)
+    return sa.not_(result) if node.conjunction.startswith("not.") else result
 
 
 class ResourceService(Generic[T]):
@@ -131,7 +139,7 @@ class ResourceService(Generic[T]):
             for key, value in (filters or {}).items()
         ]
         if filter_group is not None:
-            tree = _filter_tree(b, readable, filter_group)
+            tree = _filter_tree(b, readable, filter_group, ctx.session.get_bind().dialect.name)
             if tree is not None:
                 conditions.append(tree)
         if conditions:
@@ -216,6 +224,126 @@ class ResourceService(Generic[T]):
         if limit is not None:
             stmt = stmt.limit(limit)
         return list((await ctx.session.scalars(stmt)).unique())
+
+    async def page(self, query: ListQuery, *, ctx: Context) -> tuple[Sequence[T], dict[str, Any]]:
+        await self.authorize("list", ctx)
+        b, params = self.builder, query.params
+        stmt, readable = await self._list_statement(
+            ctx=ctx, filter_group=query.filters, search=params.get("search")
+        )
+        ordering = query.ordering(b, readable)
+        limit = query.integer("limit", b.api.default_limit)
+        offset = query.integer("offset", 0) or 0
+        if b.api.max_limit is not None and limit is not None and limit > b.api.max_limit:
+            raise invalid("limit", "Limit exceeds the configured maximum.")
+        if b.api.max_limit is not None and limit is None:
+            limit = b.api.max_limit
+        if "count" in params and params["count"] != "exact":
+            raise invalid("count", "Only count=exact is supported.")
+        cursor_supported = all(not b.specs[name].column.nullable for name, _, _ in query.order)
+        if "cursor" in params:
+            if "offset" in params or "limit" not in params:
+                raise invalid("cursor", "Cursor requires limit and cannot be combined with offset.")
+            if not cursor_supported:
+                raise invalid(
+                    "order", "Cursor ordering must be non-nullable.", "cursor_unsupported_ordering"
+                )
+        total = (
+            await self.count(ctx=ctx, filter_group=query.filters, search=params.get("search"))
+            if "count" in params
+            else None
+        )
+        if "cursor" in params:
+            stmt = stmt.where(query.cursor(b, self.app.csrf.secret))
+        if limit == 0 and total is not None and "cursor" not in params:
+            return [], {
+                "limit": 0,
+                "offset": offset,
+                "has_more": total > offset,
+                "next_cursor": None,
+                "total": total,
+            }
+        stmt = stmt.distinct().order_by(None).order_by(*ordering).offset(min(offset, 2**63 - 1))
+        if limit is not None and limit < 2**63 - 1:
+            stmt = stmt.limit(limit + 1)
+        objects = list((await ctx.session.scalars(stmt)).unique())
+        more = limit is not None and len(objects) > limit
+        objects = objects if limit is None else objects[:limit]
+        cursor = None
+        if more and objects and cursor_supported:
+            # Do not expose ordering values hidden by a per-record projection in a token.
+            visible = set(b.readable(ctx, obj=objects[-1])).intersection(b.api_read)
+            if all(name in visible for name, _, _ in query.order):
+                values = await self.serialize(
+                    objects[-1], ctx=ctx, fields=[name for name, _, _ in query.order]
+                )
+                cursor = query.cursor(
+                    b,
+                    self.app.csrf.secret,
+                    [values[name] for name, _, _ in query.order],
+                )
+        return objects, {
+            "limit": limit,
+            "offset": offset,
+            "has_more": more,
+            "next_cursor": cursor,
+            "total": total,
+        }
+
+    async def expand(
+        self,
+        objects: Sequence[T],
+        rows: Sequence[dict[str, Any]],
+        names: Sequence[str],
+        *,
+        ctx: Context,
+    ) -> None:
+        b = self.builder
+        for name in names:
+            if "." in name:
+                raise invalid("expand", "Only one-level expansion is supported.", "expand_depth")
+            relation = b.list_relations.get(name)
+            fk_name = b.list_relation_fields.get(name)
+            target = self.app._for_table(relation.target) if relation is not None else None
+            if relation is None or target is None or fk_name is None:
+                raise invalid("expand", "Relationship target is unavailable.", "expand_unavailable")
+            if fk_name not in b.api_read:
+                raise invalid("expand", "Relationship field is unavailable.", "expand_unavailable")
+            values = [
+                getattr(obj, fk_name) if fk_name in b.readable(ctx, obj=obj) else None
+                for obj in objects
+            ]
+            visible: dict[Any, Any] = {}
+            if await invoke(target.policy.allow, "retrieve", ctx):
+                remote = (
+                    sa.inspect(target.model)
+                    .get_property_by_column(next(iter(relation.remote_side)))
+                    .key
+                )
+                service = self.app.service(target.model)
+                stmt = service._statement("retrieve", ctx).where(
+                    getattr(target.model, remote).in_(
+                        {value for value in values if value is not None}
+                    )
+                )
+                for obj in (await ctx.session.scalars(stmt)).unique():
+                    if not await invoke(target.policy.allow, "retrieve", ctx, obj=obj):
+                        continue
+                    fields = set(target.readable(ctx, obj=obj)).intersection(target.api_read)
+                    if target.pk_name not in fields or (
+                        remote != target.pk_name and remote not in fields
+                    ):
+                        continue
+                    label = target.label_field if target.label_field in fields else target.pk_name
+                    data = await service.serialize(obj, ctx=ctx, fields=(target.pk_name, label))
+                    visible[getattr(obj, remote)] = {
+                        "id": str(data[target.pk_name])
+                        if isinstance(target.pk.type, sa.BigInteger)
+                        else data[target.pk_name],
+                        "label": str(data[label]),
+                    }
+            for row, value in zip(rows, values, strict=True):
+                row.setdefault("_expanded", {})[name] = visible.get(value)
 
     async def count(
         self,

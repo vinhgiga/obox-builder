@@ -37,6 +37,7 @@ class ResourceConflict(OboxError):
 class BuilderValidationError(OboxError):
     status = 422
 
-    def __init__(self, errors: Mapping[str, list[str]]) -> None:
+    def __init__(self, errors: Mapping[str, list[str]], *, code: str = "validation_error") -> None:
+        self.code = code
         self.errors = dict(errors)
         super().__init__("Invalid input.")
