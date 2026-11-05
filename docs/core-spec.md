@@ -201,7 +201,7 @@ explicit dependency that rejects unauthenticated users.
 | Property | Type | Default / meaning |
 | --- | --- | --- |
 | `model` | `type[T] \| None` | Inferred from `ModelBuilder[T]` at registration; available on the compiled builder instance |
-| `slug` | `str \| None` | Stable pluralized model name, e.g. `questions` |
+| `slug` | `str \| None` | Stable plural camelCase collection name, e.g. `questions` or `questionCategories` |
 | `fields` | `FieldRefs \| None` | `None` = infer safe supported scalar fields for staff-only resources |
 | `read_only_fields` | `FieldRefs` | Includes primary keys and known generated/computed fields |
 | `search_fields` | `FieldRefs` | `()`; shared by View and API |
@@ -398,6 +398,14 @@ class API:
 
 These schema methods run during registration, not per request. Schemas expose the **static allowed superset**; runtime policy can narrow a response further. Conditional fields must not be unconditionally required by the output schema.
 
+**API naming boundary:** Python, SQLAlchemy, and Pydantic field names remain
+`snake_case`; HTTP JSON request and response properties use `camelCase` through
+shared Pydantic alias generators. Request schemas accept aliases only; response
+schemas serialize aliases, including nested objects. Do not manually rename keys
+in routes, services, or frontend adapters. Query parameter names and
+query-language field references retain their configured names. See the
+[API naming convention](api-spec.md#naming-convention) for the target contract.
+
 ### 6.3 Generated routes
 
 | Method | Route | Operation |
@@ -408,7 +416,12 @@ These schema methods run during registration, not per request. Schemas expose th
 | `PATCH` | `/api/questions/{id}` | `update` |
 | `DELETE` | `/api/questions/{id}` | `delete` |
 
-Canonical routes have no trailing slash. Resource slugs are configurable. OBOX does not impose a request rate, request-size quota or result maximum.
+Canonical routes use `/api` without a version segment and have no trailing slash.
+Resource slugs and customized API prefixes are plural camelCase collection names
+matching `[a-z][a-zA-Z0-9]*`. Custom resource methods use `:verb` with camelCase
+verbs, such as `/api/questions:query` and `/api/questions:sendReminder`.
+The [API specification](api-spec.md#endpoint-overview) defines the proposed paths.
+OBOX does not impose a request rate, request-size quota or result maximum.
 
 **List behavior:** Search, filters and sorting use explicit allowed fields; unrequested pagination returns all matching records. Optional `offset`/`limit` enables pagination without a framework-enforced maximum. No cursor or bulk API is required for v0.4.
 
