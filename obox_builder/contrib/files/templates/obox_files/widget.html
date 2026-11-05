@@ -1,0 +1,31 @@
+{% macro files_widget(value, config, name='', label='Attachments', editable=false, compact=false) %}
+  <div class="obox-files{% if compact %} obox-files-compact{% endif %}"
+       data-files
+       data-field="{{ config.field }}"
+       data-owner="{{ config.owner_id }}"
+       data-url="{{ config.url }}"
+       data-readonly="{{ 'false' if editable else 'true' }}"
+       data-max-count="{{ config.max_count if config.max_count is not none else '' }}"
+       data-files-meta="{{ config.files | tojson | forceescape }}">
+    <input type="hidden"
+           {% if editable %}name="{{ name }}"{% endif %}
+           value="{{ value if value is string else (value or []) | tojson | forceescape }}"
+           data-files-ids>
+    {% if editable %}
+      <label class="btn btn-outline-secondary btn-sm obox-files-picker">
+        {% trans %}Attach files{% endtrans %}
+        <input type="file"
+               id="{{ name }}"
+               aria-label="{{ label }}"
+               multiple
+               accept="{{ config.accept }}">
+      </label>
+      <span class="form-hint">{% trans %}or drop files here{% endtrans %}</span>
+    {% endif %}
+    <div class="obox-files-list"
+         data-files-list
+         role="list"
+         aria-label="{{ label }}"></div>
+    <p class="text-danger" data-files-error role="status"></p>
+  </div>
+{% endmacro %}

@@ -1,7 +1,8 @@
 {% extends base_template %}
 {% block content %}
   <nav class="mb-3"><a class="btn btn-outline-secondary btn-sm" href="{{ base }}">{% trans %}Back to list{% endtrans %}</a>{% if "update" in operations %} <a class="btn btn-outline-primary btn-sm" href="{{ url }}/edit">{% trans %}Edit{% endtrans %}</a>{% endif %}</nav>
-  <dl class="row">{% for field, value in values.items() %}<dt class="col-sm-3">{{ field.replace('_', ' ').capitalize() }}</dt><dd class="col-sm-9">{% if links.get(field) %}<a href="{{ links[field] }}">{{ value }}</a>{% else %}{{ value }}{% endif %}</dd>{% endfor %}</dl>
+  {% from "obox_files/widget.html" import files_widget %}
+  <dl class="row">{% for field, value in values.items() %}<dt class="col-sm-3">{{ field.replace('_', ' ').capitalize() }}</dt><dd class="col-sm-9">{% if file_fields.get(field) %}{{ files_widget(value, file_fields[field]) }}{% elif links.get(field) %}<a href="{{ links[field] }}">{{ value }}</a>{% else %}{{ value }}{% endif %}</dd>{% endfor %}</dl>
   {% include "obox/_related.html" %}
   {% if "delete" in operations %}
     <p class="submit-row mt-6">

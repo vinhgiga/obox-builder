@@ -131,6 +131,10 @@ def condition(builder: Any, readable: set[str], term: FilterTerm, dialect: str) 
         raise invalid(name, "Filtering this field is not permitted.", "unknown_field")
     spec, column = builder.specs[name], getattr(builder.model, name)
     negate, op = op.startswith("not."), op.removeprefix("not.")
+    if "obox_files" in spec.column.info:
+        if op == "is" and raw == "null":
+            return column.any() if negate else ~column.any()
+        raise invalid(name, "Use is.null or not.is.null for attachments.", "unsupported_operator")
     if isinstance(spec.column.type, sa.JSON):
         raise invalid(name, "JSON fields cannot be filtered.", "unsupported_operator")
     model = schema("Filter", builder.specs, (name,), partial=True)

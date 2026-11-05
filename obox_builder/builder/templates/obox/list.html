@@ -5,6 +5,7 @@
 {% block heading_class %}sr-only{% endblock %}
 {% block content_class %}grid-content{% endblock %}
 {% block content %}
+  {% from "obox_files/widget.html" import files_widget %}
   <div class="grid-toolbar">
     <span class="shrink-0 font-semibold">▦ {% trans %}Grid view{% endtrans %}</span>
     {% if "delete" in operations or actions %}
@@ -454,7 +455,7 @@
               {% for field in list_display %}
                 {% set value = row['values'].get(field, '') %}
                 <td data-list-column="{{ field }}" title="{{ value }}">
-                  <div class="cell-value">{% if field == link_field and row.detail %}<a href="{{ row.url }}">{{ value }}</a>{% else %}{{ value }}{% endif %}</div>
+                  <div class="cell-value">{% if row["values"].get("_files", {}).get(field) %}{{ files_widget(value, row['values']['_files'][field], compact=true) }}{% elif field == link_field and row.detail %}<a href="{{ row.url }}">{{ value }}</a>{% else %}{{ value }}{% endif %}</div>
                 </td>
               {% endfor %}
             </tr>

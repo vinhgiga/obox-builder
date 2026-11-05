@@ -10,7 +10,7 @@ from typing import Any, Generic, TypeVar, get_args, get_origin
 
 import sqlalchemy as sa
 from pydantic.alias_generators import to_camel, to_snake
-from sqlalchemy.orm import raiseload, undefer
+from sqlalchemy.orm import raiseload, selectinload, undefer
 from sqlalchemy.orm.interfaces import MANYTOONE
 
 from obox_builder.auth import Policy, StaffOnly
@@ -136,6 +136,11 @@ class ModelBuilder(Generic[T]):
             if inspect.iscoroutinefunction(getattr(self.policy, name)):
                 raise ImproperlyConfigured(f"Policy.{name} must be synchronous.")
         self.specs = MappingProxyType(inspect_fields(model))
+        if (
+            any("obox_files" in spec.column.info for spec in self.specs.values())
+            and app.get_plugin("files") is None
+        ):
+            raise ImproperlyConfigured("Attachment collections require the Files plugin.")
         mapper: Any = sa.inspect(model)
         self.pk = mapper.primary_key[0]
         self.pk_name = mapper.get_property_by_column(self.pk).key
@@ -415,7 +420,15 @@ class ModelBuilder(Generic[T]):
     def get_statement(self, ctx: Context) -> sa.Select[tuple[T]]:
         if self.model is None:
             raise ImproperlyConfigured("Register the builder before querying its model.")
-        return sa.select(self.model).options(undefer("*"), raiseload("*"))
+        return sa.select(self.model).options(
+            undefer("*"),
+            raiseload("*"),
+            *(
+                selectinload(getattr(self.model, key))
+                for key, spec in self.specs.items()
+                if "obox_files" in spec.column.info
+            ),
+        )
 
     async def validate_create(self, data: dict[str, Any], ctx: Context) -> Mapping[str, Any]:
         return data

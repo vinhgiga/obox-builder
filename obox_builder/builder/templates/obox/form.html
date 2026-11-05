@@ -14,6 +14,9 @@
       {% for value, label in field.options %}<option value="{{ value }}"
         {% if values.get(field.name) == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
     </select>
+  {% elif field.widget == "files" %}
+    {% from "obox_files/widget.html" import files_widget %}
+    {{ files_widget(values.get(field.name), field.config, prefix ~ field.name, field.label, true) }}
   {% elif field.widget == "textarea" %}
     <textarea class="form-control"
               id="{{ prefix }}{{ field.name }}"

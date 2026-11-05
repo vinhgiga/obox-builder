@@ -51,6 +51,10 @@ def _filter_condition(
     spec = builder.specs[field]
     if op not in FILTER_OPERATORS:
         raise BuilderValidationError({f"filter_op.{field}": ["Unknown filter operator."]})
+    if "obox_files" in spec.column.info:
+        if op in FILTER_EMPTY_OPERATORS:
+            return ~column.any() if op == "is_empty" else column.any()
+        raise BuilderValidationError({field: ["Attachments support empty/not-empty filters."]})
     if op in FILTER_EMPTY_OPERATORS:
         empty = column.is_(None)
         if isinstance(spec.column.type, sa.String):
@@ -609,7 +613,10 @@ class ResourceService(Generic[T]):
             await ctx.session.refresh(obj, attribute_names=sorted(state.expired_attributes))
         if not await invoke(self.builder.policy.check, action, obj, ctx):
             raise PermissionDenied("The resulting record is not permitted.")
-        if any(getattr(obj, key) != value for key, value in presets.items()):
+        if any(
+            self.builder.specs[key].serialize(getattr(obj, key)) != value
+            for key, value in presets.items()
+        ):
             raise PermissionDenied("A server-controlled field was changed.")
         self._context(ctx)
         ctx._events.append(
@@ -652,6 +659,9 @@ class ResourceService(Generic[T]):
         await self.authorize("create", ctx)
         values, presets = await self._input("create", data, ctx, allowed=allowed)
         values = {**values, **(extra or {})}
+        files = self.app.get_plugin("files")
+        if files is not None:
+            values = await files.resolve(self.builder, values, ctx)
         async with self._mutation(ctx):
             obj = self.builder.model(**values)
             ctx.session.add(obj)
@@ -674,6 +684,9 @@ class ResourceService(Generic[T]):
         obj = await self._get(id, ctx, "update")
         self._version(obj, version)
         values, presets = await self._input("update", changes, ctx, obj)
+        files = self.app.get_plugin("files")
+        if files is not None:
+            values = await files.resolve(self.builder, values, ctx, obj)
         async with self._mutation(ctx):
             for key, value in values.items():
                 setattr(obj, key, value)
@@ -723,4 +736,4 @@ class ResourceService(Generic[T]):
         unloaded = state.unloaded.intersection(names)
         if unloaded:
             await ctx.session.refresh(obj, attribute_names=sorted(unloaded))
-        return {key: getattr(obj, key) for key in names}
+        return {key: self.builder.specs[key].serialize(getattr(obj, key)) for key in names}

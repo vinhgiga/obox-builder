@@ -7,6 +7,12 @@
       <title>{% block title %}{{ title }} · {{ site_title }}{% endblock %}</title>
       <link rel="stylesheet"
             href="{{ request.url_for('obox_static', path='ui.css') }}?v=20261104-13">
+      {% if request.app.state.obox.get_plugin("files") %}
+        <link rel="stylesheet"
+              href="{{ request.url_for('obox_files_static', path='files.css') }}">
+        <script type="module"
+                src="{{ request.url_for('obox_files_static', path='files.js') }}"></script>
+      {% endif %}
     {% endblock %}
   </head>
   <body class="{% block body_class %}page{% endblock %}">

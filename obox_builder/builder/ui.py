@@ -37,6 +37,7 @@ def create_templates(settings: Settings) -> Jinja2Templates:
                 FileSystemLoader(settings.template_dirs),
                 PackageLoader("obox_builder.builder", "templates"),
                 PackageLoader("obox_builder.contrib.auth", "templates"),
+                PackageLoader("obox_builder.contrib.files", "templates"),
             ]
         ),
         autoescape=select_autoescape(("html",)),
@@ -164,7 +165,16 @@ def filter_columns(builder: Any, ctx: Context, requested: Sequence[str]) -> list
                 "kind": kind,
                 "choices": choices,
                 "operators": (
-                    ["contains", "does_not_contain", "is", "is_not", "is_empty", "is_not_empty"]
+                    ["is_empty", "is_not_empty"]
+                    if "obox_files" in builder.specs[name].column.info
+                    else [
+                        "contains",
+                        "does_not_contain",
+                        "is",
+                        "is_not",
+                        "is_empty",
+                        "is_not_empty",
+                    ]
                     if kind == "text"
                     else ["is", "is_not", "is_empty", "is_not_empty"]
                 ),
@@ -288,6 +298,14 @@ async def list_rows(
     scalar = builder.readable(ctx, fields=scalar)
     service = builder.app.service(builder.model)
     rows = [await service.serialize(obj, ctx=ctx, fields=scalar) for obj in objects]
+    files = builder.app.get_plugin("files")
+    if files is not None:
+        for obj, row in zip(objects, rows, strict=True):
+            row["_files"] = {
+                name: files.form_config(builder, name, obj, ctx)
+                for name in scalar
+                if name in row and "obox_files" in builder.specs[name].column.info
+            }
     for name in fields:
         if name not in builder.view_list_relations:
             continue
@@ -362,7 +380,14 @@ async def form_fields(builder: Any, service: Any, ctx: Context, obj: Any) -> lis
             widget = "number"
         config = dict(builder.form.widgets.get(name, {}))
         widget = config.get("type", widget)
+        if "obox_files" in column.info:
+            files = builder.app.get_plugin("files")
+            if files is None:
+                raise BuilderValidationError({name: ["Install the Files plugin."]})
+            widget = "files"
+            config.update(files.form_config(builder, name, obj, ctx))
         if widget not in {
+            "files",
             "text",
             "textarea",
             "select",
@@ -381,6 +406,7 @@ async def form_fields(builder: Any, service: Any, ctx: Context, obj: Any) -> lis
                 "label": builder.form.labels.get(name, name.replace("_", " ").capitalize()),
                 "help": builder.form.help_texts.get(name, ""),
                 "widget": widget,
+                "config": config,
                 "options": options or [],
                 "required": spec.required,
                 "nullable": column.nullable,
@@ -419,7 +445,7 @@ def input_values(builder: Any, data: dict[str, Any]) -> dict[str, str]:
         if value is None:
             result[name] = ""
         elif isinstance(column.type, sa.JSON):
-            result[name] = json.dumps(value, ensure_ascii=False)
+            result[name] = json.dumps(builder.specs[name].serialize(value), ensure_ascii=False)
         elif isinstance(value, bool):
             result[name] = "true" if value else "false"
         elif isinstance(value, enum.Enum):
@@ -929,6 +955,11 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
             title=extra.get("title", builder.model.__name__),
             base=base(request),
             values=visible,
+            file_fields={
+                key: app.get_plugin("files").form_config(builder, key, obj, ctx)
+                for key in visible
+                if "obox_files" in builder.specs[key].column.info
+            },
             collections=await related_collections(request, ctx, obj),
             links=links,
             operations=await allowed_operations(builder, ctx, obj),

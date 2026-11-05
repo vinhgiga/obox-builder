@@ -35,6 +35,11 @@ class ModelField:
     readonly: bool
     exposed: bool
 
+    def serialize(self, value: Any) -> Any:
+        if "obox_files" in self.column.info and value is not None:
+            return [str(getattr(file, "id", file)) for file in value]
+        return value
+
 
 def inspect_fields(model: type[Any]) -> dict[str, ModelField]:
     try:
@@ -81,6 +86,20 @@ def inspect_fields(model: type[Any]) -> dict[str, ModelField]:
             readonly,
             column.info.get("obox", {}).get("expose", True) is not False,
         )
+    for relation in mapper.relationships:
+        rule = relation.info.get("obox_files")
+        if rule is not None:
+            column = sa.Column(
+                relation.key, sa.JSON, nullable=False, default=list, info={"obox_files": rule}
+            )
+            result[relation.key] = ModelField(
+                relation.key,
+                column,
+                Annotated[list[str], Field(min_length=rule.min_count, max_length=rule.max_count)],
+                bool(rule.min_count),
+                False,
+                True,
+            )
     return result
 
 

@@ -1,3 +1,4 @@
+{% from "obox_files/widget.html" import files_widget %}
 {% for collection in collections %}
   <h2>{{ collection.name.replace('_', ' ').capitalize() }}</h2>
   <table class="table table-vcenter">
@@ -12,7 +13,7 @@
           {% for field in collection.list_display %}
             {% set value = row.get(field, '') %}
             <td>
-              {% if field == collection.link_field and row.detail %}<a href="{{ row.url }}">{{ value }}</a>{% else %}{{ value }}{% endif %}
+              {% if row.get("_files", {}).get(field) %}{{ files_widget(value, row['_files'][field], compact=true) }}{% elif field == collection.link_field and row.detail %}<a href="{{ row.url }}">{{ value }}</a>{% else %}{{ value }}{% endif %}
             </td>
           {% endfor %}
         </tr>

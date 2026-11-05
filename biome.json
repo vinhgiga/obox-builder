@@ -10,6 +10,8 @@
       "commitlint.config.mjs",
       "tests/**/*.mjs",
       "obox_builder/builder/static/**/*.js",
+      "obox_builder/contrib/files/static/**/*.js",
+      "obox_builder/contrib/files/static/**/*.css",
       "obox_builder/builder/**/*.css"
     ]
   },

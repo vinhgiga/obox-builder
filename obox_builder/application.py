@@ -483,6 +483,7 @@ class Obox:
                 ctx = Context(
                     principal, session, request, source, tenant, locale, trace_id, self, True
                 )
+                session.info["obox.context"] = ctx
 
                 def before_commit(_: Any) -> None:
                     if not committing:
