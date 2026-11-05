@@ -72,8 +72,9 @@ and defines its own query, response, and batch contracts.
 | GET | `/api/{slug}:describe` | Describe a resource's fields, permissions, and operations. |
 | POST | `/api/{slug}:{name}` | Run an action on selected records. |
 
-`:query` (P1) and `:queryOptions` (P2) are implemented. The detailed create
-contract below is the next review target; a basic create route already exists.
+`:query` (P1), `:queryOptions` (P2), and the create contract are implemented.
+The detailed PATCH and DELETE contracts below are the next review targets;
+basic update and delete routes already exist.
 `:describe` remains planned for P2. Custom method names are reserved and
 cannot be reused by registered actions on the same collection.
 
@@ -308,9 +309,7 @@ the same filters and effective order, and omit `offset`.
 
 ### POST `/api/{slug}`
 
-**Status:** Proposed detailed contract for the next implementation; basic create
-is already available. The rules below define the target behavior, including
-request validation, explicit null handling, response headers, and error codes.
+**Status:** Implemented.
 
 Create one record in the collection. The route is registered when the resource
 API is enabled and `create` is present in `API.operations`. It requires `create`
@@ -482,6 +481,319 @@ X-Request-ID: req-create-43
   "pubDate": "2026-11-05T09:00:00Z"
 }
 ```
+
+### PATCH `/api/{slug}/{id}`
+
+**Status:** Proposed detailed contract for the next implementation; basic update
+is already available. The rules below define the target behavior.
+
+Update selected fields of one existing record. The route is registered when
+the resource API is enabled and `update` is present in `API.operations`.
+It requires `update` permission, applies the update SQL row scope to the lookup,
+and checks per-record update permission before changing the candidate.
+It does not require source-resource `list` or `retrieve` permission.
+
+#### Input
+
+**Path parameters**
+
+| Name | Type | Required | Description |
+| --- | --- | --- | --- |
+| `slug` | string | Yes | Registered resource's API collection name. |
+| `id` | string | Yes | Existing record's primary key in its resource-specific format, URL-encoded as one path segment. |
+
+After request validation and operation authorization, an invalid primary-key
+format, missing record, or record outside the update SQL scope returns the same
+`404 not_found`. A candidate rejected by the per-record update check returns
+`403 permission_denied`. The path ID identifies the record; it cannot be changed
+through the body.
+
+**Headers**
+
+| Name | Required | Description |
+| --- | --- | --- |
+| `Content-Type` | Yes | `application/json`; a UTF-8 charset parameter is accepted. |
+| `Accept` | No | `application/json`. |
+| `Accept-Language` | No | Preferred language for error messages. |
+| `X-Request-ID` | No | Same correlation ID rules as GET; generated when omitted or invalid. |
+| `X-CSRF-Token` | With cookies | Same signed token and expiry rules as POST create. |
+
+Authentication and CSRF follow [POST `/api/{slug}`](#post-apislug), including
+CSRF validation for any request carrying cookies, origin checks, and the HTTPS
+Referer requirement. Requests without cookies require no CSRF token.
+
+**Query string:** must be empty. Any parameter, including `select`, `expand`,
+or `version`, returns `422 unknown_parameter`.
+
+**JSON body**
+
+The root is an object containing the fields to assign, without a wrapper.
+Arrays and scalar roots are rejected. Properties use camelCase aliases only;
+snake_case aliases and unknown or statically excluded properties return `422`
+with a field error code of `unknown_field`.
+
+The generated update schema defines the static fields and types. Effective
+writable fields are narrowed by `API.write_fields` and
+`policy.write_fields("update", ctx, obj=record)`, excluding primary keys,
+read-only fields, version counters, and server-controlled preset fields.
+A field present in the static schema but forbidden by the current policy or
+presets returns `403 permission_denied`; supplied fields are never silently dropped.
+
+| Input | Meaning |
+| --- | --- |
+| Omitted property | Preserve the current value, unless trusted presets, hooks, or database-generated values change it. Create defaults are not reapplied. |
+| Supplied scalar | Replace that field's value after schema and resource validation. |
+| Explicit `null` | Store SQL NULL for a nullable field, including a JSON column; reject null for a non-nullable field. It does not restore a default. |
+| Empty string | Assign an empty string when valid; never implicitly convert it to null. |
+| JSON column object or array | Replace the entire column value. Omitted keys within the supplied JSON value are removed from that value. |
+| Empty object `{}` | Run the normal update flow with no client assignments; presets, validation, hooks, policy checks, and the update event still apply. |
+
+All body properties are optional; non-nullable fields may be omitted because
+their existing values remain. Scalar types, coercion, precision, string length,
+date/time formats, and JSON dictionary-key preservation follow POST create.
+This is OBOX's field-assignment format under `application/json`, following the
+atomicity requirement in [RFC 5789](https://www.rfc-editor.org/rfc/rfc5789.html#section-2).
+JSON Patch operation arrays, JSON Merge Patch media types, dotted field paths,
+increments, nested relationship writes, and upsert are outside this contract.
+
+Assign relationships through scalar FK properties. Each supplied non-null FK
+passes the same target retrieve permission, SQL scope, per-record access, and
+reference-key checks as POST create. A missing or inaccessible target returns
+the same `403 permission_denied`; target list permission is not required.
+An omitted FK is not reassigned or revalidated as a client relationship change.
+Setting a nullable FK to null clears the relationship without deleting the target.
+Trusted presets and hooks remain responsible for the validity of their own changes.
+
+**Concurrency and retries**
+
+The service loads the current record inside the transaction and uses a row lock
+where the database supports it. This does not detect a client editing a stale
+copy: the last permitted assignment can overwrite a value changed since the
+client read it. A configured SQLAlchemy `version_id_col` can detect ORM conflicts
+between loading and flushing the record; detected conflicts return `409`.
+
+This initial HTTP contract provides no ETag or client version token.
+`If-Match`, `If-None-Match`, and `If-Unmodified-Since` return
+`422 unsupported_precondition`, so an unsupported condition cannot silently
+become an unconditional write. A version property is not writable.
+There is no `Idempotency-Key` deduplication. Repeating the same assignments
+still runs presets and hooks and can emit another update event; retries have
+no general guarantee of identical side effects.
+
+#### Output
+
+**200 OK** — `Content-Type: application/json`.
+
+The body is the updated record as one object, without `items`, `page`, or an
+expansion object. It uses the same camelCase aliases, value serialization, and
+per-record API read projection as POST create. Values reflect successful
+validation, presets, hooks, and database-generated updates. Hidden fields are
+omitted; readable null fields remain `null`. If no fields are readable, the
+body is `{}`. `API.list_envelope` has no effect.
+
+| Header | Value |
+| --- | --- |
+| `X-Request-ID` | Accepted or generated correlation ID. |
+| `Cache-Control` | `private, no-store`, on success and error responses. |
+| `Vary` | `Cookie, Authorization, Accept-Language`. |
+| `Content-Language` | Selected response language. |
+
+No creation `Location` or `ETag` header is returned. A successful PATCH does
+not grant permission to retrieve the record later.
+
+Schema and domain validation, server presets, `before_save(..., created=False)`,
+flush, and `policy.check("update", instance, ctx)` run in one transaction.
+Any failure rolls back the complete update, including changes made by hooks.
+Success is sent only after commit. The update event is delivered to
+`after_commit` after a successful commit; a best-effort callback failure does
+not undo the record or change a committed update into an error response.
+Unchanged assignments and `{}` still follow this flow.
+
+**Errors** use the RFC 9457 envelope and body field-error conventions from
+POST create, including camelCase `field` values and JSON Pointers.
+`instance` is the record request path; `traceId` matches `X-Request-ID`.
+Whole-record errors use `field: "__all__"` and `pointer: "#"`.
+
+| Status | Code | Description |
+| --- | --- | --- |
+| 400 | `malformed_json` | The body is not valid JSON. |
+| 401 | `unauthenticated` | Authentication is required. |
+| 403 | `permission_denied` | Update, field, relationship, CSRF, or resulting-record checks deny the request. |
+| 404 | `not_found` | Invalid primary-key format, missing record, or record outside the update SQL scope. |
+| 409 | `resource_conflict` | A database constraint or detected ORM concurrency conflict prevents the update. |
+| 415 | `unsupported_media_type` | Content-Type is missing or is not `application/json`. |
+| 422 | `validation_error` | Invalid body shape, properties, values, or resource validation failure. |
+| 422 | `unknown_parameter` | A query-string parameter was supplied. |
+| 422 | `unsupported_precondition` | A conditional write header is not supported in this phase. |
+| 500 | `internal_error` | Unexpected failure; internal exception details are hidden. |
+
+Do not include SQL, constraint names, raw database exceptions, raw request-body
+dumps, or hidden record values in errors.
+
+#### Example
+
+Update a question's text and clear its nullable category FK. The resource
+permits these writes and allows reading the fields shown in the response.
+Other fields, including `pubDate`, retain their current values:
+
+```http
+PATCH /api/questions/43 HTTP/1.1
+Authorization: Bearer <token>
+Content-Type: application/json
+Accept: application/json
+X-Request-ID: req-update-43
+
+{
+  "questionText": "Favorite terminal?",
+  "categoryId": null
+}
+```
+
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+Cache-Control: private, no-store
+Vary: Cookie, Authorization, Accept-Language
+Content-Language: en
+X-Request-ID: req-update-43
+
+{
+  "id": 43,
+  "questionText": "Favorite terminal?",
+  "categoryId": null,
+  "pubDate": "2026-11-05T09:00:00Z"
+}
+```
+
+### DELETE `/api/{slug}/{id}`
+
+**Status:** Proposed detailed contract for the next implementation; basic delete
+is already available. The rules below define the target behavior.
+
+Delete one existing record. The route is registered when the resource API is
+enabled and `delete` is present in `API.operations`. It requires `delete`
+permission, applies the delete SQL row scope, and checks delete permission on
+the candidate before deleting it. Source-resource `list`, `retrieve`, and
+`update` permissions are not required.
+
+#### Input
+
+**Path parameters**
+
+| Name | Type | Required | Description |
+| --- | --- | --- | --- |
+| `slug` | string | Yes | Registered resource's API collection name. |
+| `id` | string | Yes | Existing record's primary key in its resource-specific format, URL-encoded as one path segment. |
+
+After request validation and operation authorization, an invalid primary-key
+format, missing record, or record outside the delete SQL scope returns the
+same `404 not_found`. A candidate rejected by the per-record delete check
+returns `403 permission_denied`.
+
+**Headers**
+
+| Name | Required | Description |
+| --- | --- | --- |
+| `Accept` | No | `application/json` for error responses. Success has no representation. |
+| `Accept-Language` | No | Preferred language for error messages. |
+| `X-Request-ID` | No | Same correlation ID rules as GET; generated when omitted or invalid. |
+| `X-CSRF-Token` | With cookies | Same signed token and expiry rules as POST create. |
+
+Authentication, cookie-based CSRF, and origin/Referer checks follow
+[POST `/api/{slug}`](#post-apislug). Requests without cookies require no CSRF
+token. `Content-Type` is not required for an empty request.
+
+**Query string:** must be empty. Any parameter, including `version`, returns
+`422 unknown_parameter`. There are no `force`, cascade, or soft-delete switches.
+
+**Body:** must be empty, following
+[RFC 9110 section 9.3.5](https://www.rfc-editor.org/rfc/rfc9110.html#section-9.3.5).
+Any nonempty body, including `{}`, `null`, or whitespace, returns
+`422 validation_error` with `field: "__all__"` and `pointer: "#"`.
+A Content-Type header alone does not constitute a body.
+
+**Deletion and concurrency**
+
+Deletion uses the host model's configured ORM and database relationship rules.
+A restrictive FK constraint returns `409 resource_conflict`; configured
+cascades and FK nulling occur within the same transaction. OBOX does not add
+automatic soft deletion, recursive child-policy checks, or separate resource
+events for records removed by a cascade. The host must use its model rules,
+delete policy, and `before_delete` hook to control allowed cascade effects.
+
+The service uses the same transaction-local lookup and supported row locking
+as PATCH. A configured SQLAlchemy version counter can detect a conflicting
+ORM delete and return `409`. HTTP conditional headers `If-Match`,
+`If-None-Match`, and `If-Unmodified-Since` return `422 unsupported_precondition`;
+client version tokens and `Idempotency-Key` deduplication are not supported.
+
+DELETE is idempotent in its intended effect: after a successful deletion,
+repeating the same authorized request returns `404 not_found` and does not
+run the delete hook or emit another delete event for the absent record.
+Permissions are rechecked on every request; an earlier success grants no access.
+
+#### Output
+
+**204 No Content** — empty body, with no `Content-Type` or `Content-Length`.
+There is no JSON `null`, record object, count, or list envelope.
+
+| Header | Value |
+| --- | --- |
+| `X-Request-ID` | Accepted or generated correlation ID. |
+| `Cache-Control` | `private, no-store`, on success and error responses. |
+| `Vary` | `Cookie, Authorization, Accept-Language`. |
+| `Content-Language` | Selected response language. |
+
+No `Location` or `ETag` header is returned. The record lookup, permission checks,
+`before_delete`, deletion, flush, and commit form one transaction. A hook veto,
+constraint violation, or commit failure rolls back the deletion and its
+transactional cascade effects. Unlike create/update, this flow has no
+resulting-record `policy.check` after deletion.
+
+Success is sent only after commit. A delete event for the requested record is
+delivered to `after_commit` after commit; a best-effort callback failure cannot
+undo the delete or change it into an error response. A later authorized GET
+for that record returns `404`.
+
+**Errors** use `Content-Type: application/problem+json` and the same RFC 9457
+envelope as POST create. `instance` is the record request path;
+`traceId` matches `X-Request-ID`. Hook field errors use public camelCase names
+and `pointer: "#"` because this request has no JSON body. Whole-record errors
+use `field: "__all__"` and `pointer: "#"`.
+Errors do not expose referencing records, SQL, constraint names, raw database
+exceptions, or hidden values.
+
+| Status | Code | Description |
+| --- | --- | --- |
+| 401 | `unauthenticated` | Authentication is required. |
+| 403 | `permission_denied` | Delete, CSRF, or hook checks deny the request. |
+| 404 | `not_found` | Invalid primary-key format, missing record, or record outside the delete SQL scope. |
+| 409 | `resource_conflict` | A database constraint or detected ORM concurrency conflict prevents the delete. |
+| 422 | `validation_error` | A nonempty body or domain validation in `before_delete` rejects the request. |
+| 422 | `unknown_parameter` | A query-string parameter was supplied. |
+| 422 | `unsupported_precondition` | A conditional write header is not supported in this phase. |
+| 500 | `internal_error` | Unexpected failure; internal exception details are hidden. |
+
+#### Example
+
+Delete the question updated in the preceding example, using bearer
+authentication without cookies:
+
+```http
+DELETE /api/questions/43 HTTP/1.1
+Authorization: Bearer <token>
+X-Request-ID: req-delete-43
+```
+
+```http
+HTTP/1.1 204 No Content
+Cache-Control: private, no-store
+Vary: Cookie, Authorization, Accept-Language
+Content-Language: en
+X-Request-ID: req-delete-43
+```
+
+Repeating the request returns `404 not_found` when the record remains absent.
 
 ### POST `/api/{slug}:query`
 
