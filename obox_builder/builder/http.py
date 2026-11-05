@@ -131,6 +131,8 @@ async def api_problem(request: Request, exc: Exception) -> JSONResponse:
 
 
 class ApiRoute(APIRoute):
+    cache_control: str | None = None
+
     async def handle(self, scope: Scope, receive: Receive, send: Send) -> None:
         scope = dict(scope)
         scope["state"] = dict(scope.get("state", {}))
@@ -153,7 +155,9 @@ class ApiRoute(APIRoute):
             if message["type"] == "http.response.start":
                 headers = MutableHeaders(scope=message)
                 headers["X-Request-ID"] = request.state.trace_id
-                headers["Cache-Control"] = "private, no-store" if no_store else "private, no-cache"
+                headers["Cache-Control"] = self.cache_control or (
+                    "private, no-store" if no_store else "private, no-cache"
+                )
                 headers.add_vary_header("Cookie, Authorization, Accept-Language")
                 headers["Content-Language"] = request.state.language
             await send(message)

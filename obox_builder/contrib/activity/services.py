@@ -1,0 +1,290 @@
+"""Scoped timeline reads and historical-value projection; no writes or commits."""
+
+import base64
+import binascii
+import hashlib
+import hmac
+import json
+from typing import Any
+
+import sqlalchemy as sa
+
+from obox_builder.builder.fields import schema, validate
+from obox_builder.builder.filters import FilterGroup
+from obox_builder.builder.query import ListQuery, invalid
+from obox_builder.builder.service import invoke
+from obox_builder.context import Context
+from obox_builder.contrib.activity import Activity
+from obox_builder.contrib.activity.models import Comment, Event
+from obox_builder.errors import BuilderValidationError, ImproperlyConfigured, PermissionDenied
+
+
+def cursor(secret: bytes, scope: str, token: str | None = None, *, last: int | None = None) -> Any:
+    key = hmac.digest(secret, b"obox.activity.cursor", "sha256")
+    if last is not None:
+        payload = base64.urlsafe_b64encode(json.dumps([scope, last]).encode()).rstrip(b"=")
+        return (payload + b"." + hmac.digest(key, payload, "sha256").hex().encode()).decode()
+    try:
+        payload, signature = (token or "").encode("ascii").split(b".")
+        if not hmac.compare_digest(signature, hmac.digest(key, payload, "sha256").hex().encode()):
+            raise ValueError
+        bound, value = json.loads(
+            base64.b64decode(payload + b"=" * (-len(payload) % 4), altchars=b"-_", validate=True)
+        )
+        if bound != scope or type(value) is not int or not 0 < value < 2**63:
+            raise ValueError
+        return value
+    except (ValueError, TypeError, UnicodeError, binascii.Error) as exc:
+        raise invalid("cursor", "Invalid cursor or changed query.", "invalid_cursor") from exc
+
+
+async def redact(
+    activity: Activity, builder: Any, obj: Any, changes: list[dict[str, Any]], ctx: Context
+) -> None:
+    for field in {change["field"] for change in changes}:
+        spec = builder.specs[field]
+        slots = [
+            (change, side)
+            for change in changes
+            if change["field"] == field
+            for side in ("before", "after")
+            if side in change and change[side] is not None
+        ]
+        if isinstance(spec.column.type, sa.BigInteger):
+            for change, side in slots:
+                change[side] = str(change[side])
+        if "obox_files" in spec.column.info:
+            allowed: set[str] = set()
+            if activity.app.get_plugin("files") is not None:
+                from obox_builder.contrib.files.models import File
+
+                owner = sa.cast(
+                    sa.literal(getattr(obj, builder.pk_name), type_=builder.pk.type), sa.String
+                )
+                allowed = {
+                    str(fid)
+                    for fid in await ctx.session.scalars(
+                        sa.select(File.id).where(
+                            File.owner_type == builder.model.__table__.fullname,
+                            File.owner_id == owner,
+                            File.field == field,
+                            File.status == "ready",
+                        )
+                    )
+                }
+            for change, side in slots:
+                value = change[side]
+                change[side] = (
+                    [fid if isinstance(fid, str) and fid in allowed else None for fid in value]
+                    if isinstance(value, list)
+                    else None
+                )
+        for fk in spec.column.foreign_keys:
+            target = activity.app._for_table(fk.column.table)
+            parsed = []
+            if target is not None and await invoke(target.policy.allow, "retrieve", ctx):
+                remote = sa.inspect(target.model).get_property_by_column(fk.column).key
+                if remote not in target.specs:
+                    for change, side in slots:
+                        change[side] = None
+                    continue
+                identity = schema("ActivityReference", target.specs, (remote,))
+                for change, side in slots:
+                    if change[side] is None:
+                        continue
+                    try:
+                        value = validate(identity, {remote: change[side]})[remote]
+                    except BuilderValidationError:
+                        continue
+                    parsed.append((change, side, value))
+                service = activity.app.service(target.model)
+                stmt = service._statement("retrieve", ctx).where(
+                    getattr(target.model, remote).in_([value for _, _, value in parsed])
+                )
+                allowed_values = set()
+                for related in (await ctx.session.scalars(stmt)).unique():
+                    fields = target.readable(ctx, obj=related, fields=target.api_read)
+                    if (
+                        target.pk_name in fields
+                        and remote in fields
+                        and await invoke(target.policy.allow, "retrieve", ctx, obj=related)
+                    ):
+                        allowed_values.add(str(getattr(related, remote)))
+                permitted = {
+                    (id(change), side)
+                    for change, side, value in parsed
+                    if str(value) in allowed_values
+                }
+            else:
+                permitted = set()
+            for change, side in slots:
+                if (id(change), side) not in permitted:
+                    change[side] = None
+
+
+async def read(
+    activity: Activity, builder: Any, id: str, params: dict[str, str], ctx: Context
+) -> dict[str, Any]:
+    app = activity.app
+    service = app.service(builder.model)
+    obj = await service.get(id, ctx=ctx)
+    kind = params.get("kind", "all")
+    if kind not in {"all", "revision", "comment"}:
+        raise invalid("kind", "Use all, revision, or comment.")
+    limit = ListQuery(params, FilterGroup()).integer("limit", builder.api.default_limit)
+    if builder.api.max_limit is not None:
+        if limit is not None and limit > builder.api.max_limit:
+            raise invalid("limit", "Limit exceeds the configured maximum.")
+        limit = builder.api.max_limit if limit is None else limit
+    if "cursor" in params and not limit:
+        raise invalid("cursor", "Cursor requires a positive limit.")
+    key = getattr(obj, builder.pk_name)
+    kinds = []
+    for entry_kind, action in (("revision", "history"), ("comment", "comment")):
+        if kind not in {"all", entry_kind}:
+            continue
+        if (
+            await invoke(builder.policy.allow, action, ctx)
+            and await invoke(builder.policy.allow, action, ctx, obj=obj)
+            and await ctx.session.scalar(
+                sa.select(
+                    service._statement(action, ctx)
+                    .where(getattr(builder.model, builder.pk_name) == key)
+                    .exists()
+                )
+            )
+        ):
+            kinds.append(entry_kind)
+    if not kinds:
+        raise PermissionDenied("The requested activity is not permitted.")
+    if activity.partition is None:
+        if ctx.tenant is not None:
+            raise ImproperlyConfigured("Tenant activity requires an explicit partition resolver.")
+        partition = "default"
+    else:
+        partition = await invoke(activity.partition, ctx)
+    if not isinstance(partition, str) or not partition or len(partition) > 255:
+        raise ImproperlyConfigured(
+            "Activity partition must be a nonempty string of at most 255 characters."
+        )
+    resource, record_id = builder.model.__table__.fullname, str(key)
+    fields = set(builder.readable(ctx, obj=obj, fields=builder.api_read))
+    binding = [
+        partition,
+        resource,
+        record_id,
+        str(getattr(ctx.principal, "id", None)),
+        kind,
+        kinds,
+        limit,
+        sorted(fields),
+    ]
+    scope = hashlib.sha256(json.dumps(binding).encode()).hexdigest()
+    last = cursor(app.csrf.secret, scope, params["cursor"]) if "cursor" in params else None
+    stmt = (
+        sa.select(Event, Comment)
+        .outerjoin(
+            Comment,
+            sa.and_(
+                Comment.id == Event.comment_id,
+                Comment.partition_key == Event.partition_key,
+                Comment.resource_key == Event.resource_key,
+                Comment.record_id == Event.record_id,
+                Comment.deleted_at.is_(None),
+            ),
+        )
+        .where(
+            Event.partition_key == partition,
+            Event.resource_key == resource,
+            Event.record_id == record_id,
+            Event.kind.in_(kinds),
+            sa.or_(Event.kind == "revision", Comment.id.is_not(None)),
+        )
+        .order_by(Event.id.desc())
+    )
+    items: list[dict[str, Any]] = []
+    wanted = None if limit is None else max(limit, 1) + (limit != 0)
+    while wanted is None or len(items) < wanted:
+        query = stmt.where(Event.id < last) if last is not None else stmt
+        batch = list(await ctx.session.execute(query.limit(100)))
+        if not batch:
+            break
+        projected = {
+            event.id: [
+                {
+                    name: value
+                    for name, value in change.items()
+                    if name in {"field", "kind", "before", "after"}
+                }
+                for change in event.changes or ()
+                if change.get("field") in fields
+            ]
+            for event, _ in batch
+            if event.kind == "revision"
+        }
+        await redact(
+            activity,
+            builder,
+            obj,
+            [change for changes in projected.values() for change in changes],
+            ctx,
+        )
+        ids = {
+            value
+            for event, comment in batch
+            for value in (event.actor_id, comment.author_id if comment else None)
+            if value is not None
+        }
+        identities = await invoke(activity.identities, ids, ctx) if activity.identities else {}
+
+        actors = {
+            value: identities.get(
+                value, {"id": None, "display_name": "System" if value is None else "Unknown"}
+            )
+            for value in (None, *ids)
+        }
+
+        for event, comment in batch:
+            if event.kind == "revision" and not projected[event.id]:
+                continue
+            item = {
+                "id": str(event.id),
+                "kind": event.kind,
+                "actor": actors[event.actor_id],
+                "source": event.source,
+                "occurred_at": event.occurred_at,
+            }
+            if event.kind == "revision":
+                item.update(action=event.action, changes=projected[event.id])
+            else:
+                own = (
+                    getattr(ctx.principal, "is_authenticated", False)
+                    and getattr(ctx.principal, "is_active", True)
+                    and str(getattr(ctx.principal, "id", None)) == comment.author_id
+                )
+                item["comment"] = {
+                    "id": str(comment.id),
+                    "author": actors[comment.author_id],
+                    "body": comment.body,
+                    "created_at": comment.created_at,
+                    "edited_at": comment.edited_at,
+                    "permissions": {"update": own, "delete": own},
+                }
+            items.append(item)
+            if wanted is not None and len(items) == wanted:
+                break
+        last = batch[-1][0].id
+    more = limit is not None and len(items) > limit
+    items = items if limit is None else items[:limit]
+    return {
+        "items": items,
+        "page": {
+            "limit": limit,
+            "offset": 0,
+            "has_more": more,
+            "next_cursor": cursor(app.csrf.secret, scope, last=int(items[-1]["id"]))
+            if more and items
+            else None,
+            "total": None,
+        },
+    }
