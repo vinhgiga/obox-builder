@@ -9,11 +9,13 @@ from types import MappingProxyType
 from typing import Any, Generic, TypeVar, get_args, get_origin
 
 import sqlalchemy as sa
+from pydantic.alias_generators import to_camel, to_snake
 from sqlalchemy.orm import raiseload, undefer
 from sqlalchemy.orm.interfaces import MANYTOONE
 
 from obox_builder.auth import Policy, StaffOnly
 from obox_builder.builder.actions import action
+from obox_builder.builder.api_schema import ApiRequest, ApiResponse
 from obox_builder.builder.fields import FieldRefs, inspect_fields, normalize
 from obox_builder.builder.inlines import Inline
 from obox_builder.builder.surfaces import API, Form, View
@@ -123,6 +125,13 @@ class ModelBuilder(Generic[T]):
                 raise ImproperlyConfigured("Actions need @action and a declared permission.")
             methods[name] = method
         self.action_methods = MappingProxyType(methods)
+        aliases = [to_camel(name) for name in self.actions]
+        for alias in aliases:
+            self._validate_path(alias)
+        if len(set(aliases)) != len(aliases) or set(aliases).intersection(
+            {"query", "queryOptions", "describe", "batchWrite"}
+        ):
+            raise ImproperlyConfigured("Action aliases must be unique and nonreserved.")
         for name in ("scope", "read_fields", "write_fields", "presets"):
             if inspect.iscoroutinefunction(getattr(self.policy, name)):
                 raise ImproperlyConfigured(f"Policy.{name} must be synchronous.")
@@ -166,8 +175,8 @@ class ModelBuilder(Generic[T]):
                 len(fk.constraint.elements) != 1 for fk in self.specs[key].column.foreign_keys
             ):
                 raise ImproperlyConfigured("Composite foreign keys must be read-only.")
-        name = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", model.__name__).lower()
-        self.slug = self.slug or (
+        name = to_snake(model.__name__)
+        self.slug = self.slug or to_camel(
             name[:-1] + "ies"
             if name.endswith("y") and name[-2:-1] not in "aeiou"
             else name + "es"
@@ -246,6 +255,8 @@ class ModelBuilder(Generic[T]):
                 raise ImproperlyConfigured("Unknown or duplicate surface operations.")
         if self.api.prefix is not None:
             self._validate_path(self.api.prefix)
+        if self.api.enabled and (self.api.prefix or self.slug) in {"auth", "events", "tasks"}:
+            raise ImproperlyConfigured("Resource API collection name is reserved.")
         for mapping in (self.form.labels, self.form.help_texts, self.form.widgets):
             if set(mapping) - set(self.form_fields):
                 raise ImproperlyConfigured("Form configuration references unpublished fields.")
@@ -256,12 +267,21 @@ class ModelBuilder(Generic[T]):
         self.read_schema = self.api.get_read_schema(builder=self)
         self.create_schema = self.api.get_create_schema(builder=self)
         self.update_schema = self.api.get_update_schema(builder=self)
-        for compiled in (self.read_schema, self.create_schema, self.update_schema):
+        for compiled, schema_base in (
+            (self.read_schema, ApiResponse),
+            (self.create_schema, ApiRequest),
+            (self.update_schema, ApiRequest),
+        ):
+            if not issubclass(compiled, schema_base):
+                raise ImproperlyConfigured(f"API schema must inherit {schema_base.__name__}.")
+            aliases = [field.alias or name for name, field in compiled.model_fields.items()]
+            if len(set(aliases)) != len(aliases) or any("_" in alias for alias in aliases):
+                raise ImproperlyConfigured("API field aliases must be unique camelCase names.")
             compiled.model_json_schema()
 
     @staticmethod
     def _validate_path(value: str) -> None:
-        if not re.fullmatch(r"[a-zA-Z][a-zA-Z0-9_-]*", value):
+        if not re.fullmatch(r"[a-z][a-zA-Z0-9]*", value):
             raise ImproperlyConfigured(f"Invalid resource path: {value!r}.")
 
     def _form_fields(self) -> tuple[str, ...]:

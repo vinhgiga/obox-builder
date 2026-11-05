@@ -343,7 +343,7 @@ class ResourceService(Generic[T]):
                         "label": str(data[label]),
                     }
             for row, value in zip(rows, values, strict=True):
-                row.setdefault("_expanded", {})[name] = visible.get(value)
+                row.setdefault("expanded", {})[name] = visible.get(value)
 
     async def count(
         self,

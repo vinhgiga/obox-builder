@@ -2,26 +2,36 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import UTC, datetime
 from typing import Any
 
 import sqlalchemy as sa
 from fastapi import APIRouter, Depends, Request, Response
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, create_model, field_serializer
+from pydantic import BaseModel, Field, StrictStr, TypeAdapter, create_model, field_serializer
+from pydantic.alias_generators import to_camel
 
+from obox_builder.builder.api_schema import ApiRequest, ApiResponse, FieldError, Problem
 from obox_builder.builder.filters import parse_filter
-from obox_builder.builder.http import ListRoute, OboxRoute
+from obox_builder.builder.http import ApiRoute
 from obox_builder.builder.query import ListQuery, invalid, parse_terms
 from obox_builder.context import Context
-from obox_builder.errors import BuilderValidationError
+from obox_builder.errors import BuilderValidationError, ImproperlyConfigured
 
 
-class ActionInput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+class ActionInput(ApiRequest):
     record_ids: list[str | int] = Field(min_length=1)
 
 
-class Page(BaseModel):
+class ActionResult(ApiResponse):
+    count: int
+
+
+class QueryInput(ApiRequest):
+    query: list[tuple[StrictStr, StrictStr]]
+
+
+class Page(ApiResponse):
     limit: int | None
     offset: int
     has_more: bool
@@ -46,6 +56,13 @@ def json_value(value: Any) -> Any:
     return TypeAdapter[Any](Any).dump_python(value, mode="json")
 
 
+class ExpandedRecord(ApiResponse):
+    id: Any
+    label: str
+
+    encode_id = field_serializer("id")(json_value)
+
+
 def list_schema(builder: Any) -> type[BaseModel]:
     serializers = {}
     for name, spec in builder.specs.items():
@@ -63,12 +80,21 @@ def list_schema(builder: Any) -> type[BaseModel]:
         else:
             continue
         serializers["encode_" + name] = field_serializer(name, return_type=result)(convert)
-    expansion = "expanded"
-    while expansion in builder.read_schema.model_fields:
-        expansion += "_"
-    serializers["encode_expanded"] = field_serializer(expansion)(json_value)
+    if any(field.alias == "expanded" for field in builder.read_schema.model_fields.values()):
+        raise ImproperlyConfigured("The API field alias 'expanded' is reserved.")
+    relationships: dict[str, Any] = {
+        name: (ExpandedRecord | None, None)
+        for name, fk in builder.list_relation_fields.items()
+        if fk in builder.api_read
+    }
+    aliases = [to_camel(name) for name in relationships]
+    if len(set(aliases)) != len(aliases):
+        raise ImproperlyConfigured("Relationship aliases must be unique.")
+    expanded_schema = create_model(
+        builder.model.__name__ + "Expanded", __base__=ApiResponse, **relationships
+    )
     definitions: dict[str, Any] = {
-        expansion: (dict[str, Any], Field(default_factory=dict, alias="_expanded"))
+        "expanded": (expanded_schema, Field(default_factory=expanded_schema))
     }
     return create_model(
         builder.model.__name__ + "ListRead",
@@ -121,18 +147,25 @@ def query_options(
 
 
 def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
-    router = APIRouter(route_class=OboxRoute)
+    router = APIRouter(route_class=ApiRoute)
     if not builder.api.enabled:
         return router
     path = f"{app.settings.api_prefix}/{builder.api.prefix or builder.slug}"
     dependency = Depends(app.context_dependency("api"), scope="function")
     item_schema: Any = list_schema(builder)
     page_fields: dict[str, Any] = {"items": (list[item_schema], ...), "page": (Page, ...)}
-    page_schema = create_model(builder.model.__name__ + "Page", **page_fields)
+    page_schema = create_model(builder.model.__name__ + "Page", __base__=ApiResponse, **page_fields)
+    problem_schema = Problem.model_json_schema()
+    problem_schema["properties"]["errors"]["items"] = FieldError.model_json_schema()
+    problem_schema.pop("$defs")
+    problems: dict[int | str, dict[str, Any]] = {
+        status: {"content": {"application/problem+json": {"schema": problem_schema}}}
+        for status in (400, 401, 403, 404, 409, 415, 422, 500)
+    }
 
-    async def list_records(request: Request, ctx: Context = dependency) -> Any:
+    async def list_page(pairs: Iterable[tuple[str, str]], ctx: Context) -> Any:
         await service.authorize("list", ctx)
-        params, filters = parse_terms(request.query_params.multi_items())
+        params, filters = parse_terms(pairs)
         query = ListQuery(params, filters)
         selected = params.get("select", "*")
         fields = list(builder.api_read) if selected == "*" else selected.split(",")
@@ -146,6 +179,12 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
             await service.expand(objects, rows, params["expand"].split(","), ctx=ctx)
         return {"items": rows, "page": page} if builder.api.list_envelope else rows
 
+    async def list_records(request: Request, ctx: Context = dependency) -> Any:
+        return await list_page(request.query_params.multi_items(), ctx)
+
+    async def query_records(data: QueryInput, ctx: Context = dependency) -> Any:
+        return await list_page(data.query, ctx)
+
     async def retrieve(id: str, ctx: Context = dependency) -> Any:
         return await service.serialize(
             await service.get(id, ctx=ctx), ctx=ctx, fields=builder.api_read
@@ -153,12 +192,12 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
 
     async def create(request: Request, data: Any, ctx: Context = dependency) -> Any:
         app.csrf.validate(request, ctx.principal)
-        obj = await service.create(data.model_dump(exclude_unset=True), ctx=ctx)
+        obj = await service.create(data.model_dump(by_alias=False, exclude_unset=True), ctx=ctx)
         return await service.serialize(obj, ctx=ctx, fields=builder.api_read)
 
     async def update(request: Request, id: str, data: Any, ctx: Context = dependency) -> Any:
         app.csrf.validate(request, ctx.principal)
-        obj = await service.update(id, data.model_dump(exclude_unset=True), ctx=ctx)
+        obj = await service.update(id, data.model_dump(by_alias=False, exclude_unset=True), ctx=ctx)
         return await service.serialize(obj, ctx=ctx, fields=builder.api_read)
 
     async def delete(request: Request, id: str, ctx: Context = dependency) -> Response:
@@ -166,23 +205,11 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
         await service.delete(id, ctx=ctx)
         return Response(status_code=204)
 
-    if builder.actions:
-
-        @router.post(
-            path + "/actions/{name}",
-            name=f"obox_api_{builder.slug}_action",
-            tags=list(builder.api.tags or (builder.model.__name__,)),
-        )
-        async def run_action(
-            request: Request, name: str, data: ActionInput, ctx: Context = dependency
-        ) -> dict[str, int]:
-            app.csrf.validate(request, ctx.principal)
-            return {"count": await service.run_action(name, data.record_ids, ctx=ctx)}
-
     create.__annotations__["data"] = builder.create_schema
     update.__annotations__["data"] = builder.update_schema
     for operation, endpoint, method, suffix, code in (
         ("list", list_records, "GET", "", 200),
+        ("list", query_records, "POST", ":query", 200),
         ("create", create, "POST", "", 201),
         ("retrieve", retrieve, "GET", "/{id}", 200),
         ("update", update, "PATCH", "/{id}", 200),
@@ -195,17 +222,35 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
             endpoint,
             methods=[method],
             status_code=code,
-            name=f"obox_api_{builder.slug}_{operation}",
+            name=f"obox_api_{builder.slug}_{'query' if endpoint is query_records else operation}",
             response_model=None
             if operation == "delete"
             else (
                 (page_schema if builder.api.list_envelope else list[item_schema])
                 if operation == "list"
-                else builder.read_schema
+                else item_schema
             ),
             response_model_exclude_unset=True,
             tags=list(builder.api.tags or (builder.model.__name__,)),
             openapi_extra={"x-obox-conditional-fields": True},
-            route_class_override=ListRoute if operation == "list" else OboxRoute,
+            responses=problems,
+        )
+
+    def action_endpoint(name: str) -> Any:
+        async def run_action(request: Request, data: ActionInput, ctx: Context = dependency) -> Any:
+            app.csrf.validate(request, ctx.principal)
+            return {"count": await service.run_action(name, data.record_ids, ctx=ctx)}
+
+        return run_action
+
+    for name in builder.actions:
+        router.add_api_route(
+            path + ":" + to_camel(name),
+            action_endpoint(name),
+            methods=["POST"],
+            name=f"obox_api_{builder.slug}_action_{name}",
+            response_model=ActionResult,
+            responses=problems,
+            tags=list(builder.api.tags or (builder.model.__name__,)),
         )
     return router

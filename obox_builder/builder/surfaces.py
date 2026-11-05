@@ -7,6 +7,7 @@ from typing import Any, Literal, cast
 
 from pydantic import BaseModel
 
+from obox_builder.builder.api_schema import ApiRequest, ApiResponse
 from obox_builder.builder.fields import FieldRefs, schema
 from obox_builder.context import Context
 
@@ -81,7 +82,11 @@ class API:
 
     def get_read_schema(self, *, builder: Any) -> type[BaseModel]:
         return schema(
-            builder.model.__name__ + "Read", builder.specs, builder.api_read, partial=True
+            builder.model.__name__ + "Read",
+            builder.specs,
+            builder.api_read,
+            partial=True,
+            base=ApiResponse,
         )
 
     def get_create_schema(self, *, builder: Any) -> type[BaseModel]:
@@ -90,9 +95,14 @@ class API:
             builder.specs,
             builder.api_write,
             conditional=builder.conditional_writes,
+            base=ApiRequest,
         )
 
     def get_update_schema(self, *, builder: Any) -> type[BaseModel]:
         return schema(
-            builder.model.__name__ + "Update", builder.specs, builder.api_write, partial=True
+            builder.model.__name__ + "Update",
+            builder.specs,
+            builder.api_write,
+            partial=True,
+            base=ApiRequest,
         )

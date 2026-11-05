@@ -202,9 +202,7 @@ def test_api_actions_require_the_custom_permission(principal: Principal, code: i
             async with httpx.AsyncClient(
                 transport=httpx.ASGITransport(app=app.app), base_url="http://test"
             ) as client:
-                response = await client.post(
-                    "/api/checksheets/actions/approve", json={"record_ids": ids}
-                )
+                response = await client.post("/api/checksheets:approve", json={"recordIds": ids})
                 assert response.status_code == code
                 if code == 200:
                     assert response.json() == {"count": 2}
@@ -216,7 +214,7 @@ def test_api_actions_require_the_custom_permission(principal: Principal, code: i
 @pytest.mark.parametrize(
     ("name", "ids", "code"),
     [
-        ("missing", [1], 422),
+        ("missing", [1], 404),
         ("approve", [], 422),
         ("approve", [1, "01"], 422),
         ("approve", [1, 999], 404),
@@ -233,9 +231,7 @@ def test_invalid_action_batches_leave_all_records_unchanged(
             async with httpx.AsyncClient(
                 transport=httpx.ASGITransport(app=app.app), base_url="http://test"
             ) as client:
-                response = await client.post(
-                    f"/api/checksheets/actions/{name}", json={"record_ids": ids}
-                )
+                response = await client.post(f"/api/checksheets:{name}", json={"recordIds": ids})
                 assert response.status_code == code
             assert await statuses(app) == ["performed", "approved"]
 
@@ -252,13 +248,11 @@ def test_actions_apply_row_scope_and_api_csrf() -> None:
                 transport=httpx.ASGITransport(app=app.app), base_url="http://test"
             ) as client:
                 hidden = await client.post(
-                    "/api/checksheets/actions/approve", json={"record_ids": [*ids, 2]}
+                    "/api/checksheets:approve", json={"recordIds": [*ids, 2]}
                 )
                 assert hidden.status_code == 404
                 client.cookies.set("session", "cookie")
-                csrf = await client.post(
-                    "/api/checksheets/actions/approve", json={"record_ids": ids}
-                )
+                csrf = await client.post("/api/checksheets:approve", json={"recordIds": ids})
                 assert csrf.status_code == 403
             assert await statuses(app) == ["performed"]
 

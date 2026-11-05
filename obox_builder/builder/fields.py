@@ -105,13 +105,14 @@ def schema(
     *,
     partial: bool = False,
     conditional: bool = False,
+    base: type[BaseModel] = BaseModel,
 ) -> type[BaseModel]:
     definitions: dict[str, Any] = {}
     for key in fields:
         spec = specs[key]
         default = None if partial or conditional or not spec.required else ...
         definitions[key] = (spec.annotation, default)
-    return create_model(name, __config__=ConfigDict(extra="forbid"), **definitions)
+    return create_model(name, __base__=base, __config__=ConfigDict(extra="forbid"), **definitions)
 
 
 def validate(model: type[BaseModel], data: Mapping[str, Any]) -> dict[str, Any]:

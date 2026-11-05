@@ -365,8 +365,8 @@ def test_http_crud_scoped_errors_locale_static_and_openapi(root_path: str) -> No
                 "page": {
                     "limit": None,
                     "offset": 0,
-                    "has_more": False,
-                    "next_cursor": None,
+                    "hasMore": False,
+                    "nextCursor": None,
                     "total": None,
                 },
             }
