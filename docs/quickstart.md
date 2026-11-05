@@ -70,7 +70,7 @@ uv run uvicorn main:app --reload
 
 Open <http://127.0.0.1:8000/>. The generated root route returns a welcome
 message. This starter does not register a model or expose CRUD routes; see the
-[core specification](spec.md#2-quickstart-and-registration) for resource
+[core specification](core-spec.md#2-quickstart-and-registration) for resource
 registration and customization.
 
 The generated settings use SQLite and a development secret by default. They can

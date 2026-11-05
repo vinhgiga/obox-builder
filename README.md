@@ -11,7 +11,7 @@ uv add obox-builder
 ## Documentation
 
 - [Quickstart](docs/quickstart.md)
-- [Core specification](docs/spec.md) for the public contract
+- [Core specification](docs/core-spec.md) for the public contract
 
 ## Requirements
 
