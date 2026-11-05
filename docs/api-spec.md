@@ -72,8 +72,9 @@ and defines its own query, response, and batch contracts.
 | GET | `/api/{slug}:describe` | Describe a resource's fields, permissions, and operations. |
 | POST | `/api/{slug}:{name}` | Run an action on selected records. |
 
-`:query` is implemented (P1). `:queryOptions` is the next implementation target
-(P2); `:describe` remains planned for P2. Custom method names are reserved and
+`:query` (P1) and `:queryOptions` (P2) are implemented. The detailed create
+contract below is the next review target; a basic create route already exists.
+`:describe` remains planned for P2. Custom method names are reserved and
 cannot be reused by registered actions on the same collection.
 
 ### Authentication — Auth plugin, P2
@@ -305,6 +306,183 @@ For the next offset page, repeat the query with `offset=2`. For cursor
 continuation, send the returned opaque token as `cursor`, keep `limit=2` and
 the same filters and effective order, and omit `offset`.
 
+### POST `/api/{slug}`
+
+**Status:** Proposed detailed contract for the next implementation; basic create
+is already available. The rules below define the target behavior, including
+request validation, explicit null handling, response headers, and error codes.
+
+Create one record in the collection. The route is registered when the resource
+API is enabled and `create` is present in `API.operations`. It requires `create`
+permission and uses the shared service validation, server presets, hooks, and
+post-write policy checks defined in the core specification.
+
+#### Input
+
+**Path parameters**
+
+| Name | Type | Required | Description |
+| --- | --- | --- | --- |
+| `slug` | string | Yes | Registered resource's API collection name. |
+
+**Headers**
+
+| Name | Required | Description |
+| --- | --- | --- |
+| `Content-Type` | Yes | `application/json`; a UTF-8 charset parameter is accepted. |
+| `Accept` | No | `application/json`. |
+| `Accept-Language` | No | Preferred language for error messages. |
+| `X-Request-ID` | No | Same correlation ID rules as GET; generated when omitted or invalid. |
+| `X-CSRF-Token` | With cookies | Valid signed token bound to the current principal and request cookies; expires after one hour. |
+
+Authentication uses the same session cookie or host-supported bearer
+authentication as GET. Any request carrying cookies requires CSRF validation,
+including a bearer request that also carries cookies. Requests without cookies
+require no CSRF token. A supplied `Origin` must match the request's scheme, host,
+and effective port. For HTTPS requests with cookies and no `Origin`, a same-origin
+`Referer` is required. Invalid, missing, or expired CSRF credentials return `403`.
+
+**Query string:** must be empty. Any query-string parameter, including `select`
+or `expand`, returns `422 unknown_parameter`.
+
+**JSON body**
+
+The root is one record object, without a `data` wrapper. Arrays and scalar roots
+are rejected. Property names use the generated camelCase aliases, such as
+`questionText` and `categoryId`; snake_case aliases are rejected. Keys inside
+a JSON column remain application data and are preserved.
+
+The resource's generated create schema defines its static input fields and
+types. Effective writable fields are narrowed by `API.write_fields` and
+`policy.write_fields("create", ctx)`, excluding primary keys, read-only fields,
+and fields controlled by server presets. Unknown or statically excluded
+properties return `422` with a field error code of `unknown_field`. A property
+present in the static schema but forbidden by the current policy or a server
+preset returns `403 permission_denied`. Supplied fields are never silently dropped.
+
+| Input | Meaning |
+| --- | --- |
+| Omitted property | Leave it unset so a server preset, hook, or model/database default can supply the value. |
+| Required property | A non-nullable field without a default must be supplied when client-writable, unless a server preset supplies it. Required fields outside the client projection must be supplied by trusted server logic. |
+| Explicit `null` | Accepted only for nullable fields and stored as SQL NULL, including when the column has a default. It does not request the default. |
+| Empty string | A supplied string value; never implicitly converted to null. Resource validation may reject it. |
+| Empty object `{}` | Valid only when all required values can be supplied by server logic or defaults. |
+
+Use JSON values matching the generated schema: strings, numbers, booleans, and
+nullable values as applicable. Dates and times use ISO 8601 strings; UUIDs and
+enum values use their declared string/value representation. Send decimals and
+large integer IDs as strings to preserve precision. Scalar coercion follows
+the generated Pydantic schema; this endpoint introduces no global strict mode.
+String length and resource validation constraints still apply.
+
+Relationships are assigned through scalar FK properties, such as `categoryId`.
+For each supplied non-null FK, the target must have a registered policy and be
+retrievable under its operation permission, SQL scope, and per-record checks.
+A non-primary reference key must also be readable. A missing or inaccessible
+target returns the same `403 permission_denied` without revealing which case
+occurred. Target `list` permission is not required. An ID returned by
+`:queryOptions` grants no write permission; every create request rechecks access.
+Nested relationship writes, bulk create, client-assigned primary keys, and upsert
+are outside this endpoint. Objects and arrays remain valid values for JSON columns.
+
+POST is not idempotent. Repeating a successful request can create another record
+or encounter a uniqueness conflict. This contract provides no `Idempotency-Key`
+deduplication or automatic retry guarantee. A client that loses the response
+cannot assume the transaction failed.
+
+#### Output
+
+**201 Created** — `Content-Type: application/json`.
+
+The body is the created record as one object, without `items` or `page`.
+It contains only fields permitted by `API.read_fields` and contextual per-record
+read permissions, using the same camelCase aliases and value formats as GET.
+Readable fields include generated IDs, defaults, and values normalized by
+validation or hooks. Unreadable fields are omitted; readable null values remain
+`null`. No expansion object is added. `API.list_envelope` has no effect.
+
+Creating a record does not require `list` or `retrieve` permission on the source
+resource. Those permissions are checked independently on later GET requests.
+If no API fields are readable, the response body is `{}`.
+
+| Header | Value |
+| --- | --- |
+| `Location` | Created record path, for example `/api/questions/43`, only when its primary key is included in the permitted response projection. |
+| `X-Request-ID` | Accepted or generated correlation ID. |
+| `Cache-Control` | `private, no-store`, on success and error responses. |
+| `Vary` | `Cookie, Authorization, Accept-Language`. |
+| `Content-Language` | Selected response language. |
+
+The `Location` follows [RFC 9110 section 9.3.3](https://www.rfc-editor.org/rfc/rfc9110.html#section-9.3.3),
+uses the resource's configured API prefix and application mount path, and
+percent-encodes the ID as one path segment. It is omitted when the primary key
+is hidden, so the header cannot bypass field permissions. A location identifies
+the resource; following it still requires an enabled retrieve route and permission.
+
+Validation, server presets, `before_save`, database flush, and the resulting
+record's `policy.check("create", instance, ctx)` run in one transaction. A failed
+write or policy check rolls back the transaction. Success is sent only after
+commit; conflicts raised at commit return `409`. A create event becomes available
+to `after_commit` only after success. That callback is best effort: its failure
+does not undo the record or turn a committed create into a failed response.
+
+**Errors** use the same RFC 9457 `application/problem+json` envelope as GET.
+`instance` is the collection request path; `traceId` matches `X-Request-ID`.
+
+| Status | Code | Description |
+| --- | --- | --- |
+| 400 | `malformed_json` | The body is not valid JSON. |
+| 401 | `unauthenticated` | Authentication is required. |
+| 403 | `permission_denied` | Create, field, relationship, CSRF, or resulting-record checks deny the request. |
+| 409 | `resource_conflict` | The write conflicts with database constraints or concurrent state. |
+| 415 | `unsupported_media_type` | Content-Type is missing or is not `application/json`. |
+| 422 | `validation_error` | Missing required input, invalid body shape, unknown properties, invalid values, or resource validation failure. |
+| 422 | `unknown_parameter` | A query-string parameter was supplied. |
+| 500 | `internal_error` | Unexpected failure; internal exception details are hidden. |
+
+Body field errors use public camelCase names and JSON Pointers, including errors
+from service validation. For example, a missing `questionText` uses
+`field: "questionText"`, `pointer: "#/questionText"`, and `code: "required"`.
+Unknown properties use `unknown_field`, schema type errors use `invalid_type`,
+and resource validation errors use `validation_error`. Whole-record errors use
+`field: "__all__"` and `pointer: "#"`. Do not include SQL, constraint names,
+raw database exceptions, or hidden record values in the response.
+
+#### Example
+
+Create a question on a resource where both supplied fields are writable and
+the returned fields are readable. This example uses bearer authentication
+without cookies:
+
+```http
+POST /api/questions HTTP/1.1
+Authorization: Bearer <token>
+Content-Type: application/json
+Accept: application/json
+X-Request-ID: req-create-43
+
+{
+  "questionText": "Favorite editor?",
+  "pubDate": "2026-11-05T09:00:00Z"
+}
+```
+
+```http
+HTTP/1.1 201 Created
+Location: /api/questions/43
+Content-Type: application/json
+Cache-Control: private, no-store
+Vary: Cookie, Authorization, Accept-Language
+Content-Language: en
+X-Request-ID: req-create-43
+
+{
+  "id": 43,
+  "questionText": "Favorite editor?",
+  "pubDate": "2026-11-05T09:00:00Z"
+}
+```
+
 ### POST `/api/{slug}:query`
 
 **Status:** Implemented (P1).
@@ -482,7 +660,7 @@ For offset pagination, append `["offset", "2"]` instead of the cursor pair.
 
 ### GET `/api/{slug}:queryOptions`
 
-**Status:** Proposed for the next implementation (P2).
+**Status:** Implemented (P2).
 
 List IDs and display labels from the target resource for a relationship selector.
 For example, a question selector calls `/api/questions:queryOptions`.
