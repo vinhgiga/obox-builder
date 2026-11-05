@@ -33,9 +33,9 @@ configured snake_case names, including inside `:query` pairs. For example,
 `select=question_text,pub_date` returns `questionText` and `pubDate` properties.
 Stable string values such as error codes (`validation_error`) are unchanged.
 
-This is the target contract for implementation; existing snake_case JSON
-responses must be updated. Do not retain snake_case JSON aliases when updating
-an endpoint. The temporary legacy list option changes only the envelope shape.
+Implemented API adapters follow this naming contract. Do not retain snake_case
+JSON aliases when updating an endpoint. The temporary legacy list option changes
+only the envelope shape.
 
 ## Endpoint overview
 
@@ -72,9 +72,9 @@ and defines its own query, response, and batch contracts.
 | GET | `/api/{slug}:describe` | Describe a resource's fields, permissions, and operations. |
 | POST | `/api/{slug}:{name}` | Run an action on selected records. |
 
-`:query` is the next implementation target (P1); `:queryOptions` and `:describe`
-are planned for P2. Custom method names are reserved and cannot be reused by
-registered actions on the same collection.
+`:query` is implemented (P1). `:queryOptions` is the next implementation target
+(P2); `:describe` remains planned for P2. Custom method names are reserved and
+cannot be reused by registered actions on the same collection.
 
 ### Authentication — Auth plugin, P2
 
@@ -307,7 +307,7 @@ the same filters and effective order, and omit `offset`.
 
 ### POST `/api/{slug}:query`
 
-**Status:** Proposed for the next implementation.
+**Status:** Implemented (P1).
 
 List records using query parameters carried in a JSON body. Use this endpoint
 for long filters that exceed practical URL limits, or queries stored by a client.
@@ -479,3 +479,145 @@ X-Request-ID: req-query-42
 
 To continue, append `["cursor", "<returned token>"]` to the same `query` list.
 For offset pagination, append `["offset", "2"]` instead of the cursor pair.
+
+### GET `/api/{slug}:queryOptions`
+
+**Status:** Proposed for the next implementation (P2).
+
+List IDs and display labels from the target resource for a relationship selector.
+For example, a question selector calls `/api/questions:queryOptions`.
+This initial contract covers single-column foreign keys targeting the resource's
+primary key; selecting non-primary reference keys or composite keys is outside
+this endpoint.
+
+The route is registered when the target resource API is enabled and both `list`
+and `retrieve` are present in `API.operations`. It requires both permissions,
+adds no new policy action, and applies both SQL row scopes before filtering,
+counting, and pagination. Each candidate also passes the per-record `retrieve`
+check before becoming an option. A denied record is omitted.
+
+The primary key must belong to `API.read_fields` and be readable in the current
+list context; otherwise the request returns `403 permission_denied`. A candidate
+whose primary key is hidden by per-record field permissions is omitted.
+Labels use only readable API fields. Returning an option does not authorize a
+later write: source-field and relationship permissions are rechecked on save.
+
+#### Input
+
+**Path parameters**
+
+| Name | Type | Required | Description |
+| --- | --- | --- | --- |
+| `slug` | string | Yes | Registered target resource's API collection name. |
+
+**Headers and authentication:** same as [GET `/api/{slug}`](#get-apislug),
+including `Accept`, `Accept-Language`, and `X-Request-ID`. Use the same session
+cookie or host-supported bearer authentication. No CSRF token is required.
+
+**Query parameters** — all optional; no request body.
+
+| Name | Type | Default | Description |
+| --- | --- | --- | --- |
+| `search` | string | Omitted | Literal, case-insensitive substring search over configured readable search fields. |
+| `<field>`, `and`, `or`, `not.and`, `not.or` | string | Omitted | Same filter operators, repeated field/group keys, quoting, and allowlists as GET. |
+| `order` | string | Resource default | Same ordering and primary-key tie-breaker as GET. |
+| `limit` | integer ≥ 0 | Configured default, otherwise unlimited | Same default and optional maximum as GET; no selector-specific limit. |
+| `offset` | integer ≥ 0 | `0` | Candidate records to skip; cannot be combined with `cursor`. |
+| `cursor` | string | Omitted | Opaque continuation token; requires an explicit `limit`. |
+| `count` | string | Omitted | `exact` includes the SQL-scoped candidate count before pagination. |
+
+Field references remain snake_case. The GET grammar, maximum filter depth of 3,
+budget of 100 filter nodes, and single-occurrence control rules apply.
+`select` and `expand` are rejected with `422 unknown_parameter`: the output
+projection is fixed. Other unsupported or legacy query parameters are rejected
+as in GET. There are no source-resource, source-field, or special `ids`
+parameters; a configured primary-key filter can resolve selected values, such
+as `id=in.(42,41)` when `id` belongs to the filter allowlist.
+
+`search` does not implicitly search `label_field`. A nonempty search requires
+configured, readable search fields, as in GET. Ordering does not implicitly
+sort by the display label. Cursor validation follows GET, including unchanged
+filters/search/effective order and the restriction on nullable ordering fields.
+
+#### Output
+
+**200 OK** — `Content-Type: application/json`.
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `items` | object[] | Selectable candidates from this page; empty when none are available. |
+| `items[].id` | scalar | Target primary-key value, using the same JSON type and safe-integer rules as GET. |
+| `items[].label` | string | Readable `label_field` value converted to display text; primary-key text when no readable label is configured. |
+| `page` | object | Same five keys as GET: `limit`, `offset`, `hasMore`, `nextCursor`, and `total`. |
+
+A null or empty label also falls back to primary-key text. Labels are plain text;
+clients render them as text, never HTML. Do not call the ORM object's `__str__`
+or choose an arbitrary field as a fallback. Extra record fields and expansion
+objects are not returned. Each option is unique by primary key.
+
+Pagination metadata describes candidates after both SQL scopes and filters,
+before per-record permission omissions. Consequently, a page may contain fewer
+options than `page.limit`, including an empty page with `page.hasMore=true`.
+Clients continue using pagination metadata rather than the number of returned
+options. Advance offsets by `page.limit`; use offset pagination when more
+candidates remain but no cursor is available. `page.total` is null unless
+`count=exact`; `limit=0&count=exact` returns
+no options and the candidate count. Offsets count candidates, not returned
+options. Cursor tokens must not expose ordering fields hidden by field policy.
+
+The endpoint always returns the envelope, including when
+`API.list_envelope=False`; that legacy flag applies only to the record-list
+endpoints. Responses include `X-Request-ID`, `Content-Language`,
+`Cache-Control: private, no-cache`, and
+`Vary: Cookie, Authorization, Accept-Language`, on success and errors.
+
+**Errors** use the same `application/problem+json` envelope, camelCase properties,
+and query error pointers as GET. `instance` is the `:queryOptions` request path;
+`traceId` matches `X-Request-ID`.
+
+| Status | Code | Description |
+| --- | --- | --- |
+| 401 | `unauthenticated` | Authentication is required. |
+| 403 | `permission_denied` | List/retrieve permission is denied, or the primary key is not readable in the list context. |
+| 422 | `validation_error`, `unknown_parameter` | Invalid query input, repeated controls, unsupported projection, or unavailable search. |
+| 422 | `unknown_field`, `unsupported_operator` | Forbidden or unknown filter/sort field or operator. |
+| 422 | `invalid_cursor`, `cursor_unsupported_ordering` | Invalid continuation or unsupported cursor ordering. |
+| 500 | `internal_error` | Unexpected failure; internal exception details are hidden. |
+
+#### Example
+
+Search question labels and request two candidates with the total count. This
+resource uses `question_text` as its label and search field and permits sorting
+by `id`:
+
+```http
+GET /api/questions:queryOptions?search=favorite&order=id.desc&limit=2&count=exact HTTP/1.1
+Accept: application/json
+X-Request-ID: req-options-42
+```
+
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+Cache-Control: private, no-cache
+Vary: Cookie, Authorization, Accept-Language
+Content-Language: en
+X-Request-ID: req-options-42
+
+{
+  "items": [
+    {"id": 42, "label": "Favorite color?"},
+    {"id": 41, "label": "Favorite language?"}
+  ],
+  "page": {
+    "limit": 2,
+    "offset": 0,
+    "hasMore": true,
+    "nextCursor": "eyJ2IjoxLC4uLn0.k3J9",
+    "total": 137
+  }
+}
+```
+
+For the next page, keep the same search and order and send `offset=2`, or send
+the returned `cursor` with `limit=2` and omit `offset`.
