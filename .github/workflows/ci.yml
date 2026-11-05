@@ -68,21 +68,7 @@ jobs:
       - run: pnpm test:commitlint
       - run: uv run validate-pyproject pyproject.toml
       - name: Check gettext catalogs
-        run: |
-          uv run pybabel extract -F babel.cfg -k translate:2 -o "$RUNNER_TEMP/obox.pot" obox_builder
-          uv run python - <<'PY'
-          from pathlib import Path
-          import os
-
-          path = Path(os.environ["RUNNER_TEMP"]) / "obox.pot"
-          path.write_text(path.read_text().rstrip("\n") + "\n")
-          PY
-          diff -u \
-            <(sed '/^"POT-Creation-Date:/d' obox_builder/locale/obox.pot) \
-            <(sed '/^"POT-Creation-Date:/d' "$RUNNER_TEMP/obox.pot")
-          uv run pybabel update --check --ignore-pot-creation-date -i "$RUNNER_TEMP/obox.pot" -d obox_builder/locale -D obox
-          uv run pybabel compile -d obox_builder/locale -D obox
-          git diff --exit-code -- obox_builder/locale
+        run: uv run python scripts/check_gettext_catalogs.py
 
   test:
     runs-on: ubuntu-latest

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-11-05 19:01+0700\n"
+"POT-Creation-Date: 2026-11-05 20:21+0700\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -17,20 +17,24 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 2.18.0\n"
 
-#: obox_builder/builder/http.py:100
+#: obox_builder/builder/http.py:118
 msgid "msg"
 msgstr ""
 
-#: obox_builder/builder/http.py:114
+#: obox_builder/builder/http.py:130
 msgid "Internal server error.Invalid input."
 msgstr ""
 
-#: obox_builder/builder/service.py:532
+#: obox_builder/builder/service.py:549
 msgid "Field cannot be null."
 msgstr ""
 
-#: obox_builder/builder/service.py:545 obox_builder/builder/service.py:604
+#: obox_builder/builder/service.py:563 obox_builder/builder/service.py:637
 msgid "Field is required."
+msgstr ""
+
+#: obox_builder/builder/service.py:609 obox_builder/builder/service.py:618
+msgid "A value is outside the database column limits."
 msgstr ""
 
 #: obox_builder/builder/ui.py:402

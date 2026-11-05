@@ -57,6 +57,12 @@ repos:
         language: system
         types: [toml]
         files: ^pyproject\.toml$
+      - id: gettext-catalogs
+        name: gettext catalogs
+        entry: uv run python scripts/check_gettext_catalogs.py
+        language: system
+        pass_filenames: false
+        always_run: true
       - id: commitlint
         name: commitlint
         entry: pnpm exec commitlint --edit
