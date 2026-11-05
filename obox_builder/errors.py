@@ -34,6 +34,16 @@ class ResourceConflict(OboxError):
     status = 409
 
 
+class PreconditionFailed(OboxError):
+    status = 412
+    code = "precondition_failed"
+
+
+class PreconditionRequired(OboxError):
+    status = 428
+    code = "precondition_required"
+
+
 class BuilderValidationError(OboxError):
     status = 422
 

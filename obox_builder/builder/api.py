@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+import hashlib
+import re
+from collections.abc import Awaitable, Callable, Iterable, Sequence
+from dataclasses import replace
 from datetime import UTC, datetime
-from decimal import Decimal
-from typing import Any
+from typing import Any, cast
 from urllib.parse import quote
-from uuid import UUID
 
 import sqlalchemy as sa
 from fastapi import APIRouter, Depends, Request, Response
@@ -15,16 +16,22 @@ from pydantic import BaseModel, Field, StrictStr, TypeAdapter, create_model, fie
 from pydantic.alias_generators import to_camel
 
 from obox_builder.builder.api_schema import ApiRequest, ApiResponse
-from obox_builder.builder.filters import parse_filter
+from obox_builder.builder.filters import FilterGroup, FilterTerm, parse_filter
 from obox_builder.builder.http import ApiRoute
 from obox_builder.builder.query import ListQuery, invalid, parse_terms
 from obox_builder.builder.service import invoke
 from obox_builder.context import Context
-from obox_builder.errors import BuilderValidationError, ImproperlyConfigured, PermissionDenied
+from obox_builder.errors import (
+    BuilderValidationError,
+    ImproperlyConfigured,
+    PermissionDenied,
+    PreconditionFailed,
+    PreconditionRequired,
+)
 
 
 class ActionInput(ApiRequest):
-    record_ids: list[str | int] = Field(min_length=1)
+    record_ids: list[StrictStr] = Field(min_length=1)
 
 
 class ActionResult(ApiResponse):
@@ -61,10 +68,8 @@ def json_value(value: Any) -> Any:
 
 
 class RecordOption(ApiResponse):
-    id: int | str | Decimal | UUID
+    id: str
     label: str
-
-    encode_id = field_serializer("id")(json_value)
 
 
 class OptionsPage(ApiResponse):
@@ -76,6 +81,8 @@ def list_schema(builder: Any, *, expanded: bool = True) -> type[BaseModel]:
     serializers = {}
     for name, spec in builder.specs.items():
         if name not in builder.read_schema.model_fields:
+            continue
+        if name in builder.api_identifiers:
             continue
         if isinstance(spec.column.type, sa.BigInteger):
 
@@ -122,12 +129,48 @@ def list_schema(builder: Any, *, expanded: bool = True) -> type[BaseModel]:
                 str | None if spec.column.nullable else str,
                 None,
             )
+    definitions[builder.pk_name] = (str, Field(alias="id"))
     return create_model(
         builder.model.__name__ + ("ListItem" if expanded else "Response"),
         __base__=builder.read_schema,
         __validators__=serializers,
         **definitions,
     )
+
+
+def api_query(builder: Any, pairs: Iterable[tuple[str, str]]) -> ListQuery:
+    """Resolve public field references once, without transforming query values."""
+    params, filters = parse_terms(pairs)
+    names = {alias: name for name, alias in builder.api_names.items()}
+
+    def resolve(alias: str) -> str:
+        if alias not in names:
+            raise invalid(alias, "Unknown API field.", "unknown_field")
+        return cast(str, names[alias])
+
+    def tree(node: FilterGroup | FilterTerm) -> FilterGroup | FilterTerm:
+        if isinstance(node, FilterTerm):
+            return replace(node, field=resolve(node.field))
+        return replace(node, children=tuple(tree(child) for child in node.children))
+
+    if "select" in params and params["select"] != "*":
+        params["select"] = ",".join(resolve(name) for name in params["select"].split(","))
+    if "order" in params:
+        params["order"] = ",".join(
+            ".".join((resolve(parts[0]), *parts[1:]))
+            for term in params["order"].split(",")
+            for parts in (term.split("."),)
+        )
+    if "expand" in params:
+        relations = {to_camel(name): name for name in builder.list_relations}
+        selected = params["expand"].split(",")
+        for name in selected:
+            if "." in name:
+                raise invalid("expand", "Only one-level expansion is supported.", "expand_depth")
+            if name not in relations:
+                raise invalid("expand", "Relationship target is unavailable.", "expand_unavailable")
+        params["expand"] = ",".join(relations[name] for name in selected)
+    return ListQuery(params, replace(filters, children=tuple(tree(n) for n in filters.children)))
 
 
 def query_options(
@@ -191,8 +234,64 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
                 "application/problem+json": {"schema": {"$ref": "#/components/schemas/Problem"}}
             },
         }
-        for status in (400, 401, 403, 404, 405, 406, 409, 415, 422, 500)
+        for status in (400, 401, 403, 404, 405, 406, 409, 412, 415, 422, 428, 500)
     }
+
+    async def record_row(
+        obj: Any, ctx: Context, fields: Sequence[str] | None = None
+    ) -> dict[str, Any]:
+        row = await service.serialize(
+            obj, ctx=ctx, fields=builder.api_read if fields is None else fields
+        )
+        if builder.pk_name not in row:
+            raise PermissionDenied("The primary key is not readable.")
+        for name in builder.api_identifiers.intersection(row):
+            if row[name] is not None:
+                row[name] = str(row[name])
+        return cast(dict[str, Any], row)
+
+    async def etag(obj: Any, ctx: Context, row: dict[str, Any] | None = None) -> str:
+        row = await record_row(obj, ctx) if row is None else row
+        data = record_schema.model_validate(row).model_dump_json(exclude_unset=True)
+        version = getattr(
+            obj, sa.inspect(builder.model).get_property_by_column(builder.version_column).key
+        )
+        digest = hashlib.sha256(
+            (builder.slug + ":" + str(json_value(version)) + ":" + data).encode()
+        ).hexdigest()
+        return '"' + digest + '"'
+
+    async def record_response(obj: Any, ctx: Context, response: Response) -> dict[str, Any]:
+        row = await record_row(obj, ctx)
+        if builder.version_column is not None:
+            response.headers["ETag"] = await etag(obj, ctx, row)
+        return row
+
+    def precondition(request: Request, ctx: Context) -> Callable[[Any], Awaitable[None]] | None:
+        if builder.version_column is None and "if-match" not in request.headers:
+            return None
+
+        async def check(obj: Any) -> None:
+            values = request.headers.getlist("if-match")
+            if builder.version_column is None:
+                if values:
+                    raise invalid(
+                        "If-Match", "This resource is not versioned.", "unsupported_precondition"
+                    )
+                return
+            if not values:
+                raise PreconditionRequired("Send the record's ETag in If-Match.")
+            value = ",".join(values).strip()
+            if value == "*":
+                return
+            tag = r'(?:W/)?"[\x21\x23-\x7e\x80-\xff]*"'
+            element = r"\s*(?:" + tag + r")?\s*"
+            if not re.fullmatch(element + r"(?:," + element + r")*", value):
+                raise invalid("If-Match", "Use an entity-tag list or *.", "invalid_precondition")
+            if await etag(obj, ctx) not in re.findall(tag, value):
+                raise PreconditionFailed("The record has changed.")
+
+        return check
 
     def query_parameters(*, filters: bool = True, projection: bool = True) -> list[dict[str, Any]]:
         limit_schema: dict[str, Any] = {"type": "integer", "minimum": 0}
@@ -231,7 +330,7 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
         if filters:
             parameters.extend(
                 {
-                    "name": name,
+                    "name": builder.api_names[name],
                     "in": "query",
                     "required": False,
                     "schema": {"type": "string"},
@@ -253,24 +352,26 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
 
     async def list_page(pairs: Iterable[tuple[str, str]], ctx: Context) -> Any:
         await service.authorize("list", ctx)
-        params, filters = parse_terms(pairs)
-        query = ListQuery(params, filters)
+        query = api_query(builder, pairs)
+        params = query.params
         selected = params.get("select", "*")
         fields = list(builder.api_read) if selected == "*" else selected.split(",")
         if any(name not in builder.api_read for name in fields):
             raise invalid("select", "Unknown API field.", "unknown_field")
-        if builder.pk_name in builder.api_read and builder.pk_name not in fields:
+        if builder.pk_name not in fields:
             fields.append(builder.pk_name)
         objects, page = await service.page(query, ctx=ctx)
-        rows = [await service.serialize(obj, ctx=ctx, fields=fields) for obj in objects]
+        rows = [await record_row(obj, ctx, fields) for obj in objects]
         if "expand" in params:
             await service.expand(objects, rows, params["expand"].split(","), ctx=ctx)
         return {"items": rows, "page": page} if builder.api.list_envelope else rows
 
     async def list_records(request: Request, ctx: Context = dependency) -> Any:
+        request.state.api_names = builder.api_names
         return await list_page(request.query_params.multi_items(), ctx)
 
-    async def query_records(data: QueryInput, ctx: Context = dependency) -> Any:
+    async def query_records(request: Request, data: QueryInput, ctx: Context = dependency) -> Any:
+        request.state.api_names = builder.api_names
         return await list_page(data.query, ctx)
 
     if {"list", "retrieve"}.issubset(builder.api.operations):
@@ -285,16 +386,18 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
             openapi_extra={"parameters": query_parameters(projection=False)},
         )
         async def list_options(request: Request, ctx: Context = dependency) -> Any:
+            request.state.api_names = builder.api_names
             await service.authorize("list", ctx)
             await service.authorize("retrieve", ctx)
             pk, label = builder.pk_name, builder.label_field
             if pk not in builder.readable(ctx, fields=builder.api_read):
                 raise PermissionDenied("The primary key is not readable.")
-            params, filters = parse_terms(request.query_params.multi_items())
+            query = api_query(builder, request.query_params.multi_items())
+            params = query.params
             for name in ("select", "expand"):
                 if name in params:
                     raise invalid(name, "Unknown query parameter.", "unknown_parameter")
-            objects, page = await service.page(ListQuery(params, filters), ctx=ctx, retrieve=True)
+            objects, page = await service.page(query, ctx=ctx, retrieve=True)
             fields = [name for name in (pk, label) if name in builder.api_read]
             items = []
             for obj in objects:
@@ -306,18 +409,14 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
                 value = row.get(label)
                 items.append(
                     {
-                        "id": str(row[pk])
-                        if isinstance(builder.pk.type, sa.BigInteger)
-                        else row[pk],
+                        "id": str(row[pk]),
                         "label": str(row[pk] if value is None or value == "" else value),
                     }
                 )
             return {"items": items, "page": page}
 
-    async def retrieve(id: str, ctx: Context = dependency) -> Any:
-        return await service.serialize(
-            await service.get(id, ctx=ctx), ctx=ctx, fields=builder.api_read
-        )
+    async def retrieve(id: str, response: Response, ctx: Context = dependency) -> Any:
+        return await record_response(await service.get(id, ctx=ctx), ctx, response)
 
     async def create(
         request: Request, response: Response, data: Any, ctx: Context = dependency
@@ -325,28 +424,31 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
         request.state.record_fields = builder.create_schema.model_fields
         app.csrf.validate(request, ctx.principal)
         obj = await service.create(data.model_dump(by_alias=False, exclude_unset=True), ctx=ctx)
-        row = await service.serialize(obj, ctx=ctx, fields=builder.api_read)
-        if builder.pk_name in row:
-            response.headers["Location"] = (
-                request.scope.get("root_path", "")
-                + path
-                + "/"
-                + quote(str(row[builder.pk_name]), safe="")
-            )
+        row = await record_response(obj, ctx, response)
+        response.headers["Location"] = (
+            request.scope.get("root_path", "") + path + "/" + quote(row[builder.pk_name], safe="")
+        )
         return row
 
-    async def update(request: Request, id: str, data: Any, ctx: Context = dependency) -> Any:
+    async def update(
+        request: Request, response: Response, id: str, data: Any, ctx: Context = dependency
+    ) -> Any:
         request.state.record_fields = builder.update_schema.model_fields
         app.csrf.validate(request, ctx.principal)
-        obj = await service.update(id, data.model_dump(by_alias=False, exclude_unset=True), ctx=ctx)
-        return await service.serialize(obj, ctx=ctx, fields=builder.api_read)
+        obj = await service.update(
+            id,
+            data.model_dump(by_alias=False, exclude_unset=True),
+            ctx=ctx,
+            precondition=precondition(request, ctx),
+        )
+        return await record_response(obj, ctx, response)
 
     async def delete(request: Request, id: str, ctx: Context = dependency) -> Response:
         request.state.record_fields = builder.read_schema.model_fields
         app.csrf.validate(request, ctx.principal)
         if await request.body():
             raise BuilderValidationError({"__all__": ["Request body must be empty."]})
-        await service.delete(id, ctx=ctx)
+        await service.delete(id, ctx=ctx, precondition=precondition(request, ctx))
         return Response(status_code=204)
 
     create.__annotations__["data"] = builder.create_schema
@@ -361,6 +463,21 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
     ):
         if operation not in builder.api.operations:
             continue
+        extra: dict[str, Any] = {"x-obox-conditional-fields": True}
+        if method == "GET" and suffix == "":
+            extra["parameters"] = query_parameters()
+        elif method in {"PATCH", "DELETE"}:
+            extra["parameters"] = [
+                {
+                    "name": "If-Match",
+                    "in": "header",
+                    "required": builder.version_column is not None,
+                    "schema": {"type": "string"},
+                }
+            ]
+        responses = dict(problems)
+        if builder.version_column is not None and operation in {"retrieve", "create", "update"}:
+            responses[code] = {"headers": {"ETag": {"schema": {"type": "string"}}}}
         router.add_api_route(
             path + suffix,
             endpoint,
@@ -377,11 +494,8 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
             ),
             response_model_exclude_unset=True,
             tags=list(builder.api.tags or (builder.model.__name__,)),
-            openapi_extra={
-                "x-obox-conditional-fields": True,
-                **({"parameters": query_parameters()} if method == "GET" and suffix == "" else {}),
-            },
-            responses=problems,
+            openapi_extra=extra,
+            responses=responses,
         )
 
     def action_endpoint(name: str) -> Any:

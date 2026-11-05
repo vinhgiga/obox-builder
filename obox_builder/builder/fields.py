@@ -176,6 +176,8 @@ def schema(
     partial: bool = False,
     conditional: bool = False,
     base: type[BaseModel] = BaseModel,
+    aliases: Mapping[str, str] | None = None,
+    string_fields: Iterable[str] = (),
 ) -> type[BaseModel]:
     definitions: dict[str, Any] = {}
     for key in fields:
@@ -187,7 +189,12 @@ def schema(
             and isinstance(spec.column.type, sa.DateTime)
             else spec.annotation
         )
-        definitions[key] = (annotation, default)
+        if key in string_fields:
+            annotation = str | None if spec.column.nullable else str
+        definitions[key] = (
+            annotation,
+            Field(default=default, alias=aliases[key]) if aliases and key in aliases else default,
+        )
     return create_model(name, __base__=base, __config__=ConfigDict(extra="forbid"), **definitions)
 
 

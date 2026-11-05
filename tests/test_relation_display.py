@@ -179,8 +179,8 @@ def test_list_displays_relation_label_and_keeps_api_raw() -> None:
                 form = (await client.get("/admin/children/new")).text
             assert response.status_code == 200
             assert response.json()["items"] == [
-                {"parentId": 1, "name": "alpha"},
-                {"parentId": 2, "name": "beta"},
+                {"id": "1", "parentId": "1", "name": "alpha"},
+                {"id": "2", "parentId": "2", "name": "beta"},
             ]
             assert "Visible" in form
             assert "TOP-SECRET" not in form

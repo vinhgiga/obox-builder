@@ -227,6 +227,35 @@ class ModelBuilder(Generic[T]):
             {rel.key: rel for rel in mapper.relationships if rel.uselist},
         )
         self.api_read = self._projection(self.api.read_fields)
+        if self.api.enabled:
+            if not self.specs[self.pk_name].exposed:
+                raise ImproperlyConfigured("API resources require a published primary key.")
+            self.api_read = tuple(dict.fromkeys((self.pk_name, *self.api_read)))
+        self.api_names = MappingProxyType(
+            {
+                name: "id" if name == self.pk_name else to_camel(name)
+                for name in (self.pk_name, *self.fields)
+            }
+        )
+        if self.api.enabled and len(set(self.api_names.values())) != len(self.api_names):
+            raise ImproperlyConfigured("API field aliases must be unique camelCase names.")
+        self.api_identifiers = frozenset(
+            name
+            for name, spec in self.specs.items()
+            if name == self.pk_name or spec.column.foreign_keys
+        )
+        self.version_column = mapper.version_id_col
+        if (
+            self.api.enabled
+            and self.version_column is not None
+            and (
+                self.version_column.nullable
+                or mapper.get_property_by_column(self.version_column).key not in self.specs
+            )
+        ):
+            raise ImproperlyConfigured(
+                "API version counters must be supported, non-nullable fields."
+            )
         self.api_write = tuple(
             key
             for key in self._projection(self.api.write_fields)
@@ -272,6 +301,8 @@ class ModelBuilder(Generic[T]):
         self.read_schema = self.api.get_read_schema(builder=self)
         self.create_schema = self.api.get_create_schema(builder=self)
         self.update_schema = self.api.get_update_schema(builder=self)
+        if self.api.enabled and self.pk_name not in self.read_schema.model_fields:
+            raise ImproperlyConfigured("API read schemas must declare the primary key.")
         for compiled, schema_base in (
             (self.read_schema, ApiResponse),
             (self.create_schema, ApiRequest),
@@ -282,6 +313,18 @@ class ModelBuilder(Generic[T]):
             aliases = [field.alias or name for name, field in compiled.model_fields.items()]
             if len(set(aliases)) != len(aliases) or any("_" in alias for alias in aliases):
                 raise ImproperlyConfigured("API field aliases must be unique camelCase names.")
+            if any(
+                name in self.api_names
+                and (
+                    (field.alias or name) != self.api_names[name]
+                    or field.validation_alias not in (None, self.api_names[name])
+                    or field.serialization_alias not in (None, self.api_names[name])
+                )
+                for name, field in compiled.model_fields.items()
+            ):
+                raise ImproperlyConfigured(
+                    "API schemas must use the resource's public field names."
+                )
             compiled.model_json_schema()
 
     @staticmethod
@@ -389,10 +432,13 @@ class ModelBuilder(Generic[T]):
         if self.policy is None or self.fields is None:
             raise ImproperlyConfigured("Register the builder before using field projections.")
         allowed = self.policy.read_fields(ctx, obj=obj)
+        published = self.fields
+        if ctx.source == "api" and self.api.enabled:
+            published = tuple(dict.fromkeys((self.pk_name, *published)))
         return tuple(
             key
-            for key in (self.fields if fields is None else fields)
-            if key in self.fields and (allowed is None or key in allowed)
+            for key in (published if fields is None else fields)
+            if key in published and (allowed is None or key in allowed)
         )
 
     def writable(

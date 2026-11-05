@@ -87,6 +87,8 @@ class API:
             builder.api_read,
             partial=True,
             base=ApiResponse,
+            aliases=builder.api_names,
+            string_fields=builder.api_identifiers,
         )
 
     def get_create_schema(self, *, builder: Any) -> type[BaseModel]:
@@ -96,6 +98,8 @@ class API:
             builder.api_write,
             conditional=builder.conditional_writes,
             base=ApiRequest,
+            aliases=builder.api_names,
+            string_fields=builder.api_identifiers,
         )
 
     def get_update_schema(self, *, builder: Any) -> type[BaseModel]:
@@ -105,4 +109,6 @@ class API:
             builder.api_write,
             partial=True,
             base=ApiRequest,
+            aliases=builder.api_names,
+            string_fields=builder.api_identifiers,
         )

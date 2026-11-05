@@ -55,6 +55,15 @@ def build_router(activity: Activity) -> APIRouter:
             if key in params:
                 raise invalid(key, "Supply this parameter once.")
             params[key] = value
-        return await read(activity, builder, id, params, ctx)
+        page = await read(activity, builder, id, params, ctx)
+        for item in page["items"]:
+            for change in item.get("changes", ()):
+                field = change["field"]
+                if field in builder.api_identifiers:
+                    for side in ("before", "after"):
+                        if change.get(side) is not None:
+                            change[side] = str(change[side])
+                change["field"] = builder.api_names[field]
+        return page
 
     return router

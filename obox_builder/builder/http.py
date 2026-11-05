@@ -78,12 +78,15 @@ async def api_problem(request: Request, exc: Exception) -> JSONResponse:
     if isinstance(exc, BuilderValidationError):
         for name, messages in exc.errors.items():
             location = [name]
+            names = getattr(request.state, "api_names", {})
             if record_write:
                 location = name.split(".") if name != "__all__" else []
                 fields = getattr(request.state, "record_fields", None)
                 if location and fields is not None:
                     field = fields.get(location[0])
                     location[0] = field.alias if field and field.alias else to_camel(location[0])
+            elif location:
+                location[0] = names.get(location[0], location[0])
             pointer = "#" + "".join(
                 "/" + part.replace("~", "~0").replace("/", "~1") for part in location
             )
@@ -185,7 +188,7 @@ class ApiRoute(APIRoute):
             if not accepts_json(request.headers.get("accept", "*/*")):
                 raise HTTPException(406, "Use an application/json response.")
             if request.method in {"PATCH", "DELETE"}:
-                for name in ("If-Match", "If-None-Match", "If-Unmodified-Since"):
+                for name in ("If-None-Match", "If-Unmodified-Since"):
                     if name in request.headers:
                         raise invalid(name, "Unsupported precondition.", "unsupported_precondition")
             if json_body and (

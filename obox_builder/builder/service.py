@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import inspect
-from collections.abc import AsyncIterator, Iterable, Mapping, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Mapping, Sequence
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from types import MappingProxyType
@@ -30,6 +30,7 @@ from obox_builder.errors import (
     NotAuthenticated,
     NotFound,
     PermissionDenied,
+    PreconditionFailed,
     ResourceConflict,
 )
 
@@ -352,9 +353,7 @@ class ResourceService(Generic[T]):
                     data = await service.serialize(obj, ctx=ctx, fields=(target.pk_name, label))
                     label_value = data.get(label)
                     visible[getattr(obj, remote)] = {
-                        "id": str(data[target.pk_name])
-                        if isinstance(target.pk.type, sa.BigInteger)
-                        else data[target.pk_name],
+                        "id": str(data[target.pk_name]),
                         "label": str(
                             data[target.pk_name]
                             if label_value is None or label_value == ""
@@ -595,12 +594,16 @@ class ResourceService(Generic[T]):
                     raise PermissionDenied("The relationship's reference field is not readable.")
 
     @asynccontextmanager
-    async def _mutation(self, ctx: Context) -> AsyncIterator[None]:
+    async def _mutation(self, ctx: Context, *, conditional: bool = False) -> AsyncIterator[None]:
         self._context(ctx)
         try:
             yield
             self._context(ctx)
-        except (IntegrityError, StaleDataError) as exc:
+        except StaleDataError as exc:
+            ctx._failed = True
+            error = PreconditionFailed if conditional else ResourceConflict
+            raise error("The record has changed.") from exc
+        except IntegrityError as exc:
             ctx._failed = True
             raise ResourceConflict("The write conflicts with current database state.") from exc
         except (DataError, OverflowError) as exc:
@@ -710,15 +713,23 @@ class ResourceService(Generic[T]):
             return cast(T, obj)
 
     async def update(
-        self, id: Any, changes: Mapping[str, Any], *, ctx: Context, version: Any = None
+        self,
+        id: Any,
+        changes: Mapping[str, Any],
+        *,
+        ctx: Context,
+        version: Any = None,
+        precondition: Callable[[T], Awaitable[None]] | None = None,
     ) -> T:
         obj = await self._get(id, ctx, "update")
         self._version(obj, version)
+        if precondition is not None:
+            await precondition(obj)
         values, presets = await self._input("update", changes, ctx, obj)
         files = self.app.get_plugin("files")
         if files is not None:
             values = await files.resolve(self.builder, values, ctx, obj)
-        async with self._mutation(ctx):
+        async with self._mutation(ctx, conditional=precondition is not None):
             for key, value in values.items():
                 setattr(obj, key, value)
             await invoke(
@@ -744,10 +755,19 @@ class ResourceService(Generic[T]):
         if getattr(obj, mapper.get_property_by_column(column).key) != version:
             raise ResourceConflict("The record has changed.")
 
-    async def delete(self, id: Any, *, ctx: Context, version: Any = None) -> None:
-        async with self._mutation(ctx):
+    async def delete(
+        self,
+        id: Any,
+        *,
+        ctx: Context,
+        version: Any = None,
+        precondition: Callable[[T], Awaitable[None]] | None = None,
+    ) -> None:
+        async with self._mutation(ctx, conditional=precondition is not None):
             obj = await self._get(id, ctx, "delete")
             self._version(obj, version)
+            if precondition is not None:
+                await precondition(obj)
             await invoke(self.builder.before_delete, obj, ctx)
             self._context(ctx)
             await ctx.session.delete(obj)
