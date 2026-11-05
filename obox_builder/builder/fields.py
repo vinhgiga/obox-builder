@@ -4,14 +4,22 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from datetime import date, datetime, time
+from datetime import UTC, date, datetime, time
 from decimal import Decimal
 from enum import Enum
 from typing import Annotated, Any
 from uuid import UUID
 
 import sqlalchemy as sa
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, create_model
+from pydantic import (
+    AfterValidator,
+    AwareDatetime,
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    create_model,
+)
 from sqlalchemy.exc import NoInspectionAvailable
 from sqlalchemy.orm import Mapper
 from sqlalchemy.sql.functions import FunctionElement
@@ -40,6 +48,50 @@ class ModelField:
             return [str(getattr(file, "id", file)) for file in value]
         return value
 
+    def normalize(self, value: Any) -> Any:
+        if isinstance(value, datetime) and isinstance(self.column.type, sa.DateTime):
+            value = value.astimezone(UTC)
+            if not self.column.type.timezone:
+                value = value.replace(tzinfo=None)
+        return value
+
+
+def _validate_text(value: str) -> str:
+    if "\x00" in value:
+        raise ValueError("NUL characters are not permitted.")
+    if any(0xD800 <= ord(char) <= 0xDFFF for char in value):
+        raise ValueError("Unicode surrogate characters are not permitted.")
+    return value
+
+
+def _constrained_annotation(column: sa.Column[Any], annotation: Any) -> Any:
+    column_type = column.type
+    if isinstance(column_type, sa.DateTime):
+        return AwareDatetime
+    if isinstance(column_type, sa.BigInteger):
+        return Annotated[int, Field(ge=-(2**63), le=2**63 - 1)]
+    if isinstance(column_type, sa.Integer):
+        bounds = (
+            (-(2**15), 2**15 - 1)
+            if isinstance(column_type, sa.SmallInteger)
+            else (-(2**31), 2**31 - 1)
+        )
+        return Annotated[int, Field(ge=bounds[0], le=bounds[1])]
+    if isinstance(column_type, sa.Numeric):
+        constraints: dict[str, Any] = {}
+        if column_type.precision is not None:
+            constraints["max_digits"] = column_type.precision
+        if column_type.scale is not None:
+            constraints["decimal_places"] = column_type.scale
+        return Annotated[Decimal, Field(**constraints)] if constraints else annotation
+    if annotation is str and isinstance(column_type, sa.String):
+        if column_type.length:
+            return Annotated[
+                str, Field(max_length=column_type.length), AfterValidator(_validate_text)
+            ]
+        return Annotated[str, AfterValidator(_validate_text)]
+    return annotation
+
 
 def inspect_fields(model: type[Any]) -> dict[str, ModelField]:
     try:
@@ -65,8 +117,7 @@ def inspect_fields(model: type[Any]) -> dict[str, ModelField]:
             continue
         if isinstance(column.type, sa.JSON):
             annotation = Any
-        if annotation is str and isinstance(column.type, sa.String) and column.type.length:
-            annotation = Annotated[annotation, Field(max_length=column.type.length)]
+        annotation = _constrained_annotation(column, annotation)
         if column.nullable:
             annotation = annotation | None
         readonly = bool(
@@ -130,7 +181,13 @@ def schema(
     for key in fields:
         spec = specs[key]
         default = None if partial or conditional or not spec.required else ...
-        definitions[key] = (spec.annotation, default)
+        annotation = (
+            (datetime | None if spec.column.nullable else datetime)
+            if getattr(base, "model_config", {}).get("from_attributes")
+            and isinstance(spec.column.type, sa.DateTime)
+            else spec.annotation
+        )
+        definitions[key] = (annotation, default)
     return create_model(name, __base__=base, __config__=ConfigDict(extra="forbid"), **definitions)
 
 

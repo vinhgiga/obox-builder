@@ -1185,7 +1185,13 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
             builder.view.enabled and ("delete" in builder.view.operations or bool(builder.actions)),
             "bulk_action",
         ),
-        (detail, "/{id}", ["GET", "POST"], builder.view.enabled, "detail"),
+        (
+            detail,
+            "/{id}",
+            ["GET", "POST"] if builder.form.enabled else ["GET"],
+            builder.view.enabled,
+            "detail",
+        ),
         (
             update_form,
             "/{id}/edit",

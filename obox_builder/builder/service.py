@@ -5,11 +5,12 @@ from __future__ import annotations
 import inspect
 from collections.abc import AsyncIterator, Iterable, Mapping, Sequence
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from types import MappingProxyType
 from typing import Any, Generic, TypeVar, cast
 
 import sqlalchemy as sa
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DataError, IntegrityError, StatementError
 from sqlalchemy.orm import with_parent
 from sqlalchemy.orm.exc import StaleDataError
 
@@ -269,7 +270,7 @@ class ResourceService(Generic[T]):
                 "next_cursor": None,
                 "total": total,
             }
-        stmt = stmt.distinct().order_by(None).order_by(*ordering).offset(min(offset, 2**63 - 1))
+        stmt = stmt.order_by(None).order_by(*ordering).offset(min(offset, 2**63 - 1))
         if limit is not None and limit < 2**63 - 1:
             stmt = stmt.limit(limit + 1)
         objects = list((await ctx.session.scalars(stmt)).unique())
@@ -283,10 +284,17 @@ class ResourceService(Generic[T]):
                 values = await self.serialize(
                     objects[-1], ctx=ctx, fields=[name for name, _, _ in query.order]
                 )
+                cursor_values = [
+                    value.replace(tzinfo=value.tzinfo or UTC).astimezone(UTC)
+                    if isinstance(value, datetime)
+                    else value
+                    for name, _, _ in query.order
+                    for value in (values[name],)
+                ]
                 cursor = query.cursor(
                     b,
                     self.app.csrf.secret,
-                    [values[name] for name, _, _ in query.order],
+                    cursor_values,
                 )
         return objects, {
             "limit": limit,
@@ -342,11 +350,16 @@ class ResourceService(Generic[T]):
                         continue
                     label = target.label_field if target.label_field in fields else target.pk_name
                     data = await service.serialize(obj, ctx=ctx, fields=(target.pk_name, label))
+                    label_value = data.get(label)
                     visible[getattr(obj, remote)] = {
                         "id": str(data[target.pk_name])
                         if isinstance(target.pk.type, sa.BigInteger)
                         else data[target.pk_name],
-                        "label": str(data[label]),
+                        "label": str(
+                            data[target.pk_name]
+                            if label_value is None or label_value == ""
+                            else label_value
+                        ),
                     }
             for row, value in zip(rows, values, strict=True):
                 row.setdefault("expanded", {})[name] = visible.get(value)
@@ -462,9 +475,12 @@ class ResourceService(Generic[T]):
             ]
             if not keys or len(set(keys)) != len(keys):
                 raise BuilderValidationError({"record_ids": ["Choose unique records."]})
-            objects = [
-                await self._get(key, ctx, permission, lock=True) for key in sorted(keys, key=str)
-            ]
+            objects = []
+            for key in sorted(keys, key=str):
+                try:
+                    objects.append(await self._get(key, ctx, permission, lock=True))
+                except NotFound as exc:
+                    raise NotFound(f"Record {key!r} is unavailable.") from exc
             await invoke(method, objects, ctx)
             for obj in objects:
                 await self._finish(permission, obj, {}, ctx, event_action=name)
@@ -528,6 +544,7 @@ class ResourceService(Generic[T]):
         )
         self._check_fields(normalized, allowed)
         parsed = validate(schema("Input", b.specs, allowed, partial=True), normalized)
+        parsed = {key: b.specs[key].normalize(value) for key, value in parsed.items()}
         nulls = {
             key: [N_("Field cannot be null.")]
             for key, value in parsed.items()
@@ -540,6 +557,7 @@ class ResourceService(Generic[T]):
             if key not in b.specs or b.specs[key].readonly:
                 raise ImproperlyConfigured(f"Invalid server preset field: {key!r}.")
         presets = validate(schema("Presets", b.specs, presets, partial=True), presets)
+        presets = {key: b.specs[key].normalize(value) for key, value in presets.items()}
         if action == "create":
             missing = {
                 key: [N_("Field is required.")]
@@ -585,6 +603,21 @@ class ResourceService(Generic[T]):
         except (IntegrityError, StaleDataError) as exc:
             ctx._failed = True
             raise ResourceConflict("The write conflicts with current database state.") from exc
+        except (DataError, OverflowError) as exc:
+            ctx._failed = True
+            raise BuilderValidationError(
+                {"__all__": [N_("A value is outside the database column limits.")]},
+                field_code="invalid_type",
+            ) from exc
+        except StatementError as exc:
+            if not isinstance(exc.orig, (DataError, OverflowError)):
+                ctx._failed = True
+                raise
+            ctx._failed = True
+            raise BuilderValidationError(
+                {"__all__": [N_("A value is outside the database column limits.")]},
+                field_code="invalid_type",
+            ) from exc
         except BaseException:
             ctx._failed = True
             raise
@@ -608,9 +641,7 @@ class ResourceService(Generic[T]):
             if missing:
                 raise BuilderValidationError(missing, field_code="required")
         await ctx.session.flush()
-        state = sa.inspect(obj)
-        if state is not None and state.expired_attributes:
-            await ctx.session.refresh(obj, attribute_names=sorted(state.expired_attributes))
+        await ctx.session.refresh(obj)
         if not await invoke(self.builder.policy.check, action, obj, ctx):
             raise PermissionDenied("The resulting record is not permitted.")
         if any(

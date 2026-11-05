@@ -437,7 +437,7 @@ def router(app: Obox, auth: Auth) -> APIRouter:
             user = await load_user(ctx, id)
             if user.id == principal.id:
                 return RedirectResponse(f"{auth.users_url(request)}?error=self", status_code=303)
-            if user.is_superuser:
+            if user.is_superuser and user.is_active:
                 model = user_model(auth)
                 active_superusers = await ctx.session.scalar(
                     sa.select(sa.func.count())

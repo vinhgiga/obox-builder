@@ -32,7 +32,21 @@ class OboxRoute(APIRoute):
         await middleware(dict(scope), receive, send)
 
 
+def accepts_json(value: str) -> bool:
+    for item in value.split(","):
+        parts = [part.strip().lower() for part in item.split(";")]
+        if parts[0] not in {"*/*", "application/json", "application/*"}:
+            continue
+        if any(part == "q=0" for part in parts[1:]):
+            continue
+        return True
+    return False
+
+
 async def api_problem(request: Request, exc: Exception) -> JSONResponse:
+    query_body = getattr(request.state, "query_body", False)
+    record_write = getattr(request.state, "record_write", False)
+    trace_id = getattr(request.state, "trace_id", uuid4().hex)
     status = (
         exc.status
         if isinstance(exc, OboxError)
@@ -54,6 +68,8 @@ async def api_problem(request: Request, exc: Exception) -> JSONResponse:
         401: "unauthenticated",
         403: "permission_denied",
         404: "not_found",
+        405: "method_not_allowed",
+        406: "not_acceptable",
         409: "resource_conflict",
         415: "unsupported_media_type",
         500: "internal_error",
@@ -62,7 +78,7 @@ async def api_problem(request: Request, exc: Exception) -> JSONResponse:
     if isinstance(exc, BuilderValidationError):
         for name, messages in exc.errors.items():
             location = [name]
-            if request.state.record_write:
+            if record_write:
                 location = name.split(".") if name != "__all__" else []
                 fields = getattr(request.state, "record_fields", None)
                 if location and fields is not None:
@@ -75,11 +91,13 @@ async def api_problem(request: Request, exc: Exception) -> JSONResponse:
                 FieldError(
                     field=".".join(location) if location else "__all__",
                     pointer="#/query"
-                    if request.state.query_body
+                    if query_body
                     else "#"
                     if request.method == "DELETE"
+                    else "#"
+                    if request.query_params and request.method not in {"POST", "PATCH", "DELETE"}
                     else pointer,
-                    code=(exc.field_code or code) if request.state.record_write else code,
+                    code=(exc.field_code or code) if record_write else code,
                     detail=translate(request, message),
                 )
                 for message in messages
@@ -101,9 +119,7 @@ async def api_problem(request: Request, exc: Exception) -> JSONResponse:
                 )
             )
     if status == 500:
-        logging.getLogger(__name__).error(
-            "API request %s failed", request.state.trace_id, exc_info=exc
-        )
+        logging.getLogger(__name__).error("API request %s failed", trace_id, exc_info=exc)
     return JSONResponse(
         Problem(
             type="urn:obox:problem:" + code,
@@ -121,7 +137,7 @@ async def api_problem(request: Request, exc: Exception) -> JSONResponse:
                 else str(exc),
             ),
             instance=request.url.path,
-            trace_id=request.state.trace_id,
+            trace_id=trace_id,
             errors=errors,
         ).model_dump(mode="json", exclude_unset=True),
         status_code=status,
@@ -138,8 +154,11 @@ class ApiRoute(APIRoute):
         scope["state"] = dict(scope.get("state", {}))
         request = Request(scope)
         request.state.query_body = request.method == "POST" and self.path.endswith(":query")
+        request.state.action_write = (
+            request.method == "POST" and ":" in self.path and not self.path.endswith(":query")
+        )
         request.state.record_write = request.method in {"PATCH", "DELETE"} or (
-            request.method == "POST" and self.status_code == 201
+            request.method == "POST" and (self.status_code == 201 or request.state.action_write)
         )
         json_body = request.state.query_body or (
             request.state.record_write and request.method != "DELETE"
@@ -163,6 +182,8 @@ class ApiRoute(APIRoute):
             await send(message)
 
         async def dispatch(scope: Scope, receive: Receive, send: Send) -> None:
+            if not accepts_json(request.headers.get("accept", "*/*")):
+                raise HTTPException(406, "Use an application/json response.")
             if request.method in {"PATCH", "DELETE"}:
                 for name in ("If-Match", "If-None-Match", "If-Unmodified-Since"):
                     if name in request.headers:

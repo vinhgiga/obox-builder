@@ -4,15 +4,17 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Any
 from urllib.parse import quote
+from uuid import UUID
 
 import sqlalchemy as sa
 from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel, Field, StrictStr, TypeAdapter, create_model, field_serializer
 from pydantic.alias_generators import to_camel
 
-from obox_builder.builder.api_schema import ApiRequest, ApiResponse, FieldError, Problem
+from obox_builder.builder.api_schema import ApiRequest, ApiResponse
 from obox_builder.builder.filters import parse_filter
 from obox_builder.builder.http import ApiRoute
 from obox_builder.builder.query import ListQuery, invalid, parse_terms
@@ -59,7 +61,7 @@ def json_value(value: Any) -> Any:
 
 
 class RecordOption(ApiResponse):
-    id: Any
+    id: int | str | Decimal | UUID
     label: str
 
     encode_id = field_serializer("id")(json_value)
@@ -70,7 +72,7 @@ class OptionsPage(ApiResponse):
     page: Page
 
 
-def list_schema(builder: Any) -> type[BaseModel]:
+def list_schema(builder: Any, *, expanded: bool = True) -> type[BaseModel]:
     serializers = {}
     for name, spec in builder.specs.items():
         if name not in builder.read_schema.model_fields:
@@ -100,9 +102,14 @@ def list_schema(builder: Any) -> type[BaseModel]:
     expanded_schema = create_model(
         builder.model.__name__ + "Expanded", __base__=ApiResponse, **relationships
     )
-    definitions: dict[str, Any] = {
-        "expanded": (expanded_schema, Field(default_factory=expanded_schema))
-    }
+    definitions: dict[str, Any] = {}
+    if expanded:
+        definitions["expanded"] = (expanded_schema, Field(default_factory=expanded_schema))
+    for name, spec in builder.specs.items():
+        if name not in builder.read_schema.model_fields:
+            continue
+        if isinstance(spec.column.type, sa.BigInteger):
+            definitions[name] = (str | None, None)
     return create_model(
         builder.model.__name__ + "ListRead",
         __base__=builder.read_schema,
@@ -159,16 +166,63 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
         return router
     path = f"{app.settings.api_prefix}/{builder.api.prefix or builder.slug}"
     dependency = Depends(app.context_dependency("api"), scope="function")
-    item_schema: Any = list_schema(builder)
-    page_fields: dict[str, Any] = {"items": (list[item_schema], ...), "page": (Page, ...)}
-    page_schema = create_model(builder.model.__name__ + "Page", __base__=ApiResponse, **page_fields)
-    problem_schema = Problem.model_json_schema()
-    problem_schema["properties"]["errors"]["items"] = FieldError.model_json_schema()
-    problem_schema.pop("$defs")
-    problems: dict[int | str, dict[str, Any]] = {
-        status: {"content": {"application/problem+json": {"schema": problem_schema}}}
-        for status in (400, 401, 403, 404, 409, 415, 422, 500)
+    list_item_schema: Any = list_schema(builder)
+    record_schema: Any = list_schema(builder, expanded=False)
+    page_fields: dict[str, Any] = {
+        "items": (list[list_item_schema], ...),
+        "page": (Page, ...),
     }
+    page_schema = create_model(builder.model.__name__ + "Page", __base__=ApiResponse, **page_fields)
+    problems: dict[int | str, dict[str, Any]] = {
+        status: {
+            "content": {
+                "application/problem+json": {"schema": {"$ref": "#/components/schemas/Problem"}}
+            },
+        }
+        for status in (400, 401, 403, 404, 405, 406, 409, 415, 422, 500)
+    }
+
+    def query_parameters(*, filters: bool = True, projection: bool = True) -> list[dict[str, Any]]:
+        parameters = [
+            {"name": "search", "in": "query", "required": False, "schema": {"type": "string"}},
+            {"name": "order", "in": "query", "required": False, "schema": {"type": "string"}},
+            {
+                "name": "limit",
+                "in": "query",
+                "required": False,
+                "schema": {"type": "integer", "minimum": 0},
+            },
+            {
+                "name": "offset",
+                "in": "query",
+                "required": False,
+                "schema": {"type": "integer", "minimum": 0},
+            },
+            {"name": "cursor", "in": "query", "required": False, "schema": {"type": "string"}},
+            {
+                "name": "count",
+                "in": "query",
+                "required": False,
+                "schema": {"type": "string", "enum": ["exact"]},
+            },
+        ]
+        if projection:
+            parameters[1:1] = [
+                {"name": "select", "in": "query", "required": False, "schema": {"type": "string"}},
+                {"name": "expand", "in": "query", "required": False, "schema": {"type": "string"}},
+            ]
+        if filters:
+            parameters.extend(
+                {
+                    "name": name,
+                    "in": "query",
+                    "required": False,
+                    "schema": {"type": "string"},
+                    "description": "Filter expression using field.operator.value.",
+                }
+                for name in builder.filter_fields
+            )
+        return parameters
 
     async def list_page(pairs: Iterable[tuple[str, str]], ctx: Context) -> Any:
         await service.authorize("list", ctx)
@@ -197,9 +251,11 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
         @router.get(
             path + ":queryOptions",
             name=f"obox_api_{builder.slug}_query_options",
+            operation_id=f"{builder.slug}_query_options",
             response_model=OptionsPage,
             responses=problems,
             tags=list(builder.api.tags or (builder.model.__name__,)),
+            openapi_extra={"parameters": query_parameters(projection=False)},
         )
         async def list_options(request: Request, ctx: Context = dependency) -> Any:
             await service.authorize("list", ctx)
@@ -283,17 +339,21 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
             endpoint,
             methods=[method],
             status_code=code,
+            operation_id=f"{builder.slug}_{'query' if endpoint is query_records else operation}",
             name=f"obox_api_{builder.slug}_{'query' if endpoint is query_records else operation}",
             response_model=None
             if operation == "delete"
             else (
-                (page_schema if builder.api.list_envelope else list[item_schema])
+                (page_schema if builder.api.list_envelope else list[list_item_schema])
                 if operation == "list"
-                else item_schema
+                else record_schema
             ),
             response_model_exclude_unset=True,
             tags=list(builder.api.tags or (builder.model.__name__,)),
-            openapi_extra={"x-obox-conditional-fields": True},
+            openapi_extra={
+                "x-obox-conditional-fields": True,
+                **({"parameters": query_parameters()} if method == "GET" and suffix == "" else {}),
+            },
             responses=problems,
         )
 
@@ -309,6 +369,7 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
             path + ":" + to_camel(name),
             action_endpoint(name),
             methods=["POST"],
+            operation_id=f"{builder.slug}_action_{to_camel(name)}",
             name=f"obox_api_{builder.slug}_action_{name}",
             response_model=ActionResult,
             responses=problems,

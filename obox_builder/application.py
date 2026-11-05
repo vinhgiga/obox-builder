@@ -7,11 +7,13 @@ import re
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass, replace
-from inspect import iscoroutinefunction
+from inspect import isawaitable, iscoroutinefunction
 from types import MappingProxyType, new_class
 from typing import Any, Generic, TypeVar, cast, overload
+from uuid import uuid4
 
-from fastapi import APIRouter, Depends, FastAPI, Request
+from fastapi import APIRouter, Depends, FastAPI, Request, Response
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.routing import iter_route_contexts
@@ -20,6 +22,7 @@ from sqlalchemy import event, inspect
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Mapper
 from sqlalchemy.orm.exc import StaleDataError
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.routing import BaseRoute, Mount
 
 from obox_builder.auth import Policy
@@ -35,7 +38,7 @@ from obox_builder.errors import (
     OboxError,
     ResourceConflict,
 )
-from obox_builder.i18n import LANGUAGES, LanguageMiddleware
+from obox_builder.i18n import LANGUAGES, LanguageMiddleware, negotiate
 from obox_builder.plugin import LifespanPlugin, Plugin
 
 T = TypeVar("T")
@@ -84,6 +87,48 @@ class Obox:
             raise ImproperlyConfigured("Install Obox before the application starts.")
         self.app = app
         self.settings = load_settings(settings)
+
+        original_openapi = app.openapi
+
+        def openapi() -> dict[str, Any]:
+            schema = original_openapi()
+            from obox_builder.builder.api_schema import Problem
+
+            definitions = Problem.model_json_schema(ref_template="#/components/schemas/{model}")
+            components = schema.setdefault("components", {}).setdefault("schemas", {})
+            components.setdefault(
+                "Problem", {key: value for key, value in definitions.items() if key != "$defs"}
+            )
+            components.update(definitions.get("$defs", {}))
+            return schema
+
+        cast(Any, app).openapi = openapi
+
+        previous_http_handler = app.exception_handlers.get(StarletteHTTPException)
+
+        async def http_error(request: Request, exc: Exception) -> Response:
+            path = request.scope.get("path", "")
+            api_prefix = self.settings.api_prefix
+            if path == api_prefix or path.startswith(api_prefix + "/"):
+                from obox_builder.builder.http import api_problem
+
+                provided = request.headers.get("x-request-id", "")
+                request.state.trace_id = (
+                    provided if re.fullmatch(r"[A-Za-z0-9._-]{1,128}", provided) else uuid4().hex
+                )
+                request.state.language = negotiate(request.headers.get("accept-language", ""))
+                response = await api_problem(request, exc)
+                response.headers["X-Request-ID"] = request.state.trace_id
+                response.headers["Cache-Control"] = "private, no-store"
+                response.headers["Vary"] = "Cookie, Authorization, Accept-Language"
+                response.headers["Content-Language"] = request.state.language
+                return response
+            if previous_http_handler is not None:
+                result = previous_http_handler(request, exc)
+                return await result if isawaitable(result) else result
+            return await http_exception_handler(request, cast(StarletteHTTPException, exc))
+
+        app.add_exception_handler(StarletteHTTPException, http_error)
         self.database = Database(self.settings)
         self.session_factory = self.database.sessions
         self._plugins: dict[str, Plugin] = {}
