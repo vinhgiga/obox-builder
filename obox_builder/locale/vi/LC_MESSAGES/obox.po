@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  obox-builder\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-11-02 14:10+0700\n"
+"POT-Creation-Date: 2026-11-05 19:01+0700\n"
 "PO-Revision-Date: 2026-10-31 20:45+0700\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: vi\n"
@@ -18,56 +18,107 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 2.18.0\n"
 
-#: obox_builder/builder/service.py:354 obox_builder/builder/service.py:405
+#: obox_builder/builder/http.py:100
+msgid "msg"
+msgstr ""
+
+#: obox_builder/builder/http.py:114
+msgid "Internal server error.Invalid input."
+msgstr ""
+
+#: obox_builder/builder/service.py:532
+msgid "Field cannot be null."
+msgstr ""
+
+#: obox_builder/builder/service.py:545 obox_builder/builder/service.py:604
 msgid "Field is required."
 msgstr "Trường này là bắt buộc."
 
-#: obox_builder/builder/ui.py:341
+#: obox_builder/builder/ui.py:402
 msgid "Unsupported form widget."
 msgstr "Kiểu nhập không được hỗ trợ."
 
-#: obox_builder/builder/ui.py:428
+#: obox_builder/builder/ui.py:490
 msgid "Enter valid JSON."
 msgstr "Nhập JSON hợp lệ."
 
-#: obox_builder/builder/ui.py:571 obox_builder/builder/ui.py:574
+#: obox_builder/builder/ui.py:533 obox_builder/contrib/auth/admin.py:260
+#, fuzzy
+msgid "Users"
+msgstr "Tên đăng nhập"
+
+#: obox_builder/builder/ui.py:538 obox_builder/contrib/auth/admin.py:472
+#: obox_builder/contrib/auth/admin.py:507
+#: obox_builder/contrib/auth/admin.py:560
+#, fuzzy
+msgid "Roles"
+msgstr "Đặt lại"
+
+#: obox_builder/builder/ui.py:705 obox_builder/builder/ui.py:708
 msgid "Invalid inline count."
 msgstr "Số dòng không hợp lệ."
 
-#: obox_builder/builder/ui.py:586 obox_builder/builder/ui.py:615
+#: obox_builder/builder/ui.py:720 obox_builder/builder/ui.py:749
 msgid "An inline record is unavailable."
 msgstr "Không tìm thấy bản ghi inline."
 
-#: obox_builder/builder/ui.py:657
+#: obox_builder/builder/ui.py:791
 msgid "Unknown inline field."
 msgstr "Trường inline không hợp lệ."
 
-#: obox_builder/builder/ui.py:842
+#: obox_builder/builder/ui.py:1012 obox_builder/contrib/auth/admin.py:233
 msgid "Duplicate form fields are not permitted."
 msgstr "Không được gửi trường trùng lặp."
+
+#: obox_builder/builder/templates/obox/confirm_delete.html:3
+#: obox_builder/builder/ui.py:1115
+msgid "Are you sure?"
+msgstr "Bạn có chắc không?"
+
+#: obox_builder/builder/ui.py:1144 obox_builder/builder/ui.py:1162
+msgid "Choose a valid action and records."
+msgstr ""
+
+#: obox_builder/builder/templates/obox/_related.html:22
+#: obox_builder/builder/templates/obox/list.html:464
+msgid "No records."
+msgstr "Không có bản ghi."
 
 #: obox_builder/builder/templates/obox/account.html:3
 msgid "No resources are available for your account."
 msgstr "Không có tài nguyên nào cho tài khoản của bạn."
 
-#: obox_builder/builder/templates/obox/base.html:14
+#: obox_builder/builder/templates/obox/base.html:20
 msgid "Skip to content"
 msgstr "Bỏ qua nội dung"
 
-#: obox_builder/builder/templates/obox/base.html:27
+#: obox_builder/builder/templates/obox/base.html:33
 msgid "Sign out"
 msgstr "Đăng xuất"
 
-#: obox_builder/builder/templates/obox/base.html:32
+#: obox_builder/builder/templates/obox/base.html:38
 msgid "Language"
 msgstr "Ngôn ngữ"
 
-#: obox_builder/builder/templates/obox/base.html:45
+#: obox_builder/builder/templates/obox/base.html:51
 msgid "Resources"
 msgstr "Tài nguyên"
 
+#: obox_builder/builder/templates/obox/confirm_delete.html:4
+#, python-format
+msgid "Are you sure you want to delete “%(label)s”?"
+msgstr "Bạn có chắc muốn xoá “%(label)s”?"
+
+#: obox_builder/builder/templates/obox/confirm_delete.html:8
+msgid "Yes, I'm sure"
+msgstr "Có, tôi chắc chắn"
+
+#: obox_builder/builder/templates/obox/confirm_delete.html:10
+msgid "No, take me back"
+msgstr "Không, quay lại"
+
 #: obox_builder/builder/templates/obox/detail.html:3
-#: obox_builder/builder/templates/obox/form.html:37
+#: obox_builder/builder/templates/obox/form.html:46
 msgid "Back to list"
 msgstr "Quay lại danh sách"
 
@@ -75,214 +126,269 @@ msgstr "Quay lại danh sách"
 msgid "Edit"
 msgstr "Sửa"
 
-#: obox_builder/builder/templates/obox/detail.html:7
-#: obox_builder/builder/templates/obox/list.html:404
-msgid "No records."
-msgstr "Không có bản ghi."
-
 #: obox_builder/builder/templates/obox/detail.html:9
-msgid "Confirm deletion"
-msgstr "Xác nhận xoá"
-
-#: obox_builder/builder/templates/obox/detail.html:9
-#: obox_builder/builder/templates/obox/form.html:83
+#: obox_builder/builder/templates/obox/form.html:93
+#: obox_builder/builder/templates/obox/form.html:141
 msgid "Delete"
 msgstr "Xoá"
 
-#: obox_builder/builder/templates/obox/form.html:11
+#: obox_builder/builder/templates/obox/form.html:13
 msgid "Choose…"
 msgstr "Chọn…"
 
-#: obox_builder/builder/templates/obox/form.html:62
+#: obox_builder/builder/templates/obox/form.html:71
 msgid "Delete?"
 msgstr "Xoá?"
 
-#: obox_builder/builder/templates/obox/form.html:89
-#: obox_builder/builder/templates/obox/form.html:108
+#: obox_builder/builder/templates/obox/form.html:99
+#: obox_builder/builder/templates/obox/form.html:118
 msgid "Remove"
 msgstr "Bỏ"
 
-#: obox_builder/builder/templates/obox/form.html:116
+#: obox_builder/builder/templates/obox/form.html:126
 #, python-format
 msgid "Add another %(name)s"
 msgstr "Thêm %(name)s khác"
 
-#: obox_builder/builder/templates/obox/form.html:121
+#: obox_builder/builder/templates/obox/form.html:133
 msgid "Save"
 msgstr "Lưu"
 
-#: obox_builder/builder/templates/obox/form.html:123
+#: obox_builder/builder/templates/obox/form.html:136
 msgid "Save and add another"
 msgstr "Lưu và thêm mới"
 
-#: obox_builder/builder/templates/obox/form.html:125
+#: obox_builder/builder/templates/obox/form.html:139
 msgid "Save and continue editing"
 msgstr "Lưu và tiếp tục sửa"
 
-#: obox_builder/builder/templates/obox/list.html:7
+#: obox_builder/builder/templates/obox/list.html:10
 msgid "Grid view"
 msgstr "Dạng lưới"
 
+#: obox_builder/builder/templates/obox/list.html:14
+msgid "Choose a bulk action"
+msgstr ""
+
+#: obox_builder/builder/templates/obox/list.html:20
+msgid "Choose an action"
+msgstr ""
+
 #: obox_builder/builder/templates/obox/list.html:21
-#: obox_builder/builder/templates/obox/list.html:57
+msgid "Delete selected"
+msgstr ""
+
+#: obox_builder/builder/templates/obox/list.html:28
+msgid "Run"
+msgstr ""
+
+#: obox_builder/builder/templates/obox/list.html:44
+#: obox_builder/builder/templates/obox/list.html:82
 msgid "Sort"
 msgstr "Sắp xếp"
 
-#: obox_builder/builder/templates/obox/list.html:25
+#: obox_builder/builder/templates/obox/list.html:48
 msgid "Sort by"
 msgstr "Sắp xếp theo"
 
-#: obox_builder/builder/templates/obox/list.html:28
-#: obox_builder/builder/templates/obox/list.html:29
+#: obox_builder/builder/templates/obox/list.html:51
+#: obox_builder/builder/templates/obox/list.html:52
 msgid ""
 "Sort records by one or more fields. Fields higher in the list take "
 "priority."
 msgstr ""
-"Sắp xếp bản ghi theo một hoặc nhiều trường. Trường ở vị trí cao hơn có "
-"độ ưu tiên cao hơn."
+"Sắp xếp bản ghi theo một hoặc nhiều trường. Trường ở vị trí cao hơn có độ"
+" ưu tiên cao hơn."
 
-#: obox_builder/builder/templates/obox/list.html:43
-#: obox_builder/builder/templates/obox/list.html:44
-#: obox_builder/builder/templates/obox/list.html:102
-#: obox_builder/builder/templates/obox/list.html:103
-#: obox_builder/builder/templates/obox/list.html:167
-#: obox_builder/builder/templates/obox/list.html:170
+#: obox_builder/builder/templates/obox/list.html:67
+#: obox_builder/builder/templates/obox/list.html:68
+#: obox_builder/builder/templates/obox/list.html:128
+#: obox_builder/builder/templates/obox/list.html:129
+#: obox_builder/builder/templates/obox/list.html:195
+#: obox_builder/builder/templates/obox/list.html:199
 msgid "Find a field"
 msgstr "Tìm trường"
 
-#: obox_builder/builder/templates/obox/list.html:51
+#: obox_builder/builder/templates/obox/list.html:75
 msgid "Add another sort"
 msgstr "Thêm tiêu chí sắp xếp"
 
-#: obox_builder/builder/templates/obox/list.html:56
+#: obox_builder/builder/templates/obox/list.html:80
 msgid "Cancel"
 msgstr "Hủy"
 
-#: obox_builder/builder/templates/obox/list.html:77
+#: obox_builder/builder/templates/obox/list.html:102
 msgid "Group"
 msgstr "Nhóm"
 
-#: obox_builder/builder/templates/obox/list.html:84
+#: obox_builder/builder/templates/obox/list.html:109
 msgid "Group by"
 msgstr "Nhóm theo"
 
-#: obox_builder/builder/templates/obox/list.html:87
-#: obox_builder/builder/templates/obox/list.html:88
+#: obox_builder/builder/templates/obox/list.html:112
+#: obox_builder/builder/templates/obox/list.html:113
 msgid ""
 "Group records by one or more fields. Fields higher in the list take "
 "priority."
 msgstr ""
-"Nhóm bản ghi theo một hoặc nhiều trường. Trường ở vị trí cao hơn có "
-"độ ưu tiên cao hơn."
+"Nhóm bản ghi theo một hoặc nhiều trường. Trường ở vị trí cao hơn có độ ưu"
+" tiên cao hơn."
 
-#: obox_builder/builder/templates/obox/list.html:110
+#: obox_builder/builder/templates/obox/list.html:136
 msgid "Add subgroup"
 msgstr "Thêm nhóm con"
 
-#: obox_builder/builder/templates/obox/list.html:130
-#: obox_builder/builder/templates/obox/list.html:136
+#: obox_builder/builder/templates/obox/list.html:156
+#: obox_builder/builder/templates/obox/list.html:162
 msgid "Filter"
 msgstr "Lọc"
 
-#: obox_builder/builder/templates/obox/list.html:137
+#: obox_builder/builder/templates/obox/list.html:163
 msgid "In this view, show records"
 msgstr "Trong chế độ xem này, hiển thị bản ghi"
 
-#: obox_builder/builder/templates/obox/list.html:140
+#: obox_builder/builder/templates/obox/list.html:167
 msgid "Apply"
 msgstr "Áp dụng"
 
-#: obox_builder/builder/templates/obox/list.html:141
+#: obox_builder/builder/templates/obox/list.html:169
 msgid "Reset"
 msgstr "Đặt lại"
 
-#: obox_builder/builder/templates/obox/list.html:163
+#: obox_builder/builder/templates/obox/list.html:191
 msgid "Hide fields"
 msgstr "Ẩn trường"
 
-#: obox_builder/builder/templates/obox/list.html:175
+#: obox_builder/builder/templates/obox/list.html:204
 msgid "Fields"
 msgstr "Trường"
 
-#: obox_builder/builder/templates/obox/list.html:204
+#: obox_builder/builder/templates/obox/list.html:236
 msgid "No fields found."
 msgstr "Không tìm thấy trường."
 
-#: obox_builder/builder/templates/obox/list.html:209
+#: obox_builder/builder/templates/obox/list.html:241
 msgid "Hide all"
 msgstr "Ẩn tất cả"
 
-#: obox_builder/builder/templates/obox/list.html:212
+#: obox_builder/builder/templates/obox/list.html:244
 msgid "Show all"
 msgstr "Hiện tất cả"
 
-#: obox_builder/builder/templates/obox/list.html:227
-#: obox_builder/builder/templates/obox/list.html:232
+#: obox_builder/builder/templates/obox/list.html:259
+#: obox_builder/builder/templates/obox/list.html:264
 msgid "Row height"
 msgstr "Chiều cao dòng"
 
-#: obox_builder/builder/templates/obox/list.html:273
+#: obox_builder/builder/templates/obox/list.html:305
 msgid "Wrap headers"
 msgstr "Xuống dòng tiêu đề"
 
-#: obox_builder/builder/templates/obox/list.html:283
-#: obox_builder/builder/templates/obox/list.html:284
-#: obox_builder/builder/templates/obox/list.html:301
-#: obox_builder/builder/templates/obox/list.html:305
-#: obox_builder/builder/templates/obox/list.html:306
+#: obox_builder/builder/templates/obox/list.html:315
+#: obox_builder/builder/templates/obox/list.html:316
+#: obox_builder/builder/templates/obox/list.html:333
+#: obox_builder/builder/templates/obox/list.html:338
+#: obox_builder/builder/templates/obox/list.html:339
 msgid "Search records"
 msgstr "Tìm bản ghi"
 
-#: obox_builder/builder/templates/obox/list.html:298
+#: obox_builder/builder/templates/obox/list.html:330
 msgid "No matches"
 msgstr "Không có kết quả"
 
-#: obox_builder/builder/templates/obox/list.html:299
+#: obox_builder/builder/templates/obox/list.html:331
 msgid "of"
 msgstr "trong"
 
-#: obox_builder/builder/templates/obox/list.html:313
-#: obox_builder/builder/templates/obox/list.html:314
+#: obox_builder/builder/templates/obox/list.html:346
+#: obox_builder/builder/templates/obox/list.html:347
 msgid "Previous match"
 msgstr "Kết quả trước"
 
-#: obox_builder/builder/templates/obox/list.html:327
-#: obox_builder/builder/templates/obox/list.html:328
+#: obox_builder/builder/templates/obox/list.html:360
+#: obox_builder/builder/templates/obox/list.html:361
 msgid "Next match"
 msgstr "Kết quả tiếp theo"
 
-#: obox_builder/builder/templates/obox/list.html:341
-#: obox_builder/builder/templates/obox/list.html:342
+#: obox_builder/builder/templates/obox/list.html:374
+#: obox_builder/builder/templates/obox/list.html:375
 msgid "Close search"
 msgstr "Đóng tìm kiếm"
 
-#: obox_builder/builder/templates/obox/list.html:355
+#: obox_builder/builder/templates/obox/list.html:389
 msgid "records"
 msgstr "bản ghi"
 
-#: obox_builder/builder/templates/obox/list.html:365
+#: obox_builder/builder/templates/obox/list.html:396
+msgid "Delete this selected record?"
+msgstr ""
+
+#: obox_builder/builder/templates/obox/list.html:397
+msgid "Delete these selected records?"
+msgstr ""
+
+#: obox_builder/builder/templates/obox/list.html:413
+#, fuzzy, python-format
+msgid "Select all records on this page"
+msgstr "%(count)s bản ghi trên trang này"
+
+#: obox_builder/builder/templates/obox/list.html:415
 msgid "Row"
 msgstr "Dòng"
 
-#: obox_builder/builder/templates/obox/list.html:370
-msgid "Record"
-msgstr "Bản ghi"
+#: obox_builder/builder/templates/obox/list.html:452
+#, fuzzy
+msgid "Select record"
+msgstr "Tìm bản ghi"
 
-#: obox_builder/builder/templates/obox/list.html:400
-msgid "View"
-msgstr "Xem"
-
-#: obox_builder/builder/templates/obox/list.html:479
+#: obox_builder/builder/templates/obox/list.html:481
 msgid "Add record"
 msgstr "Thêm bản ghi"
 
-#: obox_builder/builder/templates/obox/list.html:413
+#: obox_builder/builder/templates/obox/list.html:490
+#, fuzzy, python-format
+msgid "record on this page"
+msgstr "%(count)s bản ghi trên trang này"
+
+#: obox_builder/builder/templates/obox/list.html:491
+#, fuzzy, python-format
+msgid "records on this page"
+msgstr "%(count)s bản ghi trên trang này"
+
+#: obox_builder/builder/templates/obox/list.html:492
+#, fuzzy
+msgid "record selected"
+msgstr "bản ghi"
+
+#: obox_builder/builder/templates/obox/list.html:493
+#, fuzzy
+msgid "records selected"
+msgstr "bản ghi"
+
+#: obox_builder/builder/templates/obox/list.html:494
+#, fuzzy, python-format
+msgid "All %(count)s record selected"
+msgid_plural "All %(count)s records selected"
+msgstr[0] "%(count)s bản ghi trên trang này"
+
+#: obox_builder/builder/templates/obox/list.html:494
 #, python-format
 msgid "%(count)s record on this page"
 msgid_plural "%(count)s records on this page"
 msgstr[0] "%(count)s bản ghi trên trang này"
 
-#: obox_builder/builder/templates/obox/list.html:414
+#: obox_builder/builder/templates/obox/list.html:496
+#, python-format
+msgid "Select all %(count)s record"
+msgid_plural "Select all %(count)s records"
+msgstr[0] ""
+
+#: obox_builder/builder/templates/obox/list.html:500
+#, fuzzy
+msgid "Clear selection"
+msgstr "Xác nhận xoá"
+
+#: obox_builder/builder/templates/obox/list.html:503
 msgid "Next page →"
 msgstr "Trang sau →"
 
@@ -294,14 +400,108 @@ msgstr "Mật khẩu"
 msgid "Show password"
 msgstr "Hiện mật khẩu"
 
-#: obox_builder/builder/templates/obox/login.html:41
+#: obox_builder/builder/templates/obox/login.html:42
 #: obox_builder/contrib/auth/views.py:59
 msgid "Sign in"
 msgstr "Đăng nhập"
 
-#: obox_builder/contrib/auth/__init__.py:72
+#: obox_builder/contrib/auth/__init__.py:81
 msgid "Username"
 msgstr "Tên đăng nhập"
+
+#: obox_builder/contrib/auth/admin.py:170
+msgid "You cannot delete your own account."
+msgstr ""
+
+#: obox_builder/contrib/auth/admin.py:171
+msgid "At least one superuser is required."
+msgstr ""
+
+#: obox_builder/contrib/auth/admin.py:184
+#, fuzzy
+msgid "Authentication is required."
+msgstr "Trường này là bắt buộc."
+
+#: obox_builder/contrib/auth/admin.py:186
+msgid "Superuser access is required."
+msgstr ""
+
+#: obox_builder/contrib/auth/admin.py:244
+msgid "User not found."
+msgstr ""
+
+#: obox_builder/contrib/auth/admin.py:284
+#: obox_builder/contrib/auth/admin.py:387
+msgid "Edit userNew user"
+msgstr ""
+
+#: obox_builder/contrib/auth/admin.py:307
+#: obox_builder/contrib/auth/admin.py:340
+#: obox_builder/contrib/auth/admin.py:486
+#: obox_builder/contrib/auth/admin.py:533
+#, fuzzy
+msgid "This field is required."
+msgstr "Trường này là bắt buộc."
+
+#: obox_builder/contrib/auth/admin.py:309
+#: obox_builder/contrib/auth/admin.py:320
+#: obox_builder/contrib/auth/admin.py:322
+#: obox_builder/contrib/auth/admin.py:324
+#: obox_builder/contrib/auth/admin.py:488
+#: obox_builder/contrib/auth/admin.py:535
+msgid "Use at most 150 characters."
+msgstr ""
+
+#: obox_builder/contrib/auth/admin.py:316
+msgid "This username is already taken."
+msgstr ""
+
+#: obox_builder/contrib/auth/admin.py:318
+msgid "Use at most 254 characters."
+msgstr ""
+
+#: obox_builder/contrib/auth/admin.py:335
+msgid "Choose valid roles."
+msgstr ""
+
+#: obox_builder/contrib/auth/admin.py:342
+msgid "Passwords do not match."
+msgstr ""
+
+#: obox_builder/contrib/auth/admin.py:361
+msgid "You cannot deactivate your own account."
+msgstr ""
+
+#: obox_builder/contrib/auth/admin.py:369
+msgid "At least one superuser must remain active."
+msgstr ""
+
+#: obox_builder/contrib/auth/admin.py:492
+#: obox_builder/contrib/auth/admin.py:541
+msgid "This role name is already taken."
+msgstr ""
+
+#: obox_builder/contrib/auth/admin.py:494
+#: obox_builder/contrib/auth/admin.py:543
+msgid "Choose valid permissions."
+msgstr ""
+
+#: obox_builder/contrib/auth/admin.py:525
+#: obox_builder/contrib/auth/admin.py:581
+msgid "Role not found."
+msgstr ""
+
+#: obox_builder/contrib/auth/password_validation.py:54
+msgid "This password is too similar to your personal information."
+msgstr ""
+
+#: obox_builder/contrib/auth/password_validation.py:70
+msgid "This password is too short. It must contain at least "
+msgstr ""
+
+#: obox_builder/contrib/auth/password_validation.py:81
+msgid "This password is entirely numeric."
+msgstr ""
 
 #: obox_builder/contrib/auth/views.py:53
 msgid "Invalid username or password."
@@ -317,24 +517,6 @@ msgstr "Tài khoản"
 #~ msgid "Default"
 #~ msgstr "Mặc định"
 
-#: obox_builder/builder/templates/obox/confirm_delete.html:3
-#: obox_builder/builder/ui.py:1050
-msgid "Are you sure?"
-msgstr "Bạn có chắc không?"
-
-#: obox_builder/builder/templates/obox/confirm_delete.html:4
-#, python-format
-msgid "Are you sure you want to delete “%(label)s”?"
-msgstr "Bạn có chắc muốn xoá “%(label)s”?"
-
-#: obox_builder/builder/templates/obox/confirm_delete.html:8
-msgid "Yes, I'm sure"
-msgstr "Có, tôi chắc chắn"
-
-#: obox_builder/builder/templates/obox/confirm_delete.html:9
-msgid "No, take me back"
-msgstr "Không, quay lại"
-
 #~ msgid "Short"
 #~ msgstr "Thấp"
 
@@ -346,3 +528,9 @@ msgstr "Không, quay lại"
 
 #~ msgid "Extra Tall"
 #~ msgstr "Rất cao"
+
+#~ msgid "Record"
+#~ msgstr "Bản ghi"
+
+#~ msgid "View"
+#~ msgstr "Xem"
