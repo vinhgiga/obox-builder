@@ -684,6 +684,9 @@ class ResourceService(Generic[T]):
                 ctx,
                 created=False,
             )
+            for key, value in values.items():
+                if value is None and getattr(obj, key) is None:
+                    setattr(obj, key, sa.null())
             await self._finish("update", obj, presets, ctx)
             return obj
 

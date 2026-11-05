@@ -239,7 +239,7 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
     async def create(
         request: Request, response: Response, data: Any, ctx: Context = dependency
     ) -> Any:
-        request.state.create_fields = builder.create_schema.model_fields
+        request.state.record_fields = builder.create_schema.model_fields
         app.csrf.validate(request, ctx.principal)
         obj = await service.create(data.model_dump(by_alias=False, exclude_unset=True), ctx=ctx)
         row = await service.serialize(obj, ctx=ctx, fields=builder.api_read)
@@ -253,12 +253,16 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
         return row
 
     async def update(request: Request, id: str, data: Any, ctx: Context = dependency) -> Any:
+        request.state.record_fields = builder.update_schema.model_fields
         app.csrf.validate(request, ctx.principal)
         obj = await service.update(id, data.model_dump(by_alias=False, exclude_unset=True), ctx=ctx)
         return await service.serialize(obj, ctx=ctx, fields=builder.api_read)
 
     async def delete(request: Request, id: str, ctx: Context = dependency) -> Response:
+        request.state.record_fields = builder.read_schema.model_fields
         app.csrf.validate(request, ctx.principal)
+        if await request.body():
+            raise BuilderValidationError({"__all__": ["Request body must be empty."]})
         await service.delete(id, ctx=ctx)
         return Response(status_code=204)
 

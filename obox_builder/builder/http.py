@@ -8,6 +8,7 @@ from uuid import uuid4
 
 from fastapi.exceptions import RequestValidationError
 from fastapi.routing import APIRoute
+from pydantic.alias_generators import to_camel
 from starlette.datastructures import FormData, MutableHeaders
 from starlette.exceptions import HTTPException
 from starlette.middleware.exceptions import ExceptionMiddleware
@@ -61,19 +62,24 @@ async def api_problem(request: Request, exc: Exception) -> JSONResponse:
     if isinstance(exc, BuilderValidationError):
         for name, messages in exc.errors.items():
             location = [name]
-            if request.state.create_body:
+            if request.state.record_write:
                 location = name.split(".") if name != "__all__" else []
-                fields = getattr(request.state, "create_fields", {})
-                if location and (field := fields.get(location[0])):
-                    location[0] = field.alias or location[0]
+                fields = getattr(request.state, "record_fields", None)
+                if location and fields is not None:
+                    field = fields.get(location[0])
+                    location[0] = field.alias if field and field.alias else to_camel(location[0])
             pointer = "#" + "".join(
                 "/" + part.replace("~", "~0").replace("/", "~1") for part in location
             )
             errors.extend(
                 FieldError(
                     field=".".join(location) if location else "__all__",
-                    pointer="#/query" if request.state.query_body else pointer,
-                    code=(exc.field_code or code) if request.state.create_body else code,
+                    pointer="#/query"
+                    if request.state.query_body
+                    else "#"
+                    if request.method == "DELETE"
+                    else pointer,
+                    code=(exc.field_code or code) if request.state.record_write else code,
                     detail=translate(request, message),
                 )
                 for message in messages
@@ -130,8 +136,13 @@ class ApiRoute(APIRoute):
         scope["state"] = dict(scope.get("state", {}))
         request = Request(scope)
         request.state.query_body = request.method == "POST" and self.path.endswith(":query")
-        request.state.create_body = request.method == "POST" and self.status_code == 201
-        json_body = request.state.query_body or request.state.create_body
+        request.state.record_write = request.method in {"PATCH", "DELETE"} or (
+            request.method == "POST" and self.status_code == 201
+        )
+        json_body = request.state.query_body or (
+            request.state.record_write and request.method != "DELETE"
+        )
+        no_store = json_body or request.state.record_write
         provided = request.headers.get("x-request-id", "")
         request.state.trace_id = (
             provided if re.fullmatch(r"[A-Za-z0-9._-]{1,128}", provided) else uuid4().hex
@@ -142,24 +153,27 @@ class ApiRoute(APIRoute):
             if message["type"] == "http.response.start":
                 headers = MutableHeaders(scope=message)
                 headers["X-Request-ID"] = request.state.trace_id
-                headers["Cache-Control"] = "private, no-store" if json_body else "private, no-cache"
+                headers["Cache-Control"] = "private, no-store" if no_store else "private, no-cache"
                 headers.add_vary_header("Cookie, Authorization, Accept-Language")
                 headers["Content-Language"] = request.state.language
             await send(message)
 
         async def dispatch(scope: Scope, receive: Receive, send: Send) -> None:
-            if json_body:
-                if (
-                    request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
-                    != "application/json"
-                ):
-                    raise HTTPException(415, "Use application/json.")
-                if request.query_params:
-                    raise invalid(
-                        next(iter(request.query_params)),
-                        "Query string must be empty.",
-                        "unknown_parameter",
-                    )
+            if request.method in {"PATCH", "DELETE"}:
+                for name in ("If-Match", "If-None-Match", "If-Unmodified-Since"):
+                    if name in request.headers:
+                        raise invalid(name, "Unsupported precondition.", "unsupported_precondition")
+            if json_body and (
+                request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+                != "application/json"
+            ):
+                raise HTTPException(415, "Use application/json.")
+            if no_store and request.query_params:
+                raise invalid(
+                    next(iter(request.query_params)),
+                    "Query string must be empty.",
+                    "unknown_parameter",
+                )
             await APIRoute.handle(self, scope, receive, send)
 
         await ExceptionMiddleware(
