@@ -47,38 +47,43 @@ async def api_problem(request: Request, exc: Exception) -> JSONResponse:
         error["type"] == "json_invalid" for error in exc.errors()
     ):
         status = 400
-    code = getattr(
-        exc,
-        "code",
-        {
-            400: "malformed_json",
-            401: "unauthenticated",
-            403: "permission_denied",
-            404: "not_found",
-            415: "unsupported_media_type",
-            500: "internal_error",
-        }.get(status, "validation_error"),
-    )
+    code = getattr(exc, "code", None) if isinstance(exc, OboxError) and status != 500 else None
+    code = code or {
+        400: "malformed_json",
+        401: "unauthenticated",
+        403: "permission_denied",
+        404: "not_found",
+        409: "resource_conflict",
+        415: "unsupported_media_type",
+        500: "internal_error",
+    }.get(status, "validation_error")
     errors: list[FieldError] = []
     if isinstance(exc, BuilderValidationError):
-        errors = [
-            FieldError(
-                field=name,
-                pointer="#/query"
-                if request.state.query_body
-                else "#/" + name.replace("~", "~0").replace("/", "~1"),
-                code=code,
-                detail=translate(request, message),
+        for name, messages in exc.errors.items():
+            location = [name]
+            if request.state.create_body:
+                location = name.split(".") if name != "__all__" else []
+                fields = getattr(request.state, "create_fields", {})
+                if location and (field := fields.get(location[0])):
+                    location[0] = field.alias or location[0]
+            pointer = "#" + "".join(
+                "/" + part.replace("~", "~0").replace("/", "~1") for part in location
             )
-            for name, messages in exc.errors.items()
-            for message in messages
-        ]
+            errors.extend(
+                FieldError(
+                    field=".".join(location) if location else "__all__",
+                    pointer="#/query" if request.state.query_body else pointer,
+                    code=(exc.field_code or code) if request.state.create_body else code,
+                    detail=translate(request, message),
+                )
+                for message in messages
+            )
     elif isinstance(exc, RequestValidationError):
         for error in exc.errors():
             location = [str(part) for part in error["loc"][1:]]
             errors.append(
                 FieldError(
-                    field=".".join(location),
+                    field=".".join(location) if location else "__all__",
                     pointer="#"
                     + "".join(
                         "/" + part.replace("~", "~0").replace("/", "~1") for part in location
@@ -103,6 +108,8 @@ async def api_problem(request: Request, exc: Exception) -> JSONResponse:
                 request,
                 "Internal server error."
                 if status == 500
+                else "Invalid input."
+                if isinstance(exc, RequestValidationError)
                 else str(exc.detail)
                 if isinstance(exc, HTTPException)
                 else str(exc),
@@ -123,6 +130,8 @@ class ApiRoute(APIRoute):
         scope["state"] = dict(scope.get("state", {}))
         request = Request(scope)
         request.state.query_body = request.method == "POST" and self.path.endswith(":query")
+        request.state.create_body = request.method == "POST" and self.status_code == 201
+        json_body = request.state.query_body or request.state.create_body
         provided = request.headers.get("x-request-id", "")
         request.state.trace_id = (
             provided if re.fullmatch(r"[A-Za-z0-9._-]{1,128}", provided) else uuid4().hex
@@ -133,15 +142,13 @@ class ApiRoute(APIRoute):
             if message["type"] == "http.response.start":
                 headers = MutableHeaders(scope=message)
                 headers["X-Request-ID"] = request.state.trace_id
-                headers["Cache-Control"] = (
-                    "private, no-store" if request.state.query_body else "private, no-cache"
-                )
+                headers["Cache-Control"] = "private, no-store" if json_body else "private, no-cache"
                 headers.add_vary_header("Cookie, Authorization, Accept-Language")
                 headers["Content-Language"] = request.state.language
             await send(message)
 
         async def dispatch(scope: Scope, receive: Receive, send: Send) -> None:
-            if request.state.query_body:
+            if json_body:
                 if (
                     request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
                     != "application/json"

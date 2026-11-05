@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import quote
 
 import sqlalchemy as sa
 from fastapi import APIRouter, Depends, Request, Response
@@ -235,10 +236,21 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
             await service.get(id, ctx=ctx), ctx=ctx, fields=builder.api_read
         )
 
-    async def create(request: Request, data: Any, ctx: Context = dependency) -> Any:
+    async def create(
+        request: Request, response: Response, data: Any, ctx: Context = dependency
+    ) -> Any:
+        request.state.create_fields = builder.create_schema.model_fields
         app.csrf.validate(request, ctx.principal)
         obj = await service.create(data.model_dump(by_alias=False, exclude_unset=True), ctx=ctx)
-        return await service.serialize(obj, ctx=ctx, fields=builder.api_read)
+        row = await service.serialize(obj, ctx=ctx, fields=builder.api_read)
+        if builder.pk_name in row:
+            response.headers["Location"] = (
+                request.scope.get("root_path", "")
+                + path
+                + "/"
+                + quote(str(row[builder.pk_name]), safe="")
+            )
+        return row
 
     async def update(request: Request, id: str, data: Any, ctx: Context = dependency) -> Any:
         app.csrf.validate(request, ctx.principal)

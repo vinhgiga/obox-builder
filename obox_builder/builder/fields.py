@@ -123,4 +123,4 @@ def validate(model: type[BaseModel], data: Mapping[str, Any]) -> dict[str, Any]:
         for error in exc.errors(include_input=False, include_context=False):
             key = ".".join(str(part) for part in error["loc"]) or "__all__"
             errors.setdefault(key, []).append(error["msg"])
-        raise BuilderValidationError(errors) from exc
+        raise BuilderValidationError(errors, field_code="invalid_type") from exc

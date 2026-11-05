@@ -524,6 +524,13 @@ class ResourceService(Generic[T]):
         )
         self._check_fields(normalized, allowed)
         parsed = validate(schema("Input", b.specs, allowed, partial=True), normalized)
+        nulls = {
+            key: [N_("Field cannot be null.")]
+            for key, value in parsed.items()
+            if value is None and not b.specs[key].column.nullable
+        }
+        if nulls:
+            raise BuilderValidationError(nulls, field_code="invalid_type")
         presets = dict(b.policy.presets(action, ctx))
         for key in presets:
             if key not in b.specs or b.specs[key].readonly:
@@ -540,7 +547,7 @@ class ResourceService(Generic[T]):
                 and key not in presets
             }
             if missing:
-                raise BuilderValidationError(missing)
+                raise BuilderValidationError(missing, field_code="required")
         await self._relations(parsed, ctx)
         return {**parsed, **presets}, presets
 
@@ -595,8 +602,11 @@ class ResourceService(Generic[T]):
                 if spec.required and not spec.readonly and getattr(obj, key, None) is None
             }
             if missing:
-                raise BuilderValidationError(missing)
+                raise BuilderValidationError(missing, field_code="required")
         await ctx.session.flush()
+        state = sa.inspect(obj)
+        if state is not None and state.expired_attributes:
+            await ctx.session.refresh(obj, attribute_names=sorted(state.expired_attributes))
         if not await invoke(self.builder.policy.check, action, obj, ctx):
             raise PermissionDenied("The resulting record is not permitted.")
         if any(getattr(obj, key) != value for key, value in presets.items()):
@@ -652,6 +662,9 @@ class ResourceService(Generic[T]):
                 ctx,
                 created=True,
             )
+            for key, value in values.items():
+                if value is None and getattr(obj, key) is None:
+                    setattr(obj, key, sa.null())
             await self._finish("create", obj, presets, ctx)
             return cast(T, obj)
 
