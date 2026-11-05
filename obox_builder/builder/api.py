@@ -15,8 +15,9 @@ from obox_builder.builder.api_schema import ApiRequest, ApiResponse, FieldError,
 from obox_builder.builder.filters import parse_filter
 from obox_builder.builder.http import ApiRoute
 from obox_builder.builder.query import ListQuery, invalid, parse_terms
+from obox_builder.builder.service import invoke
 from obox_builder.context import Context
-from obox_builder.errors import BuilderValidationError, ImproperlyConfigured
+from obox_builder.errors import BuilderValidationError, ImproperlyConfigured, PermissionDenied
 
 
 class ActionInput(ApiRequest):
@@ -56,11 +57,16 @@ def json_value(value: Any) -> Any:
     return TypeAdapter[Any](Any).dump_python(value, mode="json")
 
 
-class ExpandedRecord(ApiResponse):
+class RecordOption(ApiResponse):
     id: Any
     label: str
 
     encode_id = field_serializer("id")(json_value)
+
+
+class OptionsPage(ApiResponse):
+    items: list[RecordOption]
+    page: Page
 
 
 def list_schema(builder: Any) -> type[BaseModel]:
@@ -83,7 +89,7 @@ def list_schema(builder: Any) -> type[BaseModel]:
     if any(field.alias == "expanded" for field in builder.read_schema.model_fields.values()):
         raise ImproperlyConfigured("The API field alias 'expanded' is reserved.")
     relationships: dict[str, Any] = {
-        name: (ExpandedRecord | None, None)
+        name: (RecordOption | None, None)
         for name, fk in builder.list_relation_fields.items()
         if fk in builder.api_read
     }
@@ -184,6 +190,45 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
 
     async def query_records(data: QueryInput, ctx: Context = dependency) -> Any:
         return await list_page(data.query, ctx)
+
+    if {"list", "retrieve"}.issubset(builder.api.operations):
+
+        @router.get(
+            path + ":queryOptions",
+            name=f"obox_api_{builder.slug}_query_options",
+            response_model=OptionsPage,
+            responses=problems,
+            tags=list(builder.api.tags or (builder.model.__name__,)),
+        )
+        async def list_options(request: Request, ctx: Context = dependency) -> Any:
+            await service.authorize("list", ctx)
+            await service.authorize("retrieve", ctx)
+            pk, label = builder.pk_name, builder.label_field
+            if pk not in builder.readable(ctx, fields=builder.api_read):
+                raise PermissionDenied("The primary key is not readable.")
+            params, filters = parse_terms(request.query_params.multi_items())
+            for name in ("select", "expand"):
+                if name in params:
+                    raise invalid(name, "Unknown query parameter.", "unknown_parameter")
+            objects, page = await service.page(ListQuery(params, filters), ctx=ctx, retrieve=True)
+            fields = [name for name in (pk, label) if name in builder.api_read]
+            items = []
+            for obj in objects:
+                if not await invoke(builder.policy.allow, "retrieve", ctx, obj=obj):
+                    continue
+                row = await service.serialize(obj, ctx=ctx, fields=fields)
+                if pk not in row:
+                    continue
+                value = row.get(label)
+                items.append(
+                    {
+                        "id": str(row[pk])
+                        if isinstance(builder.pk.type, sa.BigInteger)
+                        else row[pk],
+                        "label": str(row[pk] if value is None or value == "" else value),
+                    }
+                )
+            return {"items": items, "page": page}
 
     async def retrieve(id: str, ctx: Context = dependency) -> Any:
         return await service.serialize(

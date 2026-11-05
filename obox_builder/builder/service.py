@@ -225,12 +225,18 @@ class ResourceService(Generic[T]):
             stmt = stmt.limit(limit)
         return list((await ctx.session.scalars(stmt)).unique())
 
-    async def page(self, query: ListQuery, *, ctx: Context) -> tuple[Sequence[T], dict[str, Any]]:
+    async def page(
+        self, query: ListQuery, *, ctx: Context, retrieve: bool = False
+    ) -> tuple[Sequence[T], dict[str, Any]]:
         await self.authorize("list", ctx)
+        if retrieve:
+            await self.authorize("retrieve", ctx)
         b, params = self.builder, query.params
         stmt, readable = await self._list_statement(
             ctx=ctx, filter_group=query.filters, search=params.get("search")
         )
+        if retrieve:
+            stmt = stmt.where(b.policy.scope("retrieve", ctx))
         ordering = query.ordering(b, readable)
         limit = query.integer("limit", b.api.default_limit)
         offset = query.integer("offset", 0) or 0
@@ -248,11 +254,7 @@ class ResourceService(Generic[T]):
                 raise invalid(
                     "order", "Cursor ordering must be non-nullable.", "cursor_unsupported_ordering"
                 )
-        total = (
-            await self.count(ctx=ctx, filter_group=query.filters, search=params.get("search"))
-            if "count" in params
-            else None
-        )
+        total = await self._count(stmt, ctx) if "count" in params else None
         if "cursor" in params:
             stmt = stmt.where(query.cursor(b, self.app.csrf.secret))
         if limit == 0 and total is not None and "cursor" not in params:
@@ -362,6 +364,9 @@ class ResourceService(Generic[T]):
             filter_group=filter_group,
             search=search,
         )
+        return await self._count(stmt, ctx)
+
+    async def _count(self, stmt: Any, ctx: Context) -> int:
         selected = (
             stmt.order_by(None)
             .with_only_columns(self.builder.pk, maintain_column_froms=True)
