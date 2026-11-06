@@ -43,6 +43,12 @@ class RenameFile(BaseModel):
     filename: str = Field(min_length=1, max_length=255)
 
 
+class ReorderFiles(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    field: str = Field(min_length=1, max_length=511)
+    ids: list[UUID]
+
+
 def publish(files: Files, file: File, chunk: Path) -> None:
     temporary, final = files.root / "tmp" / str(file.id), files.root / file.key
     # A previous rename may have succeeded while its database commit failed.
@@ -125,6 +131,57 @@ def build_router(files: Files) -> APIRouter:
             ctx.session.add(file)
         return {**view(file), "chunk_size": CHUNK}
 
+    @router.put("/{owner_id}/order", name="obox_files_reorder")
+    async def reorder(
+        owner_id: str, body: ReorderFiles, request: Request, who: Any = principal
+    ) -> dict[str, Any]:
+        actor(who)
+        app.csrf.validate(request, who)
+        owner_type, _, field = body.field.rpartition(".")
+        if not owner_type:
+            raise NotFound("Unknown file field.")
+        files.rule(owner_type, field)
+        builder = files.builder(owner_type)
+        service = app.service(builder.model)
+        async with app.uow(principal=who, source="ui", request=request) as ctx:
+            obj = await service._get(owner_id, ctx, "update")
+            if field not in builder.writable(ctx, "update", obj=obj):
+                raise PermissionDenied("File field is not writable.")
+            if len(set(body.ids)) != len(body.ids):
+                raise BuilderValidationError({field: ["Use unique file IDs."]})
+            current = set(
+                (
+                    await ctx.session.scalars(
+                        sa.select(File.id).where(
+                            File.owner_type == owner_type,
+                            File.field == field,
+                            File.owner_id == owner_id,
+                            File.status == "ready",
+                        )
+                    )
+                ).all()
+            )
+            if current != set(body.ids):
+                raise BuilderValidationError(
+                    {field: ["Attachment list changed. Reload and try again."]}
+                )
+            if body.ids:
+                await ctx.session.execute(
+                    sa.update(File)
+                    .where(
+                        File.id.in_(body.ids),
+                        File.owner_type == owner_type,
+                        File.field == field,
+                        File.owner_id == owner_id,
+                    )
+                    .values(
+                        position=sa.case(
+                            {fid: index for index, fid in enumerate(body.ids)}, value=File.id
+                        )
+                    )
+                )
+        return {"ids": [str(fid) for fid in body.ids]}
+
     @router.get("/{fid}/state", name="obox_files_state")
     async def state(fid: UUID, request: Request, who: Any = principal) -> JSONResponse:
         async with app.uow(principal=who, source="ui", request=request) as ctx:
@@ -203,7 +260,7 @@ def build_router(files: Files) -> APIRouter:
                 obj = await app.service(builder.model)._get(file.owner_id, ctx, "update")
                 if file.field not in builder.writable(ctx, "update", obj=obj):
                     raise PermissionDenied("File field is not writable.")
-            files.rule(file.owner_type, file.field).check(body.filename, file.size)
+            files.rule(file.owner_type, file.field).check_name(body.filename)
             file.filename = body.filename
             return view(file)
 

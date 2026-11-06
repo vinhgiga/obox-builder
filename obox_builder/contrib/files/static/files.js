@@ -106,6 +106,240 @@ function save(box) {
   input.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
+const reorders = new WeakMap();
+const removed = new WeakSet();
+const FLIP_DURATION = 180;
+const FLIP_EASING = "cubic-bezier(0.2, 0, 0, 1)";
+const reducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+function persistOrder(box) {
+  if (!box.dataset.owner || removed.has(box)) return;
+  const attached = [...box.querySelectorAll('[data-file-id][data-attached="true"]')].map(
+    (card) => card.dataset.fileId,
+  );
+  if (!attached.length) return;
+  const body = JSON.stringify({
+    field: box.dataset.field,
+    ids: attached,
+  });
+  const errorBox = box.querySelector("[data-files-error]");
+  const request = async () => {
+    try {
+      await json(`${box.dataset.url}/${encodeURIComponent(box.dataset.owner)}/order`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": token(box) },
+        body,
+      });
+      if (errorBox.dataset.orderError) {
+        errorBox.textContent = "";
+        delete errorBox.dataset.orderError;
+      }
+    } catch (error) {
+      errorBox.dataset.orderError = "";
+      errorBox.textContent = `Could not save order: ${error.message}`;
+    }
+  };
+  reorders.set(box, (reorders.get(box) || Promise.resolve()).then(request, request));
+}
+
+function stopFlips(cards) {
+  for (const card of cards) {
+    for (const animation of card.getAnimations()) {
+      if (animation.id === "obox-file-flip") animation.cancel();
+    }
+  }
+}
+
+function flip(cards, update, skip) {
+  if (reducedMotion()) {
+    update();
+    return;
+  }
+  const before = new Map(cards.map((card) => [card, card.getBoundingClientRect()]));
+  update();
+  stopFlips(cards);
+  for (const card of cards) {
+    if (card === skip || !card.isConnected) continue;
+    const start = before.get(card);
+    const end = card.getBoundingClientRect();
+    const dx = start.left - end.left;
+    const dy = start.top - end.top;
+    if (!dx && !dy) continue;
+    const animation = card.animate(
+      [{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "translate(0, 0)" }],
+      { duration: FLIP_DURATION, easing: FLIP_EASING },
+    );
+    animation.id = "obox-file-flip";
+  }
+}
+
+function reorderCard(box, card, target, after) {
+  const cards = [...box.querySelectorAll("[data-file-id]")];
+  const others = cards.filter((item) => item !== card);
+  const index = others.indexOf(target) + (after ? 1 : 0);
+  if (index === cards.indexOf(card)) return false;
+  flip(
+    cards,
+    () => {
+      if (index < others.length) others[index].before(card);
+      else if (others.length) others[others.length - 1].after(card);
+      else card.parentElement.append(card);
+    },
+    card,
+  );
+  return true;
+}
+
+function targetAt(box, card, x, y) {
+  let nearest = null;
+  let distance = Infinity;
+  for (const item of box.querySelectorAll("[data-file-id]")) {
+    if (item === card) continue;
+    const rect = item.getBoundingClientRect();
+    const dx = Math.max(rect.left - x, 0, x - rect.right);
+    const dy = Math.max(rect.top - y, 0, y - rect.bottom);
+    const square = dx * dx + dy * dy;
+    if (square < distance) {
+      nearest = { item, rect };
+      distance = square;
+    }
+  }
+  if (!nearest) return null;
+  const { item, rect } = nearest;
+  const centerX = rect.left + rect.width / 2;
+  const centerY = rect.top + rect.height / 2;
+  const across = Math.abs(x - centerX) / Math.max(rect.width / 2, 1);
+  const down = Math.abs(y - centerY) / Math.max(rect.height / 2, 1);
+  return { target: item, after: across >= down ? x >= centerX : y >= centerY };
+}
+
+function sortable(box, card) {
+  let suppress = false;
+  card.addEventListener(
+    "click",
+    (event) => {
+      if (!suppress) return;
+      suppress = false;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    },
+    true,
+  );
+  card.addEventListener("dragstart", (event) => event.preventDefault());
+
+  card.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0 || event.isPrimary === false) return;
+    const control = event.target.closest("button, a, input, select, textarea");
+    const handle = control?.classList.contains("obox-file-grip");
+    const preview = control?.classList.contains("obox-file-preview");
+    if (control && !handle && !preview) return;
+    if (event.pointerType !== "mouse" && !handle) return;
+    const origin = { x: event.clientX, y: event.clientY, pointerId: event.pointerId };
+    let drag = null;
+
+    const move = (current) => {
+      if (current.pointerId !== origin.pointerId) return;
+      if (!drag) {
+        if (Math.hypot(current.clientX - origin.x, current.clientY - origin.y) < 5) return;
+        drag = beginDrag(box, card, origin);
+        if (!drag) return;
+        try {
+          card.setPointerCapture(current.pointerId);
+        } catch {
+          /* Synthetic pointers cannot always be captured. */
+        }
+      }
+      current.preventDefault();
+      drag.move(current);
+    };
+
+    const end = (current) => {
+      if (current.pointerId !== origin.pointerId) return;
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
+      if (!drag) return;
+      drag.end(current);
+      suppress = true;
+      setTimeout(() => {
+        suppress = false;
+      }, 0);
+    };
+
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
+  });
+}
+
+function beginDrag(box, card, origin) {
+  const rect = card.getBoundingClientRect();
+  if (!rect.width || !rect.height) return null;
+  const overlay = card.cloneNode(true);
+  overlay.removeAttribute("data-file-id");
+  overlay.removeAttribute("role");
+  overlay.classList.add("obox-file-drag-overlay");
+  overlay.classList.remove("is-dragging");
+  overlay.setAttribute("aria-hidden", "true");
+  overlay.inert = true;
+  Object.assign(overlay.style, {
+    left: `${rect.left}px`,
+    top: `${rect.top}px`,
+    width: `${rect.width}px`,
+    height: `${rect.height}px`,
+  });
+  document.body.append(overlay);
+  card.classList.add("is-dragging");
+  box.classList.add("is-sorting");
+  document.body.classList.add("obox-file-sorting");
+  let dx = 0;
+  let dy = 0;
+
+  function move(event) {
+    dx = event.clientX - origin.x;
+    dy = event.clientY - origin.y;
+    overlay.style.transform = `translate3d(${dx}px, ${dy}px, 0) rotate(1.5deg) scale(1.03)`;
+    const target = targetAt(
+      box,
+      card,
+      rect.left + rect.width / 2 + dx,
+      rect.top + rect.height / 2 + dy,
+    );
+    if (target) reorderCard(box, card, target.target, target.after);
+  }
+
+  function end(event) {
+    if (card.hasPointerCapture?.(event.pointerId)) card.releasePointerCapture(event.pointerId);
+    save(box);
+    persistOrder(box);
+    const finish = () => {
+      overlay.remove();
+      card.classList.remove("is-dragging");
+      box.classList.remove("is-sorting");
+      document.body.classList.remove("obox-file-sorting");
+    };
+    if (reducedMotion()) {
+      finish();
+      return;
+    }
+    const target = card.getBoundingClientRect();
+    const animation = overlay.animate(
+      [
+        {
+          transform: `translate3d(${dx}px, ${dy}px, 0) rotate(1.5deg) scale(1.03)`,
+        },
+        {
+          transform: `translate3d(${target.left - rect.left}px, ${target.top - rect.top}px, 0) rotate(0deg) scale(1)`,
+        },
+      ],
+      { duration: FLIP_DURATION, easing: FLIP_EASING, fill: "forwards" },
+    );
+    animation.finished.catch(() => {}).then(finish);
+  }
+
+  return { move, end };
+}
+
 function button(label, text, action) {
   const item = document.createElement("button");
   item.type = "button";
@@ -113,6 +347,13 @@ function button(label, text, action) {
   item.title = label;
   item.setAttribute("aria-label", label);
   item.onclick = action;
+  return item;
+}
+
+function actionButton(label, name, action) {
+  const item = button(label, "", action);
+  item.className = "obox-file-action";
+  item.append(icon(name));
   return item;
 }
 
@@ -148,6 +389,24 @@ const iconShapes = {
     ["path", { d: "M20 14v5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-5" }],
     ["path", { d: "m7 9 5 5 5-5M12 14V4" }],
   ],
+  file: [
+    ["path", { d: "M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z" }],
+    ["path", { d: "M14 3v5h5" }],
+    ["path", { d: "M9 13h6M9 17h4" }],
+  ],
+  edit: [["path", { d: "M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" }]],
+  trash: [
+    ["path", { d: "M3 6h18" }],
+    ["path", { d: "M8 6V4h8v2" }],
+    ["path", { d: "M19 6v13a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" }],
+    ["path", { d: "M10 11v6M14 11v6" }],
+  ],
+  grip: [5, 12, 19].flatMap((cy) =>
+    [9, 15].map((cx) => [
+      "circle",
+      { cx: String(cx), cy: String(cy), r: "1.15", fill: "currentColor", stroke: "none" },
+    ]),
+  ),
   grid: [
     ["rect", { x: "4", y: "4", width: "6", height: "6", rx: "1" }],
     ["rect", { x: "14", y: "4", width: "6", height: "6", rx: "1" }],
@@ -173,6 +432,12 @@ function svgIcon(shapes) {
     for (const [name, value] of Object.entries(attributes)) shape.setAttribute(name, value);
     svg.append(shape);
   }
+  return svg;
+}
+
+function icon(name, className) {
+  const svg = svgIcon(iconShapes[name]);
+  if (className) svg.setAttribute("class", className);
   return svg;
 }
 
@@ -596,41 +861,56 @@ function preview(box, card) {
   dialog.focus();
 }
 
-function entry(box, id, meta) {
+function entry(box, id, meta, attached = false) {
   const card = document.createElement("div");
   card.className = "obox-file";
   card.dataset.fileId = id;
+  card.dataset.attached = String(attached);
   card.setAttribute("role", "listitem");
   const url = `${box.dataset.url}/${encodeURIComponent(id)}`;
-  const thumb = button("Preview file", "File", () => preview(box, card));
+  const thumb = button("Preview file", "", () => preview(box, card));
   thumb.className = "obox-file-preview";
+  thumb.append(icon("file", "obox-file-icon"));
   const name = document.createElement("span");
   name.className = "obox-file-name";
   const actions = document.createElement("div");
   actions.className = "obox-file-actions";
   const download = document.createElement("a");
+  download.className = "obox-file-action";
   download.href = `${url}?download=true`;
-  download.textContent = "↓";
   download.title = "Download";
   download.setAttribute("aria-label", "Download");
-  actions.append(download);
+  download.append(icon("download"));
   function update(value) {
     metadata.set(card, value);
     name.textContent = name.title = value.filename;
     thumb.setAttribute("aria-label", `Preview ${value.filename}`);
     const image = media(value, url);
-    thumb.replaceChildren(image || document.createTextNode("File"));
+    image?.addEventListener("error", () => thumb.replaceChildren(icon("file", "obox-file-icon")), {
+      once: true,
+    });
+    thumb.replaceChildren(image || icon("file", "obox-file-icon"));
   }
   if (box.dataset.readonly === "false") {
     const move = (step) => {
-      const sibling = step < 0 ? card.previousElementSibling : card.nextElementSibling;
-      if (!sibling?.dataset.fileId) return;
-      if (step < 0) sibling.before(card);
-      else sibling.after(card);
-      save(box);
+      const cards = [...box.querySelectorAll("[data-file-id]")];
+      const target = cards[cards.indexOf(card) + step];
+      if (!target) return;
+      if (reorderCard(box, card, target, step > 0)) {
+        save(box);
+        persistOrder(box);
+      }
     };
+    const grip = actionButton("Drag or use arrow keys to reorder", "grip", () => {});
+    grip.classList.add("obox-file-grip");
+    grip.addEventListener("keydown", (event) => {
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+      event.preventDefault();
+      move(event.key === "ArrowLeft" ? -1 : 1);
+      grip.focus();
+    });
     actions.append(
-      button("Rename file", "✎", async () => {
+      actionButton("Rename file", "edit", async () => {
         const filename = window.prompt("File name", metadata.get(card)?.filename || id);
         if (!filename) return;
         try {
@@ -645,31 +925,22 @@ function entry(box, id, meta) {
           box.querySelector("[data-files-error]").textContent = error.message;
         }
       }),
-      button("Move file left", "←", () => move(-1)),
-      button("Move file right", "→", () => move(1)),
-      button("Remove file", "×", () => {
+      download,
+      actionButton("Remove file", "trash", () => {
+        removed.add(box);
         card.remove();
         save(box);
       }),
+      grip,
     );
-    card.draggable = true;
-    card.addEventListener("dragstart", (event) => {
-      event.dataTransfer.setData("application/x-obox-file", id);
-      event.dataTransfer.effectAllowed = "move";
-    });
-    card.addEventListener("drop", (event) => {
-      const sourceId = event.dataTransfer.getData("application/x-obox-file");
-      const source = [...box.querySelectorAll("[data-file-id]")].find(
-        (item) => item.dataset.fileId === sourceId,
-      );
-      if (source && source !== card) {
-        event.preventDefault();
-        card.before(source);
-        save(box);
-      }
-    });
+    sortable(box, card);
+  } else {
+    actions.append(download);
   }
-  card.append(thumb, name, actions);
+  const footer = document.createElement("div");
+  footer.className = "obox-file-footer";
+  footer.append(name, actions);
+  card.append(thumb, footer);
   box.querySelector("[data-files-list]").append(card);
   if (meta) update(meta);
   else {
@@ -705,7 +976,7 @@ async function addFiles(box, selected) {
   try {
     for (const file of selected) {
       const row = document.createElement("div");
-      row.className = "obox-file";
+      row.className = "obox-file obox-file-upload";
       const name = document.createElement("span");
       name.className = "obox-file-name";
       name.textContent = file.name;
@@ -751,6 +1022,7 @@ function initialize(root) {
           box,
           id,
           records.find((meta) => meta.id === id),
+          Boolean(box.dataset.owner),
         );
     } catch {
       box.querySelector("[data-files-error]").textContent = "Invalid attachment list.";

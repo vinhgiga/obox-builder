@@ -47,21 +47,25 @@ class Rule:
                 "Use valid file types, a positive size and consistent counts."
             )
 
+    def check_name(self, filename: str) -> None:
+        suffix = PurePosixPath(filename).suffix.lower()
+        if (
+            not filename
+            or len(filename) > 255
+            or filename in {".", ".."}
+            or (self.types is not None and suffix and suffix not in self.types)
+            or any(ord(char) < 32 or ord(char) == 127 or char in "/\\" for char in filename)
+        ):
+            raise BuilderValidationError({"filename": ["File name is not allowed."]})
+
     def check(self, filename: str, size: int) -> str:
+        self.check_name(filename)
         media_type = (
             self.types.get(PurePosixPath(filename).suffix.lower())
             if self.types is not None
             else "application/octet-stream"
         )
-        if (
-            not filename
-            or len(filename) > 255
-            or filename in {".", ".."}
-            or not media_type
-            or size < 1
-            or (self.max_size is not None and size > self.max_size)
-            or any(ord(char) < 32 or ord(char) == 127 or char in "/\\" for char in filename)
-        ):
+        if not media_type or size < 1 or (self.max_size is not None and size > self.max_size):
             raise BuilderValidationError({"filename": ["File type, name or size is not allowed."]})
         return media_type
 

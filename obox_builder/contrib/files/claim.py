@@ -87,7 +87,7 @@ def synchronize(
                     {field: ["File unavailable, not ready or already attached."]}
                 )
             for index, file in enumerate(value):
-                rule.check(file.filename, file.size)
+                rule.check_name(file.filename)
                 set_committed_value(file, "owner_id", owner)
                 set_committed_value(file, "position", index)
                 set_committed_value(file, "unclaimed_at", None)
