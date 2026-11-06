@@ -47,16 +47,16 @@ msgid "Enter valid JSON."
 msgstr "Nhập JSON hợp lệ."
 
 #: obox_builder/builder/ui.py:566 obox_builder/contrib/auth/admin.py:260
-#, fuzzy
 msgid "Users"
-msgstr "Tên đăng nhập"
+msgstr "Người dùng"
 
 #: obox_builder/builder/ui.py:571 obox_builder/contrib/auth/admin.py:472
 #: obox_builder/contrib/auth/admin.py:507
 #: obox_builder/contrib/auth/admin.py:560
-#, fuzzy
+#: obox_builder/contrib/auth/templates/obox/auth/user_form.html:96
+#: obox_builder/contrib/auth/templates/obox/profile.html:34
 msgid "Roles"
-msgstr "Đặt lại"
+msgstr "Vai trò"
 
 #: obox_builder/builder/ui.py:740 obox_builder/builder/ui.py:743
 msgid "Invalid inline count."
@@ -71,6 +71,7 @@ msgid "Unknown inline field."
 msgstr "Trường inline không hợp lệ."
 
 #: obox_builder/builder/ui.py:1059 obox_builder/contrib/auth/admin.py:233
+#: obox_builder/contrib/auth/views.py:214
 msgid "Duplicate form fields are not permitted."
 msgstr "Không được gửi trường trùng lặp."
 
@@ -101,6 +102,7 @@ msgstr "Đã sửa"
 #: obox_builder/builder/templates/obox/_record_content.html:5
 #: obox_builder/builder/templates/obox/_record_fields.html:49
 #: obox_builder/builder/templates/obox/detail.html:3
+#: obox_builder/contrib/auth/templates/obox/auth/users.html:33
 msgid "Edit"
 msgstr "Sửa"
 
@@ -109,6 +111,7 @@ msgstr "Sửa"
 #: obox_builder/builder/templates/obox/detail.html:9
 #: obox_builder/builder/templates/obox/form.html:77
 #: obox_builder/builder/templates/obox/form.html:126
+#: obox_builder/contrib/auth/templates/obox/auth/users.html:40
 msgid "Delete"
 msgstr "Xoá"
 
@@ -131,12 +134,15 @@ msgstr "Bình luận"
 #: obox_builder/builder/templates/obox/_record_comment.html:11
 #: obox_builder/builder/templates/obox/_record_fields.html:30
 #: obox_builder/builder/templates/obox/form.html:117
+#: obox_builder/contrib/auth/templates/obox/auth/roles.html:86
+#: obox_builder/contrib/auth/templates/obox/auth/user_form.html:192
 msgid "Save"
 msgstr "Lưu"
 
 #: obox_builder/builder/templates/obox/_record_comment.html:12
 #: obox_builder/builder/templates/obox/_record_fields.html:33
 #: obox_builder/builder/templates/obox/list.html:80
+#: obox_builder/contrib/auth/templates/obox/auth/user_form.html:194
 msgid "Cancel"
 msgstr "Hủy"
 
@@ -174,15 +180,15 @@ msgstr "Không có tài nguyên nào cho tài khoản của bạn."
 msgid "Skip to content"
 msgstr "Bỏ qua nội dung"
 
-#: obox_builder/builder/templates/obox/base.html:33
+#: obox_builder/builder/templates/obox/base.html:38
 msgid "Sign out"
 msgstr "Đăng xuất"
 
-#: obox_builder/builder/templates/obox/base.html:38
+#: obox_builder/builder/templates/obox/base.html:43
 msgid "Language"
 msgstr "Ngôn ngữ"
 
-#: obox_builder/builder/templates/obox/base.html:51
+#: obox_builder/builder/templates/obox/base.html:56
 msgid "Resources"
 msgstr "Tài nguyên"
 
@@ -215,6 +221,8 @@ msgstr "Xoá?"
 
 #: obox_builder/builder/templates/obox/form.html:83
 #: obox_builder/builder/templates/obox/form.html:104
+#: obox_builder/contrib/auth/templates/obox/auth/user_form.html:99
+#: obox_builder/contrib/auth/templates/obox/auth/user_form.html:108
 msgid "Remove"
 msgstr "Bỏ"
 
@@ -458,6 +466,7 @@ msgid "Next page →"
 msgstr "Trang sau →"
 
 #: obox_builder/builder/templates/obox/login.html:28
+#: obox_builder/contrib/auth/templates/obox/auth/user_form.html:45
 msgid "Password"
 msgstr "Mật khẩu"
 
@@ -466,11 +475,14 @@ msgid "Show password"
 msgstr "Hiện mật khẩu"
 
 #: obox_builder/builder/templates/obox/login.html:42
-#: obox_builder/contrib/auth/views.py:59
+#: obox_builder/contrib/auth/views.py:67
 msgid "Sign in"
 msgstr "Đăng nhập"
 
-#: obox_builder/contrib/auth/__init__.py:81
+#: obox_builder/contrib/auth/__init__.py:83
+#: obox_builder/contrib/auth/templates/obox/auth/user_form.html:19
+#: obox_builder/contrib/auth/templates/obox/auth/users.html:19
+#: obox_builder/contrib/auth/templates/obox/profile.html:14
 msgid "Username"
 msgstr "Tên đăng nhập"
 
@@ -483,9 +495,8 @@ msgid "At least one superuser is required."
 msgstr ""
 
 #: obox_builder/contrib/auth/admin.py:184
-#, fuzzy
 msgid "Authentication is required."
-msgstr "Trường này là bắt buộc."
+msgstr "Cần đăng nhập."
 
 #: obox_builder/contrib/auth/admin.py:186
 msgid "Superuser access is required."
@@ -504,7 +515,8 @@ msgstr ""
 #: obox_builder/contrib/auth/admin.py:340
 #: obox_builder/contrib/auth/admin.py:486
 #: obox_builder/contrib/auth/admin.py:533
-#, fuzzy
+#: obox_builder/contrib/auth/views.py:221
+#: obox_builder/contrib/auth/views.py:229
 msgid "This field is required."
 msgstr "Trường này là bắt buộc."
 
@@ -530,8 +542,9 @@ msgid "Choose valid roles."
 msgstr ""
 
 #: obox_builder/contrib/auth/admin.py:342
+#: obox_builder/contrib/auth/views.py:231
 msgid "Passwords do not match."
-msgstr ""
+msgstr "Mật khẩu xác nhận không khớp."
 
 #: obox_builder/contrib/auth/admin.py:361
 msgid "You cannot deactivate your own account."
@@ -568,13 +581,180 @@ msgstr ""
 msgid "This password is entirely numeric."
 msgstr ""
 
-#: obox_builder/contrib/auth/views.py:53
+#: obox_builder/contrib/auth/views.py:61
 msgid "Invalid username or password."
 msgstr "Tên đăng nhập hoặc mật khẩu không đúng."
 
-#: obox_builder/contrib/auth/views.py:106
+#: obox_builder/contrib/auth/views.py:114
+#: obox_builder/contrib/auth/views.py:160
 msgid "Account"
 msgstr "Tài khoản"
+
+#: obox_builder/contrib/auth/views.py:209
+#: obox_builder/contrib/auth/views.py:241
+msgid "Password changes are not supported by this backend."
+msgstr "Backend này không hỗ trợ đổi mật khẩu."
+
+#: obox_builder/contrib/auth/views.py:223
+msgid "Use at most 1024 characters."
+msgstr "Chỉ được dùng tối đa 1024 ký tự."
+
+#: obox_builder/contrib/auth/views.py:227
+msgid "Current password is incorrect."
+msgstr "Mật khẩu hiện tại không đúng."
+
+#: obox_builder/contrib/auth/templates/obox/profile.html:11
+msgid "Password changed successfully."
+msgstr "Đã đổi mật khẩu."
+
+#: obox_builder/contrib/auth/templates/obox/auth/user_form.html:30
+#: obox_builder/contrib/auth/templates/obox/auth/users.html:20
+#: obox_builder/contrib/auth/templates/obox/profile.html:18
+msgid "Email"
+msgstr "Email"
+
+#: obox_builder/contrib/auth/templates/obox/auth/user_form.html:69
+#: obox_builder/contrib/auth/templates/obox/auth/users.html:21
+#: obox_builder/contrib/auth/templates/obox/profile.html:22
+msgid "First name"
+msgstr "Tên"
+
+#: obox_builder/contrib/auth/templates/obox/auth/user_form.html:78
+#: obox_builder/contrib/auth/templates/obox/auth/users.html:22
+#: obox_builder/contrib/auth/templates/obox/profile.html:26
+msgid "Last name"
+msgstr "Họ"
+
+#: obox_builder/contrib/auth/templates/obox/auth/user_form.html:87
+#: obox_builder/contrib/auth/templates/obox/auth/users.html:23
+#: obox_builder/contrib/auth/templates/obox/profile.html:30
+msgid "Department"
+msgstr "Phòng ban"
+
+#: obox_builder/contrib/auth/templates/obox/profile.html:42
+msgid "Status"
+msgstr "Trạng thái"
+
+#: obox_builder/contrib/auth/templates/obox/auth/user_form.html:188
+#: obox_builder/contrib/auth/templates/obox/auth/users.html:24
+#: obox_builder/contrib/auth/templates/obox/profile.html:45
+msgid "Active"
+msgstr "Đang hoạt động"
+
+#: obox_builder/contrib/auth/templates/obox/profile.html:47
+msgid "Inactive"
+msgstr "Ngừng hoạt động"
+
+#: obox_builder/contrib/auth/templates/obox/profile.html:50
+msgid "Superuser"
+msgstr "Siêu quản trị viên"
+
+#: obox_builder/contrib/auth/templates/obox/profile.html:55
+#: obox_builder/contrib/auth/templates/obox/profile.html:96
+msgid "Change password"
+msgstr "Đổi mật khẩu"
+
+#: obox_builder/contrib/auth/templates/obox/profile.html:62
+msgid "Current password"
+msgstr "Mật khẩu hiện tại"
+
+#: obox_builder/contrib/auth/templates/obox/auth/user_form.html:43
+#: obox_builder/contrib/auth/templates/obox/profile.html:73
+msgid "New password"
+msgstr "Mật khẩu mới"
+
+#: obox_builder/contrib/auth/templates/obox/auth/user_form.html:59
+#: obox_builder/contrib/auth/templates/obox/profile.html:84
+msgid "Confirm password"
+msgstr "Xác nhận mật khẩu"
+
+#: obox_builder/contrib/auth/templates/obox/auth/roles.html:51
+msgid "New role"
+msgstr "Vai trò mới"
+
+#: obox_builder/contrib/auth/templates/obox/auth/roles.html:63
+msgid "Name"
+msgstr "Tên"
+
+#: obox_builder/contrib/auth/templates/obox/auth/roles.html:75
+msgid "Permissions"
+msgstr "Quyền"
+
+#: obox_builder/contrib/auth/templates/obox/auth/roles.html:84
+msgid "Create role"
+msgstr "Tạo vai trò"
+
+#: obox_builder/contrib/auth/templates/obox/auth/roles.html:94
+msgid "Delete this role?"
+msgstr "Xoá vai trò này?"
+
+#: obox_builder/contrib/auth/templates/obox/auth/roles.html:97
+msgid "Delete role"
+msgstr "Xoá vai trò"
+
+#: obox_builder/contrib/auth/templates/obox/auth/roles.html:105
+msgid "Role saved."
+msgstr "Đã lưu vai trò."
+
+#: obox_builder/contrib/auth/templates/obox/auth/roles.html:108
+msgid "Role deleted."
+msgstr "Đã xoá vai trò."
+
+#: obox_builder/contrib/auth/templates/obox/auth/user_form.html:11
+msgid "Back to users"
+msgstr "Quay lại danh sách người dùng"
+
+#: obox_builder/contrib/auth/templates/obox/auth/user_form.html:55
+msgid "Leave blank to keep the current password."
+msgstr "Để trống để giữ mật khẩu hiện tại."
+
+#: obox_builder/contrib/auth/templates/obox/auth/user_form.html:113
+msgid "Choose roles"
+msgstr "Chọn vai trò"
+
+#: obox_builder/contrib/auth/templates/obox/auth/user_form.html:145
+msgid "No roles have been created yet."
+msgstr "Chưa có vai trò nào."
+
+#: obox_builder/contrib/auth/templates/obox/auth/user_form.html:152
+msgid "Preview permissions"
+msgstr "Xem trước quyền"
+
+#: obox_builder/contrib/auth/templates/obox/auth/user_form.html:157
+msgid "No permissions are granted by the selected roles."
+msgstr "Các vai trò đã chọn không cấp quyền nào."
+
+#: obox_builder/contrib/auth/templates/obox/auth/users.html:4
+msgid "New user"
+msgstr "Người dùng mới"
+
+#: obox_builder/contrib/auth/templates/obox/auth/users.html:7
+msgid "User saved."
+msgstr "Đã lưu người dùng."
+
+#: obox_builder/contrib/auth/templates/obox/auth/users.html:10
+msgid "User deleted."
+msgstr "Đã xoá người dùng."
+
+#: obox_builder/contrib/auth/templates/obox/auth/users.html:17
+msgid "Actions"
+msgstr "Thao tác"
+
+#: obox_builder/contrib/auth/templates/obox/auth/users.html:37
+msgid "Delete this user?"
+msgstr "Xoá người dùng này?"
+
+#: obox_builder/contrib/auth/templates/obox/auth/users.html:55
+msgid "active"
+msgstr "đang hoạt động"
+
+#: obox_builder/contrib/auth/templates/obox/auth/users.html:57
+msgid "inactive"
+msgstr "ngừng hoạt động"
+
+#: obox_builder/contrib/auth/templates/obox/auth/users.html:63
+msgid "No users found."
+msgstr "Không tìm thấy người dùng nào."
 
 #~ msgid "Search"
 #~ msgstr "Tìm kiếm"

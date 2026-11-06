@@ -27,7 +27,12 @@
               <form class="navbar-nav flex-row align-items-center gap-3 ms-auto m-0"
                     method="post"
                     action="{{ auth.logout_url(request) }}">
-                <span>{{ principal.username }}</span>
+                {% set profile_url = auth.profile_url(request) %}
+                {% if profile_url %}
+                  <a class="nav-link p-0" href="{{ profile_url }}">{{ principal.username }}</a>
+                {% else %}
+                  <span>{{ principal.username }}</span>
+                {% endif %}
                 <input type="hidden" name="csrf_token" value="{{ csrf }}">
                 <button class="btn btn-outline-secondary btn-sm"
                         type="submit">{% trans %}Sign out{% endtrans %}</button>

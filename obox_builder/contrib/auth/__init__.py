@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from starlette.routing import NoMatchFound
 
 from obox_builder.auth import Identity, Principal, StaffOnly
 from obox_builder.contrib.auth.backends import Backend, ModelBackend
@@ -47,6 +48,7 @@ class Auth:
     login_route = "obox_login"
     logout_route = "obox_logout"
     account_route = "obox_account"
+    profile_route = "obox_profile"
     users_route = "obox_auth_users"
     roles_route = "obox_auth_roles"
 
@@ -124,6 +126,14 @@ class Auth:
 
     def account_url(self, request: Request) -> str:
         return self._url(request, self.account_route)
+
+    def profile_url(self, request: Request) -> str:
+        for route in (self.profile_route, self.account_route):
+            try:
+                return self._url(request, route)
+            except NoMatchFound:
+                continue
+        return ""
 
     def users_url(self, request: Request) -> str:
         return self._url(request, self.users_route)

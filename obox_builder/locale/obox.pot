@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-11-06 12:59+0700\n"
+"POT-Creation-Date: 2026-11-06 17:19+0700\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -52,6 +52,8 @@ msgstr ""
 #: obox_builder/builder/ui.py:571 obox_builder/contrib/auth/admin.py:472
 #: obox_builder/contrib/auth/admin.py:507
 #: obox_builder/contrib/auth/admin.py:560
+#: obox_builder/contrib/auth/templates/obox/auth/user_form.html:96
+#: obox_builder/contrib/auth/templates/obox/profile.html:34
 msgid "Roles"
 msgstr ""
 
@@ -68,6 +70,7 @@ msgid "Unknown inline field."
 msgstr ""
 
 #: obox_builder/builder/ui.py:1059 obox_builder/contrib/auth/admin.py:233
+#: obox_builder/contrib/auth/views.py:214
 msgid "Duplicate form fields are not permitted."
 msgstr ""
 
@@ -98,6 +101,7 @@ msgstr ""
 #: obox_builder/builder/templates/obox/_record_content.html:5
 #: obox_builder/builder/templates/obox/_record_fields.html:49
 #: obox_builder/builder/templates/obox/detail.html:3
+#: obox_builder/contrib/auth/templates/obox/auth/users.html:33
 msgid "Edit"
 msgstr ""
 
@@ -106,6 +110,7 @@ msgstr ""
 #: obox_builder/builder/templates/obox/detail.html:9
 #: obox_builder/builder/templates/obox/form.html:77
 #: obox_builder/builder/templates/obox/form.html:126
+#: obox_builder/contrib/auth/templates/obox/auth/users.html:40
 msgid "Delete"
 msgstr ""
 
@@ -128,12 +133,15 @@ msgstr ""
 #: obox_builder/builder/templates/obox/_record_comment.html:11
 #: obox_builder/builder/templates/obox/_record_fields.html:30
 #: obox_builder/builder/templates/obox/form.html:117
+#: obox_builder/contrib/auth/templates/obox/auth/roles.html:86
+#: obox_builder/contrib/auth/templates/obox/auth/user_form.html:192
 msgid "Save"
 msgstr ""
 
 #: obox_builder/builder/templates/obox/_record_comment.html:12
 #: obox_builder/builder/templates/obox/_record_fields.html:33
 #: obox_builder/builder/templates/obox/list.html:80
+#: obox_builder/contrib/auth/templates/obox/auth/user_form.html:194
 msgid "Cancel"
 msgstr ""
 
@@ -171,15 +179,15 @@ msgstr ""
 msgid "Skip to content"
 msgstr ""
 
-#: obox_builder/builder/templates/obox/base.html:33
+#: obox_builder/builder/templates/obox/base.html:38
 msgid "Sign out"
 msgstr ""
 
-#: obox_builder/builder/templates/obox/base.html:38
+#: obox_builder/builder/templates/obox/base.html:43
 msgid "Language"
 msgstr ""
 
-#: obox_builder/builder/templates/obox/base.html:51
+#: obox_builder/builder/templates/obox/base.html:56
 msgid "Resources"
 msgstr ""
 
@@ -212,6 +220,8 @@ msgstr ""
 
 #: obox_builder/builder/templates/obox/form.html:83
 #: obox_builder/builder/templates/obox/form.html:104
+#: obox_builder/contrib/auth/templates/obox/auth/user_form.html:99
+#: obox_builder/contrib/auth/templates/obox/auth/user_form.html:108
 msgid "Remove"
 msgstr ""
 
@@ -447,6 +457,7 @@ msgid "Next page →"
 msgstr ""
 
 #: obox_builder/builder/templates/obox/login.html:28
+#: obox_builder/contrib/auth/templates/obox/auth/user_form.html:45
 msgid "Password"
 msgstr ""
 
@@ -455,11 +466,14 @@ msgid "Show password"
 msgstr ""
 
 #: obox_builder/builder/templates/obox/login.html:42
-#: obox_builder/contrib/auth/views.py:59
+#: obox_builder/contrib/auth/views.py:67
 msgid "Sign in"
 msgstr ""
 
-#: obox_builder/contrib/auth/__init__.py:81
+#: obox_builder/contrib/auth/__init__.py:83
+#: obox_builder/contrib/auth/templates/obox/auth/user_form.html:19
+#: obox_builder/contrib/auth/templates/obox/auth/users.html:19
+#: obox_builder/contrib/auth/templates/obox/profile.html:14
 msgid "Username"
 msgstr ""
 
@@ -492,6 +506,8 @@ msgstr ""
 #: obox_builder/contrib/auth/admin.py:340
 #: obox_builder/contrib/auth/admin.py:486
 #: obox_builder/contrib/auth/admin.py:533
+#: obox_builder/contrib/auth/views.py:221
+#: obox_builder/contrib/auth/views.py:229
 msgid "This field is required."
 msgstr ""
 
@@ -517,6 +533,7 @@ msgid "Choose valid roles."
 msgstr ""
 
 #: obox_builder/contrib/auth/admin.py:342
+#: obox_builder/contrib/auth/views.py:231
 msgid "Passwords do not match."
 msgstr ""
 
@@ -555,10 +572,177 @@ msgstr ""
 msgid "This password is entirely numeric."
 msgstr ""
 
-#: obox_builder/contrib/auth/views.py:53
+#: obox_builder/contrib/auth/views.py:61
 msgid "Invalid username or password."
 msgstr ""
 
-#: obox_builder/contrib/auth/views.py:106
+#: obox_builder/contrib/auth/views.py:114
+#: obox_builder/contrib/auth/views.py:160
 msgid "Account"
+msgstr ""
+
+#: obox_builder/contrib/auth/views.py:209
+#: obox_builder/contrib/auth/views.py:241
+msgid "Password changes are not supported by this backend."
+msgstr ""
+
+#: obox_builder/contrib/auth/views.py:223
+msgid "Use at most 1024 characters."
+msgstr ""
+
+#: obox_builder/contrib/auth/views.py:227
+msgid "Current password is incorrect."
+msgstr ""
+
+#: obox_builder/contrib/auth/templates/obox/profile.html:11
+msgid "Password changed successfully."
+msgstr ""
+
+#: obox_builder/contrib/auth/templates/obox/auth/user_form.html:30
+#: obox_builder/contrib/auth/templates/obox/auth/users.html:20
+#: obox_builder/contrib/auth/templates/obox/profile.html:18
+msgid "Email"
+msgstr ""
+
+#: obox_builder/contrib/auth/templates/obox/auth/user_form.html:69
+#: obox_builder/contrib/auth/templates/obox/auth/users.html:21
+#: obox_builder/contrib/auth/templates/obox/profile.html:22
+msgid "First name"
+msgstr ""
+
+#: obox_builder/contrib/auth/templates/obox/auth/user_form.html:78
+#: obox_builder/contrib/auth/templates/obox/auth/users.html:22
+#: obox_builder/contrib/auth/templates/obox/profile.html:26
+msgid "Last name"
+msgstr ""
+
+#: obox_builder/contrib/auth/templates/obox/auth/user_form.html:87
+#: obox_builder/contrib/auth/templates/obox/auth/users.html:23
+#: obox_builder/contrib/auth/templates/obox/profile.html:30
+msgid "Department"
+msgstr ""
+
+#: obox_builder/contrib/auth/templates/obox/profile.html:42
+msgid "Status"
+msgstr ""
+
+#: obox_builder/contrib/auth/templates/obox/auth/user_form.html:188
+#: obox_builder/contrib/auth/templates/obox/auth/users.html:24
+#: obox_builder/contrib/auth/templates/obox/profile.html:45
+msgid "Active"
+msgstr ""
+
+#: obox_builder/contrib/auth/templates/obox/profile.html:47
+msgid "Inactive"
+msgstr ""
+
+#: obox_builder/contrib/auth/templates/obox/profile.html:50
+msgid "Superuser"
+msgstr ""
+
+#: obox_builder/contrib/auth/templates/obox/profile.html:55
+#: obox_builder/contrib/auth/templates/obox/profile.html:96
+msgid "Change password"
+msgstr ""
+
+#: obox_builder/contrib/auth/templates/obox/profile.html:62
+msgid "Current password"
+msgstr ""
+
+#: obox_builder/contrib/auth/templates/obox/auth/user_form.html:43
+#: obox_builder/contrib/auth/templates/obox/profile.html:73
+msgid "New password"
+msgstr ""
+
+#: obox_builder/contrib/auth/templates/obox/auth/user_form.html:59
+#: obox_builder/contrib/auth/templates/obox/profile.html:84
+msgid "Confirm password"
+msgstr ""
+
+#: obox_builder/contrib/auth/templates/obox/auth/roles.html:51
+msgid "New role"
+msgstr ""
+
+#: obox_builder/contrib/auth/templates/obox/auth/roles.html:63
+msgid "Name"
+msgstr ""
+
+#: obox_builder/contrib/auth/templates/obox/auth/roles.html:75
+msgid "Permissions"
+msgstr ""
+
+#: obox_builder/contrib/auth/templates/obox/auth/roles.html:84
+msgid "Create role"
+msgstr ""
+
+#: obox_builder/contrib/auth/templates/obox/auth/roles.html:94
+msgid "Delete this role?"
+msgstr ""
+
+#: obox_builder/contrib/auth/templates/obox/auth/roles.html:97
+msgid "Delete role"
+msgstr ""
+
+#: obox_builder/contrib/auth/templates/obox/auth/roles.html:105
+msgid "Role saved."
+msgstr ""
+
+#: obox_builder/contrib/auth/templates/obox/auth/roles.html:108
+msgid "Role deleted."
+msgstr ""
+
+#: obox_builder/contrib/auth/templates/obox/auth/user_form.html:11
+msgid "Back to users"
+msgstr ""
+
+#: obox_builder/contrib/auth/templates/obox/auth/user_form.html:55
+msgid "Leave blank to keep the current password."
+msgstr ""
+
+#: obox_builder/contrib/auth/templates/obox/auth/user_form.html:113
+msgid "Choose roles"
+msgstr ""
+
+#: obox_builder/contrib/auth/templates/obox/auth/user_form.html:145
+msgid "No roles have been created yet."
+msgstr ""
+
+#: obox_builder/contrib/auth/templates/obox/auth/user_form.html:152
+msgid "Preview permissions"
+msgstr ""
+
+#: obox_builder/contrib/auth/templates/obox/auth/user_form.html:157
+msgid "No permissions are granted by the selected roles."
+msgstr ""
+
+#: obox_builder/contrib/auth/templates/obox/auth/users.html:4
+msgid "New user"
+msgstr ""
+
+#: obox_builder/contrib/auth/templates/obox/auth/users.html:7
+msgid "User saved."
+msgstr ""
+
+#: obox_builder/contrib/auth/templates/obox/auth/users.html:10
+msgid "User deleted."
+msgstr ""
+
+#: obox_builder/contrib/auth/templates/obox/auth/users.html:17
+msgid "Actions"
+msgstr ""
+
+#: obox_builder/contrib/auth/templates/obox/auth/users.html:37
+msgid "Delete this user?"
+msgstr ""
+
+#: obox_builder/contrib/auth/templates/obox/auth/users.html:55
+msgid "active"
+msgstr ""
+
+#: obox_builder/contrib/auth/templates/obox/auth/users.html:57
+msgid "inactive"
+msgstr ""
+
+#: obox_builder/contrib/auth/templates/obox/auth/users.html:63
+msgid "No users found."
 msgstr ""
