@@ -68,16 +68,16 @@
   @apply md:col-start-2;
 }
 .record-activity-panel {
-  @apply min-w-0 border-t border-slate-200 p-5 lg:sticky lg:top-4 lg:max-h-[calc(100vh-10rem)] lg:self-start lg:overflow-y-auto lg:border-t-0 lg:border-l;
+  @apply min-w-0 border-t border-slate-200 p-5 lg:sticky lg:top-4 lg:h-[calc(100dvh-13rem)] lg:self-start lg:overflow-hidden lg:border-t-0 lg:border-l;
 }
 .record-activity-panel #record-activity {
-  @apply flex min-h-96 flex-col;
+  @apply flex min-h-96 flex-col lg:h-full lg:min-h-0;
 }
 .record-activity-events {
-  @apply flex-1;
+  @apply lg:min-h-0 lg:flex-1 lg:overflow-y-auto;
 }
 .record-activity-panel [data-comment-composer] {
-  @apply sticky bottom-0 mt-6 border-t border-slate-200 bg-white pt-4;
+  @apply mt-6 shrink-0 border-t border-slate-200 bg-white pt-4;
 }
 .role-select {
   @apply relative mt-2;

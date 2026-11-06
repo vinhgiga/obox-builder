@@ -6,7 +6,7 @@
       <meta name="viewport" content="width=device-width, initial-scale=1">
       <title>{% block title %}{{ title }} · {{ site_title }}{% endblock %}</title>
       <link rel="stylesheet"
-            href="{{ request.url_for('obox_static', path='ui.css') }}?v=20261106-1">
+            href="{{ request.url_for('obox_static', path='ui.css') }}?v=20261106-3">
       {% if request.app.state.obox.get_plugin("files") %}
         <link rel="stylesheet"
               href="{{ request.url_for('obox_files_static', path='files.css') }}">
@@ -60,7 +60,9 @@
             id="main"
             tabindex="-1">
         <div class="{% block page_container_class %}container-xl{% endblock %}">
-          <h1 class="{% block heading_class %}page-title mb-3{% endblock %}">{% block heading %}{{ title }}{% endblock %}</h1>
+          {% block page_heading %}
+            <h1 class="{% block heading_class %}page-title mb-3{% endblock %}">{% block heading %}{{ title }}{% endblock %}</h1>
+          {% endblock %}
           <div class="{% block content_class %}record-content card card-body{% endblock %}">
             {% block content %}{% endblock %}
           </div>

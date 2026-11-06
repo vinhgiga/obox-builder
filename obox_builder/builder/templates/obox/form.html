@@ -1,5 +1,6 @@
 {% extends base_template %}
 {% from "obox/_form_controls.html" import control with context %}
+{% block page_heading %}{% if not record_url %}{{ super() }}{% endif %}{% endblock %}
 {% block page_container_class %}container-fluid{% endblock %}
 {% block content_class %}record-content{% endblock %}
 {% block content %}

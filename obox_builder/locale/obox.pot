@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-11-06 10:54+0700\n"
+"POT-Creation-Date: 2026-11-06 12:59+0700\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -104,8 +104,8 @@ msgstr ""
 #: obox_builder/builder/templates/obox/_record_activity.html:25
 #: obox_builder/builder/templates/obox/_record_content.html:7
 #: obox_builder/builder/templates/obox/detail.html:9
-#: obox_builder/builder/templates/obox/form.html:76
-#: obox_builder/builder/templates/obox/form.html:125
+#: obox_builder/builder/templates/obox/form.html:77
+#: obox_builder/builder/templates/obox/form.html:126
 msgid "Delete"
 msgstr ""
 
@@ -127,7 +127,7 @@ msgstr ""
 
 #: obox_builder/builder/templates/obox/_record_comment.html:11
 #: obox_builder/builder/templates/obox/_record_fields.html:30
-#: obox_builder/builder/templates/obox/form.html:116
+#: obox_builder/builder/templates/obox/form.html:117
 msgid "Save"
 msgstr ""
 
@@ -139,13 +139,13 @@ msgstr ""
 
 #: obox_builder/builder/templates/obox/_record_comment.html:15
 #: obox_builder/builder/templates/obox/_record_fields.html:35
-#: obox_builder/builder/templates/obox/form.html:26
+#: obox_builder/builder/templates/obox/form.html:27
 msgid "Reload"
 msgstr ""
 
 #: obox_builder/builder/templates/obox/_record_content.html:4
 #: obox_builder/builder/templates/obox/detail.html:3
-#: obox_builder/builder/templates/obox/form.html:12
+#: obox_builder/builder/templates/obox/form.html:13
 msgid "Back to list"
 msgstr ""
 
@@ -196,35 +196,35 @@ msgstr ""
 msgid "No, take me back"
 msgstr ""
 
-#: obox_builder/builder/templates/obox/form.html:17
 #: obox_builder/builder/templates/obox/form.html:18
+#: obox_builder/builder/templates/obox/form.html:19
 msgid "Previous record"
 msgstr ""
 
-#: obox_builder/builder/templates/obox/form.html:21
 #: obox_builder/builder/templates/obox/form.html:22
+#: obox_builder/builder/templates/obox/form.html:23
 msgid "Next record"
 msgstr ""
 
-#: obox_builder/builder/templates/obox/form.html:54
+#: obox_builder/builder/templates/obox/form.html:55
 msgid "Delete?"
 msgstr ""
 
-#: obox_builder/builder/templates/obox/form.html:82
-#: obox_builder/builder/templates/obox/form.html:103
+#: obox_builder/builder/templates/obox/form.html:83
+#: obox_builder/builder/templates/obox/form.html:104
 msgid "Remove"
 msgstr ""
 
-#: obox_builder/builder/templates/obox/form.html:109
+#: obox_builder/builder/templates/obox/form.html:110
 #, python-format
 msgid "Add another %(name)s"
 msgstr ""
 
-#: obox_builder/builder/templates/obox/form.html:119
+#: obox_builder/builder/templates/obox/form.html:120
 msgid "Save and add another"
 msgstr ""
 
-#: obox_builder/builder/templates/obox/form.html:122
+#: obox_builder/builder/templates/obox/form.html:123
 msgid "Save and continue"
 msgstr ""
 

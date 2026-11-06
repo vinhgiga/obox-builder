@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  obox-builder\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-11-06 10:54+0700\n"
+"POT-Creation-Date: 2026-11-06 12:59+0700\n"
 "PO-Revision-Date: 2026-10-31 20:45+0700\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: vi\n"
@@ -107,8 +107,8 @@ msgstr "Sửa"
 #: obox_builder/builder/templates/obox/_record_activity.html:25
 #: obox_builder/builder/templates/obox/_record_content.html:7
 #: obox_builder/builder/templates/obox/detail.html:9
-#: obox_builder/builder/templates/obox/form.html:76
-#: obox_builder/builder/templates/obox/form.html:125
+#: obox_builder/builder/templates/obox/form.html:77
+#: obox_builder/builder/templates/obox/form.html:126
 msgid "Delete"
 msgstr "Xoá"
 
@@ -130,7 +130,7 @@ msgstr "Bình luận"
 
 #: obox_builder/builder/templates/obox/_record_comment.html:11
 #: obox_builder/builder/templates/obox/_record_fields.html:30
-#: obox_builder/builder/templates/obox/form.html:116
+#: obox_builder/builder/templates/obox/form.html:117
 msgid "Save"
 msgstr "Lưu"
 
@@ -142,13 +142,13 @@ msgstr "Hủy"
 
 #: obox_builder/builder/templates/obox/_record_comment.html:15
 #: obox_builder/builder/templates/obox/_record_fields.html:35
-#: obox_builder/builder/templates/obox/form.html:26
+#: obox_builder/builder/templates/obox/form.html:27
 msgid "Reload"
 msgstr "Tải lại"
 
 #: obox_builder/builder/templates/obox/_record_content.html:4
 #: obox_builder/builder/templates/obox/detail.html:3
-#: obox_builder/builder/templates/obox/form.html:12
+#: obox_builder/builder/templates/obox/form.html:13
 msgid "Back to list"
 msgstr "Quay lại danh sách"
 
@@ -199,35 +199,35 @@ msgstr "Có, tôi chắc chắn"
 msgid "No, take me back"
 msgstr "Không, quay lại"
 
-#: obox_builder/builder/templates/obox/form.html:17
 #: obox_builder/builder/templates/obox/form.html:18
+#: obox_builder/builder/templates/obox/form.html:19
 msgid "Previous record"
 msgstr "Bản ghi trước"
 
-#: obox_builder/builder/templates/obox/form.html:21
 #: obox_builder/builder/templates/obox/form.html:22
+#: obox_builder/builder/templates/obox/form.html:23
 msgid "Next record"
 msgstr "Bản ghi tiếp theo"
 
-#: obox_builder/builder/templates/obox/form.html:54
+#: obox_builder/builder/templates/obox/form.html:55
 msgid "Delete?"
 msgstr "Xoá?"
 
-#: obox_builder/builder/templates/obox/form.html:82
-#: obox_builder/builder/templates/obox/form.html:103
+#: obox_builder/builder/templates/obox/form.html:83
+#: obox_builder/builder/templates/obox/form.html:104
 msgid "Remove"
 msgstr "Bỏ"
 
-#: obox_builder/builder/templates/obox/form.html:109
+#: obox_builder/builder/templates/obox/form.html:110
 #, python-format
 msgid "Add another %(name)s"
 msgstr "Thêm %(name)s khác"
 
-#: obox_builder/builder/templates/obox/form.html:119
+#: obox_builder/builder/templates/obox/form.html:120
 msgid "Save and add another"
 msgstr "Lưu và thêm mới"
 
-#: obox_builder/builder/templates/obox/form.html:122
+#: obox_builder/builder/templates/obox/form.html:123
 msgid "Save and continue"
 msgstr "Lưu và tiếp tục"
 
