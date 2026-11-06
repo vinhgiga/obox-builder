@@ -3,10 +3,11 @@
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import Field, JsonValue, field_serializer
+from pydantic import Field, JsonValue, StrictStr, field_serializer, field_validator
 
 from obox_builder.builder.api import Page, json_value
-from obox_builder.builder.api_schema import ApiResponse
+from obox_builder.builder.api_schema import ApiRequest, ApiResponse
+from obox_builder.builder.fields import _validate_text
 
 
 class Actor(ApiResponse):
@@ -37,6 +38,23 @@ class CommentRead(ApiResponse):
     permissions: CommentPermissions
 
     encode_times = field_serializer("created_at", "edited_at")(json_value)
+
+
+class CommentInput(ApiRequest):
+    body: StrictStr
+
+    @field_validator("body")
+    @classmethod
+    def clean_body(cls, value: str) -> str:
+        value = _validate_text(value).replace("\r\n", "\n").replace("\r", "\n")
+        if not value.strip():
+            raise ValueError("Enter a comment.")
+        return value
+
+
+class CommentPage(ApiResponse):
+    items: list[CommentRead]
+    page: Page
 
 
 class ActivityItem(ApiResponse):

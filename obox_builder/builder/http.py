@@ -32,10 +32,10 @@ class OboxRoute(APIRoute):
         await middleware(dict(scope), receive, send)
 
 
-def accepts_json(value: str) -> bool:
+def accepts_json(value: str, media_type: str = "application/json") -> bool:
     for item in value.split(","):
         parts = [part.strip().lower() for part in item.split(";")]
-        if parts[0] not in {"*/*", "application/json", "application/*"}:
+        if parts[0] not in {"*/*", media_type, media_type.split("/")[0] + "/*"}:
             continue
         if any(part == "q=0" for part in parts[1:]):
             continue
@@ -177,8 +177,10 @@ class ApiRoute(APIRoute):
             if message["type"] == "http.response.start":
                 headers = MutableHeaders(scope=message)
                 headers["X-Request-ID"] = request.state.trace_id
-                headers["Cache-Control"] = self.cache_control or (
-                    "private, no-store" if no_store else "private, no-cache"
+                headers["Cache-Control"] = (
+                    self.cache_control
+                    or headers.get("Cache-Control")
+                    or ("private, no-store" if no_store else "private, no-cache")
                 )
                 headers.add_vary_header("Cookie, Authorization, Accept-Language")
                 headers["Content-Language"] = request.state.language

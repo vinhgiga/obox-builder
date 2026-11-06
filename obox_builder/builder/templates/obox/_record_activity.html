@@ -1,0 +1,48 @@
+<section id="record-activity">
+  <h2 id="activity">{{ _("Activity") }}</h2>
+  <div class="record-activity-events">
+    {% for item in events %}
+      {% if item.kind == "revision" %}
+        <article class="card card-body mb-2" data-activity-id="{{ item.id }}">
+          <p>{{ item.actor.display_name }} · {{ item.occurred_at }} · {{ item.source }} · {{ item.action }}</p>
+          <dl>{% for change in item.changes %}<dt>{{ change.field }}</dt><dd>{{ change.get('before', '—') }} → {{ change.get('after', '—') }}</dd>{% endfor %}</dl>
+        </article>
+      {% else %}
+        {% set entry = item.comment %}
+        <article id="record-comment-{{ entry.id }}" class="card card-body mb-2">
+          <p>{{ entry.author.display_name }} · {{ entry.created_at }}</p>
+          <p class="text-break whitespace-pre-wrap">{{ entry.body }}</p>
+          {% if entry.edited_at %}<small>{{ _("Edited") }} {{ entry.edited_at }}</small>{% endif %}
+          {% if entry.permissions.update %}<a href="{{ record_url }}/comments/{{ entry.id }}/edit"
+   data-record-link>{{ _("Edit") }}</a>{% endif %}
+          {% if entry.permissions.delete %}
+            <form method="post"
+                  action="{{ record_url }}/comments/{{ entry.id }}/delete"
+                  data-record-form
+                  data-confirm="{{ _('Are you sure?') }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf }}">
+              <input type="hidden" name="if_match" value="{{ entry.etag }}">
+              <button class="btn btn-danger btn-sm" type="submit">{{ _("Delete") }}</button>
+            </form>
+          {% endif %}
+        </article>
+      {% endif %}
+    {% else %}
+      <p>{{ _("No activity yet.") }}</p>
+    {% endfor %}
+    {% if next_url %}<a href="{{ next_url }}" data-record-link>{{ _("Load more") }}</a>{% endif %}
+  </div>
+  {% if can_comment %}
+    <form method="post"
+          action="{{ record_url }}/comments"
+          data-record-form
+          data-comment-composer>
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <label class="form-label">
+        {{ _("Comment") }}<textarea class="form-control" name="body" required>{{ body }}</textarea>
+      </label>
+      {% if message %}<p class="alert alert-danger" role="alert">{{ message }}</p>{% endif %}
+      <button class="btn btn-primary" type="submit">{{ _("Comment") }}</button>
+    </form>
+  {% endif %}
+</section>

@@ -1,0 +1,41 @@
+{% macro control(field, values, errors, prefix='', required=true, label=true) %}
+  {% if label %}<div class="field">{% endif %}
+  {% if label %}
+    <label class="form-label" for="{{ prefix }}{{ field.name }}">{{ field.label }}{% if field.required %} <span class="text-danger" aria-hidden="true">*</span>{% endif %}</label>
+  {% endif %}
+  {% if field.widget == "select" %}
+    <select class="form-select"
+            id="{{ prefix }}{{ field.name }}"
+            name="{{ prefix }}{{ field.name }}"
+            {% if not label %}aria-label="{{ field.label }}"{% endif %}
+            {% if required and field.required %}required{% endif %}>
+      <option value="">{% trans %}Choose…{% endtrans %}</option>
+      {% for value, label in field.options %}<option value="{{ value }}"
+        {% if values.get(field.name) == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+  {% elif field.widget == "files" %}
+    {% from "obox_files/widget.html" import files_widget %}
+    {{ files_widget(values.get(field.name), field.config, prefix ~ field.name, field.label, true) }}
+  {% elif field.widget == "textarea" %}
+    <textarea class="form-control"
+              id="{{ prefix }}{{ field.name }}"
+              name="{{ prefix }}{{ field.name }}"
+              {% if not label %}aria-label="{{ field.label }}"{% endif %}
+              {% if required and field.required %}required{% endif %}>{{ values.get(field.name, '') }}</textarea>
+  {% else %}
+    <input class="form-control"
+           id="{{ prefix }}{{ field.name }}"
+           name="{{ prefix }}{{ field.name }}"
+           type="{{ field.widget }}"
+           value="{{ values.get(field.name, '') }}"
+           placeholder="{{ field.placeholder }}"
+           {% if not label %}aria-label="{{ field.label }}"{% endif %}
+           {% if required and field.required %}required{% endif %}
+           {% if field.maxlength %}maxlength="{{ field.maxlength }}"{% endif %}
+           {% if field.widget == "number" %}step="any"{% endif %}>
+  {% endif %}
+  {% if field.help %}<div class="form-hint">{{ field.help }}</div>{% endif %}
+  {% for error in errors.get(field.name, []) %}<div class="invalid-feedback d-block"
+     role="alert">{{ _(error) }}</div>{% endfor %}
+  {% if label %}</div>{% endif %}
+{% endmacro %}

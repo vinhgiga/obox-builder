@@ -1,147 +1,142 @@
 {% extends base_template %}
-{% macro control(field, values, errors, prefix='', required=true, label=true) %}
-  {% if label %}<div class="field">{% endif %}
-  {% if label %}
-    <label class="form-label" for="{{ prefix }}{{ field.name }}">{{ field.label }}{% if field.required %} <span class="text-danger" aria-hidden="true">*</span>{% endif %}</label>
-  {% endif %}
-  {% if field.widget == "select" %}
-    <select class="form-select"
-            id="{{ prefix }}{{ field.name }}"
-            name="{{ prefix }}{{ field.name }}"
-            {% if not label %}aria-label="{{ field.label }}"{% endif %}
-            {% if required and field.required %}required{% endif %}>
-      <option value="">{% trans %}Choose…{% endtrans %}</option>
-      {% for value, label in field.options %}<option value="{{ value }}"
-        {% if values.get(field.name) == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
-    </select>
-  {% elif field.widget == "files" %}
-    {% from "obox_files/widget.html" import files_widget %}
-    {{ files_widget(values.get(field.name), field.config, prefix ~ field.name, field.label, true) }}
-  {% elif field.widget == "textarea" %}
-    <textarea class="form-control"
-              id="{{ prefix }}{{ field.name }}"
-              name="{{ prefix }}{{ field.name }}"
-              {% if not label %}aria-label="{{ field.label }}"{% endif %}
-              {% if required and field.required %}required{% endif %}>{{ values.get(field.name, '') }}</textarea>
-  {% else %}
-    <input class="form-control"
-           id="{{ prefix }}{{ field.name }}"
-           name="{{ prefix }}{{ field.name }}"
-           type="{{ field.widget }}"
-           value="{{ values.get(field.name, '') }}"
-           placeholder="{{ field.placeholder }}"
-           {% if not label %}aria-label="{{ field.label }}"{% endif %}
-           {% if required and field.required %}required{% endif %}
-           {% if field.maxlength %}maxlength="{{ field.maxlength }}"{% endif %}
-           {% if field.widget == "number" %}step="any"{% endif %}>
-  {% endif %}
-  {% if field.help %}<div class="form-hint">{{ field.help }}</div>{% endif %}
-  {% for error in errors.get(field.name, []) %}<div class="invalid-feedback d-block"
-     role="alert">{{ _(error) }}</div>{% endfor %}
-  {% if label %}</div>{% endif %}
-{% endmacro %}
+{% from "obox/_form_controls.html" import control with context %}
+{% block page_container_class %}container-fluid{% endblock %}
+{% block content_class %}record-content{% endblock %}
 {% block content %}
-  <nav class="mb-3">
-    <a class="btn btn-outline-secondary btn-sm"
-       href="{{ base }}">{% trans %}Back to list{% endtrans %}</a>
-  </nav>
-  {% for error in errors.get('__all__', []) %}<p class="alert alert-danger"
+  <div id="record-content"
+       class="record-layout{% if activity %} has-activity{% endif %}">
+    <section class="record-form-panel">
+      {% block form_content %}
+        <nav class="mb-3">
+          <a class="btn btn-outline-secondary btn-sm"
+             href="{{ base }}">{% trans %}Back to list{% endtrans %}</a>
+          {% if record_url %}
+            <span class="record-navigation">
+              {% if previous_url %}<a class="btn btn-outline-secondary btn-sm"
+   href="{{ previous_url }}"
+   rel="prev">{% trans %}Previous record{% endtrans %}</a>{% else %}<span class="btn btn-outline-secondary btn-sm disabled"
+      aria-disabled="true">{% trans %}Previous record{% endtrans %}</span>{% endif %}
+              {% if next_url %}<a class="btn btn-outline-secondary btn-sm"
+   href="{{ next_url }}"
+   rel="next">{% trans %}Next record{% endtrans %}</a>{% else %}<span class="btn btn-outline-secondary btn-sm disabled"
+      aria-disabled="true">{% trans %}Next record{% endtrans %}</span>{% endif %}
+            </span>
+          {% endif %}
+          {% if stale %}<a class="btn btn-link btn-sm"
+   href="{{ record_url }}">{% trans %}Reload{% endtrans %}</a>{% endif %}
+        </nav>
+        {% for error in errors.get('__all__', []) %}<p class="alert alert-danger"
    role="alert">{{ _(error) }}</p>{% endfor %}
-  <form method="post">
-    <input type="hidden" name="csrf_token" value="{{ csrf }}">
-    {% for fieldset in fieldsets %}
-      {% set wrapped = fieldset.title or fieldset.description %}
-      {% if wrapped %}<fieldset class="form-fieldset">{% endif %}
-      {% if fieldset.title %}<legend class="form-label">{{ fieldset.title }}</legend>{% endif %}
-      {% if fieldset.description %}<p class="form-hint">{{ fieldset.description }}</p>{% endif %}
-      {% for field in fieldset.fields %}{{ control(field, values, errors) }}{% endfor %}
-      {% if wrapped %}</fieldset>{% endif %}
-    {% endfor %}
-    {% for inline in inlines %}
-      <section data-inline data-inline-group="{{ inline['index'] }}">
-        <h2>{{ inline['label'] }}</h2>
-        <input type="hidden"
-               name="inline:{{ inline['index'] }}:_total"
-               value="{{ inline['rows'] | length }}"
-               data-inline-total>
-        <table class="table table-vcenter">
-          <thead>
-            <tr>
-              {% for field in inline['headers'] %}<th scope="col">{{ field['label'] }}</th>{% endfor %}
-              <th scope="col">{% trans %}Delete?{% endtrans %}</th>
-            </tr>
-          </thead>
-          <tbody data-inline-rows>
-            {% for row in inline['rows'] %}
-              <tr data-inline-row {% if row['delete'] %}data-deleted="true"{% endif %}>
-                {% for field in row['fields'] %}
-                  <td>{{ control(field, row['values'], row['errors'], row['prefix'], false, false) }}</td>
-                {% endfor %}
-                <td>
-                  <input type="hidden" name="{{ row['prefix'] }}_pk" value="{{ row['id'] }}">
-                  {% for error in row['errors'].get('__all__', []) %}
-                    <p class="invalid-feedback d-block" role="alert">{{ _(error) }}</p>
+        <form method="post">
+          <input type="hidden" name="csrf_token" value="{{ csrf }}">
+          {% if if_match is not none and if_match is defined %}
+            <input type="hidden" name="if_match" value="{{ if_match }}">
+          {% endif %}
+          {% for fieldset in fieldsets %}
+            {% set wrapped = fieldset.title or fieldset.description %}
+            {% if wrapped %}<fieldset class="form-fieldset">{% endif %}
+            {% if fieldset.title %}<legend class="form-label">{{ fieldset.title }}</legend>{% endif %}
+            {% if fieldset.description %}<p class="form-hint">{{ fieldset.description }}</p>{% endif %}
+            {% for field in fieldset.fields %}{{ control(field, values, errors) }}{% endfor %}
+            {% if wrapped %}</fieldset>{% endif %}
+          {% endfor %}
+          {% for inline in inlines %}
+            <section data-inline data-inline-group="{{ inline['index'] }}">
+              <h2>{{ inline['label'] }}</h2>
+              <input type="hidden"
+                     name="inline:{{ inline['index'] }}:_total"
+                     value="{{ inline['rows'] | length }}"
+                     data-inline-total>
+              <table class="table table-vcenter">
+                <thead>
+                  <tr>
+                    {% for field in inline['headers'] %}<th scope="col">{{ field['label'] }}</th>{% endfor %}
+                    <th scope="col">{% trans %}Delete?{% endtrans %}</th>
+                  </tr>
+                </thead>
+                <tbody data-inline-rows>
+                  {% for row in inline['rows'] %}
+                    <tr data-inline-row {% if row['delete'] %}data-deleted="true"{% endif %}>
+                      {% for field in row['fields'] %}
+                        <td>{{ control(field, row['values'], row['errors'], row['prefix'], false, false) }}</td>
+                      {% endfor %}
+                      <td>
+                        <input type="hidden" name="{{ row['prefix'] }}_pk" value="{{ row['id'] }}">
+                        {% for error in row['errors'].get('__all__', []) %}
+                          <p class="invalid-feedback d-block" role="alert">{{ _(error) }}</p>
+                        {% endfor %}
+                        {% if row["can_delete"] %}
+                          <label>
+                            <input class="form-check-input"
+                                   type="checkbox"
+                                   name="{{ row['prefix'] }}_delete"
+                                   value="1"
+                                   data-inline-delete
+                                   {% if row['delete'] %}checked{% endif %}>
+                            {% trans %}Delete{% endtrans %}
+                          </label>
+                        {% endif %}
+                        {% if not row["id"] %}
+                          <button class="inline-remove btn btn-link btn-sm text-danger"
+                                  type="button"
+                                  data-inline-remove>{% trans %}Remove{% endtrans %}</button>
+                        {% endif %}
+                      </td>
+                    </tr>
                   {% endfor %}
-                  {% if row["can_delete"] %}
-                    <label>
-                      <input class="form-check-input"
-                             type="checkbox"
-                             name="{{ row['prefix'] }}_delete"
-                             value="1"
-                             data-inline-delete
-                             {% if row['delete'] %}checked{% endif %}>
-                      {% trans %}Delete{% endtrans %}
-                    </label>
-                  {% endif %}
-                  {% if not row["id"] %}
-                    <button class="inline-remove btn btn-link btn-sm text-danger"
-                            type="button"
-                            data-inline-remove>{% trans %}Remove{% endtrans %}</button>
-                  {% endif %}
-                </td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-        {% if inline["prototype"] %}
-          <template data-inline-template>
-            <table class="table table-vcenter">
-              <tbody>
-                <tr data-inline-row>
-                  {% for field in inline['prototype']['fields'] %}
-                    <td>{{ control(field, inline['prototype']['values'], {}, inline['prototype']['prefix'], false, false) }}</td>
-                  {% endfor %}
-                  <td>
-                    <input type="hidden" name="{{ inline['prototype']['prefix'] }}_pk" value="">
-                    <button class="inline-remove btn btn-link btn-sm text-danger"
-                            type="button"
-                            data-inline-remove>{% trans %}Remove{% endtrans %}</button>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </template>
-          <button class="inline-add btn btn-link btn-sm"
-                  type="button"
-                  data-inline-add>+ {% trans name=inline["name"] %}Add another {{ name }}{% endtrans %}</button>
-        {% endif %}
-      </section>
-    {% endfor %}
-    <p class="submit-row">
-      <button class="btn btn-primary"
-              type="submit"
-              name="_save">{% trans %}Save{% endtrans %}</button>
-      <button class="btn btn-outline-primary"
-              type="submit"
-              name="_addanother">{% trans %}Save and add another{% endtrans %}</button>
-      <button class="btn btn-outline-primary"
-              type="submit"
-              name="_continue">{% trans %}Save and continue editing{% endtrans %}</button>
-      {% if record_url and "delete" in operations %}
-        <a class="btn btn-danger" href="{{ record_url }}/delete">{% trans %}Delete{% endtrans %}</a>
-      {% endif %}
-    </p>
-  </form>
-  {% include "obox/_related.html" %}
+                </tbody>
+              </table>
+              {% if inline["prototype"] %}
+                <template data-inline-template>
+                  <table class="table table-vcenter">
+                    <tbody>
+                      <tr data-inline-row>
+                        {% for field in inline['prototype']['fields'] %}
+                          <td>{{ control(field, inline['prototype']['values'], {}, inline['prototype']['prefix'], false, false) }}</td>
+                        {% endfor %}
+                        <td>
+                          <input type="hidden"
+                                 name="{{ inline['prototype']['prefix'] }}_pk"
+                                 value="">
+                          <button class="inline-remove btn btn-link btn-sm text-danger"
+                                  type="button"
+                                  data-inline-remove>{% trans %}Remove{% endtrans %}</button>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </template>
+                <button class="inline-add btn btn-link btn-sm" type="button" data-inline-add>+ {% trans name=inline["name"] %}Add another {{ name }}{% endtrans %}</button>
+              {% endif %}
+            </section>
+          {% endfor %}
+          <p class="submit-row">
+            <button class="btn btn-primary"
+                    type="submit"
+                    name="_save">{% trans %}Save{% endtrans %}</button>
+            <button class="btn btn-outline-primary"
+                    type="submit"
+                    name="_addanother">{% trans %}Save and add another{% endtrans %}</button>
+            <button class="btn btn-outline-primary"
+                    type="submit"
+                    name="_continue">{% trans %}Save and continue{% endtrans %}</button>
+            {% if record_url and "delete" in operations %}
+              <a class="btn btn-danger"
+                 href="{{ record_url }}/delete">{% trans %}Delete{% endtrans %}</a>
+            {% endif %}
+          </p>
+        </form>
+        {% include "obox/_related.html" %}
+      {% endblock %}
+    </section>
+    {% include "obox/_record_sidebar.html" %}
+  </div>
+{% endblock %}
+{% block scripts %}
+  {{ super() }}
   <script src="{{ request.url_for('obox_static', path='inline.js') }}"></script>
+  {% if activity %}
+    <script type="module"
+            src="{{ request.url_for('obox_static', path='record.js') }}"></script>
+  {% endif %}
 {% endblock %}

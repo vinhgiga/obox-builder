@@ -1,0 +1,7 @@
+{% if activity %}
+  <aside class="record-activity-panel" aria-label="{{ _('Activity') }}">
+    {% with events=activity.events, can_comment=activity.can_comment, next_url=activity.next_url %}
+      {% include "obox/_record_activity.html" %}
+    {% endwith %}
+  </aside>
+{% endif %}

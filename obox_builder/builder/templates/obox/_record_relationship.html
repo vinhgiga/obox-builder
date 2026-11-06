@@ -1,0 +1,15 @@
+<section id="record-relationship-{{ card.field }}" class="mb-3">
+  <h2>{{ card.field.replace('_', ' ').capitalize() }}</h2>
+  {% for item in card['items'] %}
+    <article class="card card-body mb-2">
+      {% if item.url %}<a href="{{ item.url }}">{{ item.label }}</a>{% else %}<span>{{ item.label }}</span>{% endif %}
+      <dl>{% for name, value in item['values'].items() %}<dt>{{ name }}</dt><dd>{{ value if value is not none else '—' }}</dd>{% endfor %}</dl>
+    </article>
+  {% else %}
+    <p>{{ _("No records.") }}</p>
+  {% endfor %}
+  {% if card.page.next_cursor %}
+    <a href="{{ record_url }}/relationships/{{ card.field }}?limit={{ card.page.limit }}&amp;cursor={{ card.page.next_cursor | urlencode }}"
+       data-record-link>{{ _("Load more") }}</a>
+  {% endif %}
+</section>

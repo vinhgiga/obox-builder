@@ -245,6 +245,8 @@ class ModelBuilder(Generic[T]):
             if name == self.pk_name or spec.column.foreign_keys
         )
         self.version_column = mapper.version_id_col
+        if self.view.inline_edit and self.version_column is None:
+            raise ImproperlyConfigured("Inline editing requires version_id_col.")
         if (
             self.api.enabled
             and self.version_column is not None

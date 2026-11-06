@@ -1,0 +1,52 @@
+{% macro record_field(data) %}
+  <section id="record-field-{{ data.field }}" class="mb-3">
+    <h2 class="h4">{{ data.label }}</h2>
+    {% if data.editor %}
+      {% from "obox/_form_controls.html" import control with context %}
+      <form method="post"
+            action="{{ data.record_url }}/fields/{{ data.field }}"
+            data-record-form>
+        <input type="hidden" name="csrf_token" value="{{ csrf }}">
+        <input type="hidden" name="if_match" value="{{ data.if_match }}">
+        {% if message %}<p class="alert alert-danger" role="alert">{{ message }}</p>{% endif %}
+        {% if data.control.config.options_url %}
+          <label class="form-label">
+            {{ _("Search") }}
+            <input type="search"
+                   class="form-control"
+                   data-options-search
+                   data-options-url="{{ data.control.config.options_url }}">
+          </label>
+          <p data-options-error role="status"></p>
+          <button type="button" data-options-more hidden>{{ _("Load more") }}</button>
+        {% endif %}
+        {{ control(data.control, {'value': data.initial}, errors, required=false) }}
+        {% if data.nullable %}
+          <label class="form-check"><input type="checkbox"
+       name="set_null"
+       value="1"
+       {% if data.set_null %}checked{% endif %}>{{ _("Clear value") }}</label>
+        {% endif %}
+        <button class="btn btn-primary btn-sm" type="submit">{{ _("Save") }}</button>
+        <a class="btn btn-link btn-sm"
+           href="{{ data.record_url }}/fields/{{ data.field }}"
+           data-record-link>{{ _("Cancel") }}</a>
+        {% if message %}<a href="{{ data.record_url }}/fields/{{ data.field }}/edit"
+   data-record-link>{{ _("Reload") }}</a>{% endif %}
+      </form>
+    {% else %}
+      {% if data.file_config %}
+        {% from "obox_files/widget.html" import files_widget %}
+        {{ files_widget(data.value, data.file_config) }}
+      {% elif data.link %}
+        <a href="{{ data.link }}">{{ data.value }}</a>
+      {% else %}
+        <p class="text-break whitespace-pre-wrap">{{ data.value if data.value is not none else '—' }}</p>
+      {% endif %}
+      {% if data.editable %}<a class="btn btn-link btn-sm"
+   href="{{ data.record_url }}/fields/{{ data.field }}/edit"
+   data-record-link
+   data-field-edit>{{ _("Edit") }}</a>{% endif %}
+    {% endif %}
+  </section>
+{% endmacro %}

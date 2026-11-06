@@ -36,6 +36,9 @@ class Comment(Ownership, Base):
     )
     edited_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True))
     deleted_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True))
+    version: Mapped[int] = mapped_column(default=1, server_default="1")
+
+    __mapper_args__ = {"version_id_col": version}  # noqa: RUF012
 
     __table_args__ = (
         sa.Index("ix_obox_comment_owner", "partition_key", "resource_key", "record_id"),

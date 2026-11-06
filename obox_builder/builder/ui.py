@@ -5,6 +5,7 @@ from __future__ import annotations
 import enum
 import json
 from collections.abc import Mapping, Sequence
+from contextlib import suppress
 from datetime import date, datetime, time
 from decimal import Decimal
 from typing import Any, cast
@@ -16,14 +17,22 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from jinja2 import ChoiceLoader, Environment, FileSystemLoader, PackageLoader, select_autoescape
 
-from obox_builder.builder.api import query_options
+from obox_builder.builder.api import query_options, record_etag
+from obox_builder.builder.conditional import check_match
 from obox_builder.builder.fields import FILTER_EMPTY_OPERATORS
 from obox_builder.builder.filters import FilterGroup, FilterTerm
 from obox_builder.builder.http import OboxRoute, read_form
 from obox_builder.builder.service import invoke
 from obox_builder.conf import Settings
 from obox_builder.context import Context
-from obox_builder.errors import N_, BuilderValidationError, NotAuthenticated, PermissionDenied
+from obox_builder.errors import (
+    N_,
+    BuilderValidationError,
+    NotAuthenticated,
+    NotFound,
+    OboxError,
+    PermissionDenied,
+)
 from obox_builder.i18n import context as translation_context
 from obox_builder.i18n import localize, translate
 
@@ -315,17 +324,36 @@ async def list_rows(
     return rows
 
 
-async def form_fields(builder: Any, service: Any, ctx: Context, obj: Any) -> list[dict[str, Any]]:
+async def form_fields(
+    builder: Any,
+    service: Any,
+    ctx: Context,
+    obj: Any,
+    *,
+    names: Sequence[str] | None = None,
+    selectors: bool = False,
+) -> list[dict[str, Any]]:
     action = "create" if obj is None else "update"
     allowed = service.write_fields(action, ctx, obj)
     result = []
     for name in allowed:
+        if names is not None and name not in names:
+            continue
         spec = builder.specs[name]
         column = spec.column
         kind = column.type.python_type
         options = None
         widget = "text"
-        if column.foreign_keys:
+        if column.foreign_keys and selectors:
+            target = builder.app._for_table(next(iter(column.foreign_keys)).column.table)
+            if (
+                target is None
+                or not target.api.enabled
+                or not {"list", "retrieve"}.issubset(target.api.operations)
+            ):
+                continue
+            widget, options = "select", []
+        elif column.foreign_keys:
             choices = []
             for fk in column.foreign_keys:
                 target = builder.app._for_table(fk.column.table)
@@ -379,6 +407,11 @@ async def form_fields(builder: Any, service: Any, ctx: Context, obj: Any) -> lis
         elif kind in {int, float, Decimal}:
             widget = "number"
         config = dict(builder.form.widgets.get(name, {}))
+        if selectors and column.foreign_keys:
+            target = builder.app._for_table(next(iter(column.foreign_keys)).column.table)
+            config["options_url"] = (
+                ctx.request.scope.get("root_path", "") if ctx.request else ""
+            ) + f"{builder.app.settings.api_prefix}/{target.api.prefix or target.slug}:queryOptions"
         widget = config.get("type", widget)
         if "obox_files" in column.info:
             files = builder.app.get_plugin("files")
@@ -545,6 +578,8 @@ async def build_navigation(
 
 
 def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
+    from obox_builder.builder.record_ui import RecordRoute, build_record_ui
+
     router = APIRouter(route_class=OboxRoute)
     path = f"{app.settings.ui_prefix}/{builder.slug}"
     dependency = Depends(app.context_dependency("ui"), scope="function")
@@ -940,6 +975,8 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
                     return await form_page(request, ctx, obj=obj)
         if obj is None:
             obj = await service.get(id, ctx=ctx)
+        if app.get_plugin("activity") is not None:
+            return await record_page(request, id, ctx)
         visible = await service.serialize(obj, ctx=ctx, fields=builder.view_details)
         links = {
             key: await reference(app, builder.specs[key], value, ctx, request)
@@ -994,6 +1031,16 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
             if obj is not None and builder.view.enabled
             else ()
         )
+        previous_url, next_url = await neighbors(request, ctx, obj)
+        activity = None
+        if obj is not None and app.get_plugin("activity") is not None:
+            with suppress(NotFound, PermissionDenied):
+                activity = await record_timeline(request, str(getattr(obj, builder.pk_name)), ctx)
+        if_match = (
+            await record_etag(builder, service, obj, ctx)
+            if obj is not None and builder.version_column is not None
+            else None
+        )
         collections = (
             await related_collections(
                 request,
@@ -1012,6 +1059,8 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
                     {"__all__": [N_("Duplicate form fields are not permitted.")]}
                 )
             submitted = {key: str(value) for key, value in form.items() if key != "csrf_token"}
+            if if_match is not None:
+                if_match = submitted.pop("if_match", "")
             values = {
                 key: value
                 for key, value in submitted.items()
@@ -1027,7 +1076,20 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
                     if obj is None:
                         instance = await service.create(converted, ctx=ctx)
                     else:
-                        instance = await service.update(id, converted, ctx=ctx)
+
+                        async def condition(current: Any) -> None:
+                            check_match(
+                                [if_match] if if_match else [],
+                                await record_etag(builder, service, current, ctx),
+                                single=True,
+                            )
+
+                        instance = await service.update(
+                            id,
+                            converted,
+                            ctx=ctx,
+                            precondition=condition if if_match is not None else None,
+                        )
                     written = True
                     for group in inline_groups:
                         inline = builder.inline_instances[group["index"]]
@@ -1062,10 +1124,15 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
                             else localize(request, request.scope.get("obox_path", request.url.path))
                         )
                     return RedirectResponse(location, status_code=303)
-                except BuilderValidationError as exc:
+                except OboxError as exc:
                     if ctx._failed or written:
                         raise
-                    errors, status = exc.errors, 422
+                    errors = (
+                        exc.errors
+                        if isinstance(exc, BuilderValidationError)
+                        else {"__all__": [str(exc)]}
+                    )
+                    status = exc.status
             else:
                 status = 422
         else:
@@ -1089,6 +1156,12 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
             collections=collections,
             operations=operations,
             record_url=record_url,
+            record_id=str(getattr(obj, builder.pk_name)) if obj is not None else None,
+            previous_url=previous_url,
+            next_url=next_url,
+            activity=activity,
+            if_match=if_match,
+            stale=status == 412,
             csrf=app.csrf.token(request, ctx.principal),
             action=action,
         )
@@ -1169,6 +1242,47 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
         location = f"{base(request)}?{request.url.query}" if request.url.query else base(request)
         return RedirectResponse(location, status_code=303)
 
+    async def neighbors(request: Request, ctx: Context, obj: Any) -> tuple[str | None, str | None]:
+        if obj is None or not builder.view.enabled:
+            return None, None
+        for action in ("list", "retrieve"):
+            if not await invoke(builder.policy.allow, action, ctx):
+                return None, None
+        links: list[str | None] = []
+        column = getattr(builder.model, builder.pk_name)
+        for previous in (True, False):
+            key = getattr(obj, builder.pk_name)
+            link = None
+            while link is None:
+                stmt = (
+                    service._statement("list", ctx)
+                    .where(
+                        builder.policy.scope("retrieve", ctx),
+                        column < key if previous else column > key,
+                    )
+                    .order_by(None)
+                    .order_by(column.desc() if previous else column.asc())
+                    .limit(100)
+                )
+                batch = list((await ctx.session.scalars(stmt)).unique())
+                if not batch:
+                    break
+                for candidate in batch:
+                    fields = builder.policy.read_fields(ctx, obj=candidate)
+                    if (fields is None or builder.pk_name in fields) and await invoke(
+                        builder.policy.allow, "retrieve", ctx, obj=candidate
+                    ):
+                        key = quote(str(getattr(candidate, builder.pk_name)), safe="")
+                        link = f"{base(request)}/{key}"
+                        break
+                key = getattr(batch[-1], builder.pk_name)
+            links.append(link)
+        return links[0], links[1]
+
+    record_router, record_page, record_timeline = build_record_ui(app, builder, service, page, base)
+    if builder.view.enabled:
+        router.include_router(record_router)
+
     for endpoint, suffix, methods, enabled, name in (
         (list_records, "", ["GET"], builder.view.enabled, "list"),
         (
@@ -1215,5 +1329,9 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
                 response_class=HTMLResponse,
                 name=f"obox_ui_{builder.slug}_{name}",
                 include_in_schema=False,
+                route_class_override=RecordRoute
+                if name == "detail"
+                and (builder.version_column is not None or app.get_plugin("activity") is not None)
+                else None,
             )
     return router

@@ -6,7 +6,7 @@
       <meta name="viewport" content="width=device-width, initial-scale=1">
       <title>{% block title %}{{ title }} · {{ site_title }}{% endblock %}</title>
       <link rel="stylesheet"
-            href="{{ request.url_for('obox_static', path='ui.css') }}?v=20261104-13">
+            href="{{ request.url_for('obox_static', path='ui.css') }}?v=20261106-1">
       {% if request.app.state.obox.get_plugin("files") %}
         <link rel="stylesheet"
               href="{{ request.url_for('obox_files_static', path='files.css') }}">

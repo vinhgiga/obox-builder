@@ -1,14 +1,18 @@
-"""Scoped timeline reads and historical-value projection; no writes or commits."""
+"""Scoped activity and comment operations inside the owning unit of work."""
 
 import base64
 import binascii
 import hashlib
 import hmac
 import json
-from typing import Any
+from datetime import UTC, datetime
+from typing import Any, cast
+from uuid import UUID
 
 import sqlalchemy as sa
+from pydantic import TypeAdapter
 
+from obox_builder.builder.conditional import check_match
 from obox_builder.builder.fields import schema, validate
 from obox_builder.builder.filters import FilterGroup
 from obox_builder.builder.query import ListQuery, invalid
@@ -16,7 +20,187 @@ from obox_builder.builder.service import invoke
 from obox_builder.context import Context
 from obox_builder.contrib.activity import Activity
 from obox_builder.contrib.activity.models import Comment, Event
-from obox_builder.errors import BuilderValidationError, ImproperlyConfigured, PermissionDenied
+from obox_builder.contrib.activity.schemas import CommentRead
+from obox_builder.errors import (
+    BuilderValidationError,
+    ImproperlyConfigured,
+    NotAuthenticated,
+    NotFound,
+    PermissionDenied,
+)
+
+
+async def ownership(activity: Activity, builder: Any, obj: Any, ctx: Context) -> dict[str, str]:
+    partition = await invoke(activity.partition, ctx) if activity.partition else "default"
+    if activity.partition is None and ctx.tenant is not None:
+        raise ImproperlyConfigured("Tenant activity requires an explicit partition resolver.")
+    if not isinstance(partition, str) or not partition or len(partition) > 255:
+        raise ImproperlyConfigured(
+            "Activity partition must be a nonempty string of at most 255 characters."
+        )
+    return {
+        "partition_key": partition,
+        "resource_key": builder.model.__table__.fullname,
+        "record_id": str(getattr(obj, builder.pk_name)),
+    }
+
+
+async def identity(activity: Activity, ids: set[str], ctx: Context) -> dict[Any, Any]:
+    values = await invoke(activity.identities, ids, ctx) if activity.identities else {}
+    return {
+        key: values.get(key, {"id": None, "display_name": "System" if key is None else "Unknown"})
+        for key in (None, *ids)
+    }
+
+
+def own(comment: Comment, ctx: Context) -> bool:
+    return bool(
+        getattr(ctx.principal, "is_authenticated", False)
+        and getattr(ctx.principal, "is_active", True)
+        and str(getattr(ctx.principal, "id", None)) == comment.author_id
+    )
+
+
+async def comment_row(activity: Activity, comment: Comment, ctx: Context) -> dict[str, Any]:
+    actors = await identity(activity, {comment.author_id}, ctx)
+    return {
+        "id": str(comment.id),
+        "author": actors[comment.author_id],
+        "body": comment.body,
+        "created_at": comment.created_at,
+        "edited_at": comment.edited_at,
+        "permissions": {"update": own(comment, ctx), "delete": own(comment, ctx)},
+    }
+
+
+def comment_etag(comment: Comment, row: dict[str, Any]) -> str:
+    data = CommentRead.model_validate(row).model_dump_json()
+    return '"' + hashlib.sha256(f"{comment.id}:{comment.version}:{data}".encode()).hexdigest() + '"'
+
+
+async def comment(
+    activity: Activity,
+    builder: Any,
+    id: str,
+    ctx: Context,
+    *,
+    comment_id: str | None = None,
+    action: str = "get",
+    body: str | None = None,
+    conditions: list[str] | None = None,
+    single: bool = False,
+) -> Comment:
+    service = activity.app.service(builder.model)
+    async with service._mutation(ctx, conditional=action in {"update", "delete"}):
+        parent = await service.get(id, ctx=ctx)
+        await service._get(id, ctx, "comment", lock=action != "get")
+        owner = await ownership(activity, builder, parent, ctx)
+        if action == "create":
+            if not getattr(ctx.principal, "is_authenticated", False) or not getattr(
+                ctx.principal, "is_active", True
+            ):
+                raise NotAuthenticated("An active authenticated author is required.")
+            obj = Comment(**owner, author_id=str(ctx.principal.id), body=body)
+            ctx.session.add(obj)
+            await ctx.session.flush()
+            ctx.session.add(
+                Event(
+                    **owner,
+                    kind="comment",
+                    comment_id=obj.id,
+                    actor_id=obj.author_id,
+                    source=ctx.source,
+                )
+            )
+        else:
+            try:
+                key = UUID(comment_id or "")
+            except ValueError as exc:
+                raise NotFound("Comment is unavailable.") from exc
+            stmt = sa.select(Comment).filter_by(**owner, id=key, deleted_at=None)
+            if action != "get":
+                stmt = stmt.with_for_update().execution_options(populate_existing=True)
+            loaded = await ctx.session.scalar(stmt)
+            if loaded is None:
+                raise NotFound("Comment is unavailable.")
+            obj = loaded
+            if action != "get":
+                if not own(obj, ctx):
+                    raise PermissionDenied("Only the author may change this comment.")
+                check_match(
+                    conditions or [],
+                    comment_etag(obj, await comment_row(activity, obj, ctx)),
+                    single=single,
+                )
+                if action == "delete":
+                    obj.body, obj.deleted_at = None, datetime.now(UTC)
+                elif body != obj.body:
+                    obj.body, obj.edited_at = body, datetime.now(UTC)
+        await ctx.session.flush()
+        return obj
+
+
+async def snapshot(builder: Any, obj: Any, ctx: Context) -> dict[str, Any]:
+    names = [
+        name
+        for name in builder.fields
+        if builder.specs[name].column is not builder.version_column and name != builder.pk_name
+    ]
+    unloaded = sa.inspect(obj).unloaded.intersection(names)
+    if unloaded:
+        await ctx.session.refresh(obj, attribute_names=sorted(unloaded))
+    return cast(
+        dict[str, Any],
+        TypeAdapter[Any](Any).dump_python(
+            {name: builder.specs[name].serialize(getattr(obj, name)) for name in names}, mode="json"
+        ),
+    )
+
+
+async def record(
+    activity: Activity,
+    builder: Any,
+    action: str,
+    obj: Any,
+    before: dict[str, Any] | None,
+    ctx: Context,
+) -> None:
+    after = {} if action == "delete" else await snapshot(builder, obj, ctx)
+    changes = []
+    for name in {**(before or {}), **after}:
+        if action == "update" and (before or {}).get(name) == after.get(name):
+            continue
+        spec = builder.specs[name]
+        kind = (
+            "files"
+            if "obox_files" in spec.column.info
+            else "reference"
+            if spec.column.foreign_keys
+            else "number"
+            if isinstance(spec.column.type, (sa.Numeric, sa.Integer, sa.Float))
+            else "text"
+        )
+        changes.append(
+            dict(
+                field=name,
+                kind=kind,
+                **({"before": before[name]} if before is not None and name in before else {}),
+                **({"after": after[name]} if name in after else {}),
+            )
+        )
+    if changes:
+        ctx.session.add(
+            Event(
+                **await ownership(activity, builder, obj, ctx),
+                kind="revision",
+                action=action,
+                changes=changes,
+                actor_id=str(ctx.principal.id)
+                if getattr(ctx.principal, "id", None) is not None
+                else None,
+                source=ctx.source,
+            )
+        )
 
 
 def cursor(secret: bytes, scope: str, token: str | None = None, *, last: int | None = None) -> Any:
@@ -123,7 +307,13 @@ async def redact(
 
 
 async def read(
-    activity: Activity, builder: Any, id: str, params: dict[str, str], ctx: Context
+    activity: Activity,
+    builder: Any,
+    id: str,
+    params: dict[str, str],
+    ctx: Context,
+    *,
+    fields: Any = None,
 ) -> dict[str, Any]:
     app = activity.app
     service = app.service(builder.model)
@@ -157,18 +347,11 @@ async def read(
             kinds.append(entry_kind)
     if not kinds:
         raise PermissionDenied("The requested activity is not permitted.")
-    if activity.partition is None:
-        if ctx.tenant is not None:
-            raise ImproperlyConfigured("Tenant activity requires an explicit partition resolver.")
-        partition = "default"
-    else:
-        partition = await invoke(activity.partition, ctx)
-    if not isinstance(partition, str) or not partition or len(partition) > 255:
-        raise ImproperlyConfigured(
-            "Activity partition must be a nonempty string of at most 255 characters."
-        )
+    partition = (await ownership(activity, builder, obj, ctx))["partition_key"]
     resource, record_id = builder.model.__table__.fullname, str(key)
-    fields = set(builder.readable(ctx, obj=obj, fields=builder.api_read))
+    fields = set(
+        builder.readable(ctx, obj=obj, fields=builder.api_read if fields is None else fields)
+    )
     binding = [
         partition,
         resource,

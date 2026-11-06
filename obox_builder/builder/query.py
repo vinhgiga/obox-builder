@@ -22,6 +22,19 @@ from obox_builder.errors import BuilderValidationError
 
 CONTROLS = {"search", "select", "expand", "order", "limit", "offset", "cursor", "count"}
 GROUPS = {"and", "or", "not.and", "not.or"}
+
+
+def parameters(items: Iterable[tuple[str, str]], allowed: Iterable[str] = ()) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for name, value in items:
+        if name not in allowed:
+            raise invalid(name, "Unknown query parameter.", "unknown_parameter")
+        if name in result:
+            raise invalid(name, "Supply this parameter once.")
+        result[name] = value
+    return result
+
+
 COMPARISONS = {
     "eq": operator.eq,
     "neq": operator.ne,

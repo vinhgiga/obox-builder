@@ -1,19 +1,16 @@
 # OBOX Record Page and Activity API Specification
 
-**Status:** Draft for review. Every endpoint in the overview has an Input,
-Output, and Example section. This is a proposed contract, not a statement that
-all routes are implemented.
-
-Record CRUD, `:queryOptions`, the basic record detail page, and JSON activity
-reads already have implementations. Inline field routes, relationship-card
-routes, comment CRUD, and the HTML activity workflow below are proposed.
-Record ETags already exist for versioned resources; this draft requires
-versioning for resources using the proposed inline editing workflow.
+**Status:** Implemented for review. Every endpoint in the overview has an Input,
+Output, and Example section. Record CRUD and `:queryOptions` reuse the core
+services. Inline editing requires SQLAlchemy record versioning; activity and
+comments require the Activity plugin. Existing host databases must migrate
+`obox_comment.version` before using versioned comments.
 
 ## Endpoint overview
 
-Paths have no trailing slash. JSON properties use camelCase; field references
-retain their configured snake_case names. `/admin` represents the configured UI prefix.
+Paths have no trailing slash. JSON properties and revision field references use
+camelCase; path field identifiers retain their configured snake_case names.
+`/admin` represents the configured UI prefix.
 
 ### JSON API
 
@@ -106,9 +103,9 @@ GET requests require no CSRF token. A token-authenticated request without
 cookies requires no CSRF token. This draft does not change the existing rule
 that unsafe requests carrying cookies undergo CSRF checks.
 
-JSON object properties use camelCase, including record fields. Query field
-references, path `field`, and revision `changes[].field` use configured
-snake_case identifiers. Arbitrary JSON-column dictionary keys retain their
+JSON object properties use camelCase, including record fields. Path `field` uses configured snake_case identifiers.
+Revision `changes[].field` uses the public camelCase alias from the core API;
+selector query references follow the existing shared query contract. Arbitrary JSON-column dictionary keys retain their
 original casing. Record/FK identifiers follow the shared serialization rules;
 examples use string IDs. Decimal and BigInteger values are strings, and date/
 time values use the shared ISO 8601 formats. Activity/comment timestamps are UTC
@@ -132,7 +129,7 @@ outside this draft's contract.
 
 Record-page inline editing requires a resource backed by SQLAlchemy
 `version_id_col`; configuring editable record-page fields without durable
-versioning must fail configuration validation. This requirement is proposed;
+versioning must fail configuration validation;
 unversioned resources outside this workflow retain the existing CRUD contract.
 Comments require an independently maintained durable version for safe writes.
 Comment versions and record versions are separate: adding/editing/deleting a
@@ -631,7 +628,7 @@ visible entries with `hasMore=false` and `nextCursor=null`.
 | --- | --- | --- |
 | `action` | string | `create`, `update`, or `delete`. |
 | `changes` | object[] | Nonempty list of readable field differences. |
-| `changes[].field` | string | Configured snake_case field identifier, such as `start_date`. |
+| `changes[].field` | string | Public JSON field alias, such as `startDate`. |
 | `changes[].kind` | string | Value kind used for display, such as `text`, `number`, `reference`, or `files`. |
 | `changes[].before` | JSON value | Previous permitted value; absent for creation. |
 | `changes[].after` | JSON value | New permitted value; absent for deletion. Explicit null remains a value. |
@@ -1537,7 +1534,7 @@ These are explicit proposals to review before implementation:
 | --- | --- |
 | Record concurrency | Require durable versioning for editable record pages; reuse versioned record ETag/If-Match support. The older unconditional PATCH/DELETE description in `docs/api-spec.md` needs reconciliation when this proposal is accepted. |
 | Comment concurrency | Maintain a durable independent comment version; JSON detail/create/update expose its validator. The current comment storage does not yet implement this write contract. |
-| Revision field names | Preserve configured snake_case in `changes[].field`, as in the original activity draft. The current activity JSON adapter emits public camelCase aliases here; reconcile that discrepancy before implementation. |
+| Revision field names | Use the core API public camelCase aliases in `changes[].field`; preserve the existing wire contract and its regression coverage. |
 | Relationship scope | Explicitly configured collection cards, read-only, native target-PK ordering, cursor-only pagination, no exact counts. No Add record, reassignment, arbitrary expansion, or nested writes. |
 | Comment access | Parent retrieve plus comment permission; active authors edit/delete only their own comments. No moderator override, threads, mentions, or notifications. |
 | Comment content/deletion | Plain text, normalized line endings, no framework length cap; tombstone deletion removes the live body and hides the entry. No edit-history endpoint. |

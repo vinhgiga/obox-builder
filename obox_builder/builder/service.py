@@ -480,9 +480,14 @@ class ResourceService(Generic[T]):
                     objects.append(await self._get(key, ctx, permission, lock=True))
                 except NotFound as exc:
                     raise NotFound(f"Record {key!r} is unavailable.") from exc
+            activity = self.app.get_plugin("activity")
+            before = [
+                await activity.snapshot(self.builder, obj, ctx) if activity else None
+                for obj in objects
+            ]
             await invoke(method, objects, ctx)
-            for obj in objects:
-                await self._finish(permission, obj, {}, ctx, event_action=name)
+            for obj, snapshot in zip(objects, before, strict=True):
+                await self._finish(permission, obj, {}, ctx, event_action=name, before=snapshot)
             return len(objects)
 
     async def related(self, id: Any, name: str, *, ctx: Context) -> Sequence[Any]:
@@ -633,6 +638,7 @@ class ResourceService(Generic[T]):
         ctx: Context,
         *,
         event_action: str | None = None,
+        before: dict[str, Any] | None = None,
     ) -> None:
         self._context(ctx)
         if action == "create":
@@ -653,6 +659,11 @@ class ResourceService(Generic[T]):
         ):
             raise PermissionDenied("A server-controlled field was changed.")
         self._context(ctx)
+        activity = self.app.get_plugin("activity")
+        if activity is not None:
+            await activity.record(
+                self.builder, "create" if action == "create" else "update", obj, before, ctx
+            )
         ctx._events.append(
             DomainEvent(
                 event_action or action, self.builder.model, getattr(obj, self.builder.pk_name)
@@ -725,6 +736,8 @@ class ResourceService(Generic[T]):
         self._version(obj, version)
         if precondition is not None:
             await precondition(obj)
+        activity = self.app.get_plugin("activity")
+        before = await activity.snapshot(self.builder, obj, ctx) if activity else None
         values, presets = await self._input("update", changes, ctx, obj)
         files = self.app.get_plugin("files")
         if files is not None:
@@ -742,7 +755,7 @@ class ResourceService(Generic[T]):
             for key, value in values.items():
                 if value is None and getattr(obj, key) is None:
                     setattr(obj, key, sa.null())
-            await self._finish("update", obj, presets, ctx)
+            await self._finish("update", obj, presets, ctx, before=before)
             return obj
 
     def _version(self, obj: T, version: Any) -> None:
@@ -768,10 +781,14 @@ class ResourceService(Generic[T]):
             self._version(obj, version)
             if precondition is not None:
                 await precondition(obj)
+            activity = self.app.get_plugin("activity")
+            before = await activity.snapshot(self.builder, obj, ctx) if activity else None
             await invoke(self.builder.before_delete, obj, ctx)
             self._context(ctx)
             await ctx.session.delete(obj)
             await ctx.session.flush()
+            if activity is not None:
+                await activity.record(self.builder, "delete", obj, before, ctx)
             ctx._events.append(
                 DomainEvent("delete", self.builder.model, getattr(obj, self.builder.pk_name))
             )

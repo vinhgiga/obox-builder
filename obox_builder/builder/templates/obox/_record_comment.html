@@ -1,0 +1,17 @@
+<article id="record-comment-{{ comment_id }}" class="card card-body mb-2">
+  <form method="post"
+        action="{{ record_url }}/comments/{{ comment_id }}/edit"
+        data-record-form>
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <input type="hidden" name="if_match" value="{{ if_match }}">
+    <label class="form-label">
+      {{ _("Comment") }}<textarea class="form-control" name="body" required>{{ body }}</textarea>
+    </label>
+    {% if message %}<p class="alert alert-danger" role="alert">{{ message }}</p>{% endif %}
+    <button class="btn btn-primary btn-sm" type="submit">{{ _("Save") }}</button>
+    <a href="{{ record_url }}/activity" data-record-link data-discard-draft>{{ _("Cancel") }}</a>
+    {% if message %}<a href="{{ record_url }}/comments/{{ comment_id }}/edit"
+   data-record-link
+   data-discard-draft>{{ _("Reload") }}</a>{% endif %}
+  </form>
+</article>

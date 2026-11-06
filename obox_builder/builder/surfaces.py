@@ -52,6 +52,7 @@ class View:
     related: FieldRefs = ()
     operations: tuple[str, ...] = ("create", "update", "delete")
     page_size: int | None = None
+    inline_edit: bool | None = None
     _builder: Any
 
     def get_list_display(self, ctx: Context) -> Sequence[str]:

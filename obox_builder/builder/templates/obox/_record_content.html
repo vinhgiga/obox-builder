@@ -1,0 +1,15 @@
+<div id="record-content"
+     class="record-layout{% if activity %} has-activity{% endif %}">
+  <section class="record-form-panel">
+    <a class="btn btn-link" href="{{ base }}">{{ _("Back to list") }}</a>
+    {% if edit_url %}<a class="btn btn-link" href="{{ edit_url }}">{{ _("Edit") }}</a>{% endif %}
+    {% if delete_url %}<a class="btn btn-link"
+   href="{{ delete_url }}">{{ _("Delete") }}</a>{% endif %}
+    {% from "obox/_record_fields.html" import record_field with context %}
+    {% for data in fields %}{{ record_field(data) }}{% endfor %}
+    {% for card in cards %}
+      {% include "obox/_record_relationship.html" %}
+    {% endfor %}
+  </section>
+  {% include "obox/_record_sidebar.html" %}
+</div>

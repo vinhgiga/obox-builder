@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-11-05 22:33+0700\n"
+"POT-Creation-Date: 2026-11-06 10:54+0700\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -25,61 +25,139 @@ msgstr ""
 msgid "Internal server error.Invalid input."
 msgstr ""
 
-#: obox_builder/builder/service.py:548
+#: obox_builder/builder/service.py:553
 msgid "Field cannot be null."
 msgstr ""
 
-#: obox_builder/builder/service.py:562 obox_builder/builder/service.py:640
+#: obox_builder/builder/service.py:567 obox_builder/builder/service.py:646
 msgid "Field is required."
 msgstr ""
 
-#: obox_builder/builder/service.py:612 obox_builder/builder/service.py:621
+#: obox_builder/builder/service.py:617 obox_builder/builder/service.py:626
 msgid "A value is outside the database column limits."
 msgstr ""
 
-#: obox_builder/builder/ui.py:402
+#: obox_builder/builder/ui.py:435
 msgid "Unsupported form widget."
 msgstr ""
 
-#: obox_builder/builder/ui.py:490
+#: obox_builder/builder/ui.py:523
 msgid "Enter valid JSON."
 msgstr ""
 
-#: obox_builder/builder/ui.py:533 obox_builder/contrib/auth/admin.py:260
+#: obox_builder/builder/ui.py:566 obox_builder/contrib/auth/admin.py:260
 msgid "Users"
 msgstr ""
 
-#: obox_builder/builder/ui.py:538 obox_builder/contrib/auth/admin.py:472
+#: obox_builder/builder/ui.py:571 obox_builder/contrib/auth/admin.py:472
 #: obox_builder/contrib/auth/admin.py:507
 #: obox_builder/contrib/auth/admin.py:560
 msgid "Roles"
 msgstr ""
 
-#: obox_builder/builder/ui.py:705 obox_builder/builder/ui.py:708
+#: obox_builder/builder/ui.py:740 obox_builder/builder/ui.py:743
 msgid "Invalid inline count."
 msgstr ""
 
-#: obox_builder/builder/ui.py:720 obox_builder/builder/ui.py:749
+#: obox_builder/builder/ui.py:755 obox_builder/builder/ui.py:784
 msgid "An inline record is unavailable."
 msgstr ""
 
-#: obox_builder/builder/ui.py:791
+#: obox_builder/builder/ui.py:826
 msgid "Unknown inline field."
 msgstr ""
 
-#: obox_builder/builder/ui.py:1012 obox_builder/contrib/auth/admin.py:233
+#: obox_builder/builder/ui.py:1059 obox_builder/contrib/auth/admin.py:233
 msgid "Duplicate form fields are not permitted."
 msgstr ""
 
+#: obox_builder/builder/templates/obox/_record_activity.html:22
 #: obox_builder/builder/templates/obox/confirm_delete.html:3
-#: obox_builder/builder/ui.py:1115
+#: obox_builder/builder/ui.py:1188
 msgid "Are you sure?"
 msgstr ""
 
-#: obox_builder/builder/ui.py:1144 obox_builder/builder/ui.py:1162
+#: obox_builder/builder/ui.py:1217 obox_builder/builder/ui.py:1235
 msgid "Choose a valid action and records."
 msgstr ""
 
+#: obox_builder/builder/templates/obox/_form_controls.html:12
+msgid "Choose…"
+msgstr ""
+
+#: obox_builder/builder/templates/obox/_record_activity.html:2
+#: obox_builder/builder/templates/obox/_record_sidebar.html:2
+msgid "Activity"
+msgstr ""
+
+#: obox_builder/builder/templates/obox/_record_activity.html:15
+msgid "Edited"
+msgstr ""
+
+#: obox_builder/builder/templates/obox/_record_activity.html:17
+#: obox_builder/builder/templates/obox/_record_content.html:5
+#: obox_builder/builder/templates/obox/_record_fields.html:49
+#: obox_builder/builder/templates/obox/detail.html:3
+msgid "Edit"
+msgstr ""
+
+#: obox_builder/builder/templates/obox/_record_activity.html:25
+#: obox_builder/builder/templates/obox/_record_content.html:7
+#: obox_builder/builder/templates/obox/detail.html:9
+#: obox_builder/builder/templates/obox/form.html:76
+#: obox_builder/builder/templates/obox/form.html:125
+msgid "Delete"
+msgstr ""
+
+#: obox_builder/builder/templates/obox/_record_activity.html:31
+msgid "No activity yet."
+msgstr ""
+
+#: obox_builder/builder/templates/obox/_record_activity.html:33
+#: obox_builder/builder/templates/obox/_record_fields.html:21
+#: obox_builder/builder/templates/obox/_record_relationship.html:13
+msgid "Load more"
+msgstr ""
+
+#: obox_builder/builder/templates/obox/_record_activity.html:42
+#: obox_builder/builder/templates/obox/_record_activity.html:45
+#: obox_builder/builder/templates/obox/_record_comment.html:8
+msgid "Comment"
+msgstr ""
+
+#: obox_builder/builder/templates/obox/_record_comment.html:11
+#: obox_builder/builder/templates/obox/_record_fields.html:30
+#: obox_builder/builder/templates/obox/form.html:116
+msgid "Save"
+msgstr ""
+
+#: obox_builder/builder/templates/obox/_record_comment.html:12
+#: obox_builder/builder/templates/obox/_record_fields.html:33
+#: obox_builder/builder/templates/obox/list.html:80
+msgid "Cancel"
+msgstr ""
+
+#: obox_builder/builder/templates/obox/_record_comment.html:15
+#: obox_builder/builder/templates/obox/_record_fields.html:35
+#: obox_builder/builder/templates/obox/form.html:26
+msgid "Reload"
+msgstr ""
+
+#: obox_builder/builder/templates/obox/_record_content.html:4
+#: obox_builder/builder/templates/obox/detail.html:3
+#: obox_builder/builder/templates/obox/form.html:12
+msgid "Back to list"
+msgstr ""
+
+#: obox_builder/builder/templates/obox/_record_fields.html:14
+msgid "Search"
+msgstr ""
+
+#: obox_builder/builder/templates/obox/_record_fields.html:28
+msgid "Clear value"
+msgstr ""
+
+#: obox_builder/builder/templates/obox/_record_relationship.html:9
 #: obox_builder/builder/templates/obox/_related.html:22
 #: obox_builder/builder/templates/obox/list.html:464
 msgid "No records."
@@ -118,49 +196,36 @@ msgstr ""
 msgid "No, take me back"
 msgstr ""
 
-#: obox_builder/builder/templates/obox/detail.html:3
-#: obox_builder/builder/templates/obox/form.html:46
-msgid "Back to list"
+#: obox_builder/builder/templates/obox/form.html:17
+#: obox_builder/builder/templates/obox/form.html:18
+msgid "Previous record"
 msgstr ""
 
-#: obox_builder/builder/templates/obox/detail.html:3
-msgid "Edit"
+#: obox_builder/builder/templates/obox/form.html:21
+#: obox_builder/builder/templates/obox/form.html:22
+msgid "Next record"
 msgstr ""
 
-#: obox_builder/builder/templates/obox/detail.html:9
-#: obox_builder/builder/templates/obox/form.html:93
-#: obox_builder/builder/templates/obox/form.html:141
-msgid "Delete"
-msgstr ""
-
-#: obox_builder/builder/templates/obox/form.html:13
-msgid "Choose…"
-msgstr ""
-
-#: obox_builder/builder/templates/obox/form.html:71
+#: obox_builder/builder/templates/obox/form.html:54
 msgid "Delete?"
 msgstr ""
 
-#: obox_builder/builder/templates/obox/form.html:99
-#: obox_builder/builder/templates/obox/form.html:118
+#: obox_builder/builder/templates/obox/form.html:82
+#: obox_builder/builder/templates/obox/form.html:103
 msgid "Remove"
 msgstr ""
 
-#: obox_builder/builder/templates/obox/form.html:126
+#: obox_builder/builder/templates/obox/form.html:109
 #, python-format
 msgid "Add another %(name)s"
 msgstr ""
 
-#: obox_builder/builder/templates/obox/form.html:133
-msgid "Save"
-msgstr ""
-
-#: obox_builder/builder/templates/obox/form.html:136
+#: obox_builder/builder/templates/obox/form.html:119
 msgid "Save and add another"
 msgstr ""
 
-#: obox_builder/builder/templates/obox/form.html:139
-msgid "Save and continue editing"
+#: obox_builder/builder/templates/obox/form.html:122
+msgid "Save and continue"
 msgstr ""
 
 #: obox_builder/builder/templates/obox/list.html:10
@@ -210,10 +275,6 @@ msgstr ""
 
 #: obox_builder/builder/templates/obox/list.html:75
 msgid "Add another sort"
-msgstr ""
-
-#: obox_builder/builder/templates/obox/list.html:80
-msgid "Cancel"
 msgstr ""
 
 #: obox_builder/builder/templates/obox/list.html:102

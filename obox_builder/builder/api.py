@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import re
 from collections.abc import Awaitable, Callable, Iterable, Sequence
 from dataclasses import replace
 from datetime import UTC, datetime
@@ -16,17 +15,16 @@ from pydantic import BaseModel, Field, StrictStr, TypeAdapter, create_model, fie
 from pydantic.alias_generators import to_camel
 
 from obox_builder.builder.api_schema import ApiRequest, ApiResponse
+from obox_builder.builder.conditional import check_match
 from obox_builder.builder.filters import FilterGroup, FilterTerm, parse_filter
 from obox_builder.builder.http import ApiRoute
-from obox_builder.builder.query import ListQuery, invalid, parse_terms
+from obox_builder.builder.query import ListQuery, invalid, parameters, parse_terms
 from obox_builder.builder.service import invoke
 from obox_builder.context import Context
 from obox_builder.errors import (
     BuilderValidationError,
     ImproperlyConfigured,
     PermissionDenied,
-    PreconditionFailed,
-    PreconditionRequired,
 )
 
 
@@ -215,7 +213,27 @@ def query_options(
     return result
 
 
+async def record_etag(builder: Any, service: Any, obj: Any, ctx: Context) -> str:
+    ctx = replace(ctx, source="api")
+    row = await service.serialize(obj, ctx=ctx, fields=builder.api_read)
+    for name in builder.api_identifiers.intersection(row):
+        if row[name] is not None:
+            row[name] = str(row[name])
+    data = (
+        list_schema(builder, expanded=False).model_validate(row).model_dump_json(exclude_unset=True)
+    )
+    version = getattr(
+        obj, sa.inspect(builder.model).get_property_by_column(builder.version_column).key
+    )
+    digest = hashlib.sha256(
+        (builder.slug + ":" + str(json_value(version)) + ":" + data).encode()
+    ).hexdigest()
+    return '"' + digest + '"'
+
+
 def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
+    from obox_builder.builder.records import RelationshipPage, relationship
+
     router = APIRouter(route_class=ApiRoute)
     if not builder.api.enabled:
         return router
@@ -251,15 +269,7 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
         return cast(dict[str, Any], row)
 
     async def etag(obj: Any, ctx: Context, row: dict[str, Any] | None = None) -> str:
-        row = await record_row(obj, ctx) if row is None else row
-        data = record_schema.model_validate(row).model_dump_json(exclude_unset=True)
-        version = getattr(
-            obj, sa.inspect(builder.model).get_property_by_column(builder.version_column).key
-        )
-        digest = hashlib.sha256(
-            (builder.slug + ":" + str(json_value(version)) + ":" + data).encode()
-        ).hexdigest()
-        return '"' + digest + '"'
+        return await record_etag(builder, service, obj, ctx)
 
     async def record_response(obj: Any, ctx: Context, response: Response) -> dict[str, Any]:
         row = await record_row(obj, ctx)
@@ -279,17 +289,7 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
                         "If-Match", "This resource is not versioned.", "unsupported_precondition"
                     )
                 return
-            if not values:
-                raise PreconditionRequired("Send the record's ETag in If-Match.")
-            value = ",".join(values).strip()
-            if value == "*":
-                return
-            tag = r'(?:W/)?"[\x21\x23-\x7e\x80-\xff]*"'
-            element = r"\s*(?:" + tag + r")?\s*"
-            if not re.fullmatch(element + r"(?:," + element + r")*", value):
-                raise invalid("If-Match", "Use an entity-tag list or *.", "invalid_precondition")
-            if await etag(obj, ctx) not in re.findall(tag, value):
-                raise PreconditionFailed("The record has changed.")
+            check_match(values, await etag(obj, ctx))
 
         return check
 
@@ -415,8 +415,33 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
                 )
             return {"items": items, "page": page}
 
-    async def retrieve(id: str, response: Response, ctx: Context = dependency) -> Any:
+    async def retrieve(
+        request: Request, id: str, response: Response, ctx: Context = dependency
+    ) -> Any:
+        parameters(request.query_params.multi_items())
         return await record_response(await service.get(id, ctx=ctx), ctx, response)
+
+    if "retrieve" in builder.api.operations:
+
+        @router.get(
+            path + "/{id}/relationships/{field}",
+            name=f"obox_api_{builder.slug}_relationships",
+            response_model=RelationshipPage,
+            operation_id=f"{builder.slug}_relationships",
+            responses=problems,
+        )
+        async def related(
+            request: Request, id: str, field: str, response: Response, ctx: Context = dependency
+        ) -> Any:
+            response.headers["Cache-Control"] = "private, no-store"
+            return await relationship(
+                app,
+                builder,
+                id,
+                field,
+                parameters(request.query_params.multi_items(), {"limit", "cursor"}),
+                ctx,
+            )
 
     async def create(
         request: Request, response: Response, data: Any, ctx: Context = dependency
@@ -435,6 +460,8 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
     ) -> Any:
         request.state.record_fields = builder.update_schema.model_fields
         app.csrf.validate(request, ctx.principal)
+        if builder.version_column is not None:
+            await service.get(id, ctx=ctx)
         obj = await service.update(
             id,
             data.model_dump(by_alias=False, exclude_unset=True),
@@ -446,6 +473,8 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
     async def delete(request: Request, id: str, ctx: Context = dependency) -> Response:
         request.state.record_fields = builder.read_schema.model_fields
         app.csrf.validate(request, ctx.principal)
+        if builder.version_column is not None:
+            await service.get(id, ctx=ctx)
         if await request.body():
             raise BuilderValidationError({"__all__": ["Request body must be empty."]})
         await service.delete(id, ctx=ctx, precondition=precondition(request, ctx))

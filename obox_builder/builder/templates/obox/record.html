@@ -1,0 +1,10 @@
+{% extends base_template if full else "obox/_fragment.html" %}
+{% block page_container_class %}container-fluid{% endblock %}
+{% block content_class %}record-content{% endblock %}
+{% block content %}
+  {% include fragment %}
+{% endblock %}
+{% block scripts %}
+  <script type="module"
+          src="{{ request.url_for('obox_static', path='record.js') }}"></script>
+{% endblock %}
