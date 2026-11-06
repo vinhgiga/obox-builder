@@ -622,6 +622,11 @@ button.sort-add {
   white-space: pre-line;
   line-height: 1.25rem;
 }
+.record-grid .cell-value.cell-files {
+  display: block;
+  -webkit-line-clamp: unset;
+  white-space: normal;
+}
 .record-grid mark[data-search-mark] {
   @apply rounded-sm bg-amber-200 text-inherit;
 }

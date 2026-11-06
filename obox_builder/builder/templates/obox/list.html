@@ -455,7 +455,7 @@
               {% for field in list_display %}
                 {% set value = row['values'].get(field, '') %}
                 <td data-list-column="{{ field }}" title="{{ value }}">
-                  <div class="cell-value">{% if row["values"].get("_files", {}).get(field) %}{{ files_widget(value, row['values']['_files'][field], compact=true) }}{% elif field == link_field and row.detail %}<a href="{{ row.url }}">{{ value }}</a>{% else %}{{ value }}{% endif %}</div>
+                  <div class="cell-value{% if row['values'].get('_files', {}).get(field) %} cell-files{% endif %}">{% if row["values"].get("_files", {}).get(field) %}{{ files_widget(value, row['values']['_files'][field], compact=true) }}{% elif field == link_field and row.detail %}<a href="{{ row.url }}">{{ value }}</a>{% else %}{{ value }}{% endif %}</div>
                 </td>
               {% endfor %}
             </tr>
