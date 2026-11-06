@@ -120,36 +120,194 @@
   display: none;
 }
 
-.obox-file-dialog {
-  width: min(64rem, 95vw);
-  max-height: 95vh;
+.obox-file-lightbox {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100dvh;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
   border: 0;
-  border-radius: 0.5rem;
-  padding: 1rem;
+  background: #090b0ef2;
+  color: #fff;
+  outline: 0;
 }
 
-.obox-file-dialog::backdrop {
-  background: #000a;
+.obox-file-lightbox[open] {
+  display: flex;
+  flex-direction: column;
 }
 
-.obox-file-dialog header {
+.obox-file-lightbox::backdrop {
+  background: #000;
+}
+
+.obox-file-lightbox-toolbar {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  margin-bottom: 0.75rem;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1.25rem;
+  color: #cbd5e1;
+  font-size: 0.85rem;
 }
 
-.obox-file-dialog header strong {
+.obox-file-lightbox-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.obox-file-lightbox-download,
+.obox-file-lightbox-actions button {
+  border: 0;
+  border-radius: 999px;
+  padding: 0.45rem 0.9rem;
+  background: #ffffff14;
+  color: #fff;
+  font-size: 0.85rem;
+  line-height: 1;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.obox-file-lightbox-actions button {
+  width: 2.25rem;
+  height: 2.25rem;
+  padding: 0;
+  font-size: 1.5rem;
+}
+
+.obox-file-lightbox-download:hover,
+.obox-file-lightbox-actions button:hover {
+  background: #ffffff26;
+}
+
+.obox-file-lightbox-figure {
+  display: flex;
   flex: 1;
-  overflow-wrap: anywhere;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.9rem;
+  min-height: 0;
+  margin: 0;
+  padding: 0 4rem 5.5rem;
+  pointer-events: none;
 }
 
-.obox-file-dialog img,
-.obox-file-dialog video {
-  display: block;
-  margin: auto;
+.obox-file-lightbox-figure > * {
+  pointer-events: auto;
+}
+
+.obox-file-lightbox-media {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
   max-width: 100%;
-  max-height: 75vh;
+}
+
+.obox-file-lightbox-media img,
+.obox-file-lightbox-media video {
+  display: block;
+  max-width: min(90vw, 80rem);
+  max-height: calc(100dvh - 13rem);
+  border: 1px solid #ffffff24;
+  box-shadow: 0 1.5rem 4rem #000a;
+  object-fit: contain;
+}
+
+.obox-file-lightbox-caption {
+  max-width: min(90vw, 60rem);
+  text-align: center;
+  text-shadow: 0 1px 2px #000;
+}
+
+.obox-file-lightbox-title {
+  display: block;
+  overflow-wrap: anywhere;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.obox-file-lightbox-details {
+  display: block;
+  margin-top: 0.2rem;
+  color: #aeb7c2;
+  font-size: 0.85rem;
+}
+
+.obox-file-lightbox-details[hidden] {
+  display: none;
+}
+
+.obox-file-lightbox-nav {
+  position: absolute;
+  top: 50%;
+  z-index: 1;
+  width: 2.75rem;
+  height: 2.75rem;
+  border: 0;
+  border-radius: 999px;
+  background: #ffffff14;
+  color: #fff;
+  font-size: 1.75rem;
+  line-height: 1;
+  transform: translateY(-50%);
+  cursor: pointer;
+}
+
+.obox-file-lightbox-nav:hover {
+  background: #ffffff26;
+}
+
+.obox-file-lightbox-nav.is-previous {
+  left: 1rem;
+}
+
+.obox-file-lightbox-nav.is-next {
+  right: 1rem;
+}
+
+.obox-file-lightbox-thumbs {
+  position: absolute;
+  right: 1.25rem;
+  bottom: 1.25rem;
+  display: flex;
+  gap: 0.5rem;
+  max-width: calc(100vw - 2.5rem);
+  padding: 0.25rem;
+  overflow-x: auto;
+}
+
+.obox-file-lightbox-thumb {
+  flex: 0 0 4rem;
+  width: 4rem;
+  height: 3rem;
+  padding: 0;
+  overflow: hidden;
+  border: 2px solid transparent;
+  border-radius: 0.35rem;
+  background: #ffffff12;
+  color: #cbd5e1;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.obox-file-lightbox-thumb img,
+.obox-file-lightbox-thumb video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.obox-file-lightbox-thumb.is-active {
+  border-color: #fff;
 }
 
 .obox-file progress {

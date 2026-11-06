@@ -130,58 +130,137 @@ function media(meta, url) {
   return item;
 }
 
-function preview(box, card) {
-  const meta = metadata.get(card);
-  if (!meta) return;
-  const url = `${box.dataset.url}/${encodeURIComponent(meta.id)}`;
-  const dialog = document.createElement("dialog");
-  dialog.className = "obox-file-dialog";
-  dialog.setAttribute("aria-label", meta.filename);
-  const header = document.createElement("header");
-  const title = document.createElement("strong");
-  title.textContent = meta.filename;
-  const cards = [...box.querySelectorAll("[data-file-id]")];
-  const index = cards.indexOf(card);
-  const move = (step) => {
-    dialog.close();
-    preview(box, cards[(index + step + cards.length) % cards.length]);
-  };
-  header.append(title);
-  if (cards.length > 1)
-    header.append(
-      button("Previous file", "←", () => move(-1)),
-      button("Next file", "→", () => move(1)),
-    );
-  header.append(button("Close preview", "×", () => dialog.close()));
-  const content = media(meta, url);
-  if (content?.tagName === "VIDEO") {
-    content.controls = true;
-    content.muted = false;
+function fileSize(bytes) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "";
+  const units = ["B", "KB", "MB", "GB"];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
   }
+  return `${value >= 10 || unit === 0 ? Math.round(value) : value.toFixed(1)} ${units[unit]}`;
+}
+
+function fileDetails(meta) {
+  const type = (meta.content_type.split("/").pop() || "").toUpperCase();
+  return [type, fileSize(meta.size)].filter(Boolean).join(" · ");
+}
+
+function preview(box, card) {
+  const cards = [...box.querySelectorAll("[data-file-id]")];
+  const start = cards.indexOf(card);
+  if (start < 0) return;
+  const dialog = document.createElement("dialog");
+  dialog.className = "obox-file-lightbox";
+  dialog.tabIndex = -1;
+  dialog.setAttribute("aria-label", "File preview");
+
+  const counter = document.createElement("span");
+  counter.className = "obox-file-lightbox-counter";
   const download = document.createElement("a");
-  download.href = `${url}?download=true`;
+  download.className = "obox-file-lightbox-download";
   download.textContent = "Download";
-  download.className = "btn btn-outline-secondary btn-sm";
-  header.append(download);
-  dialog.append(
-    header,
-    content || document.createTextNode("Preview is unavailable for this file type."),
+  const actions = document.createElement("div");
+  actions.className = "obox-file-lightbox-actions";
+  actions.append(
+    download,
+    button("Close preview", "×", () => dialog.close()),
   );
+  const toolbar = document.createElement("div");
+  toolbar.className = "obox-file-lightbox-toolbar";
+  toolbar.append(counter, actions);
+
+  const newMedia = document.createElement("div");
+  newMedia.className = "obox-file-lightbox-media";
+  const title = document.createElement("strong");
+  title.className = "obox-file-lightbox-title";
+  const details = document.createElement("span");
+  details.className = "obox-file-lightbox-details";
+  const caption = document.createElement("figcaption");
+  caption.className = "obox-file-lightbox-caption";
+  caption.append(title, details);
+  const figure = document.createElement("figure");
+  figure.className = "obox-file-lightbox-figure";
+  figure.append(newMedia, caption);
+
+  const previous = button("Previous file", "‹", () => move(-1));
+  const next = button("Next file", "›", () => move(1));
+  previous.className = "obox-file-lightbox-nav is-previous";
+  next.className = "obox-file-lightbox-nav is-next";
+
+  const thumbs = document.createElement("div");
+  thumbs.className = "obox-file-lightbox-thumbs";
+  thumbs.setAttribute("role", "group");
+  thumbs.setAttribute("aria-label", "Attachments");
+  const thumbButtons = cards.map((item, index) => {
+    const value = metadata.get(item);
+    const thumb = document.createElement("button");
+    thumb.type = "button";
+    thumb.className = "obox-file-lightbox-thumb";
+    thumb.setAttribute("aria-label", `Preview ${value?.filename || "file"}`);
+    thumb.onclick = () => render(index);
+    const image = value ? media(value, `${box.dataset.url}/${encodeURIComponent(value.id)}`) : null;
+    if (image) {
+      if (image.tagName === "VIDEO") image.muted = true;
+      thumb.append(image);
+    } else {
+      thumb.textContent = "File";
+    }
+    thumbs.append(thumb);
+    return thumb;
+  });
+
+  let index = start;
+  function render(selected) {
+    const value = metadata.get(cards[selected]);
+    if (!value) return;
+    index = selected;
+    const url = `${box.dataset.url}/${encodeURIComponent(value.id)}`;
+    const content = media(value, url);
+    if (content?.tagName === "VIDEO") {
+      content.controls = true;
+      content.muted = false;
+    }
+    newMedia.replaceChildren(
+      content || document.createTextNode("Preview is unavailable for this file type."),
+    );
+    title.textContent = value.filename;
+    details.textContent = fileDetails(value);
+    details.hidden = !details.textContent;
+    counter.textContent = cards.length > 1 ? `${selected + 1} / ${cards.length}` : "";
+    download.href = `${url}?download=true`;
+    dialog.setAttribute("aria-label", value.filename);
+    previous.hidden = next.hidden = thumbs.hidden = cards.length < 2;
+    thumbButtons.forEach((thumb, position) => {
+      thumb.classList.toggle("is-active", position === selected);
+      if (position === selected) thumb.setAttribute("aria-current", "true");
+      else thumb.removeAttribute("aria-current");
+    });
+  }
+  function move(step) {
+    if (cards.length < 2) return;
+    render((index + step + cards.length) % cards.length);
+  }
+
+  dialog.append(toolbar, previous, figure, next, thumbs);
   dialog.addEventListener("close", () => dialog.remove(), { once: true });
   dialog.addEventListener("click", (event) => {
-    if (event.target === dialog) {
-      const rect = dialog.getBoundingClientRect();
-      if (
-        event.clientX < rect.left ||
-        event.clientX > rect.right ||
-        event.clientY < rect.top ||
-        event.clientY > rect.bottom
-      )
-        dialog.close();
+    if (event.target === dialog) dialog.close();
+  });
+  dialog.addEventListener("keydown", (event) => {
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      move(-1);
+    } else if (event.key === "ArrowRight") {
+      event.preventDefault();
+      move(1);
     }
   });
   document.body.append(dialog);
+  render(start);
   dialog.showModal();
+  dialog.focus();
 }
 
 function entry(box, id, meta) {
