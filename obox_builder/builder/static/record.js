@@ -1,3 +1,5 @@
+import { request } from "./http.js";
+
 const drafts = new Map();
 let pending = false;
 
@@ -15,7 +17,7 @@ async function replace(url, form = null, discard = null) {
   for (const button of buttons) button.disabled = true;
   remember();
   try {
-    const response = await fetch(url, {
+    const response = await request(url, {
       method: form ? "POST" : "GET",
       headers: {
         Accept: "text/html",
@@ -106,7 +108,7 @@ async function options(input, more = false) {
     if (input.value) url.searchParams.set("search", input.value);
   }
   try {
-    const response = await fetch(url, {
+    const response = await request(url, {
       headers: { Accept: "application/json" },
       credentials: "same-origin",
       signal: controller.signal,

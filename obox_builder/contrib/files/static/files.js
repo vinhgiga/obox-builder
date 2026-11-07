@@ -1,3 +1,5 @@
+import { request, uploadRequest } from "./http.js";
+
 const token = (box) => box.closest("form")?.querySelector('[name="csrf_token"]')?.value || "";
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const pending = new WeakMap();
@@ -14,7 +16,7 @@ const previewTypes = new Set([
 ]);
 
 async function json(url, options) {
-  const response = await fetch(url, { cache: "no-store", ...options });
+  const response = await request(url, { cache: "no-store", ...options });
   const result = await response.json();
   if (!response.ok) {
     throw Object.assign(new Error(result.detail || `HTTP ${response.status}`), {
@@ -24,28 +26,19 @@ async function json(url, options) {
   return result;
 }
 
-function patch(url, blob, offset, csrf, progress) {
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open("PATCH", url);
-    xhr.timeout = 120000;
-    xhr.setRequestHeader("Upload-Offset", String(offset));
-    xhr.setRequestHeader("Content-Type", "application/offset+octet-stream");
-    xhr.setRequestHeader("X-CSRF-Token", csrf);
-    xhr.upload.onprogress = (event) => progress(offset + event.loaded);
-    xhr.onload = () => {
-      try {
-        if (xhr.status < 200 || xhr.status >= 300) {
-          throw Object.assign(new Error(`HTTP ${xhr.status}`), { status: xhr.status });
-        }
-        resolve(JSON.parse(xhr.responseText));
-      } catch (error) {
-        reject(error);
-      }
-    };
-    xhr.onerror = xhr.ontimeout = () => reject(new Error("Upload interrupted."));
-    xhr.send(blob);
+async function patch(url, blob, offset, csrf, progress) {
+  const response = await uploadRequest(url, blob, {
+    headers: {
+      "Upload-Offset": String(offset),
+      "Content-Type": "application/offset+octet-stream",
+      "X-CSRF-Token": csrf,
+    },
+    onProgress: (event) => progress(offset + event.loaded),
   });
+  if (!response.ok) {
+    throw Object.assign(new Error(`HTTP ${response.status}`), { status: response.status });
+  }
+  return response.json();
 }
 
 async function upload(file, box, progress) {

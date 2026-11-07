@@ -30,7 +30,7 @@ class Backend(Protocol):
         password: str,
         *,
         previous: str = "",
-        max_age: int = 86400,
+        max_age: int = 14 * 24 * 60 * 60,
         request: Request | None = None,
     ) -> str | None: ...
 
@@ -174,7 +174,7 @@ class ModelBackend:
         password: str,
         *,
         previous: str = "",
-        max_age: int = 86400,
+        max_age: int = 14 * 24 * 60 * 60,
         request: Request | None = None,
     ) -> str | None:
         async with self.session_factory.begin() as db:

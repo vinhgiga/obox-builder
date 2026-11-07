@@ -5,11 +5,13 @@ import re
 from typing import Any
 
 import httpx
+import pytest
 import sqlalchemy as sa
 from fastapi import FastAPI
 from obox_builder import ModelBuilder, Obox, Principal, View, builder
 from obox_builder.auth import PublicReadOnly, StaffOnly
 from obox_builder.conf import Settings
+from obox_builder.contrib.auth import Auth
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.pool import StaticPool
@@ -182,6 +184,42 @@ async def post(app: Obox, path: str, data: dict[str, str]) -> httpx.Response:
         transport=httpx.ASGITransport(app=app.app), base_url="http://test"
     ) as client:
         return await client.post(path, data=data)
+
+
+@pytest.mark.parametrize(
+    ("principal", "auth", "status"),
+    [(None, False, 401), (None, True, 303), (Principal(is_authenticated=True), True, 403)],
+)
+def test_record_fragment_authentication_and_permissions(
+    principal: Principal | None, auth: bool, status: int
+) -> None:
+    async def scenario() -> None:
+        app, engine = await make_app(principal=principal)
+        if auth:
+            app.install(Auth(secure=False))
+        try:
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app.app), base_url="http://test"
+            ) as client:
+                response = await client.get(
+                    "/vi/admin/parents/1/fields/name",
+                    headers={"X-Obox-Fragment": "true", "X-Obox-Request": "true"},
+                )
+                assert response.status_code == (401 if status == 303 else status)
+                if status == 303:
+                    assert response.headers["x-obox-redirect"] == "/vi/auth/login"
+                else:
+                    assert "location" not in response.headers
+                    assert "x-obox-redirect" not in response.headers
+                    assert 'role="alert"' in response.text
+                api = await client.get("/api/parents/1")
+                assert api.status_code == (403 if status == 403 else 401)
+                assert "location" not in api.headers
+                assert api.headers["content-type"] == "application/problem+json"
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
 
 
 def test_list_links_first_displayed_column() -> None:

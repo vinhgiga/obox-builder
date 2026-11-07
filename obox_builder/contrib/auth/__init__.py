@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from starlette._utils import get_route_path
 from starlette.routing import NoMatchFound
 
 from obox_builder.auth import Identity, Principal, StaffOnly
@@ -58,7 +59,7 @@ class Auth:
         *,
         backend: Backend | None = None,
         secure: bool = True,
-        max_age: int = 86400,
+        max_age: int = 14 * 24 * 60 * 60,
         prefix: str = "/auth",
         login_template: str = "obox/login.html",
         account_template: str = "obox/account.html",
@@ -116,7 +117,14 @@ class Auth:
         )
 
     def _url(self, request: Request, route: str) -> str:
-        return localize(request, str(request.url_for(route).path), rooted=True)
+        path = str(request.url_for(route).path)
+        target = get_route_path({**request.scope, "path": path})
+        if any(
+            target == prefix or target.startswith(prefix + "/")
+            for prefix in request.app.state.obox.ui_prefixes
+        ):
+            return localize(request, path, rooted=True)
+        return path
 
     def login_url(self, request: Request) -> str:
         return self._url(request, self.login_route)

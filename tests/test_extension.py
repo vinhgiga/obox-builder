@@ -2,6 +2,7 @@ import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import FrozenInstanceError
+from pathlib import Path
 from types import ModuleType
 from typing import Any, Generic, TypeVar
 
@@ -9,12 +10,14 @@ import httpx
 import pytest
 import sqlalchemy as sa
 from fastapi import APIRouter, FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from obox_builder import ModelBuilder, Obox, Principal, Settings
 from obox_builder.auth import StaffOnly
 from obox_builder.conf import load_settings
+from obox_builder.contrib.activity import Activity
 from obox_builder.contrib.auth import Auth
 from obox_builder.contrib.auth.backends import ModelBackend
+from obox_builder.contrib.files import Files
 from obox_builder.db import Database
 from obox_builder.errors import ImproperlyConfigured, OboxError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -129,6 +132,101 @@ def test_database_lifecycle_is_lazy_repeatable_and_preserves_factory() -> None:
                         pass
             assert sessions.kw["bind"] is None
             assert database.engine is None
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("root_path", ["", "/prefix", "/auth"])
+@pytest.mark.parametrize("override_router", [False, True])
+def test_custom_login_and_shared_authentication_responses(
+    tmp_path: Path, root_path: str, override_router: bool
+) -> None:
+    async def scenario() -> None:
+        app = FastAPI()
+        obox = Obox(
+            app,
+            settings=Settings(
+                database_url="sqlite+aiosqlite://", ui_prefix="/console", api_prefix="/data"
+            ),
+        )
+        routes = APIRouter()
+
+        @routes.get("/login", name="obox_login")
+        async def custom_login() -> HTMLResponse:
+            return HTMLResponse("Custom sign in")
+
+        @routes.post("/logout", name="obox_logout")
+        async def custom_logout() -> HTMLResponse:
+            return HTMLResponse("Signed out")
+
+        class CustomAuth(Auth):
+            def get_router(self, app: Obox) -> APIRouter:
+                return routes
+
+        obox.install(
+            CustomAuth(secure=False) if override_router else Auth(router=routes, secure=False)
+        )
+        obox.install(Activity())
+        obox.install(Files(root=tmp_path / "media", prefix="/media"))
+        obox.register(ItemBuilder)
+        async with (
+            app.router.lifespan_context(app),
+            httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app, root_path=root_path),
+                base_url="http://test",
+            ) as client,
+        ):
+            login_url = f"{root_path}/login"
+            for path in ("/console/items", "/console/items/1", "/console/items/1/fields/name"):
+                response = await client.get(f"{root_path}/vi{path}", follow_redirects=True)
+                assert response.status_code == 200
+                assert response.url.path == login_url
+                assert response.text == "Custom sign in"
+                response = await client.get(
+                    f"{root_path}/vi{path}",
+                    headers={"X-Obox-Request": "true", "X-Obox-Fragment": "true"},
+                )
+                assert response.status_code == 401
+                assert response.headers["x-obox-redirect"] == login_url
+                assert response.headers["cache-control"] == "private, no-store"
+                assert "location" not in response.headers
+                assert "X-Obox-Request" in response.headers["vary"]
+            for method, path, kwargs in (
+                ("POST", "/vi/console/items/1/fields/name", {"data": {"value": "changed"}}),
+                ("GET", "/data/items", {}),
+                ("POST", "/data/items:query", {"json": {"query": []}}),
+            ):
+                response = await client.request(
+                    method,
+                    root_path + path,
+                    headers={"X-Obox-Request": "true"},
+                    **kwargs,
+                )
+                assert response.status_code == 401, (method, path, response.text)
+                assert response.headers["x-obox-redirect"] == login_url
+                assert "location" not in response.headers
+            response = await client.get(f"{root_path}/data/items")
+            assert response.status_code == 401
+            assert response.json()["code"] == "unauthenticated"
+            assert response.headers["content-type"] == "application/problem+json"
+            assert "x-obox-redirect" not in response.headers
+            for method, path, file_kwargs in (
+                (
+                    "POST",
+                    "/media",
+                    {"json": {"filename": "test.txt", "size": 1, "field": "items.file"}},
+                ),
+                ("PATCH", "/media/00000000-0000-0000-0000-000000000001", {"content": b"x"}),
+            ):
+                response = await client.request(
+                    method, root_path + path, headers={"X-Obox-Request": "true"}, **file_kwargs
+                )
+                assert response.status_code == 401
+                assert response.headers["x-obox-redirect"] == login_url
+            script = await client.get(f"{root_path}/console/_static/http.js")
+            files_script = await client.get(f"{root_path}/media/_static/http.js")
+            assert script.status_code == files_script.status_code == 200
+            assert script.content == files_script.content
 
     asyncio.run(scenario())
 
@@ -427,11 +525,22 @@ def test_auth_is_explicit_and_uses_runtime_without_overriding_host() -> None:
 
 
 @pytest.mark.parametrize("root_path", ["", "/prefix", "/auth"])
-def test_auth_redirect_and_login_work_without_database_queries(root_path: str) -> None:
+@pytest.mark.parametrize(
+    ("path", "fragment"),
+    [
+        ("/admin/items", False),
+        ("/admin/items/1", False),
+        ("/admin/items/1/fields/name", True),
+    ],
+)
+def test_auth_redirect_and_login_work_without_database_queries(
+    root_path: str, path: str, fragment: bool
+) -> None:
     async def scenario() -> None:
         app = FastAPI()
         obox = Obox(app, settings=Settings(database_url="sqlite+aiosqlite://"))
         obox.install(Auth(secure=False))
+        obox.install(Activity())
         obox.register(ItemBuilder)
         async with (
             app.router.lifespan_context(app),
@@ -441,7 +550,14 @@ def test_auth_redirect_and_login_work_without_database_queries(root_path: str) -
                 follow_redirects=True,
             ) as client,
         ):
-            page = await client.get(f"{root_path}/vi/admin/items")
+            page = await client.get(
+                f"{root_path}/vi{path}",
+                headers={"X-Obox-Fragment": "true"} if fragment else {},
+            )
+            assert page.history[0].status_code == 303
+            assert page.history[0].headers["location"] == f"{root_path}/vi/auth/login"
+            if path != "/admin/items":
+                assert page.history[0].headers["cache-control"] == "private, no-store"
             assert page.status_code == 200
             assert page.url.path == f"{root_path}/vi/auth/login"
             assert 'lang="vi"' in page.text

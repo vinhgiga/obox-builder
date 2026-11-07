@@ -65,6 +65,7 @@ jobs:
       - run: uv run pre-commit run --all-files
       - run: uv run pre-commit run actionlint --hook-stage manual --all-files
       - run: pnpm lint
+      - run: pnpm test:ui
       - run: pnpm test:commitlint
       - run: uv run validate-pyproject pyproject.toml
       - name: Check gettext catalogs

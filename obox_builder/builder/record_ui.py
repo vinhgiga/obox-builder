@@ -22,7 +22,7 @@ from starlette.types import Message, Receive, Scope, Send
 
 from obox_builder.builder.api import record_etag
 from obox_builder.builder.conditional import check_match
-from obox_builder.builder.http import accepts_json, read_form
+from obox_builder.builder.http import accepts_json, authentication_response, read_form
 from obox_builder.builder.query import parameters
 from obox_builder.builder.records import relationship
 from obox_builder.builder.service import invoke
@@ -66,7 +66,7 @@ class RecordRoute(APIRoute):
             )
             if status == 500:
                 logging.getLogger(__name__).error("Record page request failed.", exc_info=exc)
-            return scope["app"].state.obox.templates.TemplateResponse(
+            response = scope["app"].state.obox.templates.TemplateResponse(
                 request=request,
                 name="obox/record.html",
                 status_code=status,
@@ -80,6 +80,7 @@ class RecordRoute(APIRoute):
                     **translation_context(request),
                 },
             )
+            return authentication_response(request, exc, response, ui=True)
 
         async def respond(message: Message) -> None:
             if message["type"] == "http.response.start":
@@ -87,7 +88,9 @@ class RecordRoute(APIRoute):
                 headers["Cache-Control"] = "private, no-store"
                 headers["X-Request-ID"] = request.state.trace_id
                 headers["Content-Language"] = request.state.language
-                headers.add_vary_header("Cookie, Authorization, Accept-Language, X-Obox-Fragment")
+                headers.add_vary_header(
+                    "Cookie, Authorization, Accept-Language, X-Obox-Fragment, X-Obox-Request"
+                )
             await send(message)
 
         async def dispatch(scope: Scope, receive: Receive, send: Send) -> None:

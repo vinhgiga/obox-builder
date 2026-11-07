@@ -13,12 +13,12 @@ from starlette.datastructures import FormData, MutableHeaders
 from starlette.exceptions import HTTPException
 from starlette.middleware.exceptions import ExceptionMiddleware
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, RedirectResponse, Response
 from starlette.types import Message, Receive, Scope, Send
 
 from obox_builder.builder.api_schema import FieldError, Problem
 from obox_builder.builder.query import invalid
-from obox_builder.errors import BuilderValidationError, OboxError
+from obox_builder.errors import BuilderValidationError, NotAuthenticated, OboxError
 from obox_builder.i18n import negotiate, translate
 
 
@@ -32,6 +32,25 @@ class OboxRoute(APIRoute):
         await middleware(dict(scope), receive, send)
 
 
+def authentication_response(
+    request: Request, exc: Exception, response: Response, *, ui: bool = False
+) -> Response:
+    auth = request.app.state.obox.auth
+    if not isinstance(exc, NotAuthenticated) or auth is None:
+        return response
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers.add_vary_header("X-Obox-Request")
+    if request.headers.get("x-obox-request") == "true":
+        response.headers["X-Obox-Redirect"] = auth.login_url(request)
+    elif ui and request.method in {"GET", "HEAD"}:
+        return RedirectResponse(
+            auth.login_url(request),
+            status_code=303,
+            headers={"Cache-Control": "private, no-store", "Vary": "X-Obox-Request"},
+        )
+    return response
+
+
 def accepts_json(value: str, media_type: str = "application/json") -> bool:
     for item in value.split(","):
         parts = [part.strip().lower() for part in item.split(";")]
@@ -43,7 +62,7 @@ def accepts_json(value: str, media_type: str = "application/json") -> bool:
     return False
 
 
-async def api_problem(request: Request, exc: Exception) -> JSONResponse:
+async def api_problem(request: Request, exc: Exception) -> Response:
     query_body = getattr(request.state, "query_body", False)
     record_write = getattr(request.state, "record_write", False)
     trace_id = getattr(request.state, "trace_id", uuid4().hex)
@@ -123,7 +142,7 @@ async def api_problem(request: Request, exc: Exception) -> JSONResponse:
             )
     if status == 500:
         logging.getLogger(__name__).error("API request %s failed", trace_id, exc_info=exc)
-    return JSONResponse(
+    response = JSONResponse(
         Problem(
             type="urn:obox:problem:" + code,
             title="Unprocessable Content" if status == 422 else HTTPStatus(status).phrase,
@@ -147,6 +166,7 @@ async def api_problem(request: Request, exc: Exception) -> JSONResponse:
         media_type="application/problem+json",
         headers=exc.headers if isinstance(exc, HTTPException) else None,
     )
+    return authentication_response(request, exc, response)
 
 
 class ApiRoute(APIRoute):

@@ -15,7 +15,7 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, FastAPI, Request, Response
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse
 from fastapi.routing import iter_route_contexts
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import event, inspect
@@ -34,7 +34,6 @@ from obox_builder.db import Database
 from obox_builder.errors import (
     BuilderValidationError,
     ImproperlyConfigured,
-    NotAuthenticated,
     OboxError,
     ResourceConflict,
 )
@@ -251,16 +250,11 @@ class Obox:
             self.ui_prefixes.append(prefix)
 
     @staticmethod
-    async def _problem(request: Request, exc: Exception) -> JSONResponse | RedirectResponse:
+    async def _problem(request: Request, exc: Exception) -> Response:
+        from obox_builder.builder.http import authentication_response
+
         obox = request.app.state.obox
         path = request.scope.get("obox_path", "")
-        if (
-            isinstance(exc, NotAuthenticated)
-            and request.method == "GET"
-            and obox.auth is not None
-            and any(path == prefix or path.startswith(prefix + "/") for prefix in obox.ui_prefixes)
-        ):
-            return RedirectResponse(obox.auth.login_url(request), status_code=303)
         error = exc if isinstance(exc, OboxError) else OboxError(str(exc))
         body: dict[str, Any] = {
             "type": "about:blank",
@@ -271,7 +265,12 @@ class Obox:
         }
         if isinstance(error, BuilderValidationError):
             body["errors"] = error.errors
-        return JSONResponse(body, status_code=error.status, media_type="application/problem+json")
+        return authentication_response(
+            request,
+            exc,
+            JSONResponse(body, status_code=error.status, media_type="application/problem+json"),
+            ui=any(path == prefix or path.startswith(prefix + "/") for prefix in obox.ui_prefixes),
+        )
 
     @staticmethod
     async def _validation_problem(request: Request, exc: Exception) -> JSONResponse:

@@ -53,7 +53,10 @@ class Files:
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
         app.app.mount(
             self.prefix + "/_static",
-            StaticFiles(directory=Path(__file__).parent / "static"),
+            StaticFiles(
+                directory=Path(__file__).parent / "static",
+                packages=[("obox_builder.builder", "static")],
+            ),
             name="obox_files_static",
         )
         app.include_router(build_router(self), ui=True)

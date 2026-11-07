@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-11-06 17:19+0700\n"
+"POT-Creation-Date: 2026-11-07 19:00+0700\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -17,11 +17,11 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 2.18.0\n"
 
-#: obox_builder/builder/http.py:121
+#: obox_builder/builder/http.py:140
 msgid "msg"
 msgstr ""
 
-#: obox_builder/builder/http.py:133
+#: obox_builder/builder/http.py:152
 msgid "Internal server error.Invalid input."
 msgstr ""
 
@@ -470,7 +470,7 @@ msgstr ""
 msgid "Sign in"
 msgstr ""
 
-#: obox_builder/contrib/auth/__init__.py:83
+#: obox_builder/contrib/auth/__init__.py:84
 #: obox_builder/contrib/auth/templates/obox/auth/user_form.html:19
 #: obox_builder/contrib/auth/templates/obox/auth/users.html:19
 #: obox_builder/contrib/auth/templates/obox/profile.html:14
