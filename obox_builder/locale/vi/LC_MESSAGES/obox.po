@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  obox-builder\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-11-07 19:00+0700\n"
+"POT-Creation-Date: 2026-11-07 20:37+0700\n"
 "PO-Revision-Date: 2026-10-31 20:45+0700\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: vi\n"
@@ -18,11 +18,11 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 2.18.0\n"
 
-#: obox_builder/builder/http.py:140
+#: obox_builder/builder/http.py:159
 msgid "msg"
 msgstr ""
 
-#: obox_builder/builder/http.py:152
+#: obox_builder/builder/http.py:171
 msgid "Internal server error.Invalid input."
 msgstr ""
 
@@ -30,11 +30,15 @@ msgstr ""
 msgid "Field cannot be null."
 msgstr ""
 
-#: obox_builder/builder/service.py:567 obox_builder/builder/service.py:646
+#: obox_builder/builder/service.py:567 obox_builder/builder/service.py:649
 msgid "Field is required."
 msgstr "Trường này là bắt buộc."
 
-#: obox_builder/builder/service.py:617 obox_builder/builder/service.py:626
+#: obox_builder/builder/service.py:597
+msgid "Related record is unavailable."
+msgstr "Bản ghi liên quan không khả dụng."
+
+#: obox_builder/builder/service.py:620 obox_builder/builder/service.py:629
 msgid "A value is outside the database column limits."
 msgstr ""
 
@@ -71,7 +75,7 @@ msgid "Unknown inline field."
 msgstr "Trường inline không hợp lệ."
 
 #: obox_builder/builder/ui.py:1059 obox_builder/contrib/auth/admin.py:233
-#: obox_builder/contrib/auth/views.py:214
+#: obox_builder/contrib/auth/views.py:217
 msgid "Duplicate form fields are not permitted."
 msgstr "Không được gửi trường trùng lặp."
 
@@ -515,8 +519,8 @@ msgstr ""
 #: obox_builder/contrib/auth/admin.py:340
 #: obox_builder/contrib/auth/admin.py:486
 #: obox_builder/contrib/auth/admin.py:533
-#: obox_builder/contrib/auth/views.py:221
-#: obox_builder/contrib/auth/views.py:229
+#: obox_builder/contrib/auth/views.py:224
+#: obox_builder/contrib/auth/views.py:232
 msgid "This field is required."
 msgstr "Trường này là bắt buộc."
 
@@ -542,7 +546,7 @@ msgid "Choose valid roles."
 msgstr ""
 
 #: obox_builder/contrib/auth/admin.py:342
-#: obox_builder/contrib/auth/views.py:231
+#: obox_builder/contrib/auth/views.py:234
 msgid "Passwords do not match."
 msgstr "Mật khẩu xác nhận không khớp."
 
@@ -585,21 +589,21 @@ msgstr ""
 msgid "Invalid username or password."
 msgstr "Tên đăng nhập hoặc mật khẩu không đúng."
 
-#: obox_builder/contrib/auth/views.py:114
-#: obox_builder/contrib/auth/views.py:160
+#: obox_builder/contrib/auth/views.py:117
+#: obox_builder/contrib/auth/views.py:163
 msgid "Account"
 msgstr "Tài khoản"
 
-#: obox_builder/contrib/auth/views.py:209
-#: obox_builder/contrib/auth/views.py:241
+#: obox_builder/contrib/auth/views.py:212
+#: obox_builder/contrib/auth/views.py:244
 msgid "Password changes are not supported by this backend."
 msgstr "Backend này không hỗ trợ đổi mật khẩu."
 
-#: obox_builder/contrib/auth/views.py:223
+#: obox_builder/contrib/auth/views.py:226
 msgid "Use at most 1024 characters."
 msgstr "Chỉ được dùng tối đa 1024 ký tự."
 
-#: obox_builder/contrib/auth/views.py:227
+#: obox_builder/contrib/auth/views.py:230
 msgid "Current password is incorrect."
 msgstr "Mật khẩu hiện tại không đúng."
 

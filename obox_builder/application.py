@@ -94,11 +94,24 @@ class Obox:
             from obox_builder.builder.api_schema import Problem
 
             definitions = Problem.model_json_schema(ref_template="#/components/schemas/{model}")
-            components = schema.setdefault("components", {}).setdefault("schemas", {})
-            components.setdefault(
+            components = schema.setdefault("components", {})
+            schemas = components.setdefault("schemas", {})
+            schemas.setdefault(
                 "Problem", {key: value for key, value in definitions.items() if key != "$defs"}
             )
-            components.update(definitions.get("$defs", {}))
+            schemas.update(definitions.get("$defs", {}))
+            cookie_name = getattr(self.auth, "cookie_name", None)
+            if isinstance(cookie_name, str) and cookie_name:
+                components.setdefault("securitySchemes", {})["cookieAuth"] = {
+                    "type": "apiKey",
+                    "in": "cookie",
+                    "name": cookie_name,
+                }
+                prefix = self.settings.api_prefix
+                for path, operations in schema.get("paths", {}).items():
+                    if path == prefix or path.startswith(prefix + "/"):
+                        for operation in operations.values():
+                            operation.setdefault("security", [{"cookieAuth": []}])
             return schema
 
         cast(Any, app).openapi = openapi

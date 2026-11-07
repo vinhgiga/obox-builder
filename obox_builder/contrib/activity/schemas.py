@@ -5,7 +5,12 @@ from typing import Annotated, Literal
 
 from pydantic import Field, JsonValue, StrictStr, field_serializer, field_validator
 
-from obox_builder.builder.api import Page, json_value
+from obox_builder.builder.api import (
+    Page,
+    json_value,
+    normalize_datetime,
+    normalize_optional_datetime,
+)
 from obox_builder.builder.api_schema import ApiRequest, ApiResponse
 from obox_builder.builder.fields import _validate_text
 
@@ -37,7 +42,8 @@ class CommentRead(ApiResponse):
     edited_at: datetime | None
     permissions: CommentPermissions
 
-    encode_times = field_serializer("created_at", "edited_at")(json_value)
+    encode_created_at = field_serializer("created_at")(normalize_datetime)
+    encode_edited_at = field_serializer("edited_at")(normalize_optional_datetime)
 
 
 class CommentInput(ApiRequest):
@@ -63,7 +69,7 @@ class ActivityItem(ApiResponse):
     source: str
     occurred_at: datetime
 
-    encode_time = field_serializer("occurred_at")(json_value)
+    encode_occurred_at = field_serializer("occurred_at")(normalize_datetime)
 
 
 class RevisionItem(ActivityItem):

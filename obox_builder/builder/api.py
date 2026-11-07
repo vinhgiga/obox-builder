@@ -65,6 +65,14 @@ def json_value(value: Any) -> Any:
     return TypeAdapter[Any](Any).dump_python(value, mode="json")
 
 
+def normalize_datetime(value: datetime) -> datetime:
+    return value.replace(tzinfo=value.tzinfo or UTC).astimezone(UTC)
+
+
+def normalize_optional_datetime(value: datetime | None) -> datetime | None:
+    return None if value is None else normalize_datetime(value)
+
+
 class RecordOption(ApiResponse):
     id: str
     label: str
@@ -95,11 +103,15 @@ def list_schema(builder: Any, *, expanded: bool = True) -> type[BaseModel]:
 
             result = str | None if spec.column.nullable else str
         elif isinstance(spec.column.type, sa.Integer | sa.DateTime):
-            convert = json_value
             if isinstance(spec.column.type, sa.Integer):
+                convert = json_value
                 result = int | str | None if spec.column.nullable else int | str
+            elif spec.column.nullable:
+                convert = normalize_optional_datetime
+                result = datetime | None
             else:
-                result = str | None if spec.column.nullable else str
+                convert = normalize_datetime
+                result = datetime
         else:
             continue
         serializers["encode_" + name] = field_serializer(name, return_type=result)(convert)
@@ -495,12 +507,12 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
         extra: dict[str, Any] = {"x-obox-conditional-fields": True}
         if method == "GET" and suffix == "":
             extra["parameters"] = query_parameters()
-        elif method in {"PATCH", "DELETE"}:
+        elif method in {"PATCH", "DELETE"} and builder.version_column is not None:
             extra["parameters"] = [
                 {
                     "name": "If-Match",
                     "in": "header",
-                    "required": builder.version_column is not None,
+                    "required": True,
                     "schema": {"type": "string"},
                 }
             ]

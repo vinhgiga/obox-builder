@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, cast
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from obox_builder.builder.http import OboxRoute, read_form
+from obox_builder.builder.http import OboxRoute, _authentication_challenge, read_form
 from obox_builder.builder.service import invoke
 from obox_builder.builder.ui import build_navigation
 from obox_builder.errors import (
@@ -59,7 +59,7 @@ def router(app: Obox, auth: Auth) -> APIRouter:
                 response.headers["cache-control"] = "no-store"
                 return response
             error, status = N_("Invalid username or password."), 401
-        return app.templates.TemplateResponse(
+        rendered = app.templates.TemplateResponse(
             request=request,
             name=auth.login_template,
             context={
@@ -75,6 +75,9 @@ def router(app: Obox, auth: Auth) -> APIRouter:
             status_code=status,
             headers={"cache-control": "no-store"},
         )
+        if status == 401:
+            rendered.headers["WWW-Authenticate"] = _authentication_challenge(request, auth)
+        return rendered
 
     async def logout(request: Request) -> Response:
         principal = await auth.principal(request)

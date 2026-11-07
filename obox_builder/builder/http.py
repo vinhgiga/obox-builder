@@ -14,6 +14,7 @@ from starlette.exceptions import HTTPException
 from starlette.middleware.exceptions import ExceptionMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, RedirectResponse, Response
+from starlette.routing import NoMatchFound
 from starlette.types import Message, Receive, Scope, Send
 
 from obox_builder.builder.api_schema import FieldError, Problem
@@ -32,10 +33,28 @@ class OboxRoute(APIRoute):
         await middleware(dict(scope), receive, send)
 
 
+def _authentication_challenge(request: Request, auth: object | None) -> str:
+    challenge = 'Cookie realm="obox"'
+    cookie_name = getattr(auth, "cookie_name", None)
+    if isinstance(cookie_name, str) and cookie_name:
+        challenge += f", cookie-name={cookie_name}"
+    login_url = getattr(auth, "login_url", None)
+    if callable(login_url):
+        try:
+            url = login_url(request)
+        except NoMatchFound:
+            pass
+        else:
+            challenge += f', form-action="{url}"'
+    return challenge
+
+
 def authentication_response(
     request: Request, exc: Exception, response: Response, *, ui: bool = False
 ) -> Response:
     auth = request.app.state.obox.auth
+    if response.status_code == 401 and "WWW-Authenticate" not in response.headers:
+        response.headers["WWW-Authenticate"] = _authentication_challenge(request, auth)
     if not isinstance(exc, NotAuthenticated) or auth is None:
         return response
     response.headers["Cache-Control"] = "private, no-store"

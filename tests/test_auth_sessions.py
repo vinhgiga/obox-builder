@@ -36,16 +36,35 @@ async def seed(app: Obox) -> None:
         db.add(User(username="alice", password_hash=await hash_password(PASSWORD)))
 
 
-async def login(client: httpx.AsyncClient) -> httpx.Response:
+async def login(client: httpx.AsyncClient, password: str = PASSWORD) -> httpx.Response:
     page = await client.get("/vi/auth/login")
     assert page.status_code == 200
     match = re.search(r'name="csrf_token" value="([^"]+)"', page.text)
     assert match is not None
     return await client.post(
         "/vi/auth/login",
-        data={"username": "alice", "password": PASSWORD, "csrf_token": match[1]},
+        data={"username": "alice", "password": password, "csrf_token": match[1]},
         follow_redirects=False,
     )
+
+
+def test_failed_login_returns_authentication_challenge(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        app = make_app(tmp_path / "login.sqlite3")
+        async with app.app.router.lifespan_context(app.app):
+            await seed(app)
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app.app),
+                base_url="http://test",
+                follow_redirects=True,
+            ) as client:
+                response = await login(client, "wrong password")
+                assert response.status_code == 401
+                assert response.headers["www-authenticate"] == (
+                    'Cookie realm="obox", cookie-name=obox_session, form-action="/vi/auth/login"'
+                )
+
+    asyncio.run(scenario())
 
 
 @pytest.mark.parametrize("max_age", [None, 3600])

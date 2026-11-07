@@ -267,6 +267,9 @@ def test_api_openapi_declares_stable_operations_and_query_parameters() -> None:
                 "title": "Amount",
                 "type": "string",
             }
+            for name in ("RecordListItem", "RecordResponse"):
+                moment = schema["components"]["schemas"][name]["properties"]["moment"]
+                assert {"type": "string", "format": "date-time"} in moment["anyOf"]
             assert schema["components"]["schemas"]["Page"]["properties"]["offset"]["minimum"] == 0
             assert (
                 schema["components"]["schemas"]["Problem"]["properties"]["traceId"]["pattern"]
@@ -348,6 +351,38 @@ def test_identifier_types_and_relationship_options_are_consistent() -> None:
             }
             options = await request(app, "GET", "/api/categories:queryOptions")
             assert options.json()["items"] == [{"id": "7", "label": "Group"}]
+
+    asyncio.run(scenario())
+
+
+def test_invalid_foreign_key_is_a_validation_error() -> None:
+    async def scenario() -> None:
+        async with application() as app:
+            for method, path, payload in (
+                ("POST", "/api/records", {"name": "orphan", "categoryId": "999"}),
+                ("PATCH", "/api/records/1", {"categoryId": "999"}),
+            ):
+                if method == "PATCH":
+                    async with app.uow(principal=STAFF) as ctx:
+                        ctx.session.add(Record(name="existing"))
+                response = await request(app, method, path, json=payload)
+                assert response.status_code == 422
+                assert response.headers["content-type"] == "application/problem+json"
+                problem = response.json()
+                assert problem["type"] == "urn:obox:problem:invalid_reference"
+                assert problem["code"] == "invalid_reference"
+                assert problem["title"] == "Unprocessable Content"
+                assert problem["errors"] == [
+                    {
+                        "field": "categoryId",
+                        "pointer": "#/categoryId",
+                        "code": "invalid_reference",
+                        "detail": "Related record is unavailable.",
+                    }
+                ]
+            async with app.uow(principal=STAFF) as ctx:
+                assert await ctx.session.scalar(sa.select(sa.func.count()).select_from(Record)) == 1
+                assert await ctx.session.scalar(sa.select(Record.category_id)) is None
 
     asyncio.run(scenario())
 
@@ -547,6 +582,7 @@ def test_preconditions_do_not_mask_authorization_or_constraint_errors() -> None:
         async with application(principal=Principal()) as app:
             response = await request(app, "PATCH", "/api/documents/hidden", json={})
             assert response.status_code == 401
+            assert response.headers["www-authenticate"] == 'Cookie realm="obox"'
         async with application(principal=Principal(id=1, is_authenticated=True)) as app:
             response = await request(app, "PATCH", "/api/documents/hidden", json={})
             assert response.status_code == 403
@@ -581,7 +617,8 @@ def test_preconditions_do_not_mask_authorization_or_constraint_errors() -> None:
             )
             assert unsupported.status_code == 422
             assert unsupported.json()["code"] == "unsupported_precondition"
-            operations = app.app.openapi()["paths"]["/api/documents/{id}"]
+            schema = app.app.openapi()
+            operations = schema["paths"]["/api/documents/{id}"]
             for method in ("patch", "delete"):
                 assert {
                     "name": "If-Match",
@@ -591,6 +628,12 @@ def test_preconditions_do_not_mask_authorization_or_constraint_errors() -> None:
                 } in operations[method]["parameters"]
                 assert {"412", "428"} <= operations[method]["responses"].keys()
             assert "ETag" in operations["get"]["responses"]["200"]["headers"]
+            unversioned_operations = schema["paths"]["/api/records/{id}"]
+            for method in ("patch", "delete"):
+                assert "If-Match" not in {
+                    parameter["name"]
+                    for parameter in unversioned_operations[method].get("parameters", [])
+                }
 
     asyncio.run(scenario())
 
@@ -682,7 +725,15 @@ def test_activity_uses_public_field_references_after_redaction() -> None:
                 {"field": "categoryId", "kind": "set", "before": None, "after": "7"},
                 {"field": "payload", "kind": "set", "after": {"keep_snake": False}},
             ]
+            assert response.json()["items"][0]["occurredAt"].endswith("Z")
             assert "protected" not in response.text
+            schemas = app.app.openapi()["components"]["schemas"]
+            assert schemas["RevisionItem"]["properties"]["occurredAt"]["format"] == "date-time"
+            assert schemas["CommentRead"]["properties"]["createdAt"]["format"] == "date-time"
+            assert (
+                schemas["CommentRead"]["properties"]["editedAt"]["anyOf"][0]["format"]
+                == "date-time"
+            )
 
     asyncio.run(scenario())
 

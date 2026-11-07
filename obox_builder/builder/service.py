@@ -593,7 +593,10 @@ class ResourceService(Generic[T]):
                 )
                 obj = (await ctx.session.scalars(stmt)).unique().one_or_none()
                 if obj is None:
-                    raise PermissionDenied("Related record is unavailable.")
+                    raise BuilderValidationError(
+                        {key: [N_("Related record is unavailable.")]},
+                        code="invalid_reference",
+                    )
                 await service.authorize("retrieve", ctx, obj)
                 if remote != target.pk_name and remote not in target.readable(ctx, obj=obj):
                     raise PermissionDenied("The relationship's reference field is not readable.")

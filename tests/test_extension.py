@@ -177,6 +177,7 @@ def test_custom_login_and_shared_authentication_responses(
             ) as client,
         ):
             login_url = f"{root_path}/login"
+            challenge = f'Cookie realm="obox", cookie-name=obox_session, form-action="{login_url}"'
             for path in ("/console/items", "/console/items/1", "/console/items/1/fields/name"):
                 response = await client.get(f"{root_path}/vi{path}", follow_redirects=True)
                 assert response.status_code == 200
@@ -187,6 +188,7 @@ def test_custom_login_and_shared_authentication_responses(
                     headers={"X-Obox-Request": "true", "X-Obox-Fragment": "true"},
                 )
                 assert response.status_code == 401
+                assert response.headers["www-authenticate"] == challenge
                 assert response.headers["x-obox-redirect"] == login_url
                 assert response.headers["cache-control"] == "private, no-store"
                 assert "location" not in response.headers
@@ -203,12 +205,14 @@ def test_custom_login_and_shared_authentication_responses(
                     **kwargs,
                 )
                 assert response.status_code == 401, (method, path, response.text)
+                assert response.headers["www-authenticate"] == challenge
                 assert response.headers["x-obox-redirect"] == login_url
                 assert "location" not in response.headers
             response = await client.get(f"{root_path}/data/items")
             assert response.status_code == 401
             assert response.json()["code"] == "unauthenticated"
             assert response.headers["content-type"] == "application/problem+json"
+            assert response.headers["www-authenticate"] == challenge
             assert "x-obox-redirect" not in response.headers
             for method, path, file_kwargs in (
                 (
@@ -222,11 +226,19 @@ def test_custom_login_and_shared_authentication_responses(
                     method, root_path + path, headers={"X-Obox-Request": "true"}, **file_kwargs
                 )
                 assert response.status_code == 401
+                assert response.headers["www-authenticate"] == challenge
                 assert response.headers["x-obox-redirect"] == login_url
             script = await client.get(f"{root_path}/console/_static/http.js")
             files_script = await client.get(f"{root_path}/media/_static/http.js")
             assert script.status_code == files_script.status_code == 200
             assert script.content == files_script.content
+            schema = app.openapi()
+            assert schema["components"]["securitySchemes"]["cookieAuth"] == {
+                "type": "apiKey",
+                "in": "cookie",
+                "name": "obox_session",
+            }
+            assert schema["paths"]["/data/items"]["get"]["security"] == [{"cookieAuth": []}]
 
     asyncio.run(scenario())
 
