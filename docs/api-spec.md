@@ -71,13 +71,14 @@ and defines its own query, response, and batch contracts.
 | GET | `/api/{slug}:queryOptions` | List record IDs and labels for relationship selectors. |
 | GET | `/api:describe` | Describe resources available to the current principal. |
 | GET | `/api/{slug}:describe` | Describe a resource's fields, permissions, and operations. |
+| POST | `/api/{slug}:batchWrite` | Apply create, update, or delete operations atomically. |
 | POST | `/api/{slug}:{name}` | Run an action on selected records. |
 
-CRUD, `:query`, `:queryOptions`, and registered actions are implemented.
-`:describe` remains planned for P2. Custom method names are reserved and
+CRUD, `:query`, `:queryOptions`, `:describe`, `:batchWrite`, and registered actions
+are implemented. Upsert remains planned. Custom method names are reserved and
 cannot be reused by registered actions on the same collection.
 
-### Authentication — planned Auth JSON routes, P2
+### Authentication — Auth plugin
 
 | Method | Path | Description |
 | --- | --- | --- |
@@ -85,19 +86,20 @@ cannot be reused by registered actions on the same collection.
 | POST | `/api/auth/login` | Create a session using credentials. |
 | POST | `/api/auth/logout` | End the current session. |
 | GET | `/api/auth/me` | Retrieve the current user's identity and permissions. |
+| POST | `/api/auth/tokens` | Issue a scoped personal token; requires `Auth(api_tokens=True)`. |
+| GET | `/api/auth/tokens` | List the current user's token metadata; requires API tokens. |
+| DELETE | `/api/auth/tokens/{id}` | Revoke an owned token; requires API tokens. |
 
-These JSON routes are not implemented. The Auth plugin currently provides
-HTML login, logout, account, and profile routes under its configured prefix
-(default `/auth`), with UI language routing. CSRF tokens are embedded in HTML;
-there is no built-in JSON token endpoint. Hosts can provide their own JSON
-authentication and token routes. Bearer authentication requires a host-supplied
-`principal_dependency`; the plugin does not issue API tokens.
+Session JSON routes are enabled by default with Auth; `Auth(api=False)` disables
+them. Personal tokens are opt-in and default to disabled. HTML authentication
+continues under the configured Auth prefix (default `/auth`) with UI language
+routing. JSON authentication uses the unlocalized API prefix and Auth's backend.
+Host-supplied principal dependencies still control resource authentication.
 
 ### Later phase — P3
 
 | Method | Path | Description |
 | --- | --- | --- |
-| POST | `/api/{slug}:batchWrite` | Apply create, update, delete, or upsert operations atomically. |
 | GET | `/api/events` | Stream resource change notifications. |
 
 CSV export through the list path with `Accept: text/csv` is planned; current
@@ -1179,3 +1181,119 @@ client's `contentType`. An `ownerId` requires update access to that record and
 its file field; claiming a completed upload still requires a resource write.
 Cookie-authenticated mutations require CSRF validation. Unclaimed files are
 removed by periodic collection; there is currently no file DELETE endpoint.
+
+## Batch writes
+
+`POST /api/{slug}:batchWrite` is registered when at least one create/update/delete
+operation is exposed. The request has a nonempty `operations` array:
+
+```json
+{
+  "operations": [
+    {"op": "create", "data": {"questionText": "New question"}},
+    {"op": "update", "id": "42", "data": {"questionText": "Updated question"}, "ifMatch": "\"current-tag\""},
+    {"op": "delete", "id": "43", "ifMatch": "\"current-tag\""}
+  ]
+}
+```
+
+Create/update `data` uses the resource's normal input schema and camelCase
+aliases. Each operation must be enabled in `API.operations` and pass the ordinary
+permission, row-scope, field, preset, validation, relationship, and hook checks.
+`API.max_batch` optionally limits the number of operations; its default `None`
+adds no cap. Empty batches, unknown operations/properties, and duplicate existing
+IDs (including different spellings of the same primary key) are rejected.
+An operation cannot reference an ID created earlier in the same batch.
+
+Existing targets are locked in canonical ID order before mutations. Operations
+execute in request order inside one transaction. Any lookup, permission,
+precondition, validation, constraint, or serialization failure rolls back every
+write. After-commit callbacks run only after a successful commit. API token scope
+and cookie CSRF rules apply to the whole request and each operation.
+
+Versioned updates/deletes require their own `ifMatch` value, following the
+single-record ETag rules (`428` when missing, `412` when stale). Unversioned
+operations reject a supplied condition with `422`. Request-level `If-Match`,
+`If-None-Match`, and `If-Unmodified-Since` are rejected with `422`; they cannot
+express independent record conditions. Upsert is not implemented.
+
+Success is `200` with `{results: [...]}` in request order. Every result includes
+`op` and string `id`. Creates/updates also include `record` and, for versioned
+models, `etag`. Delete results contain no record or ETag. Results use the ordinary
+read projection; a write does not grant retrieve permission. Errors retain the
+normal problem status/code and identify the failed operation through a pointer
+such as `#/operations/1` or `#/operations/1/data/questionText`. Shape validation
+runs before mutations; failures during commit can be batch-wide.
+
+Direct callers can use `ResourceService.batch(operations, ctx=ctx)` with exported
+`BatchOperation(op, id=None, data=..., precondition=None)` values. Inputs use
+Python names and optional service predicates; HTTP ETags belong to the adapter.
+`BatchOperationError.index` and `.error` preserve the failed position and cause.
+
+## Resource descriptions
+
+With API resources registered, `GET /api:describe` returns `{resources: [...]}`.
+`GET /api/{slug}:describe` returns one description, or `404` if no exposed
+operation is available to the current principal. The index omits those resources;
+it can return an empty array. Query strings are rejected. Successful responses
+use `Cache-Control: private, no-store`.
+
+Descriptions include the public collection `slug`, mounted `path`, `operations`,
+permission `scopes`, `versioned`, `defaultLimit`, `maxLimit`, `maxBatch`, and
+`filterFields`, `sortFields`, and `searchFields`. Field entries contain `name`,
+a self-contained JSON `schema` (including referenced enum definitions), `nullable`,
+`readable`, `readOnly`, `required`, create/update `writable` flags, and an optional
+FK `reference` to an available target collection. Fields unavailable for both
+reading and writing are omitted. Server preset values and SQL scopes are not exposed.
+
+`conditional: true` means metadata describes the current resource-level context;
+per-record permissions, field restrictions, SQL scope, hooks, and resulting-record
+checks are still enforced when records are accessed or mutated. Metadata is
+advisory and grants no authorization.
+
+## JSON sessions and personal tokens
+
+For a cookie session, obtain `GET /api/auth/csrf`, preserving its HttpOnly login
+cookie, and send the returned `csrfToken` in `X-CSRF-Token` to
+`POST /api/auth/login` with `{username, password}`. Success returns the current
+identity and rotates the session cookie. Fetch a fresh CSRF token after login
+before sending cookie-authenticated mutations. Existing Origin/Referer checks
+and one-hour CSRF expiry apply. `GET /api/auth/me` returns string `id`, `username`,
+`isActive`, `isStaff`, `isSuperuser`, `permissions`, `roles`, and nullable
+`apiScopes`. `POST /api/auth/logout` requires an empty body and valid CSRF token;
+it revokes the current session and clears its cookie. Auth JSON responses use
+`private, no-store`; credentials and password hashes are never returned.
+
+Enable personal tokens with `Auth(api_tokens=True)`. Migrate the Auth metadata
+with the host application's normal migration workflow to create
+`obox_auth_api_tokens`. Custom users must supply a `ModelBackend(token_model=...)`
+using `APITokenMixin`, a UUID primary key named `id`, and a `user_id` FK to that user
+model. Alternative backends can implement `TokenBackend` and return a scoped
+identity. `Auth(api=False, api_tokens=True)` is invalid.
+
+Token management requires the user's own Auth cookie session. Creation/revocation
+also require CSRF; bearer credentials cannot manage or delegate tokens.
+`POST /api/auth/tokens` accepts `name`, a nonempty unique `scopes` array, and an
+explicit future timezone-aware `expiresAt`. Every scope must refer to an exposed
+resource operation or declared permission that the current user can perform.
+It returns `201` with `id`, `name`, `scopes`, UTC `expiresAt`/`createdAt`, and the
+raw `token` once. Storage contains only a SHA-256 hash of a cryptographically
+random secret. `GET /api/auth/tokens` returns owned metadata as `{items: [...]}`;
+`DELETE /api/auth/tokens/{id}` revokes an owned token with `204` (unknown or
+unowned IDs return `404`). Listing never returns token secrets or hashes.
+
+Scopes retain configured RBAC names such as `blog.questions.update`; policies
+without an RBAC namespace use `admin.{slug}.{action}`, matching administration
+permission names. `:describe` exposes the applicable strings. Tokens only narrow
+current user access: resource exposure, policy, row scope, field projection, and
+hooks still apply. Expiry, revocation, active-user status, password changes, and
+current permissions are checked on subsequent requests.
+
+Send `Authorization: Bearer <token>` for resource API and Files JSON/download
+routes. Bearer tokens do not authenticate HTML administration screens. Files
+operations enforce resource scope and API field projections; unclaimed uploads
+also require an appropriate writable field and remain private to their creator.
+Invalid bearer credentials do not fall back to a cookie session. Requests carrying
+cookies still require CSRF for mutations. Host-defined endpoints must enforce
+their own appropriate permission checks or use the shared resource service.
+Logging out a cookie session does not revoke personal tokens; revoke them explicitly.

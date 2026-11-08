@@ -11,6 +11,11 @@ Follows [Keep a Changelog](https://keepachangelog.com/), versions follow
   `obox.install(plugin)`, dependency validation, a read-only plugin registry,
   access defaults and optional asynchronous plugin lifespans.
 - `obox.register(Model)` as shorthand for an empty `ModelBuilder[Model]` subclass.
+- Atomic resource batch writes and principal-filtered API descriptions, sharing
+  existing validation, permissions, hooks, and version checks.
+- JSON session authentication and opt-in scoped personal tokens with hashed
+  storage, explicit expiry, ownership, and revocation. Token scopes also protect
+  related reads, activity, and attachment endpoints.
 - Resource API optimistic concurrency using strong ETags and required `If-Match`
   headers for models configured with SQLAlchemy `version_id_col`.
 - `obox_builder.contrib.activity`: resource revisions and flat comments with

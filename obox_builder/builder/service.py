@@ -5,9 +5,10 @@ from __future__ import annotations
 import inspect
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Mapping, Sequence
 from contextlib import asynccontextmanager
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from types import MappingProxyType
-from typing import Any, Generic, TypeVar, cast
+from typing import Any, Generic, Literal, TypeVar, cast
 
 import sqlalchemy as sa
 from sqlalchemy.exc import DataError, IntegrityError, StatementError
@@ -25,16 +26,26 @@ from obox_builder.builder.query import ListQuery, condition, invalid
 from obox_builder.context import Context, DomainEvent
 from obox_builder.errors import (
     N_,
+    BatchOperationError,
     BuilderValidationError,
     ImproperlyConfigured,
     NotAuthenticated,
     NotFound,
+    OboxError,
     PermissionDenied,
     PreconditionFailed,
     ResourceConflict,
 )
 
 T = TypeVar("T")
+
+
+@dataclass(frozen=True)
+class BatchOperation:
+    op: Literal["create", "update", "delete"]
+    id: Any = None
+    data: Mapping[str, Any] = field(default_factory=dict)
+    precondition: Callable[[Any], Awaitable[None]] | None = None
 
 
 async def invoke(method: Any, *args: Any, **kwargs: Any) -> Any:
@@ -111,10 +122,21 @@ class ResourceService(Generic[T]):
 
     async def authorize(self, action: str, ctx: Context, obj: Any = None) -> None:
         self._context(ctx)
-        if not await invoke(self.builder.policy.allow, action, ctx, obj=obj):
+        if not await self.permitted(action, ctx, obj):
             if not getattr(ctx.principal, "is_authenticated", False):
                 raise NotAuthenticated("Authentication is required.")
             raise PermissionDenied("This operation is not permitted.")
+
+    async def permitted(self, action: str, ctx: Context, obj: Any = None) -> bool:
+        self._context(ctx)
+        scopes = getattr(ctx.principal, "api_scopes", None)
+        if scopes is not None and (
+            not self.builder.api.enabled
+            or action not in (*self.builder.api.operations, *self.builder.permissions)
+            or self.builder.permission_name(action) not in scopes
+        ):
+            return False
+        return bool(await invoke(self.builder.policy.allow, action, ctx, obj=obj))
 
     def _statement(self, action: str, ctx: Context) -> Any:
         self._context(ctx)
@@ -329,20 +351,20 @@ class ResourceService(Generic[T]):
                 for obj in objects
             ]
             visible: dict[Any, Any] = {}
-            if await invoke(target.policy.allow, "retrieve", ctx):
+            service = self.app.service(target.model)
+            if await service.permitted("retrieve", ctx):
                 remote = (
                     sa.inspect(target.model)
                     .get_property_by_column(next(iter(relation.remote_side)))
                     .key
                 )
-                service = self.app.service(target.model)
                 stmt = service._statement("retrieve", ctx).where(
                     getattr(target.model, remote).in_(
                         {value for value in values if value is not None}
                     )
                 )
                 for obj in (await ctx.session.scalars(stmt)).unique():
-                    if not await invoke(target.policy.allow, "retrieve", ctx, obj=obj):
+                    if not await service.permitted("retrieve", ctx, obj):
                         continue
                     fields = set(target.readable(ctx, obj=obj)).intersection(target.api_read)
                     if target.pk_name not in fields or (
@@ -760,6 +782,60 @@ class ResourceService(Generic[T]):
                     setattr(obj, key, sa.null())
             await self._finish("update", obj, presets, ctx, before=before)
             return obj
+
+    async def batch(
+        self, operations: Sequence[BatchOperation], *, ctx: Context
+    ) -> Sequence[T | None]:
+        """Apply ordered writes atomically, locking existing records in a stable order."""
+        async with self._mutation(ctx):
+            if not operations:
+                raise BuilderValidationError({"operations": ["Supply at least one operation."]})
+            identity = schema("Identity", self.builder.specs, (self.builder.pk_name,))
+            targets = []
+            for index, operation in enumerate(operations):
+                try:
+                    if operation.op not in {"create", "update", "delete"}:
+                        raise BuilderValidationError({"op": ["Unknown write operation."]})
+                    await self.authorize(operation.op, ctx)
+                    if operation.op == "create":
+                        continue
+                    try:
+                        key = validate(identity, {self.builder.pk_name: operation.id})[
+                            self.builder.pk_name
+                        ]
+                    except BuilderValidationError as exc:
+                        raise NotFound("Record is unavailable.") from exc
+                    targets.append((key, index, operation.op))
+                except OboxError as exc:
+                    raise BatchOperationError(index, exc) from exc
+            if len({key for key, _, _ in targets}) != len(targets):
+                raise BuilderValidationError({"operations": ["Choose unique record IDs."]})
+            for key, index, action in sorted(targets, key=lambda target: str(target[0])):
+                try:
+                    await self._get(key, ctx, action)
+                except OboxError as exc:
+                    raise BatchOperationError(index, exc) from exc
+            results = []
+            for index, operation in enumerate(operations):
+                try:
+                    if operation.op == "create":
+                        obj = await self.create(operation.data, ctx=ctx)
+                    elif operation.op == "update":
+                        obj = await self.update(
+                            operation.id,
+                            operation.data,
+                            ctx=ctx,
+                            precondition=operation.precondition,
+                        )
+                    else:
+                        await self.delete(
+                            operation.id, ctx=ctx, precondition=operation.precondition
+                        )
+                        obj = None
+                    results.append(obj)
+                except OboxError as exc:
+                    raise BatchOperationError(index, exc) from exc
+            return results
 
     def _version(self, obj: T, version: Any) -> None:
         if version is None:

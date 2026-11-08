@@ -13,7 +13,7 @@ from pydantic.alias_generators import to_camel, to_snake
 from sqlalchemy.orm import raiseload, selectinload, undefer
 from sqlalchemy.orm.interfaces import MANYTOONE
 
-from obox_builder.auth import Policy, StaffOnly
+from obox_builder.auth import RBAC, Policy, StaffOnly
 from obox_builder.builder.actions import action
 from obox_builder.builder.api_schema import ApiRequest, ApiResponse
 from obox_builder.builder.fields import FieldRefs, inspect_fields, normalize
@@ -193,7 +193,7 @@ class ModelBuilder(Generic[T]):
             if not isinstance(configured, type) or not issubclass(configured, base):
                 raise ImproperlyConfigured("Surface configuration must extend Form, View or API.")
         self.form, self.view, self.api = self.Form(), self.View(), self.API()
-        for value in (self.api.default_limit, self.api.max_limit):
+        for value in (self.api.default_limit, self.api.max_limit, self.api.max_batch):
             if value is not None and (
                 isinstance(value, bool) or not isinstance(value, int) or value < 0
             ):
@@ -477,6 +477,10 @@ class ModelBuilder(Generic[T]):
                 if "obox_files" in spec.column.info
             ),
         )
+
+    def permission_name(self, action: str) -> str:
+        prefix = self.policy.resource if isinstance(self.policy, RBAC) else f"admin.{self.slug}"
+        return f"{prefix}.{action}"
 
     async def validate_create(self, data: dict[str, Any], ctx: Context) -> Mapping[str, Any]:
         return data

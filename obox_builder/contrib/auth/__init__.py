@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from fastapi import APIRouter, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -10,8 +10,10 @@ from starlette._utils import get_route_path
 from starlette.routing import NoMatchFound
 
 from obox_builder.auth import Identity, Principal, StaffOnly
-from obox_builder.contrib.auth.backends import Backend, ModelBackend
+from obox_builder.contrib.auth.backends import Backend, ModelBackend, TokenBackend
 from obox_builder.contrib.auth.models import (
+    APIToken,
+    APITokenMixin,
     Base,
     Role,
     RoleMixin,
@@ -29,6 +31,8 @@ if TYPE_CHECKING:
     from obox_builder.application import Obox
 
 __all__ = [
+    "APIToken",
+    "APITokenMixin",
     "Auth",
     "Backend",
     "Base",
@@ -37,6 +41,7 @@ __all__ = [
     "RoleMixin",
     "Session",
     "SessionMixin",
+    "TokenBackend",
     "User",
     "UserMixin",
     "hash_password",
@@ -65,12 +70,17 @@ class Auth:
         account_template: str = "obox/account.html",
         admin: bool = True,
         router: APIRouter | None = None,
+        api: bool = True,
+        api_tokens: bool = False,
     ) -> None:
         if max_age <= 0:
             raise ValueError("max_age must be positive.")
         if backend is None and session_factory is not None:
             backend = ModelBackend(session_factory)
         self.backend = backend
+        self.api, self.api_tokens = api, api_tokens
+        if api_tokens and not api:
+            raise ImproperlyConfigured("API tokens require the Auth JSON API.")
         self.admin = admin
         self.router = router
         self._admin_installed = False
@@ -95,6 +105,34 @@ class Auth:
     async def principal(self, request: Request) -> Identity:
         if self.backend is None:
             raise ImproperlyConfigured("Install Auth before using its backend.")
+        if not self.api_tokens or "authorization" not in request.headers:
+            return await self.backend.resolve(self.get_token(request), request=request)
+        if not getattr(self, "_installed", False):
+            raise ImproperlyConfigured("Install Auth before using API tokens.")
+        path = request.scope.get("obox_path", get_route_path(request.scope))
+        files = request.app.state.obox.get_plugin("files")
+        files_prefix = getattr(files, "prefix", None)
+        file_api = isinstance(files_prefix, str) and (
+            path == files_prefix or path.startswith(files_prefix + "/")
+        )
+        if (
+            path == self._api_prefix
+            or path.startswith(self._api_prefix + "/")
+            or path == self._api_prefix + ":describe"
+            or file_api
+        ):
+            values = request.headers.getlist("authorization")
+            parts = values[0].split() if len(values) == 1 else []
+            if len(parts) != 2 or parts[0].lower() != "bearer":
+                return self.anonymous()
+            identity = await cast(TokenBackend, self.backend).resolve_api_token(
+                parts[1], request=request
+            )
+            if identity.is_authenticated and getattr(identity, "api_scopes", None) is None:
+                raise ImproperlyConfigured(
+                    "Token backends must return an identity with api_scopes."
+                )
+            return identity
         return await self.backend.resolve(self.get_token(request), request=request)
 
     async def login(
@@ -174,6 +212,12 @@ class Auth:
                 "Auth routes must include the configured login and logout names."
             )
         self.backend = backend
+        self._api_prefix = app.settings.api_prefix
+        if self.api_tokens:
+            if not isinstance(backend, TokenBackend):
+                raise ImproperlyConfigured("This auth backend does not support API tokens.")
+            if isinstance(backend, ModelBackend):
+                backend.configure_api_tokens()
         user_model = getattr(backend, "user_model", None)
         if self.admin and user_model is not None:
             from sqlalchemy import inspect
@@ -186,5 +230,9 @@ class Auth:
             principal_dependency=self.principal,
             default_policy=StaffOnly(),
         )
+        if self.api:
+            from obox_builder.contrib.auth.api import build_router
+
+            app.include_router(build_router(app, self))
         app.add_ui_prefix(self.prefix)
         self._installed = True

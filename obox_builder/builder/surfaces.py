@@ -79,6 +79,7 @@ class API:
     pagination = False
     default_limit: int | None = None
     max_limit: int | None = None
+    max_batch: int | None = None
     list_envelope = True
 
     def get_read_schema(self, *, builder: Any) -> type[BaseModel]:

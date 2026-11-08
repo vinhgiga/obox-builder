@@ -6,6 +6,7 @@ import hashlib
 import hmac
 import secrets
 import time
+from collections.abc import Mapping
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -22,13 +23,26 @@ class CSRF:
         if len(self.secret) < 32:
             raise ValueError("csrf_secret must contain at least 32 bytes.")
 
-    def _sign(self, value: str, request: Request, principal: Any) -> str:
-        binding = repr((getattr(principal, "id", None), sorted(request.cookies.items())))
+    def _sign(
+        self,
+        value: str,
+        request: Request,
+        principal: Any,
+        cookies: Mapping[str, str] | None = None,
+    ) -> str:
+        binding = repr(
+            (
+                getattr(principal, "id", None),
+                sorted((request.cookies if cookies is None else cookies).items()),
+            )
+        )
         return hmac.new(self.secret, (value + binding).encode(), hashlib.sha256).hexdigest()
 
-    def token(self, request: Request, principal: Any) -> str:
+    def token(
+        self, request: Request, principal: Any, *, cookies: Mapping[str, str] | None = None
+    ) -> str:
         value = f"{int(time.time())}.{secrets.token_urlsafe(24)}"
-        return value + "." + self._sign(value, request, principal)
+        return value + "." + self._sign(value, request, principal, cookies)
 
     def validate(self, request: Request, principal: Any, token: str | None = None) -> None:
         if not request.cookies:

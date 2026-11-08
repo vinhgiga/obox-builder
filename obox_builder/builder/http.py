@@ -19,7 +19,12 @@ from starlette.types import Message, Receive, Scope, Send
 
 from obox_builder.builder.api_schema import FieldError, Problem
 from obox_builder.builder.query import invalid
-from obox_builder.errors import BuilderValidationError, NotAuthenticated, OboxError
+from obox_builder.errors import (
+    BatchOperationError,
+    BuilderValidationError,
+    NotAuthenticated,
+    OboxError,
+)
 from obox_builder.i18n import negotiate, translate
 
 
@@ -34,6 +39,8 @@ class OboxRoute(APIRoute):
 
 
 def _authentication_challenge(request: Request, auth: object | None) -> str:
+    if getattr(auth, "api_tokens", False) and "authorization" in request.headers:
+        return 'Bearer realm="obox"'
     challenge = 'Cookie realm="obox"'
     cookie_name = getattr(auth, "cookie_name", None)
     if isinstance(cookie_name, str) and cookie_name:
@@ -59,6 +66,8 @@ def authentication_response(
         return response
     response.headers["Cache-Control"] = "private, no-store"
     response.headers.add_vary_header("X-Obox-Request")
+    if getattr(auth, "api_tokens", False) and "authorization" in request.headers:
+        return response
     if request.headers.get("x-obox-request") == "true":
         response.headers["X-Obox-Redirect"] = auth.login_url(request)
     elif ui and request.method in {"GET", "HEAD"}:
@@ -82,6 +91,9 @@ def accepts_json(value: str, media_type: str = "application/json") -> bool:
 
 
 async def api_problem(request: Request, exc: Exception) -> Response:
+    batch_index = None
+    if isinstance(exc, BatchOperationError):
+        batch_index, exc = exc.index, exc.error
     query_body = getattr(request.state, "query_body", False)
     record_write = getattr(request.state, "record_write", False)
     trace_id = getattr(request.state, "trace_id", uuid4().hex)
@@ -120,11 +132,27 @@ async def api_problem(request: Request, exc: Exception) -> Response:
             if record_write:
                 location = name.split(".") if name != "__all__" else []
                 fields = getattr(request.state, "record_fields", None)
-                if location and fields is not None:
-                    field = fields.get(location[0])
-                    location[0] = field.alias if field and field.alias else to_camel(location[0])
+                if location:
+                    field = fields.get(location[0]) if fields is not None else None
+                    location[0] = (
+                        field.alias
+                        if field and field.alias
+                        else names.get(location[0], to_camel(location[0]))
+                    )
             elif location:
                 location[0] = names.get(location[0], location[0])
+            if batch_index is not None:
+                location = [
+                    "operations",
+                    str(batch_index),
+                    *(
+                        ["ifMatch"]
+                        if name == "If-Match"
+                        else ["data", *location]
+                        if location
+                        else []
+                    ),
+                ]
             pointer = "#" + "".join(
                 "/" + part.replace("~", "~0").replace("/", "~1") for part in location
             )
@@ -146,6 +174,13 @@ async def api_problem(request: Request, exc: Exception) -> Response:
     elif isinstance(exc, RequestValidationError):
         for error in exc.errors():
             location = [str(part) for part in error["loc"][1:]]
+            if (
+                request.url.path.endswith(":batchWrite")
+                and len(location) > 2
+                and location[0] == "operations"
+                and location[2] in {"create", "update", "delete"}
+            ):
+                del location[2]
             errors.append(
                 FieldError(
                     field=".".join(location) if location else "__all__",
@@ -159,6 +194,15 @@ async def api_problem(request: Request, exc: Exception) -> Response:
                     detail=translate(request, error["msg"]),
                 )
             )
+    if batch_index is not None and not errors:
+        errors.append(
+            FieldError(
+                field=f"operations.{batch_index}",
+                pointer=f"#/operations/{batch_index}",
+                code=code,
+                detail=translate(request, "Internal server error." if status == 500 else str(exc)),
+            )
+        )
     if status == 500:
         logging.getLogger(__name__).error("API request %s failed", trace_id, exc_info=exc)
     response = JSONResponse(
@@ -199,11 +243,13 @@ class ApiRoute(APIRoute):
         request.state.action_write = (
             request.method == "POST" and ":" in self.path and not self.path.endswith(":query")
         )
-        request.state.record_write = request.method in {"PATCH", "DELETE"} or (
-            request.method == "POST" and (self.status_code == 201 or request.state.action_write)
+        request.state.record_write = (
+            request.method in {"POST", "PUT", "PATCH", "DELETE"} and not request.state.query_body
         )
         json_body = request.state.query_body or (
-            request.state.record_write and request.method != "DELETE"
+            request.state.record_write
+            and request.method != "DELETE"
+            and self.body_field is not None
         )
         no_store = json_body or request.state.record_write
         provided = request.headers.get("x-request-id", "")

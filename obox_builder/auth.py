@@ -59,6 +59,34 @@ class Principal:
         )
 
 
+@dataclass(frozen=True)
+class ScopedIdentity:
+    owner: Identity
+    api_scopes: frozenset[str]
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.owner, name)
+
+    @property
+    def id(self) -> Any:
+        return self.owner.id
+
+    @property
+    def username(self) -> str:
+        return self.owner.username
+
+    @property
+    def is_authenticated(self) -> bool:
+        return self.owner.is_authenticated
+
+    @property
+    def is_active(self) -> bool:
+        return self.owner.is_active
+
+    def has_perm(self, permission: str) -> bool:
+        return permission in self.api_scopes and self.owner.has_perm(permission)
+
+
 class Policy(Generic[T]):
     async def allow(self, action: str, ctx: Context, *, obj: T | None = None) -> bool:
         return False

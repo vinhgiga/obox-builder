@@ -6,7 +6,7 @@ import hashlib
 from collections.abc import Awaitable, Callable, Iterable, Sequence
 from dataclasses import replace
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import Annotated, Any, Literal, cast
 from urllib.parse import quote
 
 import sqlalchemy as sa
@@ -19,11 +19,13 @@ from obox_builder.builder.conditional import check_match
 from obox_builder.builder.filters import FilterGroup, FilterTerm, parse_filter
 from obox_builder.builder.http import ApiRoute
 from obox_builder.builder.query import ListQuery, invalid, parameters, parse_terms
-from obox_builder.builder.service import invoke
+from obox_builder.builder.service import BatchOperation, invoke
 from obox_builder.context import Context
 from obox_builder.errors import (
+    BatchOperationError,
     BuilderValidationError,
     ImproperlyConfigured,
+    OboxError,
     PermissionDenied,
 )
 
@@ -244,6 +246,7 @@ async def record_etag(builder: Any, service: Any, obj: Any, ctx: Context) -> str
 
 
 def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
+    from obox_builder.builder.describe import ResourceDescription, ResourceDescriptions, describe
     from obox_builder.builder.records import RelationshipPage, relationship
 
     router = APIRouter(route_class=ApiRoute)
@@ -266,6 +269,50 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
         }
         for status in (400, 401, 403, 404, 405, 406, 409, 412, 415, 422, 428, 500)
     }
+
+    @router.get(
+        path + ":describe",
+        response_model=ResourceDescription,
+        name=f"obox_api_{builder.slug}_describe",
+        operation_id=f"{builder.slug}_describe",
+        responses=problems,
+    )
+    async def describe_resource(
+        request: Request, response: Response, ctx: Context = dependency
+    ) -> Any:
+        parameters(request.query_params.multi_items())
+        response.headers["Cache-Control"] = "private, no-store"
+        return await describe(app, builder, ctx, record_schema)
+
+    if not any(item.builder.api.enabled for item in app._registrations.values()):
+
+        @router.get(
+            app.settings.api_prefix + ":describe",
+            response_model=ResourceDescriptions,
+            name="obox_api_describe",
+            operation_id="obox_describe",
+            responses=problems,
+        )
+        async def describe_resources(
+            request: Request, response: Response, ctx: Context = dependency
+        ) -> Any:
+            from obox_builder.errors import NotFound
+
+            parameters(request.query_params.multi_items())
+            response.headers["Cache-Control"] = "private, no-store"
+            resources = []
+            for item in app._registrations.values():
+                if not item.builder.api.enabled:
+                    continue
+                try:
+                    resources.append(
+                        await describe(
+                            app, item.builder, ctx, list_schema(item.builder, expanded=False)
+                        )
+                    )
+                except NotFound:
+                    continue
+            return {"resources": resources}
 
     async def record_row(
         obj: Any, ctx: Context, fields: Sequence[str] | None = None
@@ -432,6 +479,119 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
     ) -> Any:
         parameters(request.query_params.multi_items())
         return await record_response(await service.get(id, ctx=ctx), ctx, response)
+
+    if set(builder.api.operations).intersection({"create", "update", "delete"}):
+        operation_schemas = []
+        for name, opcode in (
+            ("create", Literal["create"]),
+            ("update", Literal["update"]),
+            ("delete", Literal["delete"]),
+        ):
+            definitions: dict[str, Any] = {"op": (opcode, ...)}
+            if name != "create":
+                definitions.update(id=(StrictStr, ...), if_match=(StrictStr | None, None))
+            if name != "delete":
+                definitions["data"] = (getattr(builder, name + "_schema"), ...)
+            operation_schemas.append(
+                create_model(
+                    builder.model.__name__ + name.title() + "Operation",
+                    __base__=ApiRequest,
+                    **definitions,
+                )
+            )
+        operation_type: Any = operation_schemas[0] | operation_schemas[1] | operation_schemas[2]
+        operation_union: Any = Annotated[operation_type, Field(discriminator="op")]
+        batch_fields: dict[str, Any] = {
+            "operations": (
+                list[operation_union],
+                Field(min_length=1, max_length=builder.api.max_batch),
+            )
+        }
+        batch_schema = create_model(
+            builder.model.__name__ + "BatchWrite",
+            __base__=ApiRequest,
+            **batch_fields,
+        )
+        result_fields: dict[str, Any] = {
+            "op": (Literal["create", "update", "delete"], ...),
+            "id": (str, ...),
+            "record": (record_schema | None, None),
+            "etag": (str | None, None),
+        }
+        result_schema: Any = create_model(
+            builder.model.__name__ + "BatchResult",
+            __base__=ApiResponse,
+            **result_fields,
+        )
+        results_fields: dict[str, Any] = {"results": (list[result_schema], ...)}
+        results_schema = create_model(
+            builder.model.__name__ + "BatchResults", __base__=ApiResponse, **results_fields
+        )
+
+        async def batch_write(request: Request, data: Any, ctx: Context = dependency) -> Any:
+            app.csrf.validate(request, ctx.principal)
+            for header in ("If-Match", "If-None-Match", "If-Unmodified-Since"):
+                if header in request.headers:
+                    raise invalid(
+                        header, "Use per-operation conditions.", "unsupported_precondition"
+                    )
+            request.state.api_names = builder.api_names
+            request.state.record_fields = builder.update_schema.model_fields
+            operations = []
+            for index, item in enumerate(data.operations):
+                if item.op not in builder.api.operations:
+                    raise BatchOperationError(index, PermissionDenied("Operation is not exposed."))
+
+                async def check(
+                    obj: Any, token: str | None = getattr(item, "if_match", None)
+                ) -> None:
+                    if builder.version_column is None:
+                        if token is not None:
+                            raise invalid(
+                                "If-Match",
+                                "This resource is not versioned.",
+                                "unsupported_precondition",
+                            )
+                    else:
+                        check_match([] if token is None else [token], await etag(obj, ctx))
+
+                operations.append(
+                    BatchOperation(
+                        item.op,
+                        getattr(item, "id", None),
+                        item.data.model_dump(by_alias=False, exclude_unset=True)
+                        if item.op != "delete"
+                        else {},
+                        check if item.op != "create" else None,
+                    )
+                )
+            objects = await service.batch(operations, ctx=ctx)
+            results = []
+            for index, (operation, obj) in enumerate(zip(operations, objects, strict=True)):
+                try:
+                    result = {"op": operation.op, "id": operation.id}
+                    if obj is not None:
+                        result["record"] = await record_row(obj, ctx)
+                        result["id"] = result["record"][builder.pk_name]
+                        if builder.version_column is not None:
+                            result["etag"] = await etag(obj, ctx)
+                    results.append(result)
+                except OboxError as exc:
+                    raise BatchOperationError(index, exc) from exc
+            return {"results": results}
+
+        batch_write.__annotations__["data"] = batch_schema
+        router.add_api_route(
+            path + ":batchWrite",
+            batch_write,
+            methods=["POST"],
+            name=f"obox_api_{builder.slug}_batch_write",
+            operation_id=f"{builder.slug}_batch_write",
+            response_model=results_schema,
+            response_model_exclude_unset=True,
+            responses=problems,
+            tags=list(builder.api.tags or (builder.model.__name__,)),
+        )
 
     if "retrieve" in builder.api.operations:
 

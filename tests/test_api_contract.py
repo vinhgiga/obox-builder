@@ -13,8 +13,17 @@ import httpx
 import pytest
 import sqlalchemy as sa
 from fastapi import FastAPI
-from obox_builder import Context, ModelBuilder, Obox, Principal, builder
-from obox_builder.auth import StaffOnly
+from obox_builder import (
+    API,
+    BatchOperation,
+    Context,
+    DomainEvent,
+    ModelBuilder,
+    Obox,
+    Principal,
+    builder,
+)
+from obox_builder.auth import Identity, ScopedIdentity, StaffOnly
 from obox_builder.builder.api_schema import ApiResponse
 from obox_builder.conf import Settings
 from obox_builder.contrib.activity import Activity
@@ -92,7 +101,7 @@ class RecordBuilder(ModelBuilder[Record]):
     label_field = "name"
     filter_fields: tuple[str, ...] = ("id", "category_id", "moment", "name")
     sort_fields: tuple[str, ...] = ("id", "name", "moment", "category_id")
-    permissions = ("publish",)
+    permissions: tuple[str, ...] = ("publish",)
     actions = ("publish",)
 
     @builder.action(description="Publish records", permission="publish")
@@ -107,7 +116,7 @@ STAFF = Principal(id=1, is_authenticated=True, is_staff=True)
 @asynccontextmanager
 async def application(
     configured: type[ModelBuilder[Record]] = RecordBuilder,
-    principal: Principal = STAFF,
+    principal: Identity = STAFF,
     document_builder: type[ModelBuilder[Document]] = DocumentBuilder,
     with_activity: bool = False,
 ) -> AsyncIterator[Obox]:
@@ -542,6 +551,299 @@ def test_versioned_records_require_and_refresh_strong_etags() -> None:
             deleted = await request(app, "DELETE", path, headers={"If-Match": new_token})
             assert deleted.status_code == 204
             assert (await request(app, "GET", path)).status_code == 404
+
+    asyncio.run(scenario())
+
+
+def test_batch_writes_preserve_results_hooks_and_versions() -> None:
+    committed: list[str] = []
+
+    class TracingBuilder(DocumentBuilder):
+        async def after_commit(self, event: DomainEvent, ctx: Context) -> None:
+            committed.append(event.action)
+
+    async def scenario() -> None:
+        async with application(document_builder=TracingBuilder) as app:
+            first = await request(app, "POST", "/api/documents", json={"titleText": "first"})
+            second = await request(app, "POST", "/api/documents", json={"titleText": "second"})
+            committed.clear()
+            response = await request(
+                app,
+                "POST",
+                "/api/documents:batchWrite",
+                json={
+                    "operations": [
+                        {"op": "create", "data": {"titleText": "third"}},
+                        {
+                            "op": "update",
+                            "id": first.json()["id"],
+                            "ifMatch": first.headers["etag"],
+                            "data": {"titleText": "changed"},
+                        },
+                        {
+                            "op": "delete",
+                            "id": second.json()["id"],
+                            "ifMatch": second.headers["etag"],
+                        },
+                    ]
+                },
+            )
+            assert response.status_code == 200, response.text
+            results = response.json()["results"]
+            assert [result["op"] for result in results] == ["create", "update", "delete"]
+            assert results[0]["record"]["titleText"] == "third"
+            assert results[1]["record"]["titleText"] == "changed"
+            assert results[1]["etag"] != first.headers["etag"]
+            assert results[2] == {"op": "delete", "id": second.json()["id"]}
+            assert response.headers["cache-control"] == "private, no-store"
+            assert committed == ["create", "update", "delete"]
+            assert (await request(app, "GET", second.headers["location"])).status_code == 404
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("failure", ["constraint", "missing", "stale", "required", "malformed"])
+def test_batch_failure_rolls_back_every_write(failure: str) -> None:
+    async def scenario() -> None:
+        async with application() as app:
+            first = await request(app, "POST", "/api/documents", json={"titleText": "first"})
+            operation = {
+                "op": "update",
+                "id": first.json()["id"],
+                "data": {"titleText": "first"},
+                "ifMatch": first.headers["etag"],
+            }
+            if failure == "constraint":
+                operation["data"] = {"titleText": "new"}
+            elif failure == "missing":
+                operation["id"] = "missing"
+            elif failure == "stale":
+                operation["ifMatch"] = '"stale"'
+            elif failure == "required":
+                operation.pop("ifMatch")
+            elif failure == "malformed":
+                operation["ifMatch"] = "bad"
+            response = await request(
+                app,
+                "POST",
+                "/api/documents:batchWrite",
+                json={
+                    "operations": [
+                        {
+                            "op": "create",
+                            "data": {"titleText": "new"},
+                        },
+                        operation,
+                    ]
+                },
+            )
+            assert (
+                response.status_code
+                == {
+                    "constraint": 409,
+                    "missing": 404,
+                    "stale": 412,
+                    "required": 428,
+                    "malformed": 422,
+                }[failure]
+            ), response.text
+            assert response.json()["errors"][0]["pointer"] == (
+                "#/operations/1/ifMatch" if failure == "malformed" else "#/operations/1"
+            )
+            rows = (await request(app, "GET", "/api/documents")).json()["items"]
+            assert rows == [first.json()]
+
+    asyncio.run(scenario())
+
+
+def test_batch_validates_nested_aliases_limits_duplicates_and_exposure() -> None:
+    class Limited(RecordBuilder):
+        class API(API):
+            max_batch = 2
+            operations = ("list", "retrieve", "create")
+
+    async def scenario() -> None:
+        async with application(configured=Limited) as app:
+            path = "/api/records:batchWrite"
+            invalid_alias = await request(
+                app,
+                "POST",
+                path,
+                json={
+                    "operations": [
+                        {"op": "create", "data": {"name": "test", "category_id": "1"}},
+                    ]
+                },
+            )
+            assert invalid_alias.status_code == 422
+            assert any(
+                error["pointer"] == "#/operations/0/data/category_id"
+                for error in invalid_alias.json()["errors"]
+            )
+            oversized = await request(
+                app,
+                "POST",
+                path,
+                json={"operations": [{"op": "create", "data": {"name": str(i)}} for i in range(3)]},
+            )
+            assert oversized.status_code == 422
+            empty = await request(app, "POST", path, json={"operations": []})
+            assert empty.status_code == 422
+            created = await request(app, "POST", "/api/records", json={"name": "first"})
+            denied = await request(
+                app,
+                "POST",
+                path,
+                json={
+                    "operations": [
+                        {"op": "update", "id": created.json()["id"], "data": {"name": "changed"}},
+                    ]
+                },
+            )
+            assert denied.status_code == 403
+            assert (await request(app, "GET", created.headers["location"])).json() == created.json()
+        async with application() as app:
+            created = await request(app, "POST", "/api/records", json={"name": "first"})
+            response = await request(
+                app,
+                "POST",
+                "/api/records:batchWrite",
+                json={
+                    "operations": [
+                        {"op": "update", "id": created.json()["id"], "data": {}},
+                        {"op": "delete", "id": "0" + created.json()["id"]},
+                    ]
+                },
+            )
+            assert response.status_code == 422
+            assert response.json()["errors"][0]["pointer"] == "#/operations"
+            async with app.uow(principal=STAFF) as ctx:
+                results = await app.service(Record).batch(
+                    [
+                        BatchOperation("create", data={"name": "direct"}),
+                        BatchOperation("update", id=created.json()["id"], data={"name": "service"}),
+                    ],
+                    ctx=ctx,
+                )
+                assert [obj.name for obj in results if obj is not None] == ["direct", "service"]
+
+    asyncio.run(scenario())
+
+
+def test_batch_internal_errors_keep_private_details_out_of_the_response() -> None:
+    class BrokenBuilder(DocumentBuilder):
+        async def before_save(
+            self, instance: Document, changes: Mapping[str, Any], ctx: Context, *, created: bool
+        ) -> None:
+            raise ImproperlyConfigured("private database configuration")
+
+    async def scenario() -> None:
+        async with application(document_builder=BrokenBuilder) as app:
+            response = await request(
+                app,
+                "POST",
+                "/api/documents:batchWrite",
+                json={
+                    "operations": [
+                        {"op": "create", "data": {"titleText": "fail"}},
+                    ]
+                },
+            )
+            assert response.status_code == 500
+            assert "private database configuration" not in response.text
+            assert response.json()["errors"][0]["pointer"] == "#/operations/0"
+            assert response.json()["errors"][0]["detail"] == "Internal server error."
+            assert (await request(app, "GET", "/api/documents")).json()["items"] == []
+
+    asyncio.run(scenario())
+
+
+def test_scopes_filter_metadata_expansions_and_history_references() -> None:
+    class HistoryBuilder(RecordBuilder):
+        permissions = ("publish", "history")
+
+    async def scenario() -> None:
+        actor = ScopedIdentity(
+            STAFF,
+            frozenset(
+                {
+                    "admin.records.list",
+                    "admin.records.retrieve",
+                    "admin.records.history",
+                }
+            ),
+        )
+        async with application(
+            configured=HistoryBuilder, principal=actor, with_activity=True
+        ) as app:
+            async with app.uow(principal=STAFF) as ctx:
+                category = await app.service(Category).create({"label": "Hidden label"}, ctx=ctx)
+                record = await app.service(Record).create(
+                    {"name": "Visible", "category_id": category.id}, ctx=ctx
+                )
+                key = record.id
+            response = await request(app, "GET", "/api/records?expand=primaryCategory")
+            assert response.status_code == 200, response.text
+            assert response.json()["items"][0]["expanded"]["primaryCategory"] is None
+            assert "Hidden label" not in response.text
+            hidden = await request(app, "GET", "/api/categories:describe")
+            assert hidden.status_code == 404
+            descriptions = (await request(app, "GET", "/api:describe")).json()["resources"]
+            assert [item["slug"] for item in descriptions] == ["records"]
+            field = next(item for item in descriptions[0]["fields"] if item["name"] == "categoryId")
+            assert field["reference"] is None
+            assert field["schema"]["anyOf"][0]["type"] == "string"
+            assert descriptions[0]["scopes"]["history"] == "admin.records.history"
+            activity = await request(app, "GET", f"/api/records/{key}/activity?kind=revision")
+            assert activity.status_code == 200, activity.text
+            reference = next(
+                change
+                for change in activity.json()["items"][0]["changes"]
+                if change["field"] == "categoryId"
+            )
+            assert reference["after"] is None
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.skipif(
+    not os.getenv("OBOX_TEST_DATABASE_URL", "").startswith("postgresql"),
+    reason="Requires an isolated PostgreSQL schema",
+)
+def test_reversed_batches_lock_consistently_and_preserve_versions() -> None:
+    async def scenario() -> None:
+        async with application() as app:
+            records = [
+                await request(app, "POST", "/api/documents", json={"titleText": name})
+                for name in ("one", "two")
+            ]
+
+            async def write(reverse: bool) -> httpx.Response:
+                return await request(
+                    app,
+                    "POST",
+                    "/api/documents:batchWrite",
+                    json={
+                        "operations": [
+                            {
+                                "op": "update",
+                                "id": record.json()["id"],
+                                "ifMatch": record.headers["etag"],
+                                "data": {"titleText": record.json()["titleText"] + str(reverse)},
+                            }
+                            for record in (list(reversed(records)) if reverse else records)
+                        ]
+                    },
+                )
+
+            async with asyncio.timeout(10):
+                results = await asyncio.gather(write(False), write(True))
+            assert sorted(response.status_code for response in results) == [200, 412]
+            winner = next(response for response in results if response.status_code == 200)
+            for result in winner.json()["results"]:
+                current = await request(app, "GET", "/api/documents/" + result["id"])
+                assert current.json() == result["record"]
+                assert current.headers["etag"] == result["etag"]
 
     asyncio.run(scenario())
 

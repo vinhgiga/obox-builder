@@ -108,10 +108,22 @@ class Obox:
                     "name": cookie_name,
                 }
                 prefix = self.settings.api_prefix
+                token_auth = bool(getattr(self.auth, "api_tokens", False))
+                if token_auth:
+                    components["securitySchemes"]["bearerAuth"] = {
+                        "type": "http",
+                        "scheme": "bearer",
+                    }
                 for path, operations in schema.get("paths", {}).items():
-                    if path == prefix or path.startswith(prefix + "/"):
+                    if path == prefix or path.startswith((prefix + "/", prefix + ":")):
                         for operation in operations.values():
-                            operation.setdefault("security", [{"cookieAuth": []}])
+                            security: list[dict[str, list[str]]] = [{"cookieAuth": []}]
+                            if token_auth and (
+                                not path.startswith(prefix + "/auth/")
+                                or path == prefix + "/auth/me"
+                            ):
+                                security.append({"bearerAuth": []})
+                            operation.setdefault("security", security)
             return schema
 
         cast(Any, app).openapi = openapi
@@ -121,7 +133,7 @@ class Obox:
         async def http_error(request: Request, exc: Exception) -> Response:
             path = request.scope.get("path", "")
             api_prefix = self.settings.api_prefix
-            if path == api_prefix or path.startswith(api_prefix + "/"):
+            if path == api_prefix or path.startswith((api_prefix + "/", api_prefix + ":")):
                 from obox_builder.builder.http import api_problem
 
                 provided = request.headers.get("x-request-id", "")

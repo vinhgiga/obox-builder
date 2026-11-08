@@ -170,6 +170,13 @@ from `auth.install(obox, router=router)` to `obox.install(Auth(router=router))`;
 overriding `Auth.get_router()` remains supported. `obox.auth` is read-only and
 returns the plugin named `auth`.
 
+Auth provides session JSON endpoints by default (`api=True`); hosts can disable
+them with `api=False`. Personal API tokens are opt-in with `api_tokens=True` and
+require the token table in the host's migrations. Scopes narrow the owner's
+current policy permissions; they cannot add grants. Token management uses Auth's
+own cookie session even when the host overrides resource identity resolution.
+See the [JSON authentication contract](api-spec.md#json-sessions-and-personal-tokens).
+
 Settings precedence is an explicit `Settings` instance, an explicit module name,
 `OBOX_SETTINGS_MODULE`, then the default module `setting`. An entrypoint may use
 `os.environ.setdefault("OBOX_SETTINGS_MODULE", "myproject.settings")` before
@@ -372,6 +379,7 @@ class View:
 | `pagination` | `bool` | `False`; does not gate API pagination query parameters |
 | `default_limit` | `int \| None` | `None`; optional nonnegative limit used when the request omits `limit` |
 | `max_limit` | `int \| None` | `None`; optional nonnegative limit used when no limit applies; reject larger requested limits with `422` |
+| `max_batch` | `int \| None` | `None`; optional nonnegative maximum operation count for HTTP batch writes |
 | `list_envelope` | `bool` | `True`; return `{items, page}`; temporary `False` compatibility mode returns a bare array |
 
 `operations` describes **semantic operations**, not HTTP methods. `GET` applies to both list and retrieve, so `methods=("GET", ...)` is not a suitable contract.
@@ -427,7 +435,18 @@ The [API specification](api-spec.md#endpoint-overview) distinguishes implemented
 and planned paths. OBOX does not impose a request rate, request-size quota or
 default result maximum. A host may opt in to a per-resource API limit.
 
-**List behavior:** Search, filters and sorting use explicit allowed fields. Without request pagination or host-configured limits, lists return all matching records. Optional `offset`/`limit` and signed cursors are implemented; cursor ordering must use non-nullable fields. `default_limit` must not exceed `max_limit` when both are configured. A bulk CRUD API remains planned.
+**List behavior:** Search, filters and sorting use explicit allowed fields. Without request pagination or host-configured limits, lists return all matching records. Optional `offset`/`limit` and signed cursors are implemented; cursor ordering must use non-nullable fields. `default_limit` must not exceed `max_limit` when both are configured.
+
+**Batch writes:** `POST /api/{slug}:batchWrite` applies create/update/delete
+operations in one unit of work. `ResourceService.batch()` accepts ordered
+`BatchOperation` values and uses the ordinary CRUD paths. Existing target IDs
+must be unique; locks use canonical ID order, while mutations and results retain
+request order. Any failure rolls back the entire batch. Versioned HTTP writes
+require per-operation `ifMatch`. `API.max_batch=None` imposes no operation cap.
+
+**Discovery:** `/api:describe` and `/api/{slug}:describe` expose principal-filtered
+fields, schemas, operation permissions, scope names, and query capabilities.
+Metadata remains conditional on per-record policy checks and does not grant access.
 
 **HTTP behavior:** `200/201/204` for success; `401/403/404` for access and lookup failures; `409` for conflicts; `422` for invalid input. Optional optimistic concurrency may use `412/428`. Error body shape: `application/problem+json` preferred; exact error code registry TBD.
 
@@ -670,7 +689,7 @@ Use `obox --help` to see the available commands. The CLI provides
 
 ## 14. Out of scope for the core release
 
-Visual no-code editor, multi-step conditional forms, bulk CRUD API operations, automatic nested writes, offline mobile UI, collaboration, external webhook delivery, rich plugin marketplace, automatic schema/migration generation, and code/stub export. These may be built later without changing the single-builder abstraction.
+Visual no-code editor, multi-step conditional forms, upsert, automatic nested writes, offline mobile UI, collaboration, external webhook delivery, rich plugin marketplace, automatic schema/migration generation, and code/stub export. These may be built later without changing the single-builder abstraction.
 
 ## 15. Reference documentation
 

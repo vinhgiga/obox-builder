@@ -7,18 +7,24 @@ import hmac
 import secrets
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime, timedelta
-from typing import Any, Protocol
+from typing import Any, Protocol, runtime_checkable
+from uuid import UUID
 
 import sqlalchemy as sa
 from fastapi import Request
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import selectinload
 
-from obox_builder.auth import Identity, Principal
-from obox_builder.contrib.auth.models import Session, User
+from obox_builder.auth import Identity, Principal, ScopedIdentity, _valid_permission
+from obox_builder.contrib.auth.models import APIToken, APITokenMixin, Session, User
 from obox_builder.contrib.auth.password_validation import PasswordValidator, get_password_validators
 from obox_builder.contrib.auth.passwords import hash_password, verify_password
-from obox_builder.errors import ImproperlyConfigured
+from obox_builder.errors import (
+    BuilderValidationError,
+    ImproperlyConfigured,
+    NotAuthenticated,
+    NotFound,
+)
 
 
 class Backend(Protocol):
@@ -37,6 +43,27 @@ class Backend(Protocol):
     async def logout(self, token: str, *, request: Request | None = None) -> None: ...
 
 
+@runtime_checkable
+class TokenBackend(Protocol):
+    async def resolve_api_token(
+        self, token: str, *, request: Request | None = None
+    ) -> Identity: ...
+
+    async def create_api_token(
+        self,
+        user_id: Any,
+        *,
+        name: str,
+        scopes: Sequence[str],
+        expires_at: datetime,
+        request: Request | None = None,
+    ) -> tuple[Any, str]: ...
+
+    async def list_api_tokens(self, user_id: Any) -> Sequence[Any]: ...
+
+    async def revoke_api_token(self, user_id: Any, token_id: UUID) -> None: ...
+
+
 def hash_token(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
@@ -50,11 +77,13 @@ class ModelBackend:
         *,
         user_model: type[Any] = User,
         session_model: type[Any] = Session,
+        token_model: type[Any] | None = None,
         username_field: str | None = None,
         password_validators: Sequence[Mapping[str, Any]] | None = None,
     ) -> None:
         self.session_factory = session_factory
         self.user_model, self.session_model = user_model, session_model
+        self.token_model = token_model
         user_pk = sa.inspect(user_model).primary_key
         session_user = sa.inspect(session_model).columns["user_id"]
         if len(user_pk) != 1 or not any(
@@ -125,6 +154,8 @@ class ModelBackend:
     ) -> Any:
         if not username or len(username) > 1024 or not password or len(password) > 1024:
             return None
+        if "\x00" in username or any(0xD800 <= ord(char) <= 0xDFFF for char in username):
+            return None
         column = getattr(self.user_model, self.username_field)
         user = (
             await db.scalars(sa.select(self.user_model).where(column == username))
@@ -189,3 +220,121 @@ class ModelBackend:
         async with self.session_factory.begin() as db:
             model = self.session_model
             await db.execute(sa.delete(model).where(model.token_hash == hash_token(token)))
+
+    def configure_api_tokens(self) -> None:
+        model = self.token_model
+        if model is None:
+            if self.user_model is not User:
+                raise ImproperlyConfigured(
+                    "Custom users require a token_model using APITokenMixin."
+                )
+            model = self.token_model = APIToken
+        if not issubclass(model, APITokenMixin):
+            raise ImproperlyConfigured("token_model must use APITokenMixin.")
+        mapper: Any = sa.inspect(model)
+        token_pk = mapper.primary_key
+        if (
+            len(token_pk) != 1
+            or token_pk[0].key != "id"
+            or token_pk[0].type.python_type is not UUID
+        ):
+            raise ImproperlyConfigured("token_model must use a UUID primary key named id.")
+        pk = sa.inspect(self.user_model).primary_key
+        if not any(fk.column is pk[0] for fk in mapper.columns["user_id"].foreign_keys):
+            raise ImproperlyConfigured("token_model.user_id must reference the user primary key.")
+
+    async def resolve_api_token(self, token: str, *, request: Request | None = None) -> Identity:
+        if self.token_model is None or not token.startswith("obx_") or len(token) > 128:
+            return Principal()
+        async with self.session_factory() as db:
+            model = self.token_model
+            row = await db.scalar(sa.select(model).where(model.token_hash == hash_token(token)))
+            if row is None or row.expires_at.replace(
+                tzinfo=row.expires_at.tzinfo or UTC
+            ) <= datetime.now(UTC):
+                return Principal()
+            user = await self.get_user(db, row.user_id, request=request)
+            if (
+                user is None
+                or not self.user_can_authenticate(user)
+                or not hmac.compare_digest(row.auth_hash, self.session_auth_hash(user))
+            ):
+                return Principal()
+            owner = await self.to_principal(db, user, request=request)
+            return ScopedIdentity(owner, frozenset(row.scopes))
+
+    async def create_api_token(
+        self,
+        user_id: Any,
+        *,
+        name: str,
+        scopes: Sequence[str],
+        expires_at: datetime,
+        request: Request | None = None,
+    ) -> tuple[Any, str]:
+        if self.token_model is None:
+            raise ImproperlyConfigured("API tokens are not configured.")
+        if expires_at.tzinfo is None or expires_at <= datetime.now(UTC):
+            raise BuilderValidationError({"expires_at": ["Use a future timezone-aware expiry."]})
+        if (
+            not name
+            or len(name) > 150
+            or "\x00" in name
+            or any(0xD800 <= ord(char) <= 0xDFFF for char in name)
+        ):
+            raise BuilderValidationError({"name": ["Use a valid token name."]})
+        if (
+            not scopes
+            or len(set(scopes)) != len(scopes)
+            or any(not _valid_permission(scope) for scope in scopes)
+        ):
+            raise BuilderValidationError({"scopes": ["Choose unique permission scopes."]})
+        async with self.session_factory.begin() as db:
+            user = await self.get_user(db, user_id, request=request)
+            if user is None or not self.user_can_authenticate(user):
+                raise NotAuthenticated("Authentication is required.")
+            token = "obx_" + secrets.token_urlsafe(32)
+            row = self.token_model(
+                user_id=user_id,
+                name=name,
+                scopes=list(scopes),
+                expires_at=expires_at.astimezone(UTC),
+                token_hash=hash_token(token),
+                auth_hash=self.session_auth_hash(user),
+            )
+            db.add(row)
+            await db.flush()
+            await db.refresh(row)
+            db.expunge(row)
+        return row, token
+
+    async def list_api_tokens(self, user_id: Any) -> Sequence[Any]:
+        if self.token_model is None:
+            raise ImproperlyConfigured("API tokens are not configured.")
+        async with self.session_factory() as db:
+            model = self.token_model
+            return list(
+                (
+                    await db.scalars(
+                        sa.select(model)
+                        .where(model.user_id == user_id)
+                        .order_by(model.created_at, model.id)
+                    )
+                ).all()
+            )
+
+    async def revoke_api_token(self, user_id: Any, token_id: UUID) -> None:
+        if self.token_model is None:
+            raise ImproperlyConfigured("API tokens are not configured.")
+        async with self.session_factory.begin() as db:
+            model = self.token_model
+            removed = await db.scalar(
+                sa.delete(model)
+                .where(
+                    model.id == token_id,
+                    model.user_id == user_id,
+                )
+                .returning(model.id)
+            )
+            if removed is None:
+                raise NotFound("Token is unavailable.")

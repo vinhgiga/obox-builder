@@ -162,10 +162,20 @@ class Files:
                 or file.created_by != str(getattr(ctx.principal, "id", None))
             ):
                 raise NotFound("Unknown file.")
+            if getattr(ctx.principal, "api_scopes", None) is not None:
+                builder = self.builder(file.owner_type)
+                service = self.app.service(builder.model)
+                for action in ("create", "update"):
+                    if await service.permitted(action, ctx) and file.field in builder.writable(
+                        ctx, action, surface="api"
+                    ):
+                        return
+                raise NotFound("Unknown file.")
             return
         builder = self.builder(file.owner_type)
         obj = await self.app.service(builder.model).get(file.owner_id, ctx=ctx)
-        if file.field not in builder.readable(ctx, obj=obj):
+        fields = builder.api_read if ctx.source == "api" else builder.fields
+        if file.field not in builder.readable(ctx, obj=obj, fields=fields):
             raise PermissionDenied("File field is not readable.")
 
     async def collect(self, *, max_age: timedelta = timedelta(hours=24)) -> int:

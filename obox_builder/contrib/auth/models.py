@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import ClassVar
+from uuid import UUID, uuid4
 
 import sqlalchemy as sa
 from sqlalchemy.ext.mutable import MutableList
@@ -45,6 +46,17 @@ class SessionMixin:
     expires_at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True), index=True)
 
 
+class APITokenMixin:
+    token_hash: Mapped[str] = mapped_column(sa.String(64), unique=True)
+    name: Mapped[str] = mapped_column(sa.String(150))
+    scopes: Mapped[list[str]] = mapped_column(sa.JSON)
+    auth_hash: Mapped[str] = mapped_column(sa.String(64))
+    expires_at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True), index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+
+
 class Role(RoleMixin, Base):
     __tablename__ = "obox_auth_roles"
 
@@ -62,4 +74,11 @@ class User(UserMixin, Base):
 class Session(SessionMixin, Base):
     __tablename__ = "obox_auth_sessions"
 
+    user_id: Mapped[int] = mapped_column(sa.ForeignKey(User.id, ondelete="CASCADE"), index=True)
+
+
+class APIToken(APITokenMixin, Base):
+    __tablename__ = "obox_auth_api_tokens"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     user_id: Mapped[int] = mapped_column(sa.ForeignKey(User.id, ondelete="CASCADE"), index=True)

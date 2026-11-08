@@ -58,3 +58,10 @@ class BuilderValidationError(OboxError):
         self.field_code = field_code
         self.errors = dict(errors)
         super().__init__("Invalid input.")
+
+
+class BatchOperationError(OboxError):
+    def __init__(self, index: int, error: OboxError) -> None:
+        self.index, self.error = index, error
+        self.status = error.status
+        super().__init__(str(error))

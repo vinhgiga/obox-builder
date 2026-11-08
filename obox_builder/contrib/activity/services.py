@@ -266,7 +266,12 @@ async def redact(
         for fk in spec.column.foreign_keys:
             target = activity.app._for_table(fk.column.table)
             parsed = []
-            if target is not None and await invoke(target.policy.allow, "retrieve", ctx):
+            service = activity.app.service(target.model) if target is not None else None
+            if (
+                target is not None
+                and service is not None
+                and await service.permitted("retrieve", ctx)
+            ):
                 remote = sa.inspect(target.model).get_property_by_column(fk.column).key
                 if remote not in target.specs:
                     for change, side in slots:
@@ -281,7 +286,6 @@ async def redact(
                     except BuilderValidationError:
                         continue
                     parsed.append((change, side, value))
-                service = activity.app.service(target.model)
                 stmt = service._statement("retrieve", ctx).where(
                     getattr(target.model, remote).in_([value for _, _, value in parsed])
                 )
@@ -291,7 +295,7 @@ async def redact(
                     if (
                         target.pk_name in fields
                         and remote in fields
-                        and await invoke(target.policy.allow, "retrieve", ctx, obj=related)
+                        and await service.permitted("retrieve", ctx, related)
                     ):
                         allowed_values.add(str(getattr(related, remote)))
                 permitted = {
@@ -334,8 +338,8 @@ async def read(
         if kind not in {"all", entry_kind}:
             continue
         if (
-            await invoke(builder.policy.allow, action, ctx)
-            and await invoke(builder.policy.allow, action, ctx, obj=obj)
+            await service.permitted(action, ctx)
+            and await service.permitted(action, ctx, obj)
             and await ctx.session.scalar(
                 sa.select(
                     service._statement(action, ctx)

@@ -6,7 +6,7 @@ import os
 import shutil
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 from uuid import UUID, uuid4
 
 import anyio
@@ -68,6 +68,12 @@ def build_router(files: Files) -> APIRouter:
     router = APIRouter(prefix=files.prefix, tags=["files"], route_class=OboxRoute)
     principal = Depends(app.settings.principal_dependency)
 
+    def source(who: Any) -> Literal["api", "ui"]:
+        return "api" if getattr(who, "api_scopes", None) is not None else "ui"
+
+    def surface(ctx: Context) -> Literal["api", "service"]:
+        return "api" if ctx.source == "api" else "service"
+
     def actor(who: Any) -> str:
         if (
             not getattr(who, "is_authenticated", False)
@@ -84,6 +90,7 @@ def build_router(files: Files) -> APIRouter:
         file = await ctx.session.get(File, fid)
         if file is None or file.created_by != actor(ctx.principal):
             raise NotFound("Unknown upload.")
+        await files.authorize(ctx, file)
         return file
 
     @router.post("", status_code=201, name="obox_files_create", response_model=UploadCreated)
@@ -95,11 +102,11 @@ def build_router(files: Files) -> APIRouter:
         content_type = rule.check(body.filename, body.size)
         builder = files.builder(owner_type)
         service = app.service(builder.model)
-        async with app.uow(principal=who, source="ui", request=request) as ctx:
+        async with app.uow(principal=who, source=source(who), request=request) as ctx:
             obj = await service._get(body.owner_id, ctx, "update") if body.owner_id else None
             action = "create" if obj is None else "update"
             await service.authorize(action, ctx, obj)
-            if field not in builder.writable(ctx, action, obj=obj):
+            if field not in builder.writable(ctx, action, obj=obj, surface=surface(ctx)):
                 raise PermissionDenied("File field is not writable.")
             fid = uuid4()
             file = File(
@@ -130,9 +137,9 @@ def build_router(files: Files) -> APIRouter:
         files.rule(owner_type, field)
         builder = files.builder(owner_type)
         service = app.service(builder.model)
-        async with app.uow(principal=who, source="ui", request=request) as ctx:
+        async with app.uow(principal=who, source=source(who), request=request) as ctx:
             obj = await service._get(owner_id, ctx, "update")
-            if field not in builder.writable(ctx, "update", obj=obj):
+            if field not in builder.writable(ctx, "update", obj=obj, surface=surface(ctx)):
                 raise PermissionDenied("File field is not writable.")
             if len(set(body.ids)) != len(body.ids):
                 raise BuilderValidationError({field: ["Use unique file IDs."]})
@@ -171,7 +178,7 @@ def build_router(files: Files) -> APIRouter:
 
     @router.get("/{fid}/state", name="obox_files_state", response_model=FileMetadata)
     async def state(fid: UUID, request: Request, who: Any = principal) -> JSONResponse:
-        async with app.uow(principal=who, source="ui", request=request) as ctx:
+        async with app.uow(principal=who, source=source(who), request=request) as ctx:
             file = await ctx.session.get(File, fid)
             if file is None:
                 raise NotFound("Unknown upload.")
@@ -189,7 +196,7 @@ def build_router(files: Files) -> APIRouter:
         if len(raw_offset) > 19 or not raw_offset.isascii() or not raw_offset.isdecimal():
             raise BuilderValidationError({"upload-offset": ["Send a nonnegative byte offset."]})
         offset = int(raw_offset)
-        async with app.uow(principal=who, source="ui", request=request) as ctx:
+        async with app.uow(principal=who, source=source(who), request=request) as ctx:
             file = await mine(ctx, fid)
             if file.offset != offset or file.status != "pending" or file.owner_id is not None:
                 return JSONResponse(view(file), status_code=409)
@@ -206,7 +213,7 @@ def build_router(files: Files) -> APIRouter:
                     await output.write(data)
             if received == 0:
                 raise BuilderValidationError({"size": ["Send a nonempty chunk."]})
-            async with app.uow(principal=who, source="ui", request=request) as ctx:
+            async with app.uow(principal=who, source=source(who), request=request) as ctx:
                 # An UPDATE serializes competing requests on both SQLite and PostgreSQL.
                 locked = await ctx.session.scalar(
                     sa.update(File)
@@ -237,7 +244,7 @@ def build_router(files: Files) -> APIRouter:
     ) -> dict[str, Any]:
         actor(who)
         app.csrf.validate(request, who)
-        async with app.uow(principal=who, source="ui", request=request) as ctx:
+        async with app.uow(principal=who, source=source(who), request=request) as ctx:
             file = await ctx.session.get(File, fid)
             if file is None or file.status != "ready":
                 raise NotFound("Unknown file.")
@@ -245,7 +252,7 @@ def build_router(files: Files) -> APIRouter:
             if file.owner_id is not None:
                 builder = files.builder(file.owner_type)
                 obj = await app.service(builder.model)._get(file.owner_id, ctx, "update")
-                if file.field not in builder.writable(ctx, "update", obj=obj):
+                if file.field not in builder.writable(ctx, "update", obj=obj, surface=surface(ctx)):
                     raise PermissionDenied("File field is not writable.")
             files.rule(file.owner_type, file.field).check_name(body.filename)
             file.filename = body.filename
@@ -255,7 +262,7 @@ def build_router(files: Files) -> APIRouter:
     async def download(
         fid: UUID, request: Request, download: bool = False, who: Any = principal
     ) -> FileResponse:
-        async with app.uow(principal=who, source="ui", request=request) as ctx:
+        async with app.uow(principal=who, source=source(who), request=request) as ctx:
             file = await ctx.session.get(File, fid)
             if file is None or file.status != "ready":
                 raise NotFound("Unknown file.")
