@@ -13,12 +13,19 @@ import anyio
 import sqlalchemy as sa
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import FileResponse, JSONResponse
-from pydantic import BaseModel, ConfigDict, Field
 from starlette.requests import ClientDisconnect
 
 from obox_builder.builder.http import OboxRoute
 from obox_builder.contrib.files.models import File
 from obox_builder.contrib.files.rules import IMAGES, VIDEOS, sniff
+from obox_builder.contrib.files.schemas import (
+    FileMetadata,
+    NewFile,
+    RenameFile,
+    ReorderedFiles,
+    ReorderFiles,
+    UploadCreated,
+)
 from obox_builder.errors import BuilderValidationError, NotAuthenticated, NotFound, PermissionDenied
 
 if TYPE_CHECKING:
@@ -27,26 +34,6 @@ if TYPE_CHECKING:
 
 CHUNK = 8 * 1024**2
 PREVIEW = set(IMAGES.values()) | set(VIDEOS.values())
-
-
-class NewFile(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    filename: str = Field(min_length=1, max_length=255)
-    size: int = Field(gt=0, le=2**63 - 1, strict=True)
-    field: str = Field(min_length=1, max_length=511)
-    content_type: str = Field(default="application/octet-stream", max_length=127)
-    owner_id: str | None = None
-
-
-class RenameFile(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    filename: str = Field(min_length=1, max_length=255)
-
-
-class ReorderFiles(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    field: str = Field(min_length=1, max_length=511)
-    ids: list[UUID]
 
 
 def publish(files: Files, file: File, chunk: Path) -> None:
@@ -99,7 +86,7 @@ def build_router(files: Files) -> APIRouter:
             raise NotFound("Unknown upload.")
         return file
 
-    @router.post("", status_code=201, name="obox_files_create")
+    @router.post("", status_code=201, name="obox_files_create", response_model=UploadCreated)
     async def create(request: Request, body: NewFile, who: Any = principal) -> dict[str, Any]:
         created_by = actor(who)
         app.csrf.validate(request, who)
@@ -131,7 +118,7 @@ def build_router(files: Files) -> APIRouter:
             ctx.session.add(file)
         return {**view(file), "chunk_size": CHUNK}
 
-    @router.put("/{owner_id}/order", name="obox_files_reorder")
+    @router.put("/{owner_id}/order", name="obox_files_reorder", response_model=ReorderedFiles)
     async def reorder(
         owner_id: str, body: ReorderFiles, request: Request, who: Any = principal
     ) -> dict[str, Any]:
@@ -182,7 +169,7 @@ def build_router(files: Files) -> APIRouter:
                 )
         return {"ids": [str(fid) for fid in body.ids]}
 
-    @router.get("/{fid}/state", name="obox_files_state")
+    @router.get("/{fid}/state", name="obox_files_state", response_model=FileMetadata)
     async def state(fid: UUID, request: Request, who: Any = principal) -> JSONResponse:
         async with app.uow(principal=who, source="ui", request=request) as ctx:
             file = await ctx.session.get(File, fid)
@@ -192,7 +179,7 @@ def build_router(files: Files) -> APIRouter:
             result = view(file)
         return JSONResponse(result, headers={"Cache-Control": "private, no-store"})
 
-    @router.patch("/{fid}", name="obox_files_append")
+    @router.patch("/{fid}", name="obox_files_append", response_model=FileMetadata)
     async def append(fid: UUID, request: Request, who: Any = principal) -> JSONResponse:
         created_by = actor(who)
         app.csrf.validate(request, who)
@@ -244,7 +231,7 @@ def build_router(files: Files) -> APIRouter:
             with anyio.CancelScope(shield=True):
                 await stage.unlink(missing_ok=True)
 
-    @router.put("/{fid}", name="obox_files_rename")
+    @router.put("/{fid}", name="obox_files_rename", response_model=FileMetadata)
     async def rename(
         fid: UUID, body: RenameFile, request: Request, who: Any = principal
     ) -> dict[str, Any]:

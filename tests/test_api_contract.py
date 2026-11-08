@@ -638,6 +638,46 @@ def test_preconditions_do_not_mask_authorization_or_constraint_errors() -> None:
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize("hidden_by", ["permission", "scope"])
+def test_versioned_writes_use_mutation_permissions_and_scope(hidden_by: str) -> None:
+    class MutationPolicy(StaffOnly[Document]):
+        async def allow(self, action: str, ctx: Context, *, obj: Document | None = None) -> bool:
+            if action == "retrieve" and hidden_by == "permission":
+                return False
+            return await super().allow(action, ctx, obj=obj)
+
+        def scope(self, action: str, ctx: Context) -> sa.ColumnElement[bool]:
+            if action == "retrieve" and hidden_by == "scope":
+                return sa.false()
+            return super().scope(action, ctx)
+
+    class MutationBuilder(DocumentBuilder):
+        policy = MutationPolicy()
+
+    async def scenario() -> None:
+        async with application(document_builder=MutationBuilder) as app:
+            created = await request(app, "POST", "/api/documents", json={"titleText": "draft"})
+            assert created.status_code == 201
+            path, tag = created.headers["location"], created.headers["etag"]
+            hidden = await request(app, "GET", path)
+            assert hidden.status_code == (403 if hidden_by == "permission" else 404)
+            missing = await request(app, "PATCH", path, json={})
+            assert missing.status_code == 428
+            updated = await request(
+                app, "PATCH", path, json={"titleText": "published"}, headers={"If-Match": tag}
+            )
+            assert updated.status_code == 200, updated.text
+            assert updated.json()["titleText"] == "published"
+            stale = await request(app, "DELETE", path, headers={"If-Match": tag})
+            assert stale.status_code == 412
+            deleted = await request(
+                app, "DELETE", path, headers={"If-Match": updated.headers["etag"]}
+            )
+            assert deleted.status_code == 204
+
+    asyncio.run(scenario())
+
+
 def test_service_version_checks_remain_available_without_http() -> None:
     async def scenario() -> None:
         async with application() as app:

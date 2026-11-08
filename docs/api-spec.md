@@ -1,7 +1,8 @@
 # OBOX API Specification
 
-**Status:** This document describes the proposed HTTP contract. Availability depends on the
-implementation phase, enabled resource operations, plugins, and permissions.
+**Status:** Resource CRUD, query, selector, relationship, and registered action
+routes are implemented. Planned endpoints are marked below. Availability also
+depends on enabled resource operations, plugins, and permissions.
 The [core specification](core-spec.md) defines the shared service and policy contracts.
 
 ## Naming convention
@@ -28,9 +29,9 @@ Do not rename keys manually in routes, services, or frontend adapters.
 OpenAPI component property names must expose the same camelCase aliases.
 
 URL paths follow the path convention below. Query parameter names and resource
-field references in `select`, `order`, filters, and `expand` retain their
-configured snake_case names, including inside `:query` pairs. For example,
-`select=question_text,pub_date` returns `questionText` and `pubDate` properties.
+field references in `select`, `order`, filters, and `expand` use their configured
+public camelCase aliases, including inside `:query` pairs. For example,
+`select=questionText,pubDate` returns `questionText` and `pubDate` properties.
 Stable string values such as error codes (`validation_error`) are unchanged.
 
 Implemented API adapters follow this naming contract. Do not retain snake_case
@@ -39,7 +40,7 @@ only the envelope shape.
 
 ## Endpoint overview
 
-Paths use the proposed `/api` prefix and have no trailing slash.
+Paths use the default `/api` prefix and have no trailing slash.
 `{slug}` is a resource's plural collection name, such as `questions` or
 `questionCategories`; `{id}` is its primary key. Collection names use camelCase,
 start with a lowercase ASCII letter, and contain only ASCII letters and digits
@@ -72,13 +73,11 @@ and defines its own query, response, and batch contracts.
 | GET | `/api/{slug}:describe` | Describe a resource's fields, permissions, and operations. |
 | POST | `/api/{slug}:{name}` | Run an action on selected records. |
 
-`:query` (P1), `:queryOptions` (P2), and the create contract are implemented.
-The detailed PATCH and DELETE contracts below are the next review targets;
-basic update and delete routes already exist.
+CRUD, `:query`, `:queryOptions`, and registered actions are implemented.
 `:describe` remains planned for P2. Custom method names are reserved and
 cannot be reused by registered actions on the same collection.
 
-### Authentication — Auth plugin, P2
+### Authentication — planned Auth JSON routes, P2
 
 | Method | Path | Description |
 | --- | --- | --- |
@@ -87,6 +86,13 @@ cannot be reused by registered actions on the same collection.
 | POST | `/api/auth/logout` | End the current session. |
 | GET | `/api/auth/me` | Retrieve the current user's identity and permissions. |
 
+These JSON routes are not implemented. The Auth plugin currently provides
+HTML login, logout, account, and profile routes under its configured prefix
+(default `/auth`), with UI language routing. CSRF tokens are embedded in HTML;
+there is no built-in JSON token endpoint. Hosts can provide their own JSON
+authentication and token routes. Bearer authentication requires a host-supplied
+`principal_dependency`; the plugin does not issue API tokens.
+
 ### Later phase — P3
 
 | Method | Path | Description |
@@ -94,9 +100,11 @@ cannot be reused by registered actions on the same collection.
 | POST | `/api/{slug}:batchWrite` | Apply create, update, delete, or upsert operations atomically. |
 | GET | `/api/events` | Stream resource change notifications. |
 
-CSV export uses the list path with `Accept: text/csv`. Long-running operations
-may return a task location at `/api/tasks/{id}`; the task endpoint's method
-and contract remain to be defined. Upsert is a batch operation, with no separate path.
+CSV export through the list path with `Accept: text/csv` is planned; current
+list routes return `406 not_acceptable` when JSON is not acceptable.
+Long-running operations may eventually return a task location at `/api/tasks/{id}`;
+the task endpoint's method and contract remain to be defined. Upsert is a batch
+operation, with no separate path.
 
 ## Endpoint detail
 
@@ -110,7 +118,7 @@ The query language follows the documented subset of
 below. OBOX retains `search`, opaque cursors, the `{items, page}` envelope,
 `count=exact`, and RFC 9457 errors. Full PostgREST client compatibility is not
 part of this contract; range headers and `Prefer: count=...` are not supported.
-This section defines the proposed HTTP query syntax; builder and service
+This section defines the implemented HTTP query syntax; builder and service
 configuration names remain as defined in the core specification.
 
 #### Input
@@ -124,7 +132,7 @@ configuration names remain as defined in the core specification.
 **Headers**
 
 Use the same-origin session cookie or `Authorization: Bearer <token>` when
-authentication is required. Bearer tokens require the API tokens plugin.
+authentication is required. Bearer tokens require host-provided authentication.
 This read operation requires no CSRF token.
 
 | Name | Required | Description |
@@ -138,14 +146,14 @@ This read operation requires no CSRF token.
 | Name | Type | Default | Description |
 | --- | --- | --- | --- |
 | `search` | string | Omitted | Case-insensitive substring search over configured search fields. |
-| `order` | string | Resource default | Comma-separated `<field>[.asc\|.desc][.nullsfirst\|.nullslast]` terms, such as `pub_date.desc,id.asc`. Only configured, readable sort fields are allowed. |
+| `order` | string | Resource default | Comma-separated `<field>[.asc\|.desc][.nullsfirst\|.nullslast]` terms, such as `pubDate.desc,id.asc`. Only configured, readable sort fields are allowed. |
 | `limit` | integer ≥ 0 | Configured default, otherwise unlimited | Maximum records to return. No framework-enforced maximum unless configured. |
 | `offset` | integer ≥ 0 | `0` | Records to skip. Cannot be supplied with `cursor`. |
 | `cursor` | string | Omitted | Opaque token from `page.nextCursor`; requires an explicit `limit`. |
 | `count` | string | Omitted | Set to `exact` to include the total matching record count. |
-| `select` | string | All readable API fields | Comma-separated field names, such as `id,question_text`; `*` selects all readable API fields. The primary key is always included. |
+| `select` | string | All readable API fields | Comma-separated public field aliases, such as `id,questionText`; `*` selects all readable API fields. The primary key is always included. |
 | `expand` | string | Omitted | Comma-separated registered FK relationships whose IDs and labels appear in `expanded`. One level only. |
-| `<field>` | string | Omitted | `<op>.<value>` or `not.<op>.<value>`, such as `pub_date=gte.2026-01-01` or `status=not.eq.draft`. |
+| `<field>` | string | Omitted | `<op>.<value>` or `not.<op>.<value>`, such as `pubDate=gte.2026-01-01` or `status=not.eq.draft`. |
 | `and`, `or` | string | Omitted | Parenthesized, comma-separated conditions, such as `or=(status.eq.live,priority.gte.3)`. |
 | `not.and`, `not.or` | string | Omitted | Negate a parenthesized group, such as `not.and=(price.gte.10,price.lte.20)`. |
 
@@ -156,7 +164,7 @@ This read operation requires no CSRF token.
 | `gt`, `gte`, `lt`, `lte` | Numeric, decimal, date, datetime, time | Greater than, greater than or equal, less than, or less than or equal. |
 | `like`, `ilike` | String | Case-sensitive or case-insensitive pattern match; `*` is an alias for `%`. |
 | `in` | Scalar | Membership in a parenthesized list, such as `status=in.(draft,live)`. |
-| `is` | Scalar for `null`; boolean for `true`, `false` | Test null or a boolean value, such as `category_id=is.null` or `active=is.true`. |
+| `is` | Scalar for `null`; boolean for `true`, `false` | Test null or a boolean value, such as `categoryId=is.null` or `active=is.true`. |
 
 **Filtering and logic**
 
@@ -217,16 +225,22 @@ to continue a sequential list. Pagination parameters are accepted even when
 pagination is disabled by default. `limit=0&count=exact` returns only the count
 with an empty `items` array.
 
+`API.default_limit` supplies an omitted `limit`; `API.max_limit` supplies a
+limit when none is otherwise configured and rejects an explicit larger value
+with `422 validation_error`. Both default to `None`, so no result maximum is
+imposed unless the host opts in. `API.pagination` does not gate query parameters.
+
 **Selection and expansion**
 
 Unknown static API fields in `select` are rejected. Fields hidden by contextual
 policy are omitted; `null` represents a readable field with no value. Selection
-supports field names or `*`; aliases, expressions, and nested relationship
-selection such as `select=category(id,name)` are not supported. OBOX always
-includes the permitted primary key even if omitted from `select`.
+supports public field aliases or `*`; output renaming, expressions, and nested
+relationship selection such as `select=category(id,name)` are not supported. OBOX always
+includes the primary key even if omitted from `select`; an unreadable primary
+key returns `403 permission_denied` when serializing a record.
 Expanded relationships retain the original FK field and add
 `expanded.<relationshipAlias>: {"id": ..., "label": ...}`, where the relationship
-property uses its generated camelCase alias. For example, `expand=primary_author`
+property uses its generated camelCase alias. For example, `expand=primaryAuthor`
 adds `expanded.primaryAuthor`. Expansion containers and relationship summaries
 use typed response models, rather than arbitrary dictionaries. The `expanded`
 property is reserved; registration rejects a resource field whose generated
@@ -247,8 +261,9 @@ produces `null`; an unregistered target is rejected.
 | `page.nextCursor` | string or null | Continuation token; null when exhausted or cursor pagination is unsupported. |
 | `page.total` | integer or null | Count after filtering and row scoping, before pagination; null unless `count=exact`. |
 
-JSON properties use camelCase. Decimal and BigInteger values are strings;
-integer primary keys exceeding JavaScript's safe integer range are also strings.
+JSON properties use camelCase. Primary and foreign keys are strings. Decimal
+and BigInteger values are strings; other integers exceeding JavaScript's safe
+integer range are also strings.
 Dates and times use ISO 8601; datetimes use UTC with a `Z` suffix.
 
 Response headers include `X-Request-ID`, `Cache-Control: private, no-cache`,
@@ -268,16 +283,15 @@ with optional `meta`. Clients should branch on stable `code` values.
 | 422 | `unsupported_operator`, `unknown_field` | Unsupported filter operator or invalid field selection. |
 | 422 | `expand_depth`, `expand_unavailable` | Nested expansion or an unregistered relationship target. |
 
-The proposed envelope becomes the default in 0.5. The temporary
-`API.list_envelope=False` compatibility setting returns the legacy bare array
-for one minor release.
+The envelope is the current default (`API.list_envelope=True`). The temporary
+`API.list_envelope=False` compatibility setting returns the legacy bare array.
 
 #### Example
 
 Request the first two matching records and the total count:
 
 ```http
-GET /api/questions?select=id,question_text,pub_date&pub_date=gte.2026-01-01&order=pub_date.desc&limit=2&count=exact HTTP/1.1
+GET /api/questions?select=id,questionText,pubDate&pubDate=gte.2026-01-01&order=pubDate.desc&limit=2&count=exact HTTP/1.1
 Accept: application/json
 ```
 
@@ -290,8 +304,8 @@ X-Request-ID: req-42
 
 {
   "items": [
-    {"id": 42, "questionText": "Favorite color?", "pubDate": "2026-03-01T09:00:00Z"},
-    {"id": 41, "questionText": "Favorite language?", "pubDate": "2026-02-20T09:00:00Z"}
+    {"id": "42", "questionText": "Favorite color?", "pubDate": "2026-03-01T09:00:00Z"},
+    {"id": "41", "questionText": "Favorite language?", "pubDate": "2026-02-20T09:00:00Z"}
   ],
   "page": {
     "limit": 2,
@@ -306,6 +320,16 @@ X-Request-ID: req-42
 For the next offset page, repeat the query with `offset=2`. For cursor
 continuation, send the returned opaque token as `cursor`, keep `limit=2` and
 the same filters and effective order, and omit `offset`.
+
+### GET `/api/{slug}/{id}`
+
+Retrieve one record under its retrieve permission and SQL scope. Invalid,
+missing, and out-of-scope IDs return `404 not_found`; a per-record permission
+denial returns `403 permission_denied`. The response is a flat object with
+the permitted API read fields and a string `id`; its primary key must be readable.
+Query parameters, including `select` and `expand`, return `422 unknown_parameter`.
+A model with `version_id_col` returns a strong `ETag` for use in conditional
+PATCH and DELETE requests. Unversioned models omit this header.
 
 ### POST `/api/{slug}`
 
@@ -402,11 +426,13 @@ validation or hooks. Unreadable fields are omitted; readable null values remain
 
 Creating a record does not require `list` or `retrieve` permission on the source
 resource. Those permissions are checked independently on later GET requests.
-If no API fields are readable, the response body is `{}`.
+The primary key must be readable; otherwise the request returns
+`403 permission_denied` and the write is rolled back.
 
 | Header | Value |
 | --- | --- |
-| `Location` | Created record path, for example `/api/questions/43`, only when its primary key is included in the permitted response projection. |
+| `Location` | Created record path, for example `/api/questions/43`. |
+| `ETag` | Strong entity tag when the model configures `version_id_col`; omitted otherwise. |
 | `X-Request-ID` | Accepted or generated correlation ID. |
 | `Cache-Control` | `private, no-store`, on success and error responses. |
 | `Vary` | `Cookie, Authorization, Accept-Language`. |
@@ -414,8 +440,8 @@ If no API fields are readable, the response body is `{}`.
 
 The `Location` follows [RFC 9110 section 9.3.3](https://www.rfc-editor.org/rfc/rfc9110.html#section-9.3.3),
 uses the resource's configured API prefix and application mount path, and
-percent-encodes the ID as one path segment. It is omitted when the primary key
-is hidden, so the header cannot bypass field permissions. A location identifies
+percent-encodes the ID as one path segment. An unreadable primary key prevents
+a successful response. A location identifies
 the resource; following it still requires an enabled retrieve route and permission.
 
 Validation, server presets, `before_save`, database flush, and the resulting
@@ -476,7 +502,7 @@ Content-Language: en
 X-Request-ID: req-create-43
 
 {
-  "id": 43,
+  "id": "43",
   "questionText": "Favorite editor?",
   "pubDate": "2026-11-05T09:00:00Z"
 }
@@ -484,8 +510,7 @@ X-Request-ID: req-create-43
 
 ### PATCH `/api/{slug}/{id}`
 
-**Status:** Proposed detailed contract for the next implementation; basic update
-is already available. The rules below define the target behavior.
+**Status:** Implemented.
 
 Update selected fields of one existing record. The route is registered when
 the resource API is enabled and `update` is present in `API.operations`.
@@ -521,6 +546,8 @@ through the body.
 Authentication and CSRF follow [POST `/api/{slug}`](#post-apislug), including
 CSRF validation for any request carrying cookies, origin checks, and the HTTPS
 Referer requirement. Requests without cookies require no CSRF token.
+
+Versioned models also require `If-Match` with the current strong `ETag`.
 
 **Query string:** must be empty. Any parameter, including `select`, `expand`,
 or `version`, returns `422 unknown_parameter`.
@@ -567,15 +594,22 @@ Trusted presets and hooks remain responsible for the validity of their own chang
 **Concurrency and retries**
 
 The service loads the current record inside the transaction and uses a row lock
-where the database supports it. This does not detect a client editing a stale
-copy: the last permitted assignment can overwrite a value changed since the
-client read it. A configured SQLAlchemy `version_id_col` can detect ORM conflicts
-between loading and flushing the record; detected conflicts return `409`.
+where the database supports it. A row lock alone does not detect a stale client
+copy; unversioned models permit the last authorized assignment to win.
 
-This initial HTTP contract provides no ETag or client version token.
-`If-Match`, `If-None-Match`, and `If-Unmodified-Since` return
-`422 unsupported_precondition`, so an unsupported condition cannot silently
-become an unconditional write. A version property is not writable.
+For a model with `version_id_col`, GET retrieve, POST create, and PATCH return
+a strong `ETag`. PATCH and DELETE require `If-Match`: omission returns
+`428 precondition_required`, a stale or weak tag returns `412 precondition_failed`,
+and malformed syntax returns `422 invalid_precondition`. A list of tags may
+contain a matching strong tag; `*` accepts any current record and therefore
+does not guard against a stale client copy. The condition is checked against
+the current authorized record under the mutation's row lock, without requiring
+retrieve permission. An ORM version conflict during a conditional write returns
+`412`; a database constraint conflict remains `409`.
+
+For unversioned models, `If-Match` returns `422 unsupported_precondition`.
+`If-None-Match` and `If-Unmodified-Since` return `422 unsupported_precondition`
+on PATCH and DELETE for all models. A version property is not writable.
 There is no `Idempotency-Key` deduplication. Repeating the same assignments
 still runs presets and hooks and can emit another update event; retries have
 no general guarantee of identical side effects.
@@ -588,8 +622,8 @@ The body is the updated record as one object, without `items`, `page`, or an
 expansion object. It uses the same camelCase aliases, value serialization, and
 per-record API read projection as POST create. Values reflect successful
 validation, presets, hooks, and database-generated updates. Hidden fields are
-omitted; readable null fields remain `null`. If no fields are readable, the
-body is `{}`. `API.list_envelope` has no effect.
+omitted; readable null fields remain `null`. An unreadable primary key returns
+`403 permission_denied` and rolls back the write. `API.list_envelope` has no effect.
 
 | Header | Value |
 | --- | --- |
@@ -598,8 +632,9 @@ body is `{}`. `API.list_envelope` has no effect.
 | `Vary` | `Cookie, Authorization, Accept-Language`. |
 | `Content-Language` | Selected response language. |
 
-No creation `Location` or `ETag` header is returned. A successful PATCH does
-not grant permission to retrieve the record later.
+No creation `Location` is returned. Versioned models return the updated `ETag`;
+an unchanged record can retain its tag. A successful PATCH does not grant
+permission to retrieve the record later.
 
 Schema and domain validation, server presets, `before_save(..., created=False)`,
 flush, and `policy.check("update", instance, ctx)` run in one transaction.
@@ -620,11 +655,14 @@ Whole-record errors use `field: "__all__"` and `pointer: "#"`.
 | 401 | `unauthenticated` | Authentication is required. |
 | 403 | `permission_denied` | Update, field, relationship, CSRF, or resulting-record checks deny the request. |
 | 404 | `not_found` | Invalid primary-key format, missing record, or record outside the update SQL scope. |
-| 409 | `resource_conflict` | A database constraint or detected ORM concurrency conflict prevents the update. |
+| 409 | `resource_conflict` | A database constraint prevents the update. |
 | 415 | `unsupported_media_type` | Content-Type is missing or is not `application/json`. |
 | 422 | `validation_error` | Invalid body shape, properties, values, or resource validation failure. |
 | 422 | `unknown_parameter` | A query-string parameter was supplied. |
-| 422 | `unsupported_precondition` | A conditional write header is not supported in this phase. |
+| 412 | `precondition_failed` | No strong tag matches or an ORM version conflict occurs during a conditional write. |
+| 422 | `invalid_precondition` | `If-Match` syntax is invalid. |
+| 422 | `unsupported_precondition` | The header is unsupported for this model or method. |
+| 428 | `precondition_required` | A versioned model requires `If-Match`. |
 | 500 | `internal_error` | Unexpected failure; internal exception details are hidden. |
 
 Do not include SQL, constraint names, raw database exceptions, raw request-body
@@ -658,7 +696,7 @@ Content-Language: en
 X-Request-ID: req-update-43
 
 {
-  "id": 43,
+  "id": "43",
   "questionText": "Favorite terminal?",
   "categoryId": null,
   "pubDate": "2026-11-05T09:00:00Z"
@@ -667,8 +705,7 @@ X-Request-ID: req-update-43
 
 ### DELETE `/api/{slug}/{id}`
 
-**Status:** Proposed detailed contract for the next implementation; basic delete
-is already available. The rules below define the target behavior.
+**Status:** Implemented.
 
 Delete one existing record. The route is registered when the resource API is
 enabled and `delete` is present in `API.operations`. It requires `delete`
@@ -703,6 +740,8 @@ Authentication, cookie-based CSRF, and origin/Referer checks follow
 [POST `/api/{slug}`](#post-apislug). Requests without cookies require no CSRF
 token. `Content-Type` is not required for an empty request.
 
+Versioned models also require `If-Match` with the current strong `ETag`.
+
 **Query string:** must be empty. Any parameter, including `version`, returns
 `422 unknown_parameter`. There are no `force`, cascade, or soft-delete switches.
 
@@ -721,11 +760,12 @@ automatic soft deletion, recursive child-policy checks, or separate resource
 events for records removed by a cascade. The host must use its model rules,
 delete policy, and `before_delete` hook to control allowed cascade effects.
 
-The service uses the same transaction-local lookup and supported row locking
-as PATCH. A configured SQLAlchemy version counter can detect a conflicting
-ORM delete and return `409`. HTTP conditional headers `If-Match`,
-`If-None-Match`, and `If-Unmodified-Since` return `422 unsupported_precondition`;
-client version tokens and `Idempotency-Key` deduplication are not supported.
+The service uses the same transaction-local lookup, supported row locking,
+and conditional-write rules as PATCH. Versioned models require `If-Match`
+(`428` when missing, `412` when stale); unversioned models reject it with `422`.
+`If-None-Match` and `If-Unmodified-Since` are unsupported (`422`). A conditional
+ORM version conflict returns `412`, while constraint conflicts return `409`.
+There is no `Idempotency-Key` deduplication.
 
 DELETE is idempotent in its intended effect: after a successful deletion,
 repeating the same authorized request returns `404 not_found` and does not
@@ -768,10 +808,13 @@ exceptions, or hidden values.
 | 401 | `unauthenticated` | Authentication is required. |
 | 403 | `permission_denied` | Delete, CSRF, or hook checks deny the request. |
 | 404 | `not_found` | Invalid primary-key format, missing record, or record outside the delete SQL scope. |
-| 409 | `resource_conflict` | A database constraint or detected ORM concurrency conflict prevents the delete. |
+| 409 | `resource_conflict` | A database constraint prevents the delete. |
 | 422 | `validation_error` | A nonempty body or domain validation in `before_delete` rejects the request. |
 | 422 | `unknown_parameter` | A query-string parameter was supplied. |
-| 422 | `unsupported_precondition` | A conditional write header is not supported in this phase. |
+| 412 | `precondition_failed` | No strong tag matches or an ORM version conflict occurs during a conditional write. |
+| 422 | `invalid_precondition` | `If-Match` syntax is invalid. |
+| 422 | `unsupported_precondition` | The header is unsupported for this model or method. |
+| 428 | `precondition_required` | A versioned model requires `If-Match`. |
 | 500 | `internal_error` | Unexpected failure; internal exception details are hidden. |
 
 #### Example
@@ -852,8 +895,8 @@ as pair values are rejected. For example, use `["limit", "25"]`, not
 `["limit", 25]`. Missing input and unknown body properties are rejected.
 
 `query` is a JSON property; names embedded inside pairs are query-language
-strings. Use `["pub_date", "gte.2026-01-01"]`, not a camelCase field reference.
-Returned records still use `pubDate`, as required by the naming convention.
+strings using public aliases. Use `["pubDate", "gte.2026-01-01"]`, matching GET
+query field references and the returned `pubDate` property.
 
 An empty list, `{"query": []}`, is equivalent to GET without query parameters:
 resource defaults apply, including the optional default/maximum limit.
@@ -934,10 +977,10 @@ X-Request-ID: req-query-42
 
 {
   "query": [
-    ["select", "id,question_text,pub_date"],
-    ["pub_date", "gte.2026-01-01"],
-    ["pub_date", "lt.2027-01-01"],
-    ["order", "pub_date.desc"],
+    ["select", "id,questionText,pubDate"],
+    ["pubDate", "gte.2026-01-01"],
+    ["pubDate", "lt.2027-01-01"],
+    ["order", "pubDate.desc"],
     ["limit", "2"],
     ["count", "exact"]
   ]
@@ -954,8 +997,8 @@ X-Request-ID: req-query-42
 
 {
   "items": [
-    {"id": 42, "questionText": "Favorite color?", "pubDate": "2026-03-01T09:00:00Z"},
-    {"id": 41, "questionText": "Favorite language?", "pubDate": "2026-02-20T09:00:00Z"}
+    {"id": "42", "questionText": "Favorite color?", "pubDate": "2026-03-01T09:00:00Z"},
+    {"id": "41", "questionText": "Favorite language?", "pubDate": "2026-02-20T09:00:00Z"}
   ],
   "page": {
     "limit": 2,
@@ -1016,7 +1059,7 @@ cookie or host-supported bearer authentication. No CSRF token is required.
 | `cursor` | string | Omitted | Opaque continuation token; requires an explicit `limit`. |
 | `count` | string | Omitted | `exact` includes the SQL-scoped candidate count before pagination. |
 
-Field references remain snake_case. The GET grammar, maximum filter depth of 3,
+Field references use public camelCase aliases. The GET grammar, maximum filter depth of 3,
 budget of 100 filter nodes, and single-occurrence control rules apply.
 `select` and `expand` are rejected with `422 unknown_parameter`: the output
 projection is fixed. Other unsupported or legacy query parameters are rejected
@@ -1096,8 +1139,8 @@ X-Request-ID: req-options-42
 
 {
   "items": [
-    {"id": 42, "label": "Favorite color?"},
-    {"id": 41, "label": "Favorite language?"}
+    {"id": "42", "label": "Favorite color?"},
+    {"id": "41", "label": "Favorite language?"}
   ],
   "page": {
     "limit": 2,
@@ -1111,3 +1154,28 @@ X-Request-ID: req-options-42
 
 For the next page, keep the same search and order and send `offset=2`, or send
 the returned `cursor` with `limit=2` and omit `offset`.
+
+## File uploads — Files plugin
+
+The Files plugin uses its configured prefix (default `/files`) and UI language
+routing. JSON properties follow the same shared schema boundary as resource
+routes. Python/database names and the `field` value (`table.field`) remain unchanged.
+
+| Method | Path | JSON contract |
+| --- | --- | --- |
+| POST | `/files` | Accept `filename`, `size`, `field`, optional `contentType` and `ownerId`; return file metadata plus `chunkSize`. |
+| GET | `/files/{id}/state` | Return file metadata for resuming an upload. |
+| PATCH | `/files/{id}` | Append binary bytes using `Upload-Offset` and `application/offset+octet-stream`; return file metadata. |
+| PUT | `/files/{id}` | Accept `{filename}`; return updated file metadata. |
+| PUT | `/files/{ownerId}/order` | Accept `{field, ids}`; return `{ids}`. |
+| GET | `/files/{id}` | Download the file after checking access. |
+
+File metadata contains `id`, `filename`, `size`, `contentType`, `offset`, and
+`status` (`pending`, `ready`, or `failed`). `chunkSize` is returned only when
+creating an upload. Requests accept camelCase aliases only; Python property names
+such as `owner_id` and `content_type` are rejected. The server determines the
+media type using field rules and content inspection rather than trusting the
+client's `contentType`. An `ownerId` requires update access to that record and
+its file field; claiming a completed upload still requires a resource write.
+Cookie-authenticated mutations require CSRF validation. Unclaimed files are
+removed by periodic collection; there is currently no file DELETE endpoint.

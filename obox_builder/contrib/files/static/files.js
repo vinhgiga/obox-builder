@@ -50,7 +50,7 @@ async function upload(file, box, progress) {
       filename: file.name,
       size: file.size,
       field: box.dataset.field,
-      owner_id: box.dataset.owner || null,
+      ownerId: box.dataset.owner || null,
     }),
   });
   const url = `${box.dataset.url}/${meta.id}`;
@@ -69,7 +69,7 @@ async function upload(file, box, progress) {
       }
       const result = await patch(
         url,
-        file.slice(offset, Math.min(offset + meta.chunk_size, file.size)),
+        file.slice(offset, Math.min(offset + meta.chunkSize, file.size)),
         offset,
         csrf,
         progress,
@@ -484,8 +484,8 @@ function exitFullscreen() {
 }
 
 function media(meta, url) {
-  if (!previewTypes.has(meta.content_type)) return null;
-  const item = document.createElement(meta.content_type.startsWith("image/") ? "img" : "video");
+  if (!previewTypes.has(meta.contentType)) return null;
+  const item = document.createElement(meta.contentType.startsWith("image/") ? "img" : "video");
   item.src = url;
   if (item.tagName === "IMG") {
     item.alt = meta.filename;
@@ -510,7 +510,7 @@ function fileSize(bytes) {
 }
 
 function fileDetails(meta) {
-  const type = (meta.content_type.split("/").pop() || "").toUpperCase();
+  const type = (meta.contentType.split("/").pop() || "").toUpperCase();
   return [type, fileSize(meta.size)].filter(Boolean).join(" · ");
 }
 

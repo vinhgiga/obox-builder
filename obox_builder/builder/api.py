@@ -472,8 +472,6 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
     ) -> Any:
         request.state.record_fields = builder.update_schema.model_fields
         app.csrf.validate(request, ctx.principal)
-        if builder.version_column is not None:
-            await service.get(id, ctx=ctx)
         obj = await service.update(
             id,
             data.model_dump(by_alias=False, exclude_unset=True),
@@ -485,8 +483,6 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
     async def delete(request: Request, id: str, ctx: Context = dependency) -> Response:
         request.state.record_fields = builder.read_schema.model_fields
         app.csrf.validate(request, ctx.principal)
-        if builder.version_column is not None:
-            await service.get(id, ctx=ctx)
         if await request.body():
             raise BuilderValidationError({"__all__": ["Request body must be empty."]})
         await service.delete(id, ctx=ctx, precondition=precondition(request, ctx))

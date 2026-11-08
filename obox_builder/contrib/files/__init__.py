@@ -17,6 +17,7 @@ from obox_builder.contrib.files import claim as _claim  # noqa: F401 - register 
 from obox_builder.contrib.files.fields import attachments
 from obox_builder.contrib.files.models import File
 from obox_builder.contrib.files.rules import IMAGES, VIDEOS, Rule
+from obox_builder.contrib.files.schemas import FileMetadata
 from obox_builder.errors import (
     BuilderValidationError,
     ImproperlyConfigured,
@@ -151,14 +152,7 @@ class Files:
 
     @staticmethod
     def metadata(file: File) -> dict[str, Any]:
-        return {
-            "id": str(file.id),
-            "filename": file.filename,
-            "size": file.size,
-            "content_type": file.content_type,
-            "offset": file.offset,
-            "status": file.status,
-        }
+        return FileMetadata.model_validate(file).model_dump(mode="json")
 
     async def authorize(self, ctx: Context, file: File) -> None:
         if file.owner_id is None:

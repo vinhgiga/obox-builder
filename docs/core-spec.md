@@ -5,7 +5,7 @@
 **Primary use case:** Model-driven internal CRUD applications with generated HTML Forms, Views, and REST APIs.
 **Principles:** Less code is better · Convention over configuration · Native FastAPI · One resource, one service · Secure by default.
 
-> **Scope decision:** OBOX does **not** implement rate limiting, request-size caps, result-count caps, or enforced maximum page sizes. List endpoints may return all matching records when pagination is not requested. Pagination can be enabled as a UI convenience or requested by API consumers, but is not a security or quota limit. Deployment infrastructure may impose its own constraints; these are outside the OBOX contract.
+> **Scope decision:** OBOX does **not** implement rate limiting, request-size caps, or mandatory result-count/page-size caps. List endpoints may return all matching records when pagination is not requested. Hosts may opt in to `API.default_limit` and `API.max_limit`; both default to `None`. Pagination is a UI convenience or API query option, not a security or quota limit. Deployment infrastructure may impose its own constraints; these are outside the OBOX contract.
 
 ## 1. Purpose and concepts
 
@@ -369,7 +369,10 @@ class View:
 | `write_fields` | `FieldRefs \| None` | Inherit builder write projection |
 | `prefix` | `str \| None` | Inherit resource `slug` |
 | `tags` | `tuple[str, ...] \| None` | Generated from model name |
-| `pagination` | `bool` | `False` by default; consumers may request `offset`/`limit` if enabled |
+| `pagination` | `bool` | `False`; does not gate API pagination query parameters |
+| `default_limit` | `int \| None` | `None`; optional nonnegative limit used when the request omits `limit` |
+| `max_limit` | `int \| None` | `None`; optional nonnegative limit used when no limit applies; reject larger requested limits with `422` |
+| `list_envelope` | `bool` | `True`; return `{items, page}`; temporary `False` compatibility mode returns a bare array |
 
 `operations` describes **semantic operations**, not HTTP methods. `GET` applies to both list and retrieve, so `methods=("GET", ...)` is not a suitable contract.
 
@@ -402,8 +405,8 @@ These schema methods run during registration, not per request. Schemas expose th
 `snake_case`; HTTP JSON request and response properties use `camelCase` through
 shared Pydantic alias generators. Request schemas accept aliases only; response
 schemas serialize aliases, including nested objects. Do not manually rename keys
-in routes, services, or frontend adapters. Query parameter names and
-query-language field references retain their configured names. See the
+in routes, services, or frontend adapters. Query-language field references use
+the public camelCase aliases, including in `:query` pairs. See the
 [API naming convention](api-spec.md#naming-convention) for the target contract.
 
 ### 6.3 Generated routes
@@ -420,10 +423,11 @@ Canonical routes use `/api` without a version segment and have no trailing slash
 Resource slugs and customized API prefixes are plural camelCase collection names
 matching `[a-z][a-zA-Z0-9]*`. Custom resource methods use `:verb` with camelCase
 verbs, such as `/api/questions:query` and `/api/questions:sendReminder`.
-The [API specification](api-spec.md#endpoint-overview) defines the proposed paths.
-OBOX does not impose a request rate, request-size quota or result maximum.
+The [API specification](api-spec.md#endpoint-overview) distinguishes implemented
+and planned paths. OBOX does not impose a request rate, request-size quota or
+default result maximum. A host may opt in to a per-resource API limit.
 
-**List behavior:** Search, filters and sorting use explicit allowed fields; unrequested pagination returns all matching records. Optional `offset`/`limit` enables pagination without a framework-enforced maximum. No cursor or bulk API is required for v0.4.
+**List behavior:** Search, filters and sorting use explicit allowed fields. Without request pagination or host-configured limits, lists return all matching records. Optional `offset`/`limit` and signed cursors are implemented; cursor ordering must use non-nullable fields. `default_limit` must not exceed `max_limit` when both are configured. A bulk CRUD API remains planned.
 
 **HTTP behavior:** `200/201/204` for success; `401/403/404` for access and lookup failures; `409` for conflicts; `422` for invalid input. Optional optimistic concurrency may use `412/428`. Error body shape: `application/problem+json` preferred; exact error code registry TBD.
 
@@ -662,11 +666,11 @@ Use `obox --help` to see the available commands. The CLI provides
 9. OpenAPI correctly represents the statically available schema and acknowledges conditional runtime field exposure.
 10. Integration tests cover PostgreSQL, rollback, concurrent writes and application startup.
 
-**Explicit non-requirements:** No OBOX rate limiter; no request-size cap; no maximum number of returned records; no mandatory `max_page_size`; no result-count cap on relationship queries. These are intentionally excluded, not silently deferred as required production gates.
+**Explicit non-requirements:** No OBOX rate limiter; no request-size cap; no mandatory maximum number of returned records or `max_page_size`; no mandatory result-count cap on relationship queries. These are intentionally excluded, not silently deferred as required production gates. Hosts may opt in to API list limits.
 
 ## 14. Out of scope for the core release
 
-Visual no-code editor, multi-step conditional forms, bulk CRUD operations, cursor pagination, automatic nested writes, offline mobile UI, collaboration, external webhook delivery, rich plugin marketplace, automatic schema/migration generation, and code/stub export. These may be built later without changing the single-builder abstraction.
+Visual no-code editor, multi-step conditional forms, bulk CRUD API operations, automatic nested writes, offline mobile UI, collaboration, external webhook delivery, rich plugin marketplace, automatic schema/migration generation, and code/stub export. These may be built later without changing the single-builder abstraction.
 
 ## 15. Reference documentation
 

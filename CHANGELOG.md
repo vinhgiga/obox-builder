@@ -11,59 +11,22 @@ Follows [Keep a Changelog](https://keepachangelog.com/), versions follow
   `obox.install(plugin)`, dependency validation, a read-only plugin registry,
   access defaults and optional asynchronous plugin lifespans.
 - `obox.register(Model)` as shorthand for an empty `ModelBuilder[Model]` subclass.
-- **Durable events, Phase 1** (`obox_builder.contrib.events`): transactional
-  outbox, domain publishing, opt-in `Model.__events__` capture using history's
-  privacy rules, code subscriptions, worker leases/fencing, retries and dead
-  letters, attempt history, operator CLI and optional embedded worker.
-- `AppConfig.lifespan()` for async app resources; event-enabled SQLite engines
-  use explicit transactions so released savepoints obey outer rollback.
-- Automated event coverage for capture/privacy, transaction/savepoint isolation,
-  subscriptions, retries, lease fencing, replay, worker lifecycle and operator commands.
-- **Row comments** (`obox_builder.contrib.comments`): one-level threads with
-  mentions, edit windows, tombstones, resolve/reopen, permission-aware reads,
-  safe plain-text rendering, savepoint writes and `pre_comment`/`post_comment`
-  signals.
-- Admin UI for row comments: standalone thread page, edit-form comments card,
-  list badges, context menu, mention autocomplete at
-  `/admin/comments/mentionable`, CSRF-protected actions and problem pages.
-- `Model.__comments__` declarations, `COMMENTS_*` settings, model checks
-  (`E301`-`E303`, `W301`), idempotency keys, rate limiting and the
-  `CommentService`/`queries` read/write APIs.
-- **Row history** (`obox_builder.contrib.history`): append-only
-  `history_row_change` written in the same transaction as the data change;
-  `Model.__history__` declarations, `history.track()`, secret redaction,
-  `history.use()` actor context and `history.bulk_update()`.
-- Admin UI: per-row history card and timeline page, global audit feed
-  (`/admin/history`) with model/actor/source/op/date filters, change-set
-  detail, permission-aware masking, and an "Audit → History" nav entry.
-- M2M diffs for declared `relations` (sorted add/remove id sets).
-- Append-only DB triggers installed by `migrate`; `history_purge` and
-  `history_export` commands (NDJSON/CSV) with per-model retention.
-- `HISTORY_*` settings, `pre_record`/`post_record` signals, model checks
-  (`E201`-`E203`, `W201`, `W202`), `history.service` read API, and tracking for
-  `auth.User`/`auth.Role`.
-- Revert/restore: per-entry and per-change-set `POST .../revert` with
-  conflict detection (`?force=1`), deleted-row restore, all-or-nothing
-  semantics, and `history.restore_row_change`; blocked reverts (M2M, masked,
-  redacted, truncated, taken PK) render `admin/revert.html`.
-- `VersionedMixin` optimistic locking (`version` column, `StaleDataError` on
-  stale flushes) recorded as `row_version` on entries; `W201` warns for
-  tracked models without it.
-- Masked values in the payload (`__history__["mask"]`), export buttons on the
-  audit feed, `GET /admin/history/export` (CSV/NDJSON, `history.export_row_change`)
-  and the `history_anonymize` command (actor/object scopes, dry-run).
-- Hardening: `history_reconcile` (replays each row's history, reports
-  missing/resurrected/unexpected/stale drift and `--fix` appends repair entries
-  with `source=db_trigger`), tamper-evidence seal blocks (`history_seal` builds
-  Merkle-chained blocks; `history_verify` exits non-zero on edits/deletes/chain
-  rewrites), `history_relabel` for batch `model_label` rewrites, and PostgreSQL
-  monthly partitioning (`history_partition --sql` prints the reviewed
-  conversion DDL, `--ensure` creates months + `DEFAULT`, `--drop-before` is
-  O(1) retention) with `REVOKE`/role recipes in `docs/history.md`.
-- Write-path benchmark (`tests/history/test_write_cost.py`, pytest marker
-  `benchmark`): at 500-rows-per-commit on SQLite, capture adds ~47 µs/row on
-  create and ~117 µs/row on update over a plain ORM row; payloads average
-  213 B/entry.
+- Resource API optimistic concurrency using strong ETags and required `If-Match`
+  headers for models configured with SQLAlchemy `version_id_col`.
+- `obox_builder.contrib.activity`: resource revisions and flat comments with
+  permission-aware reads, cursor pagination, and conditional comment edits.
+- `obox_builder.contrib.files`: resumable uploads, attachment ownership,
+  authorized downloads, ordering, and periodic unclaimed-file collection.
+
+### Fixed
+
+- Versioned resource updates and deletes use their own operation permission and
+  row scope without requiring retrieve permission.
+- File JSON requests, metadata, upload chunk sizes, and the attachment widget
+  consistently use camelCase properties. Clients must send `contentType` and
+  `ownerId` and read `contentType` and `chunkSize`.
+- API specification examples, concurrency rules, list configuration, and planned
+  endpoint availability now match the implemented resource API.
 
 ### Removed
 
