@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+import operator
 import re
 from collections.abc import Mapping, Sequence
 from types import MappingProxyType
@@ -12,6 +13,7 @@ import sqlalchemy as sa
 from pydantic.alias_generators import to_camel, to_snake
 from sqlalchemy.orm import raiseload, selectinload, undefer
 from sqlalchemy.orm.interfaces import MANYTOONE
+from sqlalchemy.sql.elements import BinaryExpression
 
 from obox_builder.auth import RBAC, Policy, StaffOnly
 from obox_builder.builder.actions import action
@@ -193,6 +195,71 @@ class ModelBuilder(Generic[T]):
             if not isinstance(configured, type) or not issubclass(configured, base):
                 raise ImproperlyConfigured("Surface configuration must extend Form, View or API.")
         self.form, self.view, self.api = self.Form(), self.View(), self.API()
+        table = mapper.local_table
+        unique = {
+            frozenset(mapper.get_property_by_column(column).key for column in constraint.columns)
+            for constraint in table.constraints
+            if isinstance(constraint, sa.UniqueConstraint) and not constraint.deferrable
+        }
+        unique.update(
+            frozenset(mapper.get_property_by_column(column).key for column in index.columns)
+            for index in table.indexes
+            if index.unique
+            and all(isinstance(expression, sa.Column) for expression in index.expressions)
+            and all(
+                index.dialect_options[dialect].get("where") is None
+                for dialect in ("postgresql", "sqlite")
+            )
+        )
+        for names in self.api.upsert_fields:
+            if (
+                not names
+                or len(set(names)) != len(names)
+                or frozenset(names) not in unique
+                or any(
+                    name not in self.specs
+                    or self.specs[name].readonly
+                    or self.specs[name].column.nullable
+                    or isinstance(self.specs[name].column.type, sa.JSON | sa.ARRAY)
+                    for name in names
+                )
+            ):
+                raise ImproperlyConfigured(
+                    "API.upsert_fields must name non-null writable columns of a full UNIQUE key."
+                )
+        for name in self.api.write_relationships:
+            relation = mapper.relationships.get(name)
+            if (
+                relation is None
+                or not relation.uselist
+                or relation.viewonly
+                or relation.collection_class not in (None, list)
+                or len(relation.synchronize_pairs) != 1
+                or (relation.secondary is None and len(relation.local_remote_pairs) != 1)
+                or not isinstance(relation.primaryjoin, BinaryExpression)
+                or relation.primaryjoin.operator is not operator.eq
+                or (
+                    relation.secondary is not None
+                    and (
+                        not isinstance(relation.secondary, sa.Table)
+                        or len(relation.secondary.c) != 2
+                        or len(relation.secondary.primary_key.columns) != 2
+                        or len(relation.secondary_synchronize_pairs) != 1
+                        or not isinstance(relation.secondaryjoin, BinaryExpression)
+                        or relation.secondaryjoin.operator is not operator.eq
+                    )
+                )
+                or "delete-orphan" in relation.cascade
+            ):
+                raise ImproperlyConfigured(
+                    "API.write_relationships requires simple writable collections without "
+                    "delete-orphan; many-to-many tables need a two-column primary key."
+                )
+            if mapper.version_id_col is not None and mapper.version_id_generator is False:
+                raise ImproperlyConfigured("Relationship writes require generated versions.")
+        for name in ("default_limit", "max_limit", "max_batch"):
+            if not any(name in cls.__dict__ for cls in self.API.__mro__ if cls is not API):
+                setattr(self.api, name, getattr(app.settings, "api_" + name))
         for value in (self.api.default_limit, self.api.max_limit, self.api.max_batch):
             if value is not None and (
                 isinstance(value, bool) or not isinstance(value, int) or value < 0

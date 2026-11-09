@@ -80,6 +80,8 @@ class API:
     default_limit: int | None = None
     max_limit: int | None = None
     max_batch: int | None = None
+    upsert_fields: tuple[tuple[str, ...], ...] = ()
+    write_relationships: tuple[str, ...] = ()
     list_envelope = True
 
     def get_read_schema(self, *, builder: Any) -> type[BaseModel]:

@@ -3,12 +3,17 @@ from __future__ import annotations
 import asyncio
 import importlib.util
 from pathlib import Path
+from typing import Any
 
 import httpx
 import pytest
+import sqlalchemy as sa
 from fastapi import FastAPI
 from obox_builder import cli
 from obox_builder.cli import main, startproject
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.orm import mapped_column
+from sqlalchemy.orm.exc import StaleDataError
 
 PROJECT_FILES = {
     ".editorconfig",
@@ -117,6 +122,9 @@ def test_generated_project_runs_with_plain_fastapi(
     main_spec.loader.exec_module(module)
     assert type(module.app) is FastAPI
     assert module.app.state.obox is module.obox
+    assert module.obox.settings.api_default_limit == 100
+    assert module.obox.settings.api_max_limit == 1000
+    assert module.obox.settings.api_max_batch == 100
 
     async def scenario() -> None:
         async with (
@@ -134,6 +142,57 @@ def test_generated_project_runs_with_plain_fastapi(
             assert login_form.status_code == 200
         assert module.obox.database.engine is None
         assert not (project / "db.sqlite3").exists()
+
+    asyncio.run(scenario())
+
+
+def test_generated_base_versions_each_model_and_rejects_stale_writes(tmp_path: Path) -> None:
+    project = startproject("generated", tmp_path / "generated")
+    spec = importlib.util.spec_from_file_location("generated_models", project / "models.py")
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    first: Any = type(
+        "First",
+        (module.Base,),
+        {
+            "__tablename__": "first",
+            "id": mapped_column(sa.Integer, primary_key=True),
+            "name": mapped_column(sa.String, nullable=False),
+        },
+    )
+    second: Any = type(
+        "Second",
+        (module.Base,),
+        {
+            "__tablename__": "second",
+            "id": mapped_column(sa.Integer, primary_key=True),
+        },
+    )
+    assert sa.inspect(first).version_id_col is first.__table__.c.version
+    assert sa.inspect(second).version_id_col is second.__table__.c.version
+
+    async def scenario() -> None:
+        engine = create_async_engine("sqlite+aiosqlite://")
+        try:
+            async with engine.begin() as connection:
+                await connection.run_sync(module.Base.metadata.create_all)
+            sessions = async_sessionmaker(engine, expire_on_commit=False)
+            async with sessions() as session:
+                session.add(first(name="initial"))
+                await session.commit()
+            async with sessions() as left, sessions() as right:
+                current = (await left.scalars(sa.select(first))).one()
+                stale = (await right.scalars(sa.select(first))).one()
+                current.name = "new"
+                await left.commit()
+                assert current.version == 2
+                stale.name = "old"
+                with pytest.raises(StaleDataError):
+                    await right.commit()
+        finally:
+            await engine.dispose()
 
     asyncio.run(scenario())
 

@@ -23,6 +23,9 @@ class Settings:
     default_policy: Policy[Any] | None = field(default=None, repr=False)
     ui_prefix: str = "/admin"
     api_prefix: str = "/api"
+    api_default_limit: int | None = None
+    api_max_limit: int | None = None
+    api_max_batch: int | None = None
     csrf_secret: str | bytes | None = field(default=None, repr=False)
     template_dirs: Sequence[str | PathLike[str]] = ()
     templates: Jinja2Templates | None = field(default=None, repr=False)
@@ -30,6 +33,17 @@ class Settings:
     auth_password_validators: Sequence[Mapping[str, Any]] = ()
 
     def __post_init__(self) -> None:
+        for value in (self.api_default_limit, self.api_max_limit, self.api_max_batch):
+            if value is not None and (
+                isinstance(value, bool) or not isinstance(value, int) or value < 0
+            ):
+                raise ImproperlyConfigured("API limits must be nonnegative integers or None.")
+        if (
+            self.api_default_limit is not None
+            and self.api_max_limit is not None
+            and self.api_default_limit > self.api_max_limit
+        ):
+            raise ImproperlyConfigured("API_DEFAULT_LIMIT must not exceed API_MAX_LIMIT.")
         if (self.database_url is None) == (self.session_factory is None):
             raise ImproperlyConfigured("Provide exactly one of DATABASE_URL or SESSION_FACTORY.")
         if self.database_url is not None and (

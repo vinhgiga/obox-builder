@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  obox-builder\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-11-09 00:37+0700\n"
+"POT-Creation-Date: 2026-11-09 18:49+0700\n"
 "PO-Revision-Date: 2026-10-31 20:45+0700\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: vi\n"
@@ -18,31 +18,31 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 2.18.0\n"
 
-#: obox_builder/builder/http.py:194
+#: obox_builder/builder/http.py:196
 msgid "msg"
 msgstr ""
 
-#: obox_builder/builder/http.py:203
+#: obox_builder/builder/http.py:205
 msgid "Internal server error."
 msgstr ""
 
-#: obox_builder/builder/http.py:215
+#: obox_builder/builder/http.py:217
 msgid "Internal server error.Invalid input."
 msgstr ""
 
-#: obox_builder/builder/service.py:575
+#: obox_builder/builder/service.py:576
 msgid "Field cannot be null."
 msgstr ""
 
-#: obox_builder/builder/service.py:589 obox_builder/builder/service.py:671
+#: obox_builder/builder/service.py:590 obox_builder/builder/service.py:672
 msgid "Field is required."
 msgstr "Trường này là bắt buộc."
 
-#: obox_builder/builder/service.py:619
+#: obox_builder/builder/service.py:620
 msgid "Related record is unavailable."
 msgstr "Bản ghi liên quan không khả dụng."
 
-#: obox_builder/builder/service.py:642 obox_builder/builder/service.py:651
+#: obox_builder/builder/service.py:643 obox_builder/builder/service.py:652
 msgid "A value is outside the database column limits."
 msgstr ""
 

@@ -226,7 +226,6 @@ async def redact(
     activity: Activity, builder: Any, obj: Any, changes: list[dict[str, Any]], ctx: Context
 ) -> None:
     for field in {change["field"] for change in changes}:
-        spec = builder.specs[field]
         slots = [
             (change, side)
             for change in changes
@@ -234,6 +233,50 @@ async def redact(
             for side in ("before", "after")
             if side in change and change[side] is not None
         ]
+        if field not in builder.specs:
+            relation = sa.inspect(builder.model).relationships[field]
+            registration = activity.app._registrations.get(relation.mapper.class_)
+            allowed_ids: set[str] = set()
+            if registration is not None:
+                related_builder: Any = registration.builder
+                related_service = activity.app.service(relation.mapper.class_)
+                if (
+                    related_builder.api.enabled
+                    and "retrieve" in related_builder.api.operations
+                    and await related_service.permitted("retrieve", ctx)
+                ):
+                    related_keys = []
+                    identity = schema(
+                        "ActivityRelationship", related_builder.specs, (related_builder.pk_name,)
+                    )
+                    for change, side in slots:
+                        for value in change[side] if isinstance(change[side], list) else []:
+                            try:
+                                related_keys.append(
+                                    validate(identity, {related_builder.pk_name: value})[
+                                        related_builder.pk_name
+                                    ]
+                                )
+                            except BuilderValidationError:
+                                continue
+                    related_objects = await ctx.session.scalars(
+                        related_service._statement("retrieve", ctx).where(
+                            related_builder.pk.in_(related_keys)
+                        )
+                    )
+                    for related in related_objects.unique():
+                        if related_builder.pk_name in related_builder.readable(
+                            ctx, obj=related, fields=related_builder.api_read
+                        ) and await related_service.permitted("retrieve", ctx, related):
+                            allowed_ids.add(str(getattr(related, related_builder.pk_name)))
+            for change, side in slots:
+                change[side] = (
+                    [value if str(value) in allowed_ids else None for value in change[side]]
+                    if isinstance(change[side], list)
+                    else None
+                )
+            continue
+        spec = builder.specs[field]
         if isinstance(spec.column.type, sa.BigInteger):
             for change, side in slots:
                 change[side] = str(change[side])
@@ -355,6 +398,12 @@ async def read(
     resource, record_id = builder.model.__table__.fullname, str(key)
     fields = set(
         builder.readable(ctx, obj=obj, fields=builder.api_read if fields is None else fields)
+    )
+    allowed = builder.policy.read_fields(ctx, obj=obj)
+    fields.update(
+        name
+        for name in builder.api.write_relationships
+        if name in builder.view_related and (allowed is None or name in allowed)
     )
     binding = [
         partition,

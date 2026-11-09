@@ -3,6 +3,7 @@
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request, Response
+from pydantic.alias_generators import to_camel
 
 from obox_builder.builder.api_schema import FieldError, Problem
 from obox_builder.builder.http import ApiRoute
@@ -72,7 +73,7 @@ def build_router(activity: Activity) -> APIRouter:
                     for side in ("before", "after"):
                         if change.get(side) is not None:
                             change[side] = str(change[side])
-                change["field"] = builder.api_names[field]
+                change["field"] = builder.api_names.get(field, to_camel(field))
         return page
 
     @router.get(

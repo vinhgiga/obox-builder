@@ -292,7 +292,7 @@ class ListQuery:
             raise invalid("cursor", "Invalid cursor or changed query.", "invalid_cursor") from exc
         conditions = []
         prefix: list[Any] = []
-        for name, desc, _ in self.order:
+        for name, desc, first in self.order:
             column, last = getattr(builder.model, name), parsed[name]
             comparable = (
                 sa.cast(column, sa.Integer)
@@ -300,8 +300,12 @@ class ListQuery:
                 else column
             )
             comparison = int(last) if isinstance(last, bool) else last
-            conditions.append(
-                sa.and_(*prefix, comparable < comparison if desc else comparable > comparison)
-            )
+            if last is None:
+                after = column.is_not(None) if first else sa.false()
+            else:
+                after = comparable < comparison if desc else comparable > comparison
+                if not first:
+                    after = sa.or_(after, column.is_(None))
+            conditions.append(sa.and_(*prefix, after))
             prefix.append(column == last)
         return sa.or_(*conditions)

@@ -42,10 +42,17 @@ T = TypeVar("T")
 
 @dataclass(frozen=True)
 class BatchOperation:
-    op: Literal["create", "update", "delete"]
+    op: Literal["create", "update", "delete", "upsert"]
     id: Any = None
     data: Mapping[str, Any] = field(default_factory=dict)
     precondition: Callable[[Any], Awaitable[None]] | None = None
+    merge_on: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class UpsertResult(Generic[T]):
+    record: T
+    created: bool
 
 
 async def invoke(method: Any, *args: Any, **kwargs: Any) -> Any:
@@ -274,14 +281,8 @@ class ResourceService(Generic[T]):
             limit = b.api.max_limit
         if "count" in params and params["count"] != "exact":
             raise invalid("count", "Only count=exact is supported.")
-        cursor_supported = all(not b.specs[name].column.nullable for name, _, _ in query.order)
-        if "cursor" in params:
-            if "offset" in params or "limit" not in params:
-                raise invalid("cursor", "Cursor requires limit and cannot be combined with offset.")
-            if not cursor_supported:
-                raise invalid(
-                    "order", "Cursor ordering must be non-nullable.", "cursor_unsupported_ordering"
-                )
+        if "cursor" in params and ("offset" in params or "limit" not in params):
+            raise invalid("cursor", "Cursor requires limit and cannot be combined with offset.")
         total = await self._count(stmt, ctx) if "count" in params else None
         if "cursor" in params:
             stmt = stmt.where(query.cursor(b, self.app.csrf.secret))
@@ -300,7 +301,7 @@ class ResourceService(Generic[T]):
         more = limit is not None and len(objects) > limit
         objects = objects if limit is None else objects[:limit]
         cursor = None
-        if more and objects and cursor_supported:
+        if more and objects:
             # Do not expose ordering values hidden by a per-record projection in a token.
             visible = set(b.readable(ctx, obj=objects[-1])).intersection(b.api_read)
             if all(name in visible for name, _, _ in query.order):
@@ -756,6 +757,7 @@ class ResourceService(Generic[T]):
         ctx: Context,
         version: Any = None,
         precondition: Callable[[T], Awaitable[None]] | None = None,
+        touch: bool = False,
     ) -> T:
         obj = await self._get(id, ctx, "update")
         self._version(obj, version)
@@ -770,6 +772,13 @@ class ResourceService(Generic[T]):
         async with self._mutation(ctx, conditional=precondition is not None):
             for key, value in values.items():
                 setattr(obj, key, value)
+            if touch and self.builder.version_column is not None:
+                mapper = sa.inspect(self.builder.model)
+                name = mapper.get_property_by_column(self.builder.version_column).key
+                generator = mapper.version_id_generator
+                if generator is False:
+                    raise ImproperlyConfigured("Relationship writes require generated versions.")
+                setattr(obj, name, generator(getattr(obj, name)))
             await invoke(
                 self.builder.before_save,
                 obj,
@@ -785,17 +794,48 @@ class ResourceService(Generic[T]):
 
     async def batch(
         self, operations: Sequence[BatchOperation], *, ctx: Context
-    ) -> Sequence[T | None]:
+    ) -> Sequence[T | UpsertResult[T] | None]:
         """Apply ordered writes atomically, locking existing records in a stable order."""
         async with self._mutation(ctx):
             if not operations:
                 raise BuilderValidationError({"operations": ["Supply at least one operation."]})
             identity = schema("Identity", self.builder.specs, (self.builder.pk_name,))
             targets = []
+            merge_keys: set[str] = set()
             for index, operation in enumerate(operations):
                 try:
-                    if operation.op not in {"create", "update", "delete"}:
+                    if operation.op not in {"create", "update", "delete", "upsert"}:
                         raise BuilderValidationError({"op": ["Unknown write operation."]})
+                    if operation.op == "upsert":
+                        await self.authorize("create", ctx)
+                        await self.authorize("update", ctx)
+                        values = self._merge_values(operation, ctx)
+                        merge_key = repr(sorted(values.items()))
+                        if merge_key in merge_keys:
+                            raise BuilderValidationError(
+                                {"merge_on": ["Choose unique merge keys."]}
+                            )
+                        merge_keys.add(merge_key)
+                        self._check_fields(operation.data, self.write_fields("create", ctx))
+                        existing = (
+                            (
+                                await ctx.session.scalars(
+                                    self._statement("update", ctx).where(
+                                        *(
+                                            getattr(self.builder.model, name) == value
+                                            for name, value in values.items()
+                                        )
+                                    )
+                                )
+                            )
+                            .unique()
+                            .one_or_none()
+                        )
+                        if existing is not None:
+                            targets.append(
+                                (getattr(existing, self.builder.pk_name), index, "update")
+                            )
+                        continue
                     await self.authorize(operation.op, ctx)
                     if operation.op == "create":
                         continue
@@ -815,9 +855,23 @@ class ResourceService(Generic[T]):
                     await self._get(key, ctx, action)
                 except OboxError as exc:
                     raise BatchOperationError(index, exc) from exc
-            results = []
+            results: list[T | UpsertResult[T] | None] = []
+            upsert_ids: set[Any] = set()
             for index, operation in enumerate(operations):
                 try:
+                    if operation.op == "upsert":
+                        result = await self.upsert(operation, ctx=ctx)
+                        result_id = getattr(result.record, self.builder.pk_name)
+                        if result_id in upsert_ids or any(
+                            result_id == key and other_index != index
+                            for key, other_index, _ in targets
+                        ):
+                            raise BuilderValidationError(
+                                {"operations": ["Choose unique record IDs."]}
+                            )
+                        upsert_ids.add(result_id)
+                        results.append(result)
+                        continue
                     if operation.op == "create":
                         obj = await self.create(operation.data, ctx=ctx)
                     elif operation.op == "update":
@@ -836,6 +890,84 @@ class ResourceService(Generic[T]):
                 except OboxError as exc:
                     raise BatchOperationError(index, exc) from exc
             return results
+
+    def _merge_values(self, operation: BatchOperation, ctx: Context) -> dict[str, Any]:
+        b, names = self.builder, operation.merge_on
+        if (
+            not names
+            or len(set(names)) != len(names)
+            or not any(set(names) == set(key) for key in b.api.upsert_fields)
+        ):
+            raise BuilderValidationError({"merge_on": ["Use a configured UNIQUE merge key."]})
+        presets = dict(b.policy.presets("create", ctx))
+        source = {**operation.data, **presets}
+        if any(name not in source for name in names):
+            raise BuilderValidationError({"merge_on": ["Supply every merge key value."]})
+        values = validate(
+            schema("MergeKey", b.specs, names), {name: source[name] for name in names}
+        )
+        return {name: b.specs[name].normalize(value) for name, value in values.items()}
+
+    async def upsert(self, operation: BatchOperation, *, ctx: Context) -> UpsertResult[T]:
+        """Resolve a UNIQUE key without bypassing ordinary ORM authorization and hooks."""
+        async with self._mutation(ctx):
+            return await self._upsert(operation, ctx=ctx)
+
+    async def _upsert(self, operation: BatchOperation, *, ctx: Context) -> UpsertResult[T]:
+        await self.authorize("create", ctx)
+        await self.authorize("update", ctx)
+        b = self.builder
+        values = self._merge_values(operation, ctx)
+        # Validate write permissions before using caller-controlled values in a lookup.
+        self._check_fields(operation.data, self.write_fields("create", ctx))
+        for name, value in b.policy.presets("update", ctx).items():
+            if name in values and b.specs[name].normalize(value) != values[name]:
+                raise PermissionDenied("Merge keys must agree with server presets.")
+
+        async def lookup() -> Any:
+            return (
+                (
+                    await ctx.session.scalars(
+                        self._statement("update", ctx)
+                        .where(*(getattr(b.model, name) == value for name, value in values.items()))
+                        .with_for_update()
+                        .execution_options(populate_existing=True)
+                    )
+                )
+                .unique()
+                .one_or_none()
+            )
+
+        obj = await lookup()
+        if obj is None:
+            # SQLite's legacy driver does not start a transaction for SELECT/SAVEPOINT.
+            connection = await ctx.session.connection()
+            if connection.dialect.name == "sqlite":
+                raw = await connection.get_raw_connection()
+                if not cast(Any, raw.driver_connection).in_transaction:
+                    await connection.exec_driver_sql("BEGIN")
+            event_count = len(ctx._events)
+            try:
+                async with ctx.session.begin_nested():
+                    obj = await self.create(operation.data, ctx=ctx)
+                    if any(getattr(obj, name) != value for name, value in values.items()):
+                        raise PermissionDenied("Hooks must preserve the upsert merge key.")
+                return UpsertResult(obj, True)
+            except ResourceConflict as exc:
+                if not isinstance(exc.__cause__, IntegrityError):
+                    raise
+                ctx._failed = False
+                del ctx._events[event_count:]
+                obj = await lookup()
+                if obj is None:
+                    ctx._failed = True
+                    raise
+        updated = await self.update(
+            getattr(obj, b.pk_name), operation.data, ctx=ctx, precondition=operation.precondition
+        )
+        if any(getattr(updated, name) != value for name, value in values.items()):
+            raise PermissionDenied("Hooks must preserve the upsert merge key.")
+        return UpsertResult(updated, False)
 
     def _version(self, obj: T, version: Any) -> None:
         if version is None:

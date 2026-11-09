@@ -1,5 +1,12 @@
-from sqlalchemy.orm import DeclarativeBase
+from typing import Any
+
+from sqlalchemy.orm import DeclarativeBase, Mapped, declared_attr, mapped_column
 
 
 class Base(DeclarativeBase):
-    pass
+    version: Mapped[int] = mapped_column(default=1, nullable=False)
+
+    @declared_attr.directive
+    @classmethod
+    def __mapper_args__(cls) -> dict[str, Any]:
+        return {"version_id_col": cls.version}

@@ -148,6 +148,8 @@ async def api_problem(request: Request, exc: Exception) -> Response:
                     *(
                         ["ifMatch"]
                         if name == "If-Match"
+                        else ["mergeOn"]
+                        if name == "merge_on"
                         else ["data", *location]
                         if location
                         else []
@@ -178,7 +180,7 @@ async def api_problem(request: Request, exc: Exception) -> Response:
                 request.url.path.endswith(":batchWrite")
                 and len(location) > 2
                 and location[0] == "operations"
-                and location[2] in {"create", "update", "delete"}
+                and location[2] in {"create", "update", "delete", "upsert"}
             ):
                 del location[2]
             errors.append(
@@ -247,9 +249,7 @@ class ApiRoute(APIRoute):
             request.method in {"POST", "PUT", "PATCH", "DELETE"} and not request.state.query_body
         )
         json_body = request.state.query_body or (
-            request.state.record_write
-            and request.method != "DELETE"
-            and self.body_field is not None
+            request.state.record_write and self.body_field is not None
         )
         no_store = json_body or request.state.record_write
         provided = request.headers.get("x-request-id", "")

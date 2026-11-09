@@ -4,6 +4,9 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent
 PROJECT_NAME = __PROJECT_NAME__
 DEBUG = os.getenv("OBOX_DEBUG", "true").lower() in {"1", "true", "yes", "on"}
+API_DEFAULT_LIMIT = 100
+API_MAX_LIMIT = 1000
+API_MAX_BATCH = 100
 DATABASE_URL = os.getenv(
     "OBOX_DATABASE_URL", f"sqlite+aiosqlite:///{BASE_DIR / 'db.sqlite3'}"
 )

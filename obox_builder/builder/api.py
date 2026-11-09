@@ -16,15 +16,17 @@ from pydantic.alias_generators import to_camel
 
 from obox_builder.builder.api_schema import ApiRequest, ApiResponse
 from obox_builder.builder.conditional import check_match
+from obox_builder.builder.fields import schema, validate
 from obox_builder.builder.filters import FilterGroup, FilterTerm, parse_filter
 from obox_builder.builder.http import ApiRoute
 from obox_builder.builder.query import ListQuery, invalid, parameters, parse_terms
-from obox_builder.builder.service import BatchOperation, invoke
+from obox_builder.builder.service import BatchOperation, UpsertResult, invoke
 from obox_builder.context import Context
 from obox_builder.errors import (
     BatchOperationError,
     BuilderValidationError,
     ImproperlyConfigured,
+    NotFound,
     OboxError,
     PermissionDenied,
 )
@@ -40,6 +42,11 @@ class ActionResult(ApiResponse):
 
 class QueryInput(ApiRequest):
     query: list[tuple[StrictStr, StrictStr]]
+
+
+class RelationshipInput(ApiRequest):
+    record_ids: list[StrictStr]
+    if_matches: dict[str, StrictStr] = Field(default_factory=dict)
 
 
 class Page(ApiResponse):
@@ -336,6 +343,70 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
             response.headers["ETag"] = await etag(obj, ctx, row)
         return row
 
+    async def receipt_start(data: BaseModel, ctx: Context) -> tuple[Any, bool]:
+        plugin = app.get_plugin("idempotency")
+        if plugin is None:
+            if ctx.request is not None and "idempotency-key" in ctx.request.headers:
+                raise invalid(
+                    "Idempotency-Key", "Enable the Idempotency plugin to use this header."
+                )
+            return None, False
+        return cast(
+            tuple[Any, bool],
+            await plugin.begin(
+                data.model_dump(mode="json", by_alias=True, exclude_unset=True), ctx
+            ),
+        )
+
+    async def receipt_replay(receipt: Any, ctx: Context, response: Response) -> Any:
+        saved = receipt.response
+        for proof in saved["proofs"]:
+            await service.authorize(proof["action"], ctx)
+            if proof["action"] == "delete":
+                continue
+            identity = validate(
+                schema("ReceiptIdentity", builder.specs, (builder.pk_name,)),
+                {builder.pk_name: proof["id"]},
+            )[builder.pk_name]
+            action = "update" if proof["action"] == "update" else "retrieve"
+            obj = (
+                (
+                    await ctx.session.scalars(
+                        service._statement(action, ctx).where(builder.pk == identity)
+                    )
+                )
+                .unique()
+                .one_or_none()
+            )
+            if obj is None:
+                raise NotFound("The saved response is no longer available.")
+            await service.authorize(proof["action"], ctx, obj)
+            readable = set(builder.readable(ctx, obj=obj)).intersection(builder.api_read)
+            if not set(proof["fields"]).issubset(readable):
+                raise PermissionDenied("The saved response is no longer readable.")
+        response.headers.update(saved["headers"])
+        return saved["body"]
+
+    def receipt_finish(
+        receipt: Any,
+        schema: type[BaseModel],
+        body: Any,
+        response: Response,
+        proofs: list[dict[str, Any]],
+    ) -> None:
+        if receipt is not None:
+            receipt.response = {
+                "body": schema.model_validate(body).model_dump(
+                    mode="json", by_alias=False, exclude_unset=True
+                ),
+                "headers": {
+                    key: value
+                    for key, value in response.headers.items()
+                    if key.lower() in {"etag", "location"}
+                },
+                "proofs": proofs,
+            }
+
     def precondition(request: Request, ctx: Context) -> Callable[[Any], Awaitable[None]] | None:
         if builder.version_column is None and "if-match" not in request.headers:
             return None
@@ -482,16 +553,27 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
 
     if set(builder.api.operations).intersection({"create", "update", "delete"}):
         operation_schemas = []
-        for name, opcode in (
+        opcodes: list[tuple[str, Any]] = [
             ("create", Literal["create"]),
             ("update", Literal["update"]),
             ("delete", Literal["delete"]),
-        ):
+        ]
+        if builder.api.upsert_fields:
+            opcodes.append(("upsert", Literal["upsert"]))
+        for name, opcode in opcodes:
             definitions: dict[str, Any] = {"op": (opcode, ...)}
-            if name != "create":
+            if name not in {"create", "upsert"}:
                 definitions.update(id=(StrictStr, ...), if_match=(StrictStr | None, None))
+            if name == "upsert":
+                definitions.update(
+                    merge_on=(list[StrictStr], Field(min_length=1)),
+                    if_match=(StrictStr | None, None),
+                )
             if name != "delete":
-                definitions["data"] = (getattr(builder, name + "_schema"), ...)
+                definitions["data"] = (
+                    getattr(builder, ("update" if name == "upsert" else name) + "_schema"),
+                    ...,
+                )
             operation_schemas.append(
                 create_model(
                     builder.model.__name__ + name.title() + "Operation",
@@ -500,6 +582,8 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
                 )
             )
         operation_type: Any = operation_schemas[0] | operation_schemas[1] | operation_schemas[2]
+        for extra_schema in operation_schemas[3:]:
+            operation_type = operation_type | extra_schema
         operation_union: Any = Annotated[operation_type, Field(discriminator="op")]
         batch_fields: dict[str, Any] = {
             "operations": (
@@ -513,11 +597,13 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
             **batch_fields,
         )
         result_fields: dict[str, Any] = {
-            "op": (Literal["create", "update", "delete"], ...),
+            "op": (Literal["create", "update", "delete", "upsert"], ...),
             "id": (str, ...),
             "record": (record_schema | None, None),
             "etag": (str | None, None),
         }
+        if builder.api.upsert_fields:
+            result_fields["created"] = (bool | None, None)
         result_schema: Any = create_model(
             builder.model.__name__ + "BatchResult",
             __base__=ApiResponse,
@@ -528,7 +614,9 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
             builder.model.__name__ + "BatchResults", __base__=ApiResponse, **results_fields
         )
 
-        async def batch_write(request: Request, data: Any, ctx: Context = dependency) -> Any:
+        async def batch_write(
+            request: Request, response: Response, data: Any, ctx: Context = dependency
+        ) -> Any:
             app.csrf.validate(request, ctx.principal)
             for header in ("If-Match", "If-None-Match", "If-Unmodified-Since"):
                 if header in request.headers:
@@ -539,8 +627,20 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
             request.state.record_fields = builder.update_schema.model_fields
             operations = []
             for index, item in enumerate(data.operations):
-                if item.op not in builder.api.operations:
+                required = {"create", "update"} if item.op == "upsert" else {item.op}
+                if not required.issubset(builder.api.operations):
                     raise BatchOperationError(index, PermissionDenied("Operation is not exposed."))
+                try:
+                    for action in sorted(required):
+                        await service.authorize(action, ctx)
+                except OboxError as exc:
+                    raise BatchOperationError(index, exc) from exc
+                aliases = {alias: name for name, alias in builder.api_names.items()}
+                merge_on = getattr(item, "merge_on", ())
+                if any(alias not in aliases for alias in merge_on):
+                    raise BatchOperationError(
+                        index, invalid("merge_on", "Use public API field names.", "unknown_field")
+                    )
 
                 async def check(
                     obj: Any, token: str | None = getattr(item, "if_match", None)
@@ -563,22 +663,41 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
                         if item.op != "delete"
                         else {},
                         check if item.op != "create" else None,
+                        tuple(aliases[alias] for alias in merge_on),
                     )
                 )
+            receipt, replay = await receipt_start(data, ctx)
+            if replay:
+                return await receipt_replay(receipt, ctx, response)
             objects = await service.batch(operations, ctx=ctx)
             results = []
+            proofs = []
             for index, (operation, obj) in enumerate(zip(operations, objects, strict=True)):
                 try:
                     result = {"op": operation.op, "id": operation.id}
+                    if isinstance(obj, UpsertResult):
+                        result["created"] = obj.created
+                        obj = obj.record
                     if obj is not None:
                         result["record"] = await record_row(obj, ctx)
                         result["id"] = result["record"][builder.pk_name]
                         if builder.version_column is not None:
                             result["etag"] = await etag(obj, ctx)
                     results.append(result)
+                    proofs.append(
+                        {
+                            "action": ("create" if result.get("created") else "update")
+                            if operation.op == "upsert"
+                            else operation.op,
+                            "id": result["id"],
+                            "fields": list(result.get("record", {})),
+                        }
+                    )
                 except OboxError as exc:
                     raise BatchOperationError(index, exc) from exc
-            return {"results": results}
+            body = {"results": results}
+            receipt_finish(receipt, results_schema, body, response, proofs)
+            return body
 
         batch_write.__annotations__["data"] = batch_schema
         router.add_api_route(
@@ -591,6 +710,18 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
             response_model_exclude_unset=True,
             responses=problems,
             tags=list(builder.api.tags or (builder.model.__name__,)),
+            openapi_extra={
+                "parameters": [
+                    {
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": False,
+                        "schema": {"type": "string", "minLength": 1, "maxLength": 255},
+                    }
+                ]
+            }
+            if app.get_plugin("idempotency")
+            else None,
         )
 
     if "retrieve" in builder.api.operations:
@@ -615,15 +746,90 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
                 ctx,
             )
 
+    if builder.api.write_relationships and "update" in builder.api.operations:
+
+        async def write_relationship(
+            request: Request,
+            response: Response,
+            id: str,
+            field: str,
+            data: RelationshipInput,
+            ctx: Context = dependency,
+        ) -> Any:
+            from obox_builder.contrib.relationships import mutate
+
+            app.csrf.validate(request, ctx.principal)
+            for header in ("If-None-Match", "If-Unmodified-Since"):
+                if header in request.headers:
+                    raise invalid(header, "Unsupported precondition.", "unsupported_precondition")
+            names = {to_camel(name): name for name in builder.api.write_relationships}
+            if field not in names:
+                from obox_builder.errors import NotFound
+
+                raise NotFound("Relationship is unavailable.")
+            modes: dict[str, Any] = {"POST": "add", "PUT": "replace", "DELETE": "remove"}
+            obj = await mutate(
+                service,
+                id,
+                names[field],
+                data.record_ids,
+                data.if_matches,
+                modes[request.method],
+                ctx,
+                precondition(request, ctx),
+            )
+            return await record_response(obj, ctx, response)
+
+        for method in ("POST", "PUT", "DELETE"):
+            router.add_api_route(
+                path + "/{id}/relationships/{field}",
+                write_relationship,
+                methods=[method],
+                name=f"obox_api_{builder.slug}_relationship_{method.lower()}",
+                operation_id=f"{builder.slug}_relationship_{method.lower()}",
+                response_model=record_schema,
+                response_model_exclude_unset=True,
+                responses=problems,
+                openapi_extra={
+                    "parameters": [
+                        {
+                            "name": "If-Match",
+                            "in": "header",
+                            "required": True,
+                            "schema": {"type": "string"},
+                        }
+                    ]
+                }
+                if builder.version_column is not None
+                else None,
+            )
+
     async def create(
         request: Request, response: Response, data: Any, ctx: Context = dependency
     ) -> Any:
         request.state.record_fields = builder.create_schema.model_fields
         app.csrf.validate(request, ctx.principal)
+        await service.authorize("create", ctx)
+        receipt, replay = await receipt_start(data, ctx)
+        if replay:
+            return await receipt_replay(receipt, ctx, response)
         obj = await service.create(data.model_dump(by_alias=False, exclude_unset=True), ctx=ctx)
         row = await record_response(obj, ctx, response)
         response.headers["Location"] = (
             request.scope.get("root_path", "") + path + "/" + quote(row[builder.pk_name], safe="")
+        )
+        receipt_finish(
+            receipt,
+            record_schema,
+            row,
+            response,
+            [
+                {
+                    "action": "create",
+                    "id": row[builder.pk_name],
+                    "fields": list(row),
+                }
+            ],
         )
         return row
 
@@ -663,6 +869,15 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
         extra: dict[str, Any] = {"x-obox-conditional-fields": True}
         if method == "GET" and suffix == "":
             extra["parameters"] = query_parameters()
+        elif operation == "create" and app.get_plugin("idempotency"):
+            extra["parameters"] = [
+                {
+                    "name": "Idempotency-Key",
+                    "in": "header",
+                    "required": False,
+                    "schema": {"type": "string", "minLength": 1, "maxLength": 255},
+                }
+            ]
         elif method in {"PATCH", "DELETE"} and builder.version_column is not None:
             extra["parameters"] = [
                 {

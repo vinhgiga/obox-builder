@@ -459,6 +459,18 @@ class Obox:
                         )
         for item in self._registrations.values():
             b = item.builder
+            if (
+                b.api.enabled
+                and {"update", "delete"}.intersection(b.api.operations)
+                and b.version_column is None
+            ):
+                diagnostics.append(
+                    Diagnostic(
+                        "warning",
+                        "api.unversioned_writes",
+                        f"{item.slug}: configure version_id_col to detect stale writes.",
+                    )
+                )
             if b.policy is None or b.fields is None:
                 raise ImproperlyConfigured("The compiled builder is missing policy or fields.")
             diagnostics.append(
@@ -493,6 +505,21 @@ class Obox:
                             "error",
                             "relationship.unregistered_collection",
                             f"{item.slug}.{name}: register the collection's target resource.",
+                        )
+                    )
+            for name in b.api.write_relationships:
+                relation = inspect(item.model).relationships[name]
+                registration = self._registrations.get(relation.mapper.class_)
+                if (
+                    registration is None
+                    or not registration.builder.api.enabled
+                    or not {"retrieve", "update"}.issubset(registration.builder.api.operations)
+                ):
+                    diagnostics.append(
+                        Diagnostic(
+                            "error",
+                            "relationship.unwritable_target",
+                            f"{item.slug}.{name}: register a target API with retrieve and update.",
                         )
                     )
             if b.view.enabled:
@@ -555,7 +582,7 @@ class Obox:
                 session.info["obox.context"] = ctx
 
                 def before_commit(_: Any) -> None:
-                    if not committing:
+                    if not committing and not session.in_nested_transaction():
                         raise ImproperlyConfigured("Only the unit of work may commit.")
 
                 event.listen(session.sync_session, "before_commit", before_commit)

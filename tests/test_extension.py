@@ -11,7 +11,7 @@ import pytest
 import sqlalchemy as sa
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
-from obox_builder import ModelBuilder, Obox, Principal, Settings
+from obox_builder import API, ModelBuilder, Obox, Principal, Settings
 from obox_builder.auth import StaffOnly
 from obox_builder.conf import load_settings
 from obox_builder.contrib.activity import Activity
@@ -93,6 +93,29 @@ def test_settings_module_selection_and_snapshot(monkeypatch: pytest.MonkeyPatch)
         default.ui_prefix = "/changed"  # type: ignore[misc]
 
 
+def test_api_limits_inherit_settings_and_allow_explicit_overrides() -> None:
+    class Unlimited(ItemBuilder):
+        class API(API):
+            default_limit = None
+            max_limit = None
+            max_batch = None
+
+    for builder, expected in ((ItemBuilder, (100, 1000, 100)), (Unlimited, (None, None, None))):
+        app = Obox(
+            FastAPI(),
+            settings=configured(
+                database_url="sqlite+aiosqlite://",
+                api_default_limit=100,
+                api_max_limit=1000,
+                api_max_batch=100,
+            ),
+        )
+        app.register(builder)
+        api = app.get_builder(Item).api
+        assert (api.default_limit, api.max_limit, api.max_batch) == expected
+        assert any(d.code == "api.unversioned_writes" for d in app.check())
+
+
 @pytest.mark.parametrize(
     "values",
     [
@@ -108,6 +131,10 @@ def test_settings_module_selection_and_snapshot(monkeypatch: pytest.MonkeyPatch)
         {"database_url": "sqlite+aiosqlite://", "template_dirs": (3,)},
         {"database_url": "sqlite+aiosqlite://", "templates": object()},
         {"database_url": "sqlite+aiosqlite://", "base_template": ""},
+        {"database_url": "sqlite+aiosqlite://", "api_default_limit": True},
+        {"database_url": "sqlite+aiosqlite://", "api_max_limit": -1},
+        {"database_url": "sqlite+aiosqlite://", "api_max_batch": "100"},
+        {"database_url": "sqlite+aiosqlite://", "api_default_limit": 10, "api_max_limit": 5},
     ],
 )
 def test_invalid_settings_fail_early(values: dict[str, Any]) -> None:
