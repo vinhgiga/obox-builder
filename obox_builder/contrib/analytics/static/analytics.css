@@ -1,0 +1,55 @@
+.analytics-filters {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+.analytics-filters label {
+  display: grid;
+  gap: 0.25rem;
+  max-width: 16rem;
+}
+.analytics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
+  gap: 1rem;
+}
+.analytics-widget {
+  min-width: 0;
+}
+.analytics-pivot {
+  grid-column: 1 / -1;
+}
+.analytics-chart {
+  position: relative;
+  height: 18rem;
+}
+.analytics-table {
+  overflow: auto;
+  max-height: 36rem;
+}
+.analytics-table table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.analytics-table th,
+.analytics-table td {
+  padding: 0.6rem;
+  text-align: end;
+  white-space: nowrap;
+  border-bottom: 1px solid #e2e8f0;
+}
+.analytics-table th {
+  background: #f8fafc;
+  position: sticky;
+  top: 0;
+}
+.analytics-table th:first-child {
+  text-align: start;
+  left: 0;
+  z-index: 1;
+}
+.analytics-table thead th:first-child {
+  z-index: 2;
+}

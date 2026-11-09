@@ -15,6 +15,7 @@ from sqlalchemy.exc import DataError, IntegrityError, StatementError
 from sqlalchemy.orm import with_parent
 from sqlalchemy.orm.exc import StaleDataError
 
+from obox_builder.builder.aggregates import AggregateResult, Aggregation
 from obox_builder.builder.fields import (
     FILTER_EMPTY_OPERATORS,
     FILTER_OPERATORS,
@@ -413,6 +414,98 @@ class ResourceService(Generic[T]):
             .subquery()
         )
         return int(await ctx.session.scalar(sa.select(sa.func.count()).select_from(selected)) or 0)
+
+    async def _aggregate_statement(
+        self,
+        query: Aggregation,
+        ctx: Context,
+        filter_group: FilterGroup | None,
+        search: str | None,
+    ) -> Any:
+        await self.authorize("list", ctx)
+        query.validate(self.builder)
+        statement, readable = await self._list_statement(
+            ctx=ctx, filter_group=filter_group, search=search
+        )
+        allowed = readable.intersection(self.builder.policy.aggregate_fields(ctx))
+        if not set(query.fields).issubset(allowed):
+            raise PermissionDenied("These fields are not available for aggregation.")
+        return statement
+
+    async def aggregate(
+        self,
+        query: Aggregation,
+        *,
+        ctx: Context,
+        filter_group: FilterGroup | None = None,
+        search: str | None = None,
+        max_rows: int = 200,
+        max_columns: int = 50,
+        max_cells: int = 10_000,
+    ) -> AggregateResult:
+        from obox_builder.builder.aggregates import execute
+
+        statement = await self._aggregate_statement(query, ctx, filter_group, search)
+        return await execute(
+            statement,
+            self.builder,
+            ctx.session,
+            query,
+            max_rows=max_rows,
+            max_columns=max_columns,
+            max_cells=max_cells,
+        )
+
+    async def aggregate_records(
+        self,
+        query: Aggregation,
+        *,
+        ctx: Context,
+        keys: Mapping[str, Any],
+        filter_group: FilterGroup | None = None,
+        search: str | None = None,
+        offset: int = 0,
+        limit: int = 50,
+    ) -> Sequence[T]:
+        """Page source records by primary key, retaining the aggregate's scope."""
+        statement = await self._aggregate_statement(query, ctx, filter_group, search)
+        if (
+            isinstance(offset, bool)
+            or not isinstance(offset, int)
+            or offset < 0
+            or isinstance(limit, bool)
+            or not isinstance(limit, int)
+            or not 1 <= limit <= 200
+        ):
+            raise BuilderValidationError(
+                {"pagination": ["Use offset >= 0 and limit from 1 to 200."]}
+            )
+        if not set(keys).issubset({query.rows, query.columns}):
+            raise BuilderValidationError({"keys": ["Unknown grouping field."]})
+        from pydantic import TypeAdapter, ValidationError
+
+        for name, value in keys.items():
+            spec = self.builder.specs[name]
+            try:
+                parsed = (
+                    TypeAdapter(spec.annotation).validate_python(value)
+                    if value is not None
+                    else None
+                )
+            except ValidationError as exc:
+                raise BuilderValidationError({name: ["Invalid group key."]}) from exc
+            statement = statement.where(getattr(self.builder.model, name) == spec.normalize(parsed))
+        b = self.builder
+        ids = (
+            statement.order_by(None)
+            .with_only_columns(b.pk, maintain_column_froms=True)
+            .distinct()
+            .order_by(b.pk)
+            .offset(offset)
+            .limit(limit)
+        )
+        selected = self._statement("list", ctx).where(b.pk.in_(ids)).order_by(None).order_by(b.pk)
+        return list((await ctx.session.scalars(selected)).unique())
 
     async def group_counts(
         self,

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-11-09 18:49+0700\n"
+"POT-Creation-Date: 2026-11-09 22:39+0700\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -29,35 +29,35 @@ msgstr ""
 msgid "Internal server error.Invalid input."
 msgstr ""
 
-#: obox_builder/builder/service.py:576
+#: obox_builder/builder/service.py:669
 msgid "Field cannot be null."
 msgstr ""
 
-#: obox_builder/builder/service.py:590 obox_builder/builder/service.py:672
+#: obox_builder/builder/service.py:683 obox_builder/builder/service.py:765
 msgid "Field is required."
 msgstr ""
 
-#: obox_builder/builder/service.py:620
+#: obox_builder/builder/service.py:713
 msgid "Related record is unavailable."
 msgstr ""
 
-#: obox_builder/builder/service.py:643 obox_builder/builder/service.py:652
+#: obox_builder/builder/service.py:736 obox_builder/builder/service.py:745
 msgid "A value is outside the database column limits."
 msgstr ""
 
-#: obox_builder/builder/ui.py:435
+#: obox_builder/builder/ui.py:436
 msgid "Unsupported form widget."
 msgstr ""
 
-#: obox_builder/builder/ui.py:523
+#: obox_builder/builder/ui.py:524
 msgid "Enter valid JSON."
 msgstr ""
 
-#: obox_builder/builder/ui.py:566 obox_builder/contrib/auth/admin.py:260
+#: obox_builder/builder/ui.py:567 obox_builder/contrib/auth/admin.py:260
 msgid "Users"
 msgstr ""
 
-#: obox_builder/builder/ui.py:571 obox_builder/contrib/auth/admin.py:472
+#: obox_builder/builder/ui.py:572 obox_builder/contrib/auth/admin.py:472
 #: obox_builder/contrib/auth/admin.py:507
 #: obox_builder/contrib/auth/admin.py:560
 #: obox_builder/contrib/auth/templates/obox/auth/user_form.html:96
@@ -65,30 +65,30 @@ msgstr ""
 msgid "Roles"
 msgstr ""
 
-#: obox_builder/builder/ui.py:740 obox_builder/builder/ui.py:743
+#: obox_builder/builder/ui.py:749 obox_builder/builder/ui.py:752
 msgid "Invalid inline count."
 msgstr ""
 
-#: obox_builder/builder/ui.py:755 obox_builder/builder/ui.py:784
+#: obox_builder/builder/ui.py:764 obox_builder/builder/ui.py:793
 msgid "An inline record is unavailable."
 msgstr ""
 
-#: obox_builder/builder/ui.py:826
+#: obox_builder/builder/ui.py:835
 msgid "Unknown inline field."
 msgstr ""
 
-#: obox_builder/builder/ui.py:1059 obox_builder/contrib/auth/admin.py:233
+#: obox_builder/builder/ui.py:1068 obox_builder/contrib/auth/admin.py:233
 #: obox_builder/contrib/auth/views.py:217
 msgid "Duplicate form fields are not permitted."
 msgstr ""
 
 #: obox_builder/builder/templates/obox/_record_activity.html:22
 #: obox_builder/builder/templates/obox/confirm_delete.html:3
-#: obox_builder/builder/ui.py:1188
+#: obox_builder/builder/ui.py:1197
 msgid "Are you sure?"
 msgstr ""
 
-#: obox_builder/builder/ui.py:1217 obox_builder/builder/ui.py:1235
+#: obox_builder/builder/ui.py:1226 obox_builder/builder/ui.py:1244
 msgid "Choose a valid action and records."
 msgstr ""
 
@@ -166,6 +166,7 @@ msgid "Back to list"
 msgstr ""
 
 #: obox_builder/builder/templates/obox/_record_fields.html:14
+#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:21
 msgid "Search"
 msgstr ""
 
@@ -316,6 +317,7 @@ msgstr ""
 
 #: obox_builder/builder/templates/obox/list.html:156
 #: obox_builder/builder/templates/obox/list.html:162
+#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:38
 msgid "Filter"
 msgstr ""
 
@@ -328,6 +330,7 @@ msgid "Apply"
 msgstr ""
 
 #: obox_builder/builder/templates/obox/list.html:169
+#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:51
 msgid "Reset"
 msgstr ""
 
@@ -476,6 +479,61 @@ msgstr ""
 #: obox_builder/builder/templates/obox/login.html:42
 #: obox_builder/contrib/auth/views.py:67
 msgid "Sign in"
+msgstr ""
+
+#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:11
+msgid "Empty"
+msgstr ""
+
+#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:12
+msgid "Total"
+msgstr ""
+
+#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:13
+#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:66
+msgid "Loading…"
+msgstr ""
+
+#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:14
+#: obox_builder/contrib/analytics/templates/obox_analytics/records.html:21
+msgid "No records found."
+msgstr ""
+
+#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:15
+msgid "Unable to load data. Try again."
+msgstr ""
+
+#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:16
+msgid "Value"
+msgstr ""
+
+#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:17
+#: obox_builder/contrib/analytics/templates/obox_analytics/records.html:10
+msgid "View records"
+msgstr ""
+
+#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:50
+msgid "Apply filters"
+msgstr ""
+
+#: obox_builder/contrib/analytics/templates/obox_analytics/records.html:3
+msgid "Back"
+msgstr ""
+
+#: obox_builder/contrib/analytics/templates/obox_analytics/records.html:17
+msgid "Open"
+msgstr ""
+
+#: obox_builder/contrib/analytics/templates/obox_analytics/records.html:27
+msgid "Pagination"
+msgstr ""
+
+#: obox_builder/contrib/analytics/templates/obox_analytics/records.html:28
+msgid "Previous"
+msgstr ""
+
+#: obox_builder/contrib/analytics/templates/obox_analytics/records.html:29
+msgid "Next"
 msgstr ""
 
 #: obox_builder/contrib/auth/__init__.py:94

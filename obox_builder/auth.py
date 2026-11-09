@@ -97,6 +97,10 @@ class Policy(Generic[T]):
     def read_fields(self, ctx: Context, *, obj: T | None = None) -> frozenset[str] | None:
         return None
 
+    def aggregate_fields(self, ctx: Context) -> frozenset[str]:
+        """Fields safe to aggregate across every row admitted by the list scope."""
+        return frozenset()
+
     def write_fields(
         self, action: str, ctx: Context, *, obj: T | None = None
     ) -> frozenset[str] | None:

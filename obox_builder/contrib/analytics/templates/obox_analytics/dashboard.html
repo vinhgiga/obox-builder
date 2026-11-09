@@ -1,0 +1,80 @@
+{% extends base_template %}
+{% block head %}
+  {{ super() }}
+  <link rel="stylesheet"
+        href="{{ request.url_for('obox_analytics_static', path='analytics.css') }}">
+  <script defer
+          src="{{ request.url_for('obox_analytics_static', path='chart.umd.js') }}"></script>
+{% endblock %}
+{% block content %}
+  <div data-analytics
+       data-empty="{{ _('Empty') }}"
+       data-total="{{ _('Total') }}"
+       data-loading="{{ _('Loading…') }}"
+       data-no-data="{{ _('No records found.') }}"
+       data-error="{{ _('Unable to load data. Try again.') }}"
+       data-value="{{ _('Value') }}"
+       data-records="{{ _('View records') }}">
+    <form method="get" class="analytics-filters mb-3" data-analytics-filters>
+      {% if search_enabled %}
+        <label>
+          {{ _("Search") }}
+          <input class="form-control"
+                 type="search"
+                 name="search"
+                 value="{{ request.query_params.get('search', '') }}">
+        </label>
+      {% endif %}
+      {% if request.query_params.get("filter") %}
+        <input type="hidden"
+               name="filter"
+               value="{{ request.query_params['filter'] }}">
+      {% endif %}
+      {% for field in filters %}
+        <label>
+          {{ field.label }}
+          <select class="form-select"
+                  name="filter_op.{{ field.name }}"
+                  aria-label="{{ field.label }} {{ _('Filter') }}">
+            {% for operator in field.operators %}
+              <option value="{{ operator }}"
+                      {% if request.query_params.get('filter_op.' ~ field.name, 'is') == operator %}selected{% endif %}>{{ operator.replace('_', ' ') }}</option>
+            {% endfor %}
+          </select>
+          <input class="form-control"
+                 name="filter.{{ field.name }}"
+                 aria-label="{{ field.label }}"
+                 value="{{ request.query_params.get('filter.' ~ field.name, '') }}">
+        </label>
+      {% endfor %}
+      <button class="btn btn-primary" type="submit">{{ _("Apply filters") }}</button>
+      <a class="btn btn-outline-secondary" href="{{ dashboard_url }}">{{ _("Reset") }}</a>
+    </form>
+    <div class="analytics-grid">
+      {% for widget in widgets %}
+        <section class="card analytics-widget{% if widget.kind is not defined %} analytics-pivot{% endif %}"
+                 data-widget
+                 data-kind="{{ widget.kind|default('pivot') }}"
+                 data-url="{{ widget_urls[widget.slug]['data'] }}"
+                 data-records-url="{{ widget_urls[widget.slug]['records'] }}"
+                 data-row-label="{{ widget.rows|default(widget.x)|replace('_', ' ') }}"
+                 data-column-label="{{ widget.columns|default('', true)|replace('_', ' ') }}"
+                 data-row-totals="{{ 'true' if widget.show_row_totals|default(true) else 'false' }}"
+                 data-column-totals="{{ 'true' if widget.show_column_totals|default(true) else 'false' }}">
+          <h2 class="card-header h3">{{ widget.title or widget.slug }}</h2>
+          <div class="card-body">
+            <p role="status" data-status>{{ _("Loading…") }}</p>
+            <div class="analytics-chart" data-chart hidden>
+              <canvas role="img" aria-label="{{ widget.title or widget.slug }}"></canvas>
+            </div>
+            <div class="analytics-table" data-table></div>
+          </div>
+        </section>
+      {% endfor %}
+    </div>
+  </div>
+{% endblock %}
+{% block scripts %}
+  <script type="module"
+          src="{{ request.url_for('obox_analytics_static', path='analytics.js') }}"></script>
+{% endblock %}

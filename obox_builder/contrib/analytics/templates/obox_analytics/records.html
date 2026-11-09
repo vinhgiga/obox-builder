@@ -1,0 +1,31 @@
+{% extends base_template %}
+{% block content %}
+  <a href="{{ dashboard_url }}">{{ _("Back") }}</a>
+  <div class="table-responsive">
+    <table class="table">
+      <caption>{{ title }}</caption>
+      <thead>
+        <tr>
+          {% for column in columns %}<th scope="col">{{ column|replace('_', ' ') }}</th>{% endfor %}
+          <th scope="col">{{ _("View records") }}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+          <tr>
+            {% for value in row['values'] %}<td>{{ value if value is not none else '—' }}</td>{% endfor %}
+            <td>{% if row.url %}<a href="{{ row.url }}">{{ _("Open") }}</a>{% endif %}</td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="{{ columns|length + 1 }}">{{ _("No records found.") }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <nav aria-label="{{ _('Pagination') }}" class="d-flex gap-3">
+    {% if previous %}<a href="{{ previous }}">{{ _("Previous") }}</a>{% endif %}
+    {% if following %}<a href="{{ following }}">{{ _("Next") }}</a>{% endif %}
+  </nav>
+{% endblock %}

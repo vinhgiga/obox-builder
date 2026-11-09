@@ -30,7 +30,7 @@ repos:
     rev: v2.4.1
     hooks:
       - id: codespell
-        exclude: ^pnpm-lock\.yaml$
+        exclude: ^(pnpm-lock\.yaml|obox_builder/contrib/analytics/static/chart\.umd\.js)$
   - repo: local
     hooks:
       - id: djlint

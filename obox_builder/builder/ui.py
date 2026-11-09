@@ -47,6 +47,7 @@ def create_templates(settings: Settings) -> Jinja2Templates:
                 PackageLoader("obox_builder.builder", "templates"),
                 PackageLoader("obox_builder.contrib.auth", "templates"),
                 PackageLoader("obox_builder.contrib.files", "templates"),
+                PackageLoader("obox_builder.contrib.analytics", "templates"),
             ]
         ),
         autoescape=select_autoescape(("html",)),
@@ -574,6 +575,14 @@ async def build_navigation(
                 },
             ]
         )
+    analytics = app.get_plugin("analytics")
+    if analytics is not None:
+        for dashboard in analytics.dashboards:
+            if await analytics.visible(dashboard, ctx):
+                url = localize(request, analytics.prefix + "/" + dashboard.slug)
+                navigation.append(
+                    {"label": dashboard.title, "url": url, "active": request.url.path == url}
+                )
     return navigation
 
 
