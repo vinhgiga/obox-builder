@@ -105,9 +105,11 @@ def _parser() -> argparse.ArgumentParser:
     start.add_argument("legacy_directory", nargs="?", type=Path, help=argparse.SUPPRESS)
     from obox_builder.contrib.auth.cli import add_parser as add_auth_parser
     from obox_builder.contrib.jobs.cli import add_parser
+    from obox_builder.contrib.webhooks.cli import add_parser as add_webhooks_parser
 
     add_parser(commands)
     add_auth_parser(commands)
+    add_webhooks_parser(commands)
     return parser
 
 
@@ -115,6 +117,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = _parser()
     arguments = parser.parse_args(argv)
     try:
+        if arguments.command == "webhooks":
+            from obox_builder.contrib.webhooks.cli import run as run_webhooks
+
+            asyncio.run(run_webhooks(arguments))
+            return 0
         if arguments.command == "jobs":
             from obox_builder.contrib.jobs.cli import run
 

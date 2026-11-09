@@ -690,6 +690,11 @@ class ResourceService(Generic[T]):
             await activity.record(
                 self.builder, "create" if action == "create" else "update", obj, before, ctx
             )
+        webhooks = self.app.get_plugin("webhooks")
+        if webhooks is not None:
+            await webhooks.record(
+                self.builder, "create" if action == "create" else "update", obj, ctx
+            )
         ctx._events.append(
             DomainEvent(
                 event_action or action, self.builder.model, getattr(obj, self.builder.pk_name)

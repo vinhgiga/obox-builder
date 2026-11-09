@@ -321,6 +321,28 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
                     continue
             return {"resources": resources}
 
+    if "retrieve" in builder.api.operations and (
+        app.get_plugin("files") is not None or app.get_plugin("activity") is not None
+    ):
+        from obox_builder.builder.metadata import MetadataQuery, MetadataResults, query_metadata
+
+        @router.post(
+            path + ":queryMetadata",
+            response_model=MetadataResults,
+            response_model_exclude_unset=True,
+            name=f"obox_api_{builder.slug}_query_metadata",
+            operation_id=f"{builder.slug}_query_metadata",
+            responses=problems,
+        )
+        async def metadata(
+            request: Request, response: Response, data: MetadataQuery, ctx: Context = dependency
+        ) -> Any:
+            parameters(request.query_params.multi_items())
+            response.headers["Cache-Control"] = "private, no-store"
+            return await query_metadata(app, builder, data, ctx)
+
+        metadata.__annotations__["data"] = MetadataQuery
+
     async def record_row(
         obj: Any, ctx: Context, fields: Sequence[str] | None = None
     ) -> dict[str, Any]:

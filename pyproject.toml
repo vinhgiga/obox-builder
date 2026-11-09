@@ -40,6 +40,7 @@ Issues = "https://github.com/vinhgiga/obox-builder/issues"
 [project.optional-dependencies]
 postgres = ["psycopg[binary,pool]>=3.3,<4", "asyncpg>=0.32,<1"]
 sqlite = ["aiosqlite>=0.22,<1"]
+webhooks = ["httpx>=0.28.1,<1"]
 auth = [
     "pwdlib[argon2]>=0.3,<1",
 ]

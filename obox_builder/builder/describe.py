@@ -5,7 +5,8 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
-from pydantic import Field
+import sqlalchemy as sa
+from pydantic import Field, JsonValue
 from pydantic.alias_generators import to_camel
 
 from obox_builder.builder.api_schema import ApiResponse
@@ -22,6 +23,9 @@ class FieldDescription(ApiResponse):
     required: bool
     writable: dict[str, bool]
     reference: str | None = None
+    kind: str
+    options: dict[str, JsonValue]
+    computed: bool
 
 
 class ResourceDescription(ApiResponse):
@@ -38,6 +42,7 @@ class ResourceDescription(ApiResponse):
     default_limit: int | None
     max_limit: int | None
     max_batch: int | None
+    capabilities: dict[str, bool]
 
 
 class ResourceDescriptions(ApiResponse):
@@ -66,6 +71,75 @@ def property_schema(document: dict[str, Any], name: str) -> dict[str, Any]:
     if definitions:
         result["$defs"] = definitions
     return result
+
+
+def field_presentation(spec: Any, definition: dict[str, Any], reference: str | None) -> Any:
+    column = spec.column
+    rule = column.info.get("obox_files")
+    if rule is not None:
+        return "attachment", {
+            "contentTypes": sorted(set(rule.types.values())) if rule.types is not None else None,
+            "maxSize": rule.max_size,
+            "minCount": rule.min_count,
+            "maxCount": rule.max_count,
+        }
+    options = {}
+    pending = [definition]
+    visited = set()
+    while pending:
+        item = pending.pop()
+        if "$ref" in item:
+            if item["$ref"] in visited:
+                continue
+            visited.add(item["$ref"])
+            item = definition.get("$defs", {}).get(item["$ref"].rsplit("/", 1)[-1], {})
+        options.update(
+            {
+                key: item[key]
+                for key in (
+                    "enum",
+                    "format",
+                    "minLength",
+                    "maxLength",
+                    "minimum",
+                    "maximum",
+                    "exclusiveMinimum",
+                    "exclusiveMaximum",
+                    "multipleOf",
+                    "pattern",
+                )
+                if key in item
+            }
+        )
+        pending.extend(item.get("anyOf", []))
+    kind = next(
+        (
+            kind
+            for cls, kind in (
+                (sa.Enum, "select"),
+                (sa.Boolean, "boolean"),
+                (sa.Integer, "integer"),
+                (sa.Float, "number"),
+                (sa.Numeric, "decimal"),
+                (sa.DateTime, "datetime"),
+                (sa.Date, "date"),
+                (sa.Time, "time"),
+                (sa.Uuid, "uuid"),
+                (sa.JSON, "json"),
+            )
+            if isinstance(column.type, cls)
+        ),
+        "text",
+    )
+    if isinstance(column.type, sa.Numeric) and not isinstance(column.type, sa.Float):
+        options.update(precision=column.type.precision, scale=column.type.scale)
+    if isinstance(column.type, sa.Enum) and "enum" not in options:
+        options["enum"] = list(column.type.enums)
+    if column.computed is not None:
+        kind = "computed"
+    elif reference is not None:
+        kind = "relationship"
+    return kind, options
 
 
 async def describe(app: Any, builder: Any, ctx: Context, record_schema: Any) -> ResourceDescription:
@@ -122,16 +196,21 @@ async def describe(app: Any, builder: Any, ctx: Context, record_schema: Any) -> 
             action: name in values and alias in input_schemas[action]["properties"]
             for action, values in writable.items()
         }
+        definition = property_schema(document, alias)
+        kind, options = field_presentation(spec, definition, reference)
         fields.append(
             FieldDescription(
                 name=alias,
-                schema=property_schema(document, alias),
+                schema=definition,
                 nullable=spec.column.nullable,
                 readable=name in readable,
                 read_only=not any(editable.values()),
                 required=editable["create"] and spec.required,
                 writable=editable,
                 reference=reference,
+                kind=kind,
+                options=options,
+                computed=spec.column.computed is not None,
             )
         )
     return ResourceDescription(
@@ -158,4 +237,16 @@ async def describe(app: Any, builder: Any, ctx: Context, record_schema: Any) -> 
         default_limit=builder.api.default_limit,
         max_limit=builder.api.max_limit,
         max_batch=builder.api.max_batch,
+        capabilities={
+            "attachments": app.get_plugin("files") is not None
+            and any(field.kind == "attachment" and field.readable for field in fields),
+            "comments": app.get_plugin("activity") is not None
+            and bool(operations.get("retrieve"))
+            and await service.permitted("comment", ctx),
+            "webhooks": app.get_plugin("webhooks") is not None
+            and bool(operations.get("retrieve"))
+            and bool(getattr(ctx.principal, "is_authenticated", False))
+            and bool(getattr(ctx.principal, "is_active", False))
+            and getattr(ctx.principal, "api_scopes", None) is None,
+        },
     )

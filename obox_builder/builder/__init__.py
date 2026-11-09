@@ -131,7 +131,7 @@ class ModelBuilder(Generic[T]):
         for alias in aliases:
             self._validate_path(alias)
         if len(set(aliases)) != len(aliases) or set(aliases).intersection(
-            {"query", "queryOptions", "describe", "batchWrite"}
+            {"query", "queryOptions", "queryMetadata", "describe", "batchWrite"}
         ):
             raise ImproperlyConfigured("Action aliases must be unique and nonreserved.")
         for name in ("scope", "read_fields", "write_fields", "presets"):
@@ -358,7 +358,12 @@ class ModelBuilder(Generic[T]):
                 raise ImproperlyConfigured("Unknown or duplicate surface operations.")
         if self.api.prefix is not None:
             self._validate_path(self.api.prefix)
-        if self.api.enabled and (self.api.prefix or self.slug) in {"auth", "events", "tasks"}:
+        if self.api.enabled and (self.api.prefix or self.slug) in {
+            "auth",
+            "events",
+            "tasks",
+            "webhooks",
+        }:
             raise ImproperlyConfigured("Resource API collection name is reserved.")
         for mapping in (self.form.labels, self.form.help_texts, self.form.widgets):
             if set(mapping) - set(self.form_fields):
