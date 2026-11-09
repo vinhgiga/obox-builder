@@ -30,7 +30,9 @@ camelCase; path field identifiers retain their configured snake_case names.
 
 Record CRUD and `:queryOptions` reuse existing routes. ETag/If-Match support is
 an extension to the current [API specification](api-spec.md) for record-page
-resources. Relationship cards are read-only; no Add record or reassignment endpoints.
+resources. Record-page relationship cards remain read-only. Opt-in collection
+membership write routes are documented separately in the
+[API specification](api-spec.md#collection-relationships).
 
 ### HTML UI
 
@@ -463,7 +465,7 @@ per-object omissions. Follow pagination metadata even after an empty page;
 use offset continuation when a cursor cannot be provided.
 
 Errors: shared read failures plus existing `422 unknown_field`,
-`unsupported_operator`, `invalid_cursor`, or `cursor_unsupported_ordering`.
+`unsupported_operator` or `invalid_cursor`.
 An unreadable target primary key returns `403`.
 
 #### Example
@@ -1528,14 +1530,14 @@ the authorized composer:
 
 ## Review decisions and compatibility
 
-These are explicit proposals to review before implementation:
+These decisions describe the implemented record-page contract:
 
-| Topic | Proposed decision / compatibility impact |
+| Topic | Decision / compatibility impact |
 | --- | --- |
-| Record concurrency | Require durable versioning for editable record pages; reuse versioned record ETag/If-Match support. The older unconditional PATCH/DELETE description in `docs/api-spec.md` needs reconciliation when this proposal is accepted. |
-| Comment concurrency | Maintain a durable independent comment version; JSON detail/create/update expose its validator. The current comment storage does not yet implement this write contract. |
+| Record concurrency | Require durable versioning for editable record pages; reuse the versioned record ETag/If-Match support documented in `docs/api-spec.md`. |
+| Comment concurrency | Maintain a durable independent comment version; JSON detail/create/update expose its validator. Existing host databases must migrate `obox_comment.version`. |
 | Revision field names | Use the core API public camelCase aliases in `changes[].field`; preserve the existing wire contract and its regression coverage. |
-| Relationship scope | Explicitly configured collection cards, read-only, native target-PK ordering, cursor-only pagination, no exact counts. No Add record, reassignment, arbitrary expansion, or nested writes. |
+| Relationship scope | Explicitly configured record-page collection cards remain read-only, with native target-PK ordering, cursor-only pagination, and no exact counts. Opt-in API membership writes use `API.write_relationships`; see the shared API specification. |
 | Comment access | Parent retrieve plus comment permission; active authors edit/delete only their own comments. No moderator override, threads, mentions, or notifications. |
 | Comment content/deletion | Plain text, normalized line endings, no framework length cap; tombstone deletion removes the live body and hides the entry. No edit-history endpoint. |
 | HTML transport | Introduce `X-Obox-Fragment: true` for POST replacements; ordinary success uses 303. Field saves replace record content; comment mutations replace activity. Error status/body must be handled explicitly by the client. |

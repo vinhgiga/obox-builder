@@ -380,6 +380,8 @@ class View:
 | `default_limit` | `int \| None` | `None`; optional nonnegative limit used when the request omits `limit` |
 | `max_limit` | `int \| None` | `None`; optional nonnegative limit used when no limit applies; reject larger requested limits with `422` |
 | `max_batch` | `int \| None` | `None`; optional nonnegative maximum operation count for HTTP batch writes |
+| `upsert_fields` | `tuple[tuple[str, ...], ...]` | `()`; allowed non-null writable UNIQUE merge keys, using Python field names |
+| `write_relationships` | `tuple[str, ...]` | `()`; opt-in simple collection relationships writable through nested API routes |
 | `list_envelope` | `bool` | `True`; return `{items, page}`; temporary `False` compatibility mode returns a bare array |
 
 `operations` describes **semantic operations**, not HTTP methods. `GET` applies to both list and retrieve, so `methods=("GET", ...)` is not a suitable contract.
@@ -435,14 +437,35 @@ The [API specification](api-spec.md#endpoint-overview) distinguishes implemented
 and planned paths. OBOX does not impose a request rate, request-size quota or
 default result maximum. A host may opt in to a per-resource API limit.
 
-**List behavior:** Search, filters and sorting use explicit allowed fields. Without request pagination or host-configured limits, lists return all matching records. Optional `offset`/`limit` and signed cursors are implemented; cursor ordering must use non-nullable fields. `default_limit` must not exceed `max_limit` when both are configured.
+**List behavior:** Search, filters and sorting use explicit allowed fields. Without request pagination or host-configured limits, lists return all matching records. Optional `offset`/`limit` and signed cursors are implemented, including nullable ordering with explicit or default null placement and a primary-key tie-breaker. Pagination is not a cross-request snapshot. `default_limit` must not exceed `max_limit` when both are configured.
 
-**Batch writes:** `POST /api/{slug}:batchWrite` applies create/update/delete
+**Batch writes:** `POST /api/{slug}:batchWrite` applies create/update/delete/upsert
 operations in one unit of work. `ResourceService.batch()` accepts ordered
 `BatchOperation` values and uses the ordinary CRUD paths. Existing target IDs
 must be unique; locks use canonical ID order, while mutations and results retain
 request order. Any failure rolls back the entire batch. Versioned HTTP writes
 require per-operation `ifMatch`. `API.max_batch=None` imposes no operation cap.
+Upsert requires configured `API.upsert_fields` matching a full non-deferrable
+UNIQUE constraint or non-partial unique column index, plus create/update access.
+It preserves normal scopes, validation, hooks, and rollback; `UpsertResult`
+contains `record` and `created`. HTTP merge keys use public aliases in `mergeOn`;
+direct `BatchOperation` values use Python names in `merge_on`.
+
+**Collection writes:** `API.write_relationships` enables add/replace/remove
+routes for existing related records. Parent and target write policies and
+version preconditions apply atomically; unsupported collection joins,
+`delete-orphan` cascades, and association tables with payload columns are
+rejected. These routes change membership, not nested target data. See the
+[API specification](api-spec.md#collection-relationships) for configuration,
+per-target `ifMatches`, and read/write path naming.
+
+**Idempotency:** The optional `Idempotency` plugin provides transactional receipts
+for HTTP create and batch requests with `Idempotency-Key`. Keys are scoped to
+the authenticated identity, tenant/partition, method, and mounted path; the
+default TTL is 24 hours. A matching retry rechecks access before replaying its
+saved response. A reused key with a different validated body returns `409`.
+Hosts migrate the plugin's metadata and provide a partition resolver when using
+tenants. This does not deduplicate single-record PATCH/DELETE or comment writes.
 
 **Discovery:** `/api:describe` and `/api/{slug}:describe` expose principal-filtered
 fields, schemas, operation permissions, scope names, and query capabilities.
@@ -689,7 +712,7 @@ Use `obox --help` to see the available commands. The CLI provides
 
 ## 14. Out of scope for the core release
 
-Visual no-code editor, multi-step conditional forms, upsert, automatic nested writes, offline mobile UI, collaboration, external webhook delivery, rich plugin marketplace, automatic schema/migration generation, and code/stub export. These may be built later without changing the single-builder abstraction.
+Visual no-code editor, multi-step conditional forms, automatic nested target creation/updates, offline mobile UI, realtime collaboration, external webhook delivery, rich plugin marketplace, automatic schema/migration generation, and code/stub export. These may be built later without changing the single-builder abstraction. Configured batch upsert, explicit collection membership writes, and the optional Activity/Comments and Idempotency plugins are already implemented.
 
 ## 15. Reference documentation
 

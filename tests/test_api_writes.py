@@ -240,6 +240,63 @@ def path(tmp_path: Path) -> Path:
     return tmp_path / "writes.sqlite3"
 
 
+@pytest.mark.parametrize("idempotency", [False, True])
+@pytest.mark.parametrize("upsert_enabled", [False, True])
+def test_openapi_exposes_configured_write_contracts(
+    path: Path, idempotency: bool, upsert_enabled: bool
+) -> None:
+    class Configured(ParentBuilder):
+        class API(ParentBuilder.API):
+            upsert_fields = ParentBuilder.API.upsert_fields if upsert_enabled else ()
+
+    async def scenario() -> None:
+        async with application(path, configured=Configured, idempotency=idempotency) as app:
+            response = await request(app, "GET", "/openapi.json")
+            assert response.status_code == 200
+            document = response.json()
+            paths, schemas = document["paths"], document["components"]["schemas"]
+            for url in ("/api/parents", "/api/parents:batchWrite"):
+                headers = {
+                    item["name"]
+                    for item in paths[url]["post"].get("parameters", [])
+                    if item["in"] == "header"
+                }
+                assert ("Idempotency-Key" in headers) is idempotency
+            batch = paths["/api/parents:batchWrite"]["post"]
+            body = schemas[
+                batch["requestBody"]["content"]["application/json"]["schema"]["$ref"].rsplit(
+                    "/", 1
+                )[-1]
+            ]
+            operations = body["properties"]["operations"]["items"]["discriminator"]["mapping"]
+            assert set(operations) == {"create", "update", "delete"} | (
+                {"upsert"} if upsert_enabled else set()
+            )
+            if upsert_enabled:
+                operation = schemas[operations["upsert"].rsplit("/", 1)[-1]]
+                assert {"op", "mergeOn", "data"} <= set(operation["required"])
+                assert "ifMatch" in operation["properties"]
+                assert "id" not in operation["properties"]
+            relation = paths["/api/parents/{id}/relationships/{field}"]
+            assert {"get", "post", "put", "delete"} <= relation.keys()
+            for method in ("post", "put", "delete"):
+                assert any(
+                    item["name"] == "If-Match" and item["required"]
+                    for item in relation[method]["parameters"]
+                )
+                reference = relation[method]["requestBody"]["content"]["application/json"][
+                    "schema"
+                ]["$ref"]
+                properties = schemas[reference.rsplit("/", 1)[-1]]["properties"]
+                assert {"recordIds", "ifMatches"} <= properties.keys()
+            result = await upsert(app, "documented")
+            assert result.status_code == (200 if upsert_enabled else 422), result.text
+            if upsert_enabled:
+                assert result.json()["results"][0]["created"] is True
+
+    asyncio.run(scenario())
+
+
 def test_upsert_preserves_versions_hooks_activity_and_batch_rollback(path: Path) -> None:
     async def scenario() -> None:
         async with application(path) as app:

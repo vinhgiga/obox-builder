@@ -71,11 +71,16 @@ and defines its own query, response, and batch contracts.
 | GET | `/api/{slug}:queryOptions` | List record IDs and labels for relationship selectors. |
 | GET | `/api:describe` | Describe resources available to the current principal. |
 | GET | `/api/{slug}:describe` | Describe a resource's fields, permissions, and operations. |
-| POST | `/api/{slug}:batchWrite` | Apply create, update, or delete operations atomically. |
+| POST | `/api/{slug}:batchWrite` | Apply create, update, delete, or configured upsert operations atomically. |
 | POST | `/api/{slug}:{name}` | Run an action on selected records. |
+| GET | `/api/{slug}/{id}/relationships/{field}` | List readable linked-record cards configured by `View.related`. |
+| POST | `/api/{slug}/{id}/relationships/{field}` | Add existing records to an enabled collection relationship. |
+| PUT | `/api/{slug}/{id}/relationships/{field}` | Replace an enabled collection's membership. |
+| DELETE | `/api/{slug}/{id}/relationships/{field}` | Remove existing records from an enabled collection. |
 
 CRUD, `:query`, `:queryOptions`, `:describe`, `:batchWrite`, and registered actions
-are implemented. Upsert remains planned. Custom method names are reserved and
+are implemented. Batch upsert is available when `API.upsert_fields` is configured
+and both create and update operations are exposed. Custom method names are reserved and
 cannot be reused by registered actions on the same collection.
 
 ### Authentication — Auth plugin
@@ -96,6 +101,20 @@ continues under the configured Auth prefix (default `/auth`) with UI language
 routing. JSON authentication uses the unlocalized API prefix and Auth's backend.
 Host-supplied principal dependencies still control resource authentication.
 
+### Activity and comments — Activity plugin
+
+| Method | Path | Description |
+| --- | --- | --- |
+| GET | `/api/{slug}/{id}/activity` | List permitted revisions and comments. |
+| GET | `/api/{slug}/{id}/comments` | List permitted comments. |
+| GET | `/api/{slug}/{id}/comments/{commentId}` | Retrieve a comment and its ETag. |
+| POST | `/api/{slug}/{id}/comments` | Create a comment. |
+| PATCH | `/api/{slug}/{id}/comments/{commentId}` | Edit an owned comment with `If-Match`. |
+| DELETE | `/api/{slug}/{id}/comments/{commentId}` | Soft-delete an owned comment with `If-Match`. |
+
+These routes require the Activity plugin and an API resource exposing retrieve.
+See [Activity and comments](#activity-and-comments) for authorization and input rules.
+
 ### Later phase — P3
 
 | Method | Path | Description |
@@ -107,6 +126,35 @@ list routes return `406 not_acceptable` when JSON is not acceptable.
 Long-running operations may eventually return a task location at `/api/tasks/{id}`;
 the task endpoint's method and contract remain to be defined. Upsert is a batch
 operation, with no separate path.
+
+### Deployment boundaries and client compatibility
+
+The default resource prefix remains `/api`; `Settings.api_prefix` can change
+the host's mounted prefix. No `/api/v1` alias is generated automatically.
+FastAPI exposes the assembled application's OpenAPI at its configured schema
+URL (normally `/openapi.json`, unless disabled). Schema contents depend on host
+resources, operation configuration, and installed plugins. Clients should use
+the deployed host's schema and pin/test the framework version when upgrading;
+a path prefix alone does not establish a deprecation or support lifetime.
+
+OBOX does not impose global request-rate, request-body, header-size, or timeout
+limits. Hosts can opt in to `Settings.api_default_limit`, `api_max_limit`, and
+`api_max_batch`, with per-resource API overrides. Choose limits from measured
+payload sizes, query cost, and transaction duration; the framework defaults
+remain `None`. `API.max_batch` also bounds collection relationship writes.
+
+Deployment proxies may enforce independent limits. Allow for JSON overhead and
+the Files plugin's 8 MiB binary chunks when configuring body limits; configure
+timeouts for the intended queries/uploads. Trust forwarded host/scheme headers
+only from known proxies, and configure the ASGI `root_path` when a proxy strips
+a path prefix, following the [FastAPI proxy guidance](https://fastapi.tiangolo.com/advanced/behind-a-proxy/).
+
+Proxy-generated `413`, `429`, and gateway errors may occur before OBOX handles
+the request and are not automatically converted to `application/problem+json`.
+If a deployment needs uniform errors, configure that mapping at the rejecting
+layer without exposing internal details. Clients should tolerate non-JSON
+infrastructure errors and respect `Retry-After` when supplied; uncertain writes
+still require the retry rules below.
 
 ## Endpoint detail
 
@@ -220,8 +268,11 @@ effective order. This also applies to the resource's default ordering.
 Cursor requests must preserve the filters, logical groups, `search`, and
 effective order used to obtain the token. Tokens are signed, grant no access,
 and are revalidated against the current policy on every request. Nullable
-ordering fields do not support cursor pagination, including when a null-order
-modifier is supplied.
+ordering fields support cursor pagination with `nullsfirst`/`nullslast`;
+defaults are `nullslast` for ascending and `nullsfirst` for descending order.
+The primary key breaks ties, including ties between null values. Pagination
+does not provide a snapshot across requests; concurrent changes to sort keys
+can move records across page boundaries.
 Use offset pagination to jump between numbered pages and cursor pagination
 to continue a sequential list. Pagination parameters are accepted even when
 pagination is disabled by default. `limit=0&count=exact` returns only the count
@@ -281,7 +332,7 @@ with optional `meta`. Clients should branch on stable `code` values.
 | 401 | `unauthenticated` | Authentication is required. |
 | 403 | `permission_denied` | The principal cannot list this resource. |
 | 422 | `validation_error`, `unknown_parameter` | Invalid values or query grammar, repeated control parameters, or unknown parameters. |
-| 422 | `invalid_cursor`, `cursor_unsupported_ordering` | Invalid cursor, changed query, or nullable cursor ordering. |
+| 422 | `invalid_cursor` | Invalid cursor or changed query. |
 | 422 | `unsupported_operator`, `unknown_field` | Unsupported filter operator or invalid field selection. |
 | 422 | `expand_depth`, `expand_unavailable` | Nested expansion or an unregistered relationship target. |
 
@@ -410,10 +461,11 @@ occurred. Target `list` permission is not required. An ID returned by
 Nested relationship writes, bulk create, client-assigned primary keys, and upsert
 are outside this endpoint. Objects and arrays remain valid values for JSON columns.
 
-POST is not idempotent. Repeating a successful request can create another record
-or encounter a uniqueness conflict. This contract provides no `Idempotency-Key`
-deduplication or automatic retry guarantee. A client that loses the response
-cannot assume the transaction failed.
+Without the optional [Idempotency plugin](#idempotent-create-and-batch-retries),
+repeating a successful POST can create another record or encounter a uniqueness
+conflict. With the plugin enabled, a client may send `Idempotency-Key` to replay
+a successful create within its retention period. There is no automatic retry
+guarantee; losing the response does not imply that the transaction failed.
 
 #### Output
 
@@ -461,7 +513,7 @@ does not undo the record or turn a committed create into a failed response.
 | 400 | `malformed_json` | The body is not valid JSON. |
 | 401 | `unauthenticated` | Authentication is required. |
 | 403 | `permission_denied` | Create, field, relationship, CSRF, or resulting-record checks deny the request. |
-| 409 | `resource_conflict` | The write conflicts with database constraints or concurrent state. |
+| 409 | `resource_conflict` | The write conflicts with database constraints or concurrent state; with Idempotency enabled, the key has a different body or an incomplete receipt. |
 | 415 | `unsupported_media_type` | Content-Type is missing or is not `application/json`. |
 | 422 | `validation_error` | Missing required input, invalid body shape, unknown properties, invalid values, or resource validation failure. |
 | 422 | `unknown_parameter` | A query-string parameter was supplied. |
@@ -612,7 +664,8 @@ retrieve permission. An ORM version conflict during a conditional write returns
 For unversioned models, `If-Match` returns `422 unsupported_precondition`.
 `If-None-Match` and `If-Unmodified-Since` return `422 unsupported_precondition`
 on PATCH and DELETE for all models. A version property is not writable.
-There is no `Idempotency-Key` deduplication. Repeating the same assignments
+The Idempotency plugin does not deduplicate single-record PATCH requests.
+Repeating the same assignments
 still runs presets and hooks and can emit another update event; retries have
 no general guarantee of identical side effects.
 
@@ -767,7 +820,7 @@ and conditional-write rules as PATCH. Versioned models require `If-Match`
 (`428` when missing, `412` when stale); unversioned models reject it with `422`.
 `If-None-Match` and `If-Unmodified-Since` are unsupported (`422`). A conditional
 ORM version conflict returns `412`, while constraint conflicts return `409`.
-There is no `Idempotency-Key` deduplication.
+The Idempotency plugin does not deduplicate single-record DELETE requests.
 
 DELETE is idempotent in its intended effect: after a successful deletion,
 repeating the same authorized request returns `404 not_found` and does not
@@ -921,8 +974,8 @@ deployment infrastructure may impose its own limits.
 Cursor tokens are interchangeable with GET for the same resource, filters,
 logical groups, search, and effective order. Moving a query from a URL to JSON
 must preserve pair order and decoded values. A cursor still requires an
-explicit `limit` and cannot be combined with `offset`; nullable ordering fields
-remain unsupported. Every request rechecks the current principal's permissions.
+explicit `limit` and cannot be combined with `offset`. Nullable ordering follows
+the same rules as GET. Every request rechecks the current principal's permissions.
 
 #### Output
 
@@ -956,7 +1009,7 @@ creation `Location` header. Responses are not stored by HTTP caches.
 | 422 | `validation_error` | Invalid body shape, pair types, query grammar, values, or repeated controls. |
 | 422 | `unknown_parameter` | Query-string input or a legacy/unsupported query parameter. |
 | 422 | `unknown_field`, `unsupported_operator` | Invalid selection or a forbidden filter/sort field or operator. |
-| 422 | `invalid_cursor`, `cursor_unsupported_ordering` | Invalid cursor, changed query, or unsupported cursor ordering. |
+| 422 | `invalid_cursor` | Invalid cursor or changed query. |
 | 422 | `expand_depth`, `expand_unavailable` | Unsupported expansion. |
 | 500 | `internal_error` | Unexpected failure; internal exception details are hidden. |
 
@@ -1072,7 +1125,7 @@ as `id=in.(42,41)` when `id` belongs to the filter allowlist.
 `search` does not implicitly search `label_field`. A nonempty search requires
 configured, readable search fields, as in GET. Ordering does not implicitly
 sort by the display label. Cursor validation follows GET, including unchanged
-filters/search/effective order and the restriction on nullable ordering fields.
+filters/search/effective order and support for nullable ordering fields.
 
 #### Output
 
@@ -1116,7 +1169,7 @@ and query error pointers as GET. `instance` is the `:queryOptions` request path;
 | 403 | `permission_denied` | List/retrieve permission is denied, or the primary key is not readable in the list context. |
 | 422 | `validation_error`, `unknown_parameter` | Invalid query input, repeated controls, unsupported projection, or unavailable search. |
 | 422 | `unknown_field`, `unsupported_operator` | Forbidden or unknown filter/sort field or operator. |
-| 422 | `invalid_cursor`, `cursor_unsupported_ordering` | Invalid continuation or unsupported cursor ordering. |
+| 422 | `invalid_cursor` | Invalid continuation or changed query. |
 | 500 | `internal_error` | Unexpected failure; internal exception details are hidden. |
 
 #### Example
@@ -1157,6 +1210,93 @@ X-Request-ID: req-options-42
 For the next page, keep the same search and order and send `offset=2`, or send
 the returned `cursor` with `limit=2` and omit `offset`.
 
+## Collection relationships
+
+`GET /api/{slug}/{id}/relationships/{field}` lists the readable cards declared
+in `View.related`. The parent must expose retrieve, and the registered target
+must expose list and retrieve. Parent/target permissions, SQL scopes, and
+per-record field projections are checked. This read route uses the configured
+Python relationship name for `{field}`. It accepts only `limit` and `cursor`,
+with a positive limit required when supplying a cursor; unsupported controls
+such as `offset`, `count`, `search`, and `order` return `422 unknown_parameter`.
+
+The response is `{field, targetSlug, items, page}`. Cards contain `id`, `label`,
+nullable UI `url`, and permitted `values`. Items are ordered by target primary
+key. The page has the ordinary five keys, with `offset: 0` and `total: null`.
+Limits come from the parent resource's `API.default_limit`/`API.max_limit`.
+
+Collection writes are opt-in through Python relationship names in
+`API.write_relationships`, for example `write_relationships = ("tags",)`.
+Only simple writable list collections with equality joins are supported;
+view-only collections and `delete-orphan` cascades are rejected at registration.
+Many-to-many association tables must have exactly two columns forming their
+primary key. Versioned parents require a generated version counter.
+
+Write paths use the public camelCase relationship alias for `{field}`. The
+parent must expose update; the target must expose retrieve and update.
+All three methods take the same JSON body, including DELETE:
+
+```json
+{
+  "recordIds": ["12", "13"],
+  "ifMatches": {"12": "\"current-target-tag-12\"", "13": "\"current-target-tag-13\""}
+}
+```
+
+POST adds members, PUT replaces the full membership, and DELETE removes members
+without deleting target records. An empty PUT clears the collection if the
+relationship permits it. One-to-many removal requires a nullable FK; moving
+a child from another parent requires explicitly removing its old relationship
+first (`409 resource_conflict` otherwise).
+
+`If-Match` applies to a versioned parent; `ifMatches` supplies conditions for
+versioned targets, including members removed by replacement. Supplied IDs must
+be unique. Conditions may only name affected records; unversioned targets
+reject conditions. Missing/stale versioned conditions return `428`/`412`.
+`API.max_batch` limits the affected set, including removed members and submitted
+IDs. Parent and target write-field policies apply; for many-to-many writes,
+a restricted target policy must allow the reverse relationship as well.
+Unavailable relationships return `404`; non-writable targets return `403`.
+
+Membership changes, ordinary resource hooks, version updates, and activity
+share one transaction. Any failure rolls back the whole request. Success
+returns `200` with the parent's ordinary read projection and, when versioned,
+its ETag. Cookie mutations require CSRF. See the
+[record-page specification](record-activity-spec.md) for linked-card examples.
+
+## Activity and comments
+
+Enable `obox_builder.contrib.activity.Activity()` and include its models'
+`Base.metadata` in host migrations. Every nested request checks parent retrieve
+permission, scope, and object access. Revisions additionally require `history`;
+comments require `comment`, including its row scope and object checks. A tenant
+context requires an explicit `Activity(partition=...)` resolver.
+
+Activity accepts `kind=all|revision|comment`, `limit`, and `cursor`; comment
+lists accept only `limit` and `cursor`. Both return `{items, page}` and use
+signed cursors with a positive limit, resource default/maximum limits,
+`offset: 0`, and `total: null`. Neither accepts `offset` or `count=exact`.
+Activity entries include `id`, `kind`, `actor`, `source`, and `occurredAt`;
+revisions also include `action` and policy-filtered `changes[]` with `field`,
+`kind`, `before`, and `after`. Comment entries include a nested `comment`.
+
+Comment create/edit bodies are `{body: "plain text"}`; unknown properties are
+rejected. A comment response contains `id`, `author: {id, displayName}`, `body`,
+`createdAt`, nullable `editedAt`, and `permissions: {update, delete}`.
+Creation requires an active authenticated author and returns `201`, `Location`,
+and `ETag`; retrieve/edit return `200` and `ETag`. Only the active authenticated
+author may edit or delete, even if another user can update/delete the parent.
+There is no moderator override. Edits and deletes require the comment's own
+`If-Match`, independently of the parent's ETag (`428` missing, `412` stale,
+`422` malformed). Delete takes no body and returns `204` after soft deletion.
+Comment writes do not change the parent's ETag. Cookie mutations require CSRF.
+
+Responses use `private, no-store`. Revision/comment persistence shares the
+resource transaction; after-commit callbacks are best-effort and are not a
+durable event delivery mechanism. There is no automatic `commentCount`, public
+webhook API, or comment idempotency. The
+[record-page specification](record-activity-spec.md) contains detailed examples.
+
 ## File uploads — Files plugin
 
 The Files plugin uses its configured prefix (default `/files`) and UI language
@@ -1181,6 +1321,15 @@ client's `contentType`. An `ownerId` requires update access to that record and
 its file field; claiming a completed upload still requires a resource write.
 Cookie-authenticated mutations require CSRF validation. Unclaimed files are
 removed by periodic collection; there is currently no file DELETE endpoint.
+
+Resource attachment fields serialize as ordered arrays of file UUID strings,
+not metadata objects. Upload/state responses provide metadata separately;
+the current API has no batch metadata endpoint. Downloads remain access-checked
+at the Files route; there is no URL import or signed-download-URL API.
+Chunks are at most 8 MiB. Per-field `max_size`, `min_count`, and `max_count`
+are optional constraints, with no default global file-size cap. Hourly cleanup
+collects files unclaimed for 24 hours by default; this is not a promise of
+deletion at an exact timestamp.
 
 ## Batch writes
 
@@ -1215,20 +1364,96 @@ Versioned updates/deletes require their own `ifMatch` value, following the
 single-record ETag rules (`428` when missing, `412` when stale). Unversioned
 operations reject a supplied condition with `422`. Request-level `If-Match`,
 `If-None-Match`, and `If-Unmodified-Since` are rejected with `422`; they cannot
-express independent record conditions. Upsert is not implemented.
+express independent record conditions. Upsert uses the rules below.
 
 Success is `200` with `{results: [...]}` in request order. Every result includes
 `op` and string `id`. Creates/updates also include `record` and, for versioned
-models, `etag`. Delete results contain no record or ETag. Results use the ordinary
+models, `etag`. Upsert results also contain `record`, optional `etag`, and
+`created: true|false`. Delete results contain no record or ETag. Results use the ordinary
 read projection; a write does not grant retrieve permission. Errors retain the
 normal problem status/code and identify the failed operation through a pointer
 such as `#/operations/1` or `#/operations/1/data/questionText`. Shape validation
 runs before mutations; failures during commit can be batch-wide.
 
 Direct callers can use `ResourceService.batch(operations, ctx=ctx)` with exported
-`BatchOperation(op, id=None, data=..., precondition=None)` values. Inputs use
+`BatchOperation(op, id=None, data=..., precondition=None, merge_on=())` values. Inputs use
 Python names and optional service predicates; HTTP ETags belong to the adapter.
 `BatchOperationError.index` and `.error` preserve the failed position and cause.
+
+### Upsert
+
+Declare allowed merge keys on the builder's API using Python field names:
+
+```python
+class API(API):
+    upsert_fields = (("external_key",),)
+```
+
+`API` extends the imported `obox_builder.API` inside the resource's builder.
+Composite keys use a tuple such as `("tenant_id", "external_key")`.
+Each tuple must exactly match a full, non-deferrable UNIQUE constraint or a
+non-partial unique column index. Merge columns must be non-null, writable,
+non-JSON, and non-ARRAY; invalid configuration fails registration. The host must
+migrate the corresponding database constraints. Primary keys are not writable
+merge keys. Upsert requires both create and update to be exposed and authorized.
+
+```json
+{
+  "operations": [
+    {
+      "op": "upsert",
+      "mergeOn": ["externalKey"],
+      "data": {"externalKey": "source-42", "questionText": "Imported question"},
+      "ifMatch": "*"
+    }
+  ]
+}
+```
+
+`mergeOn` uses public aliases and must match one configured set exactly, without
+duplicate names. Every merge value must come from `data` or trusted create
+presets. Upsert uses the update input schema; the create branch still validates
+required create fields. An existing scoped match is updated, otherwise a record
+is created. A uniqueness race is resolved using a savepoint and a scoped lookup;
+an inaccessible conflicting record returns `409`, never an unrestricted update.
+Hooks and update presets must preserve the merge key. Duplicate merge keys or
+multiple operations resolving to the same existing ID fail the entire batch.
+
+On the update branch, versioned records require `ifMatch`, and unversioned
+records reject it. The create branch does not apply that precondition. Use a
+specific strong tag to detect stale updates; `*` permits updating whichever
+current version exists. The result identifies the branch through `created`.
+
+### Idempotent create and batch retries
+
+Enable `obox_builder.contrib.idempotency.Idempotency()` and migrate
+`obox_builder.contrib.idempotency.models.Base.metadata` (`obox_idempotency`).
+The plugin supports SQLite and PostgreSQL. It accepts `Idempotency-Key` only
+on POST create and `:batchWrite`; it does not deduplicate single-record
+PATCH/DELETE, relationship writes, registered actions, or comment creation.
+Without the plugin, supplying this header to create/batch returns `422`.
+
+Use one header containing 1–255 visible ASCII characters, without spaces.
+The identity must be authenticated with a non-null ID. Keys are isolated by
+partition, tenant, principal, HTTP method, and mounted request path. Tenant
+contexts require an explicit `Idempotency(partition=...)` resolver.
+
+The fingerprint uses canonical JSON of the validated body, preserving omitted
+versus explicitly supplied fields. JSON object property order does not matter;
+array order (including batch operation order) remains significant. Receipt
+reservation, mutations, and the successful response commit together; a failed
+transaction does not consume the key. The default TTL is 24 hours, configurable
+with a positive `timedelta`; an expired key can execute again. Hosts may call
+`Idempotency.prune(ctx)` in their maintenance job to remove expired receipts.
+
+A matching retry within the TTL returns the saved body and original
+`Location`/`ETag` without rerunning writes or hooks. Current operation permissions,
+non-deleted record scopes, and readable fields are checked again; access changes
+can prevent replay. A different body or an incomplete existing receipt returns
+`409 resource_conflict`. Concurrent requests can wait for the database transaction
+and replay its committed result; `409` is not a guaranteed immediate lock response.
+Retry with the same key and body after an uncertain outcome. Retention is finite,
+so this does not provide indefinite or exactly-once execution.
 
 ## Resource descriptions
 
