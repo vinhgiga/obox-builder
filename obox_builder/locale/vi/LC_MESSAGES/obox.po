@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  obox-builder\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-11-09 22:39+0700\n"
+"POT-Creation-Date: 2026-11-10 21:47+0700\n"
 "PO-Revision-Date: 2026-10-31 20:45+0700\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: vi\n"
@@ -185,19 +185,19 @@ msgstr "Không có bản ghi."
 msgid "No resources are available for your account."
 msgstr "Không có tài nguyên nào cho tài khoản của bạn."
 
-#: obox_builder/builder/templates/obox/base.html:20
+#: obox_builder/builder/templates/obox/base.html:22
 msgid "Skip to content"
 msgstr "Bỏ qua nội dung"
 
-#: obox_builder/builder/templates/obox/base.html:38
+#: obox_builder/builder/templates/obox/base.html:40
 msgid "Sign out"
 msgstr "Đăng xuất"
 
-#: obox_builder/builder/templates/obox/base.html:43
+#: obox_builder/builder/templates/obox/base.html:45
 msgid "Language"
 msgstr "Ngôn ngữ"
 
-#: obox_builder/builder/templates/obox/base.html:56
+#: obox_builder/builder/templates/obox/base.html:58
 msgid "Resources"
 msgstr "Tài nguyên"
 
@@ -476,16 +476,16 @@ msgstr "Xác nhận xoá"
 msgid "Next page →"
 msgstr "Trang sau →"
 
-#: obox_builder/builder/templates/obox/login.html:28
+#: obox_builder/builder/templates/obox/login.html:30
 #: obox_builder/contrib/auth/templates/obox/auth/user_form.html:45
 msgid "Password"
 msgstr "Mật khẩu"
 
-#: obox_builder/builder/templates/obox/login.html:38
+#: obox_builder/builder/templates/obox/login.html:40
 msgid "Show password"
 msgstr "Hiện mật khẩu"
 
-#: obox_builder/builder/templates/obox/login.html:42
+#: obox_builder/builder/templates/obox/login.html:44
 #: obox_builder/contrib/auth/views.py:67
 msgid "Sign in"
 msgstr "Đăng nhập"

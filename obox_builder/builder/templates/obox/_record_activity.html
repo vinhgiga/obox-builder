@@ -11,7 +11,7 @@
         {% set entry = item.comment %}
         <article id="record-comment-{{ entry.id }}" class="card card-body mb-2">
           <p>{{ entry.author.display_name }} · {{ entry.created_at }}</p>
-          <p class="text-break whitespace-pre-wrap">{{ entry.body }}</p>
+          <p class="text-break text-pre-wrap">{{ entry.body }}</p>
           {% if entry.edited_at %}<small>{{ _("Edited") }} {{ entry.edited_at }}</small>{% endif %}
           {% if entry.permissions.update %}<a href="{{ record_url }}/comments/{{ entry.id }}/edit"
    data-record-link>{{ _("Edit") }}</a>{% endif %}

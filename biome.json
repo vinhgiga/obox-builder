@@ -9,13 +9,13 @@
     "includes": [
       "commitlint.config.mjs",
       "tests/**/*.mjs",
-      "scripts/vendor-chart.mjs",
+      "scripts/vendor-*.mjs",
       "obox_builder/contrib/analytics/static/analytics.js",
       "obox_builder/contrib/analytics/static/analytics.css",
       "obox_builder/builder/static/**/*.js",
       "obox_builder/contrib/files/static/**/*.js",
       "obox_builder/contrib/files/static/**/*.css",
-      "obox_builder/builder/**/*.css"
+      "obox_builder/builder/static/ui.css"
     ]
   },
   "formatter": {
@@ -31,9 +31,6 @@
     }
   },
   "css": {
-    "parser": {
-      "tailwindDirectives": true
-    },
     "formatter": {
       "indentStyle": "space",
       "indentWidth": 2,

@@ -36,7 +36,6 @@ compile-messages:
 check: ci
 
 build:
-    pnpm build:css
     uv run validate-pyproject pyproject.toml
     uv build
     uv run twine check dist/*

@@ -2,15 +2,15 @@
 {% block body_class %}page grid-layout{% endblock %}
 {% block main_class %}grid-page{% endblock %}
 {% block page_container_class %}grid-page-container{% endblock %}
-{% block heading_class %}sr-only{% endblock %}
+{% block heading_class %}visually-hidden{% endblock %}
 {% block content_class %}grid-content{% endblock %}
 {% block content %}
   {% from "obox_files/widget.html" import files_widget %}
   <div class="grid-toolbar">
-    <span class="shrink-0 font-semibold">▦ {% trans %}Grid view{% endtrans %}</span>
+    <span class="flex-shrink-0 fw-semibold">▦ {% trans %}Grid view{% endtrans %}</span>
     {% if "delete" in operations or actions %}
       <div class="grid-bulk-actions" data-bulk-controls hidden>
-        <label class="sr-only"
+        <label class="visually-hidden"
                for="bulk-action">{% trans %}Choose a bulk action{% endtrans %}</label>
         <select class="form-select form-select-sm"
                 id="bulk-action"
@@ -191,7 +191,7 @@
             {% trans %}Hide fields{% endtrans %}
           </summary>
           <div class="field-menu-panel">
-            <label class="sr-only"
+            <label class="visually-hidden"
                    for="field-menu-search">{% trans %}Find a field{% endtrans %}</label>
             <input class="form-control form-control-sm"
                    id="field-menu-search"
@@ -412,7 +412,7 @@
                        data-select-all
                        aria-label="{% trans %}Select all records on this page{% endtrans %}">
               {% else %}
-                <span class="sr-only">{% trans %}Row{% endtrans %}</span>#
+                <span class="visually-hidden">{% trans %}Row{% endtrans %}</span>#
               {% endif %}
             </th>
             {% for field in list_display %}
