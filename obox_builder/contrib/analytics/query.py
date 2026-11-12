@@ -32,12 +32,15 @@ async def statement(service: Any, chart: Chart, ctx: Any, **options: Any) -> tup
         readable.intersection(service.builder.policy.aggregate_fields(ctx))
     ):
         raise PermissionDenied("These fields are not available for charting.")
-    if chart._definition is not None:
-        extra = await invoke(chart._definition().get_statement, ctx)
+    narrow = chart.statement
+    if narrow is None and chart._definition is not None:
+        narrow = chart._definition().get_statement
+    if narrow is not None:
+        extra = await invoke(narrow, ctx)
         service._context(ctx)
         if extra is not None:
             if not isinstance(extra, sa.Select):
-                raise ImproperlyConfigured("Chart get_statement() must return a Select or None.")
+                raise ImproperlyConfigured("Chart statement must return a Select or None.")
             ids = extra.with_only_columns(service.builder.pk, maintain_column_froms=True).order_by(
                 None
             )

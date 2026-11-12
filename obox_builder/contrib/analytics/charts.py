@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import math
 import re
-from collections.abc import Iterator, Sequence
-from dataclasses import dataclass, field
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Literal
 
 import sqlalchemy as sa
@@ -20,6 +20,22 @@ if TYPE_CHECKING:
 Kind = Literal["bar", "line", "scatter", "pie", "donut"]
 KINDS = {"bar", "line", "scatter", "pie", "donut"}
 _COUNT = Measure()
+
+
+def _where(value: FilterGroup | Mapping[str, Any] | None) -> FilterGroup | None:
+    if value is None or isinstance(value, FilterGroup):
+        return value
+    if not isinstance(value, Mapping):
+        raise ImproperlyConfigured("Use a FilterGroup or a mapping of field lookups.")
+    terms = []
+    for lookup, operand in value.items():
+        if not isinstance(lookup, str) or not lookup:
+            raise ImproperlyConfigured("Filter lookups must be nonempty strings.")
+        name, separator, operator = lookup.rpartition("__")
+        terms.append(
+            FilterTerm(name if separator else lookup, operator if separator else "is", operand)
+        )
+    return FilterGroup(children=tuple(terms))
 
 
 def Count() -> Measure:  # noqa: N802
@@ -65,13 +81,13 @@ class Series:
 
     def __init__(
         self,
-        value: Measure | Field | str,
+        value: Measure | Field | str = _COUNT,
         *,
         id: str | None = None,
         label: str | None = None,
         axis: Literal["primary", "secondary"] = "primary",
         kind: Kind | None = None,
-        where: FilterGroup | None = None,
+        where: FilterGroup | Mapping[str, Any] | None = None,
     ) -> None:
         value = Field(value) if isinstance(value, str) else value
         if not isinstance(value, (Measure, Field)):
@@ -86,7 +102,7 @@ class Series:
         object.__setattr__(self, "label", label)
         object.__setattr__(self, "axis", axis)
         object.__setattr__(self, "kind", kind)
-        object.__setattr__(self, "where", where)
+        object.__setattr__(self, "where", _where(where))
         if (
             not isinstance(self.id, str)
             or re.fullmatch(r"[a-z][a-z0-9_]*", self.id) is None
@@ -156,9 +172,12 @@ class Chart:
     drill: bool = True
     primary_axis: Axis | None = None
     secondary_axis: Axis | None = None
+    statement: Callable[[Context], Any] | None = field(default=None, repr=False)
     _definition: type[ChartBuilder] | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
+        if self.statement is not None and not callable(self.statement):
+            raise ImproperlyConfigured("Chart statement must be a callable accepting Context.")
         if self.y is None and (
             self.kind == "scatter"
             or self.by is not None
@@ -173,6 +192,7 @@ class Chart:
             or not self.drill
             or self.primary_axis
             or self.secondary_axis
+            or self.statement is not None
         ):
             object.__setattr__(self, "y", (Series(self.measure),))
 
@@ -325,7 +345,7 @@ class ChartBuilder:
         x: str | Dim = ""
         y: Any = Measure()
         color: str | Dim | None = None
-        where: FilterGroup | None = None
+        where: FilterGroup | Mapping[str, Any] | None = None
         order = "x"
 
     class Appearance:
@@ -396,16 +416,32 @@ def chart(
     source: type[Any] | None = None,
     *,
     x: str | Dim,
-    y: Measure | Field | Series | str | Sequence[Measure | Field | Series | str] = _COUNT,
+    y: Measure
+    | Field
+    | Series
+    | str
+    | Sequence[Measure | Field | Series | str]
+    | Mapping[str, Measure | Field | Series | str] = _COUNT,
     color: str | Dim | None = None,
     slug: str | None = None,
-    where: FilterGroup | None = None,
+    where: FilterGroup | Mapping[str, Any] | None = None,
     **options: Any,
 ) -> Chart:
-    values = (y,) if isinstance(y, (Measure, Field, Series, str)) else tuple(y)
+    """Declare a chart; mapping y keys label series identified by their position."""
+    labels = tuple(y) if isinstance(y, Mapping) else None
+    values = (
+        tuple(y.values())
+        if isinstance(y, Mapping)
+        else ((y,) if isinstance(y, (Measure, Field, Series, str)) else tuple(y))
+    )
     if not values:
         raise ImproperlyConfigured("A chart requires at least one series.")
     series = tuple(value if isinstance(value, Series) else Series(value) for value in values)
+    if labels is not None:
+        series = tuple(
+            replace(item, id=f"series_{index}", label=label)
+            for index, (label, item) in enumerate(zip(labels, series, strict=True))
+        )
     options.setdefault("drill", False)
     slug = f"{kind}_{x.field if isinstance(x, Dim) else x}" if slug is None else slug
     options.setdefault(
@@ -419,7 +455,7 @@ def chart(
         y=series,
         by=color,
         source=source,
-        filters=where if where is not None else FilterGroup(),
+        filters=_where(where) or FilterGroup(),
         **options,
     )
 

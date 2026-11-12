@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from sqlalchemy.exc import DBAPIError
 
@@ -154,14 +154,20 @@ class Dashboard:
                 {group.slug for group in self.groups}
             ) != len(self.groups):
                 raise ImproperlyConfigured("Use unique source groups without nesting.")
-        elif self.source is None:
+        elif self.source is None and any(
+            not isinstance(widget, Chart) or widget.source is None for widget in self.widgets
+        ):
             raise ImproperlyConfigured("A dashboard or group requires a source.")
         seen = set()
         for widget in self.widgets:
             _slug(widget.slug, widget=True)
-            if widget.slug in seen:
+            key = (
+                widget.source if self.source is None and isinstance(widget, Chart) else None,
+                widget.slug,
+            )
+            if key in seen:
                 raise ImproperlyConfigured("Widget slugs must be unique within a dashboard.")
-            seen.add(widget.slug)
+            seen.add(key)
             _filters(widget.filters)
             if isinstance(widget, Chart):
                 for series in widget.series:
@@ -208,7 +214,7 @@ class Analytics:
 
     def __init__(
         self,
-        dashboards: Sequence[Dashboard],
+        dashboards: Dashboard | Sequence[Dashboard],
         *,
         prefix: str = "/analytics",
         max_rows: int = 200,
@@ -219,7 +225,7 @@ class Analytics:
         max_points: int = 10_000,
         timeout_ms: int = 3000,
     ) -> None:
-        self.dashboards = tuple(dashboards)
+        self.dashboards = (dashboards,) if isinstance(dashboards, Dashboard) else tuple(dashboards)
         if not isinstance(prefix, str) or re.fullmatch(r"(?:/[a-z][a-z0-9_-]*)+", prefix) is None:
             raise ImproperlyConfigured("Analytics.prefix must be an absolute URL path.")
         self.prefix = prefix
@@ -253,6 +259,24 @@ class Analytics:
             if not isinstance(dashboard, Dashboard) or dashboard.slug in seen:
                 raise ImproperlyConfigured("Use dashboards with unique slugs.")
             seen.add(dashboard.slug)
+            if not dashboard.groups and dashboard.source is None:
+                grouped: dict[type[Any], list[Chart]] = {}
+                for widget in dashboard.widgets:
+                    if isinstance(widget, Chart):
+                        grouped.setdefault(_source(app, widget.source), []).append(widget)
+                dashboard = replace(
+                    dashboard,
+                    widgets=(),
+                    groups=tuple(
+                        Group(
+                            cast(str, app.get_builder(source).slug).lower(),
+                            source.__name__,
+                            source,
+                            charts,
+                        )
+                        for source, charts in grouped.items()
+                    ),
+                )
             sections = []
             for section in dashboard.sections:
                 source = _source(app, section.source)
