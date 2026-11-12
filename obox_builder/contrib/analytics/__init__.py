@@ -106,37 +106,71 @@ class Pivot:
         )
 
 
+_Widget = Pivot | Chart | type[ChartBuilder]
+_Layout = Sequence[_Widget | Sequence[_Widget]]
+
+
 @dataclass(frozen=True, init=False)
 class Dashboard:
+    """Use charts for explicit rows, or flat widgets for an automatic grid."""
+
     slug: str
     title: str
     source: type[Any] | None
     widgets: tuple[Pivot | Chart, ...]
     groups: tuple[Group, ...]
+    _row_sizes: tuple[int, ...] = field(repr=False)
 
     def __init__(
         self,
         slug: str,
         title: str,
         source: type[Any] | None = None,
-        widgets: Sequence[Pivot | Chart | type[ChartBuilder]] = (),
+        widgets: _Layout = (),
         *,
         groups: Sequence[Group] = (),
+        charts: _Layout | None = None,
+        _row_sizes: tuple[int, ...] = (),
     ) -> None:
         _slug(slug)
-        normalized = []
-        for widget in widgets:
-            if isinstance(widget, type) and issubclass(widget, ChartBuilder):
-                widget = widget.as_chart()
-            if not isinstance(widget, (Pivot, Chart)):
-                raise ImproperlyConfigured("Use Pivot, Chart or ChartBuilder declarations.")
-            normalized.append(widget)
+        explicit_rows = charts is not None
+        if charts is not None:
+            if widgets:
+                raise ImproperlyConfigured("Declare either charts or widgets, not both.")
+            widgets = charts
+        if not isinstance(widgets, (list, tuple)):
+            raise ImproperlyConfigured("Use a list or tuple of widgets or widget rows.")
+        normalized: list[Pivot | Chart] = []
+        row_sizes = []
+        for item in widgets:
+            if isinstance(item, (list, tuple)):
+                explicit_rows = True
+                row = item
+            else:
+                row = (item,)
+            if not row:
+                raise ImproperlyConfigured("Widget rows must not be empty.")
+            row_sizes.append(len(row))
+            for widget in row:
+                if isinstance(widget, type) and issubclass(widget, ChartBuilder):
+                    widget = widget.as_chart()
+                if not isinstance(widget, (Pivot, Chart)):
+                    raise ImproperlyConfigured("Use Pivot, Chart or ChartBuilder declarations.")
+                normalized.append(widget)
+        if explicit_rows:
+            _row_sizes = tuple(row_sizes)
+        if _row_sizes and (
+            any(type(size) is not int or size < 1 for size in _row_sizes)
+            or sum(_row_sizes) != len(normalized)
+        ):
+            raise ImproperlyConfigured("Widget row sizes must match the declared widgets.")
         for name, value in (
             ("slug", slug),
             ("title", title),
             ("source", source),
             ("widgets", tuple(normalized)),
             ("groups", tuple(groups)),
+            ("_row_sizes", _row_sizes),
         ):
             object.__setattr__(self, name, value)
         if (
@@ -189,6 +223,17 @@ class Dashboard:
     @property
     def all_widgets(self) -> tuple[Pivot | Chart, ...]:
         return tuple(widget for section in self.sections for widget in section.widgets)
+
+    @property
+    def rows(self) -> tuple[tuple[Pivot | Chart, ...], ...]:
+        if not self._row_sizes:
+            return (self.widgets,)
+        rows = []
+        offset = 0
+        for size in self._row_sizes:
+            rows.append(self.widgets[offset : offset + size])
+            offset += size
+        return tuple(rows)
 
 
 class Group(Dashboard):
@@ -260,13 +305,24 @@ class Analytics:
                 raise ImproperlyConfigured("Use dashboards with unique slugs.")
             seen.add(dashboard.slug)
             if not dashboard.groups and dashboard.source is None:
-                grouped: dict[type[Any], list[Chart]] = {}
-                for widget in dashboard.widgets:
-                    if isinstance(widget, Chart):
-                        grouped.setdefault(_source(app, widget.source), []).append(widget)
+                grouped: dict[type[Any], list[Chart | tuple[Chart, ...]]] = {}
+                for row in dashboard.rows:
+                    sources: dict[type[Any], list[Chart]] = {}
+                    for widget in row:
+                        if isinstance(widget, Chart):
+                            sources.setdefault(_source(app, widget.source), []).append(widget)
+                    if dashboard._row_sizes and len(sources) > 1:
+                        raise ImproperlyConfigured(
+                            "Charts in a row must use the same source group."
+                        )
+                    for source, charts in sources.items():
+                        grouped.setdefault(source, []).extend(
+                            [tuple(charts)] if dashboard._row_sizes else charts
+                        )
                 dashboard = replace(
                     dashboard,
                     widgets=(),
+                    _row_sizes=(),
                     groups=tuple(
                         Group(
                             cast(str, app.get_builder(source).slug).lower(),
@@ -318,7 +374,13 @@ class Analytics:
                 replace(
                     dashboard,
                     groups=tuple(
-                        Group(section.slug, section.title, section.source, section.widgets)
+                        Group(
+                            section.slug,
+                            section.title,
+                            section.source,
+                            section.widgets,
+                            _row_sizes=section._row_sizes,
+                        )
                         for section in sections
                     ),
                 )

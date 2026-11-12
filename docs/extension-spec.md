@@ -2,8 +2,6 @@
 
 **Status:** Proposed replacement for the analytics public API; not an implementation report.
 
-**Research checked:** 2026-11-11.
-
 **Audience:** Application authors and framework, query-engine, and renderer implementers.
 
 This specification defines chart and pivot extensions for obox-builder. It replaces the
@@ -13,27 +11,25 @@ not an additional ORM or runtime dependency. The shared contracts in
 [core-spec.md](core-spec.md) and [api-spec.md](api-spec.md) continue to apply.
 
 **MUST**, **SHOULD**, and **MAY** express normative requirements. **[R]** identifies a
-verified reference-product capability; **[O]** identifies an obox-builder design
-decision. A coverage claim means all documented use cases in the surfaces below,
-not undocumented behavior or every visualization available in a third-party marketplace.
+functional requirement; **[O]** identifies an obox-builder design decision.
 
-## 1. Scope and evidence
+## 1. Scope and design boundaries
 
-### 1.1 Reference surfaces
+### 1.1 Requirement areas
 
-| ID | Official source | Verified scope relevant to this specification |
+| ID | Area | Scope relevant to this specification |
 | --- | --- | --- |
-| R1 | [Airtable Dashboard](https://support.airtable.com/articles/5415824889-airtable-interface-layout-dashboard) | Five chart types; grouped/stacked bars; multiple measures and two axes; source groups and filters; pivot axes, summaries, totals, split values, expansion, and underlying records. |
-| R2 | [Chart Extension](https://support.airtable.com/articles/5816207978-airtable-extensions-chart) | Raw values or count/numeric aggregates; date buckets; empty-category inclusion; source/X/Y ordering; grouping; zero baseline; point and legend drill; range zoom. |
-| R3 | [Pivot Table Extension](https://support.airtable.com/articles/9787133982-pivot-table-extension) | Table/view source, mandatory row and optional column, type-dependent summaries, split/composite choices, group/value ordering. No native export or print. |
-| R4 | [Record Detail](https://support.airtable.com/articles/5805061650-airtable-interface-layout-record-detail) | Charts over linked records, fixed conditions, orientation, palette, legend position, record-count display, and pie/donut percentages. |
-| R5 | [Legacy Interface Elements](https://support.airtable.com/articles/9769453548-legacy-interface-designer-functionality) | Independently bound chart sources; copied view conditions; viewer-specific restrictions; filters connected to selected elements; titles, subtitles, labels, and select colors. |
-| R6 | [Vega-Lite Extension](https://support.airtable.com/articles/7744517226-vega-lite-chart-extension) | A table/view supplies data to a custom visualization specification; layering, faceting, and advanced presentation are supported through that grammar. |
-| R7 | [Interface Designer](https://support.airtable.com/articles/8078126534-getting-started-with-airtable-interface-designer) | Fixed versus viewer filters, tabs/dropdowns, record printing and CSV controls, and limitations of page printing. |
-| R8 | [Mobile Interfaces](https://support.airtable.com/articles/2483653332-mobile-interfaces-in-airtable) | Its 2026-11-10 revision lists dashboard chart/pivot and record-detail charts on iOS/Android, with interaction differences. |
-| R9 | [Summary Bar](https://support.airtable.com/articles/7344081006-using-the-summary-bar-in-airtable-views) | Additional examples of summaries by field type; this is not evidence that every function is available in chart/pivot controls. |
+| R1 | Dashboard composition | Five chart types; grouped/stacked bars; multiple measures and two axes; source groups and filters; pivot axes, summaries, totals, split values, expansion, and underlying records. |
+| R2 | Chart configuration | Raw values or count/numeric aggregates; date buckets; empty-category inclusion; source/X/Y ordering; grouping; zero baseline; point and legend drill; range zoom. |
+| R3 | Pivot configuration | Table/view source, mandatory row and optional column, type-dependent summaries, split/composite choices, group/value ordering. |
+| R4 | Record detail | Charts over linked records, fixed conditions, orientation, palette, legend position, record-count display, and pie/donut percentages. |
+| R5 | Source bindings | Independently bound chart sources; copied view conditions; viewer-specific restrictions; filters connected to selected elements; titles, subtitles, labels, and select colors. |
+| R6 | Custom visualization | A table/view supplies data to a custom visualization specification supporting layering, faceting, and advanced presentation. |
+| R7 | Filters and host actions | Fixed versus viewer filters, tabs/dropdowns, record printing and CSV controls, and limitations of page printing. |
+| R8 | Responsive interfaces | Dashboard charts, pivots, and record-detail charts adapt to narrow screens and touch interaction. |
+| R9 | Summaries | Summary functions depend on field type and executor support. |
 
-Sources were read directly and through Context7. Production design also follows
+Production design follows
 [Django's admin attributes and hooks](https://docs.djangoproject.com/en/6.0/ref/contrib/admin/),
 [its aggregation cautions about joins](https://docs.djangoproject.com/en/6.0/topics/db/aggregation/#combining-multiple-aggregations),
 [SQLAlchemy's aggregate/subquery model](https://docs.sqlalchemy.org/en/20/tutorial/data_select.html#aggregate-functions-with-group-by-having),
@@ -41,26 +37,18 @@ Sources were read directly and through Context7. Production design also follows
 and [W3C guidance on accessible charts](https://www.w3.org/WAI/tutorials/images/complex/).
 These are implementation references, not dependencies to add.
 
-### 1.2 Evidence boundaries and contradictions
+### 1.2 Design boundaries
 
-- **[R]** R1 documents grouping/stacking but also says a chart has one category
-  field. **[O]** Distinguish the X/category dimension, a grouping dimension, and
-  measure series. Support the documented grouped cases without interpreting the
-  FAQ as a ban on grouping. Multiple independent category axes are not core.
-- **[R]** R1 documents up to five primary series and one secondary series, with
-  restrictions on grouped/multiple-primary combinations. **[O]** These examples
-  MUST be expressible. Resource budgets, not a product-compatibility profile,
-  bound OBOX series; grouping partitions each configured series consistently.
-- **[R]** R1 describes desktop pivot availability; the newer R8 lists mobile
-  pivots. **[O]** Require responsive web behavior without promising native apps
-  or copying platform-specific restrictions into the Python API.
-- **[R]** R1 offers pivot/drill print controls, while R7 warns that Dashboard
-  pages lack a dependable print layout. R2/R3 do not offer native extension
-  export/print. **[O]** Define browser print as a host action, not a promise of
-  paginated reporting or a CSV/XLSX export service.
-- R1/R3 leave the complete summary-function menu and split-value total
-  arithmetic unspecified. Section 4 defines OBOX arithmetic explicitly. R9
-  cannot establish otherwise undocumented pivot functions.
+- Distinguish the X/category dimension, a grouping dimension, and measure series.
+  Multiple independent category axes are not core.
+- Five primary series and one secondary series MUST be expressible. Resource
+  budgets bound series; grouping partitions each configured series consistently.
+- Require responsive web behavior without promising native apps or adding
+  platform-specific restrictions to the Python API.
+- Define browser print as a host action, without promising paginated reporting
+  or a CSV/XLSX export service.
+- Section 4 defines summary-function support and split-value total arithmetic
+  explicitly; do not infer support from unrelated summary controls.
 
 ### 1.3 Repository baseline and exclusions
 
@@ -75,7 +63,7 @@ field metadata, filter parsing, authentication, transaction ownership, problem
 responses, localization, and current renderer assets where suitable. Do not make
 core resource services depend on HTTP, templates, or chart-renderer packages.
 
-Out of scope: an Airtable connector; a visual editor; a general extension
+Out of scope: external data connectors; a visual editor; a general extension
 marketplace; KPI, navigation, forms, org charts, or flowcharts; native mobile apps;
 multi-level/multi-measure pivots; arbitrary multi-source joins; XLSX export;
 scheduled reports; and persistent viewer configuration. Existing record CRUD is

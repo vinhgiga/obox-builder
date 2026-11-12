@@ -57,27 +57,31 @@
            href="{{ section.reset_url }}"
            data-reset>{{ _("Reset") }}</a>
       </form>
-      <div class="analytics-grid">
-        {% for widget in section.widgets %}
-          <section class="card analytics-widget{% if widget.kind is not defined %} analytics-pivot{% endif %} analytics-height-{{ widget.height|default('md') }}"
-                   data-widget
-                   data-kind="{{ widget.kind|default('pivot') }}"
-                   data-url="{{ widget_urls[widget.slug]['data'] }}"
-                   data-records-url="{{ widget_urls[widget.slug]['records'] }}"
-                   data-row-label="{{ widget.rows|default(widget.x)|replace('_', ' ') }}"
-                   data-column-label="{{ widget.columns|default('', true)|replace('_', ' ') }}"
-                   data-row-totals="{{ 'true' if widget.show_row_totals|default(true) else 'false' }}"
-                   data-column-totals="{{ 'true' if widget.show_column_totals|default(true) else 'false' }}">
-            <h2 class="card-header h3">{{ widget.title or widget.slug }}</h2>
-            <div class="card-body">
-              {% if widget.description|default("") %}<p>{{ widget.description }}</p>{% endif %}
-              <p role="status" data-status>{{ _("Loading…") }}</p>
-              <div class="analytics-chart" data-chart hidden>
-                <canvas role="img" aria-label="{{ widget.title or widget.slug }}"></canvas>
-              </div>
-              <div class="analytics-table" data-table></div>
-            </div>
-          </section>
+      <div class="analytics-rows">
+        {% for row in section.rows %}
+          <div class="analytics-grid{% if section.explicit_rows %} analytics-row{% endif %}">
+            {% for widget in row %}
+              <section class="card analytics-widget{% if widget.kind is not defined %} analytics-pivot{% endif %} analytics-height-{{ widget.height|default('md') }}"
+                       data-widget
+                       data-kind="{{ widget.kind|default('pivot') }}"
+                       data-url="{{ widget_urls[widget.slug]['data'] }}"
+                       data-records-url="{{ widget_urls[widget.slug]['records'] }}"
+                       data-row-label="{{ widget.rows|default(widget.x)|replace('_', ' ') }}"
+                       data-column-label="{{ widget.columns|default('', true)|replace('_', ' ') }}"
+                       data-row-totals="{{ 'true' if widget.show_row_totals|default(true) else 'false' }}"
+                       data-column-totals="{{ 'true' if widget.show_column_totals|default(true) else 'false' }}">
+                <h2 class="card-header h3">{{ widget.title or widget.slug }}</h2>
+                <div class="card-body">
+                  {% if widget.description|default("") %}<p>{{ widget.description }}</p>{% endif %}
+                  <p role="status" data-status>{{ _("Loading…") }}</p>
+                  <div class="analytics-chart" data-chart hidden>
+                    <canvas role="img" aria-label="{{ widget.title or widget.slug }}"></canvas>
+                  </div>
+                  <div class="analytics-table" data-table></div>
+                </div>
+              </section>
+            {% endfor %}
+          </div>
         {% endfor %}
       </div>
     </div>

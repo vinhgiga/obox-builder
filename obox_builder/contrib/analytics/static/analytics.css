@@ -9,16 +9,34 @@
   gap: 0.25rem;
   max-width: 16rem;
 }
+.analytics-rows {
+  container-type: inline-size;
+  display: grid;
+  gap: 1rem;
+}
 .analytics-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
   gap: 1rem;
+}
+.analytics-row {
+  grid-template-columns: minmax(0, 1fr);
+}
+@container (min-width: 48rem) {
+  .analytics-row {
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+  }
 }
 .analytics-widget {
   min-width: 0;
 }
 .analytics-pivot {
   grid-column: 1 / -1;
+}
+.analytics-row > .analytics-pivot {
+  grid-column: auto;
 }
 .analytics-chart {
   position: relative;

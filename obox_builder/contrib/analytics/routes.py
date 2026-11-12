@@ -202,6 +202,12 @@ def build_router(analytics: Analytics) -> APIRouter:
             )
             if not widgets:
                 continue
+            visible_slugs = {widget.slug for widget in widgets}
+            rows = tuple(
+                visible_row
+                for row in section.rows
+                if (visible_row := tuple(widget for widget in row if widget.slug in visible_slugs))
+            )
             filters = [
                 name
                 for name in service.builder.view.get_list_filter(ctx)
@@ -220,6 +226,8 @@ def build_router(analytics: Analytics) -> APIRouter:
                 {
                     "title": section.title,
                     "widgets": widgets,
+                    "rows": rows,
+                    "explicit_rows": bool(section._row_sizes),
                     "prefix": prefix,
                     "filters": filter_columns(service.builder, ctx, filters),
                     "search_enabled": bool(service.builder.search_fields),

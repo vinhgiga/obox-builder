@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-11-12 15:21+0700\n"
+"POT-Creation-Date: 2026-11-12 17:45+0700\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -490,7 +490,7 @@ msgid "Total"
 msgstr ""
 
 #: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:17
-#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:74
+#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:76
 msgid "Loading…"
 msgstr ""
 
