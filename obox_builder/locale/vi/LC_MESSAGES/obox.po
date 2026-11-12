@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  obox-builder\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-11-09 22:39+0700\n"
+"POT-Creation-Date: 2026-11-12 11:48+0700\n"
 "PO-Revision-Date: 2026-10-31 20:45+0700\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: vi\n"
@@ -167,7 +167,7 @@ msgid "Back to list"
 msgstr "Quay lại danh sách"
 
 #: obox_builder/builder/templates/obox/_record_fields.html:14
-#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:21
+#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:26
 msgid "Search"
 msgstr "Tìm kiếm"
 
@@ -322,7 +322,7 @@ msgstr "Thêm nhóm con"
 
 #: obox_builder/builder/templates/obox/list.html:156
 #: obox_builder/builder/templates/obox/list.html:162
-#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:38
+#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:43
 msgid "Filter"
 msgstr "Lọc"
 
@@ -335,7 +335,7 @@ msgid "Apply"
 msgstr "Áp dụng"
 
 #: obox_builder/builder/templates/obox/list.html:169
-#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:51
+#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:58
 msgid "Reset"
 msgstr "Đặt lại"
 
@@ -490,38 +490,42 @@ msgstr "Hiện mật khẩu"
 msgid "Sign in"
 msgstr "Đăng nhập"
 
-#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:11
+#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:15
 msgid "Empty"
 msgstr "Trống"
 
-#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:12
+#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:16
 msgid "Total"
 msgstr "Tổng"
 
-#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:13
-#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:66
+#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:17
+#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:74
 msgid "Loading…"
 msgstr "Đang tải…"
 
-#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:14
+#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:18
 #: obox_builder/contrib/analytics/templates/obox_analytics/records.html:21
 msgid "No records found."
 msgstr "Không có bản ghi."
 
-#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:15
+#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:19
 msgid "Unable to load data. Try again."
 msgstr "Không thể tải dữ liệu. Vui lòng thử lại."
 
-#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:16
+#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:20
 msgid "Value"
 msgstr "Giá trị"
 
-#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:17
+#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:21
+msgid "Series"
+msgstr "Chuỗi dữ liệu"
+
+#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:22
 #: obox_builder/contrib/analytics/templates/obox_analytics/records.html:10
 msgid "View records"
 msgstr "Xem bản ghi"
 
-#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:50
+#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:55
 msgid "Apply filters"
 msgstr "Áp dụng bộ lọc"
 

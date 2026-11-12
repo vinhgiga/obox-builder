@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -12,17 +12,59 @@ from sqlalchemy.exc import DBAPIError
 
 from obox_builder.builder.aggregates import Aggregation, Measure
 from obox_builder.builder.filters import FilterGroup, parse_filter
+from obox_builder.contrib.analytics.charts import (
+    Avg,
+    Axis,
+    Chart,
+    ChartBuilder,
+    Count,
+    Dim,
+    Field,
+    Max,
+    Min,
+    Series,
+    Sum,
+    _terms,
+    bar,
+    donut,
+    line,
+    pie,
+    scatter,
+)
 from obox_builder.errors import ImproperlyConfigured, NotFound, OboxError
 
 if TYPE_CHECKING:
     from obox_builder.application import Obox
     from obox_builder.context import Context
 
-__all__ = ["Analytics", "Chart", "Dashboard", "Measure", "Pivot"]
+__all__ = [
+    "Analytics",
+    "Avg",
+    "Axis",
+    "Chart",
+    "ChartBuilder",
+    "Count",
+    "Dashboard",
+    "Dim",
+    "Field",
+    "Group",
+    "Max",
+    "Measure",
+    "Min",
+    "Pivot",
+    "Series",
+    "Sum",
+    "bar",
+    "donut",
+    "line",
+    "pie",
+    "scatter",
+]
 
 
-def _slug(value: str) -> None:
-    if not isinstance(value, str) or re.fullmatch(r"[a-z][a-z0-9_-]*", value) is None:
+def _slug(value: str, *, widget: bool = False) -> None:
+    pattern = r"[a-z][a-z0-9_-]*(?:\.[a-z][a-z0-9_-]*)*" if widget else r"[a-z][a-z0-9_-]*"
+    if not isinstance(value, str) or re.fullmatch(pattern, value) is None:
         raise ImproperlyConfigured("Use a lowercase slug beginning with a letter.")
 
 
@@ -65,50 +107,87 @@ class Pivot:
         )
 
 
-@dataclass(frozen=True)
-class Chart:
-    slug: str
-    kind: Literal["bar", "line", "pie", "donut"]
-    x: str
-    measure: Measure = field(default_factory=Measure)
-    title: str = ""
-    filters: FilterGroup = field(default_factory=FilterGroup)
-    sort: Literal["group", "value"] = "group"
-    descending: bool = False
-
-    @property
-    def aggregation(self) -> Aggregation:
-        return Aggregation(
-            self.x,
-            self.measure,
-            row_sort="group" if self.kind == "line" else self.sort,
-            row_descending=False if self.kind == "line" else self.descending,
-        )
-
-
-@dataclass(frozen=True)
+@dataclass(frozen=True, init=False)
 class Dashboard:
     slug: str
     title: str
-    source: type[Any]
+    source: type[Any] | None
     widgets: tuple[Pivot | Chart, ...]
+    groups: tuple[Group, ...]
 
-    def __post_init__(self) -> None:
-        _slug(self.slug)
-        object.__setattr__(self, "widgets", tuple(self.widgets))
-        if not isinstance(self.title, str) or not self.title.strip() or not self.widgets:
+    def __init__(
+        self,
+        slug: str,
+        title: str,
+        source: type[Any] | None = None,
+        widgets: Sequence[Pivot | Chart | type[ChartBuilder]] = (),
+        *,
+        groups: Sequence[Group] = (),
+    ) -> None:
+        _slug(slug)
+        normalized = []
+        for widget in widgets:
+            if isinstance(widget, type) and issubclass(widget, ChartBuilder):
+                widget = widget.as_chart()
+            if not isinstance(widget, (Pivot, Chart)):
+                raise ImproperlyConfigured("Use Pivot, Chart or ChartBuilder declarations.")
+            normalized.append(widget)
+        for name, value in (
+            ("slug", slug),
+            ("title", title),
+            ("source", source),
+            ("widgets", tuple(normalized)),
+            ("groups", tuple(groups)),
+        ):
+            object.__setattr__(self, name, value)
+        if (
+            not isinstance(self.title, str)
+            or not self.title.strip()
+            or not (self.widgets or self.groups)
+        ):
             raise ImproperlyConfigured("Dashboards require a title and at least one widget.")
+        if self.groups:
+            if self.widgets or self.source is not None:
+                raise ImproperlyConfigured(
+                    "Declare grouped dashboard sources and widgets on groups."
+                )
+            if any(not isinstance(group, Group) or group.groups for group in self.groups) or len(
+                {group.slug for group in self.groups}
+            ) != len(self.groups):
+                raise ImproperlyConfigured("Use unique source groups without nesting.")
+        elif self.source is None:
+            raise ImproperlyConfigured("A dashboard or group requires a source.")
         seen = set()
         for widget in self.widgets:
-            if not isinstance(widget, (Pivot, Chart)):
-                raise ImproperlyConfigured("Use Pivot or Chart widgets.")
-            _slug(widget.slug)
+            _slug(widget.slug, widget=True)
             if widget.slug in seen:
                 raise ImproperlyConfigured("Widget slugs must be unique within a dashboard.")
             seen.add(widget.slug)
             _filters(widget.filters)
-            if isinstance(widget, Chart) and widget.kind not in {"bar", "line", "pie", "donut"}:
+            if isinstance(widget, Chart):
+                for series in widget.series:
+                    if series.where is not None:
+                        _filters(series.where)
+            if isinstance(widget, Chart) and widget.kind not in {
+                "bar",
+                "line",
+                "scatter",
+                "pie",
+                "donut",
+            }:
                 raise ImproperlyConfigured("Unsupported chart type.")
+
+    @property
+    def sections(self) -> tuple[Dashboard, ...]:
+        return self.groups or (self,)
+
+    @property
+    def all_widgets(self) -> tuple[Pivot | Chart, ...]:
+        return tuple(widget for section in self.sections for widget in section.widgets)
+
+
+class Group(Dashboard):
+    """A source and its widgets within a dashboard page."""
 
 
 class AggregateTimeout(OboxError):
@@ -138,6 +217,7 @@ class Analytics:
         max_cells: int = 10_000,
         max_chart_groups: int = 200,
         max_pie_groups: int = 50,
+        max_points: int = 10_000,
         timeout_ms: int = 3000,
     ) -> None:
         self.dashboards = tuple(dashboards)
@@ -150,6 +230,7 @@ class Analytics:
             ("max_cells", max_cells),
             ("max_chart_groups", max_chart_groups),
             ("max_pie_groups", max_pie_groups),
+            ("max_points", max_points),
             ("timeout_ms", timeout_ms),
         ):
             if isinstance(value, bool) or not isinstance(value, int) or value < 1:
@@ -159,6 +240,7 @@ class Analytics:
         self.max_cells = max_cells
         self.max_chart_groups = max_chart_groups
         self.max_pie_groups = max_pie_groups
+        self.max_points = max_points
         self.timeout_ms = timeout_ms
 
     def setup(self, app: Obox) -> None:
@@ -169,22 +251,61 @@ class Analytics:
         if hasattr(self, "app"):
             raise ImproperlyConfigured("Analytics is already installed.")
         seen = set()
+        dashboards = []
         for dashboard in self.dashboards:
             if not isinstance(dashboard, Dashboard) or dashboard.slug in seen:
                 raise ImproperlyConfigured("Use dashboards with unique slugs.")
             seen.add(dashboard.slug)
-            builder = app.get_builder(dashboard.source)
-            for widget in dashboard.widgets:
-                widget.aggregation.validate(builder)
-                from obox_builder.builder.service import _filter_condition
+            sections = []
+            for section in dashboard.sections:
+                source = _source(app, section.source)
+                builder = app.get_builder(source)
+                widgets = []
+                for widget in section.widgets:
+                    if isinstance(widget, Chart):
+                        if widget.source is not None and _source(app, widget.source) is not source:
+                            raise ImproperlyConfigured("A chart must use its group's source.")
+                        widget.validate(builder)
+                    else:
+                        widget.aggregation.validate(builder)
+                    from obox_builder.builder.service import _filter_condition
 
-                for term in _terms(widget.filters):
-                    try:
-                        _filter_condition(
-                            builder, set(builder.fields or ()), term.field, term.op, term.value
+                    predicates = [widget.filters]
+                    if isinstance(widget, Chart):
+                        predicates.extend(
+                            series.where for series in widget.series if series.where is not None
                         )
-                    except OboxError as exc:
-                        raise ImproperlyConfigured("Invalid fixed widget filter.") from exc
+                    for predicate in predicates:
+                        for term in _terms(predicate):
+                            try:
+                                _filter_condition(
+                                    builder,
+                                    set(builder.fields or ()),
+                                    term.field,
+                                    term.op,
+                                    term.value,
+                                )
+                            except OboxError as exc:
+                                raise ImproperlyConfigured("Invalid fixed widget filter.") from exc
+                    widgets.append(
+                        replace(widget, slug=f"{section.slug}.{widget.slug}")
+                        if dashboard.groups
+                        else widget
+                    )
+                sections.append(replace(section, source=source, widgets=tuple(widgets)))
+            dashboard = (
+                replace(
+                    dashboard,
+                    groups=tuple(
+                        Group(section.slug, section.title, section.source, section.widgets)
+                        for section in sections
+                    ),
+                )
+                if dashboard.groups
+                else sections[0]
+            )
+            dashboards.append(dashboard)
+        self.dashboards = tuple(dashboards)
         self.app = app
         app.app.mount(
             self.prefix + "/_static",
@@ -204,20 +325,40 @@ class Analytics:
         raise NotFound("Unknown dashboard.")
 
     async def visible(self, dashboard: Dashboard, ctx: Context) -> bool:
-        service = self.app.service(dashboard.source)
-        if not await service.permitted("list", ctx):
-            return False
-        fields = set(service.builder.readable(ctx)).intersection(
-            service.builder.policy.aggregate_fields(ctx)
-        )
-        return any(set(widget.aggregation.fields).issubset(fields) for widget in dashboard.widgets)
+        for section in dashboard.sections:
+            service = self.app.service(_source(self.app, section.source))
+            if not await service.permitted("list", ctx):
+                continue
+            fields = set(service.builder.readable(ctx)).intersection(
+                service.builder.policy.aggregate_fields(ctx)
+            )
+            if any(
+                set(
+                    widget.fields if isinstance(widget, Chart) else widget.aggregation.fields
+                ).issubset(fields)
+                for widget in section.widgets
+            ):
+                return True
+        return False
 
 
-def _terms(group: FilterGroup) -> Any:
-    from obox_builder.builder.filters import FilterTerm
+def _source(app: Obox, source: type[Any] | None) -> type[Any]:
+    from obox_builder.builder import ModelBuilder
 
-    for child in group.children:
-        if isinstance(child, FilterTerm):
-            yield child
-        else:
-            yield from _terms(child)
+    if source is None:
+        raise ImproperlyConfigured("A source group requires a registered resource.")
+
+    model = (
+        source._model_type()
+        if isinstance(source, type) and issubclass(source, ModelBuilder)
+        else source
+    )
+    if model is None:
+        raise ImproperlyConfigured("Sources require a concrete registered model.")
+    try:
+        builder = app.get_builder(model)
+    except (KeyError, TypeError) as exc:
+        raise ImproperlyConfigured("Chart sources must be registered resources.") from exc
+    if model is not source and not isinstance(builder, source):
+        raise ImproperlyConfigured("Use the registered source builder.")
+    return model

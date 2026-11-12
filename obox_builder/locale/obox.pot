@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-11-09 22:39+0700\n"
+"POT-Creation-Date: 2026-11-12 11:48+0700\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -166,7 +166,7 @@ msgid "Back to list"
 msgstr ""
 
 #: obox_builder/builder/templates/obox/_record_fields.html:14
-#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:21
+#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:26
 msgid "Search"
 msgstr ""
 
@@ -317,7 +317,7 @@ msgstr ""
 
 #: obox_builder/builder/templates/obox/list.html:156
 #: obox_builder/builder/templates/obox/list.html:162
-#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:38
+#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:43
 msgid "Filter"
 msgstr ""
 
@@ -330,7 +330,7 @@ msgid "Apply"
 msgstr ""
 
 #: obox_builder/builder/templates/obox/list.html:169
-#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:51
+#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:58
 msgid "Reset"
 msgstr ""
 
@@ -481,38 +481,42 @@ msgstr ""
 msgid "Sign in"
 msgstr ""
 
-#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:11
+#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:15
 msgid "Empty"
 msgstr ""
 
-#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:12
+#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:16
 msgid "Total"
 msgstr ""
 
-#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:13
-#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:66
+#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:17
+#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:74
 msgid "Loading…"
 msgstr ""
 
-#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:14
+#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:18
 #: obox_builder/contrib/analytics/templates/obox_analytics/records.html:21
 msgid "No records found."
 msgstr ""
 
-#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:15
+#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:19
 msgid "Unable to load data. Try again."
 msgstr ""
 
-#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:16
+#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:20
 msgid "Value"
 msgstr ""
 
-#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:17
+#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:21
+msgid "Series"
+msgstr ""
+
+#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:22
 #: obox_builder/contrib/analytics/templates/obox_analytics/records.html:10
 msgid "View records"
 msgstr ""
 
-#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:50
+#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:55
 msgid "Apply filters"
 msgstr ""
 

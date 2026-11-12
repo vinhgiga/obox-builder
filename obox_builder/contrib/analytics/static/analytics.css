@@ -24,6 +24,12 @@
   position: relative;
   height: 18rem;
 }
+.analytics-height-sm .analytics-chart {
+  height: 12rem;
+}
+.analytics-height-lg .analytics-chart {
+  height: 24rem;
+}
 .analytics-table {
   overflow: auto;
   max-height: 36rem;

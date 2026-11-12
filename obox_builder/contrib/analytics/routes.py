@@ -21,7 +21,7 @@ from obox_builder.builder.filters import FilterGroup, FilterTerm
 from obox_builder.builder.http import ApiRoute, OboxRoute
 from obox_builder.builder.ui import build_navigation, filter_columns, list_columns
 from obox_builder.context import Context
-from obox_builder.contrib.analytics import AggregateTimeout, Chart, Pivot, is_timeout
+from obox_builder.contrib.analytics import AggregateTimeout, Chart, Pivot, _source, is_timeout
 from obox_builder.errors import BuilderValidationError, NotFound
 from obox_builder.i18n import context as translation_context
 from obox_builder.i18n import localize
@@ -59,11 +59,13 @@ class AnalyticsDataRoute(ApiRoute):
         await super().handle(scope, receive, send)
 
 
-def options(request: Request, builder: Any, widget: Pivot | Chart | None = None) -> dict[str, Any]:
+def options(
+    request: Request, builder: Any, widget: Pivot | Chart | None = None, *, prefix: str = ""
+) -> dict[str, Any]:
     pairs = [
-        (key, value)
+        (key.removeprefix(prefix), value)
         for key, value in request.query_params.multi_items()
-        if key not in {"row", "column", "offset", "limit"}
+        if key not in {"row", "column", "selector", "offset", "limit"} and key.startswith(prefix)
     ]
     if any(key == "ordering" for key, _ in pairs):
         raise BuilderValidationError({"ordering": ["Widget ordering is defined on the server."]})
@@ -91,12 +93,20 @@ def options(request: Request, builder: Any, widget: Pivot | Chart | None = None)
     return {"filter_group": FilterGroup(children=tuple(terms)), "search": values["search"]}
 
 
-def validate_parameters(request: Request, *, records: bool = False) -> None:
+def validate_parameters(
+    request: Request, *, records: bool = False, prefixes: tuple[str, ...] = ()
+) -> None:
     for key in request.query_params:
-        if key in {"row", "column", "offset", "limit"} and not records:
+        if key in {"row", "column", "selector", "offset", "limit"} and not records:
             raise BuilderValidationError({key: ["Unknown query parameter."]})
         if len(request.query_params.getlist(key)) != 1:
             raise BuilderValidationError({key: ["Supply this parameter once."]})
+        if (
+            prefixes
+            and key not in {"row", "column", "selector", "offset", "limit"}
+            and not key.startswith(prefixes)
+        ):
+            raise BuilderValidationError({key: ["Use a declared group's filter prefix."]})
 
 
 def build_router(analytics: Analytics) -> APIRouter:
@@ -104,14 +114,41 @@ def build_router(analytics: Analytics) -> APIRouter:
     router = APIRouter(prefix=analytics.prefix, route_class=AnalyticsRoute, include_in_schema=False)
     dependency = Depends(app.context_dependency("ui"), scope="function")
 
-    def resolve(ctx: Context, dashboard: str, widget: str | None = None) -> tuple[Any, Any, Any]:
+    def selection_binding(
+        request: Request, ctx: Context, dashboard: str, chart: Chart, prefix: str = ""
+    ) -> str:
+        return repr(
+            (
+                dashboard,
+                chart,
+                ctx.principal.id,
+                ctx.source,
+                sorted(
+                    (key, value)
+                    for key, value in request.query_params.multi_items()
+                    if key not in {"selector", "offset", "limit"} and key.startswith(prefix)
+                ),
+            )
+        )
+
+    def resolve(
+        ctx: Context, dashboard: str, widget: str | None = None
+    ) -> tuple[Any, Any, Any, Any]:
         if getattr(ctx.principal, "api_scopes", None) is not None:
             ctx.source = "api"
         definition = analytics.dashboard(dashboard)
-        selected = next((w for w in definition.widgets if w.slug == widget), None)
+        selected = next((w for w in definition.all_widgets if w.slug == widget), None)
         if widget is not None and selected is None:
             raise NotFound("Unknown widget.")
-        return definition, selected, app.service(definition.source)
+        owner = next(
+            section
+            for section in definition.sections
+            if selected is None or selected in section.widgets
+        )
+        return definition, owner, selected, app.service(_source(app, owner.source))
+
+    def prefixes(definition: Any) -> tuple[str, ...]:
+        return tuple(group.slug + "." for group in definition.groups)
 
     async def page(template: str, request: Request, ctx: Context, **values: Any) -> HTMLResponse:
         return cast(
@@ -142,28 +179,63 @@ def build_router(analytics: Analytics) -> APIRouter:
 
     @router.get("/{dashboard}", name="obox_analytics_dashboard")
     async def dashboard_page(request: Request, dashboard: str, ctx: Context = dependency) -> Any:
-        definition, _, service = resolve(ctx, dashboard)
-        await service.authorize("list", ctx)
-        validate_parameters(request)
-        values = options(request, service.builder)
-        await service._list_statement(ctx=ctx, **values)
-        filters = [
-            name
-            for name in service.builder.view.get_list_filter(ctx)
-            if name in service.builder.filter_fields
-            and name in service.builder.readable(ctx)
-            and "obox_files" not in service.builder.specs[name].column.info
-        ]
+        definition, _, _, service = resolve(ctx, dashboard)
+        if not definition.groups or not await analytics.visible(definition, ctx):
+            await service.authorize("list", ctx)
+        validate_parameters(request, prefixes=prefixes(definition))
+        dashboard_url = localize(request, analytics.prefix + "/" + definition.slug)
+        sections = []
+        for section in definition.sections:
+            service = app.service(section.source)
+            if not await service.permitted("list", ctx):
+                continue
+            prefix = section.slug + "." if definition.groups else ""
+            values = options(request, service.builder, prefix=prefix)
+            _, readable = await service._list_statement(ctx=ctx, **values)
+            allowed = readable.intersection(service.builder.policy.aggregate_fields(ctx))
+            widgets = tuple(
+                widget
+                for widget in section.widgets
+                if set(
+                    widget.fields if isinstance(widget, Chart) else widget.aggregation.fields
+                ).issubset(allowed)
+            )
+            if not widgets:
+                continue
+            filters = [
+                name
+                for name in service.builder.view.get_list_filter(ctx)
+                if name in service.builder.filter_fields
+                and name in readable
+                and "obox_files" not in service.builder.specs[name].column.info
+            ]
+            other = urlencode(
+                [
+                    (key, value)
+                    for key, value in request.query_params.multi_items()
+                    if prefix and not key.startswith(prefix)
+                ]
+            )
+            sections.append(
+                {
+                    "title": section.title,
+                    "widgets": widgets,
+                    "prefix": prefix,
+                    "filters": filter_columns(service.builder, ctx, filters),
+                    "search_enabled": bool(service.builder.search_fields),
+                    "reset_url": dashboard_url + ("?" + other if other else ""),
+                }
+            )
+        if definition.groups and not sections:
+            raise NotFound("Unknown dashboard.")
         return await page(
             "obox_analytics/dashboard.html",
             request,
             ctx,
             title=definition.title,
             dashboard=definition,
-            widgets=definition.widgets,
-            filters=filter_columns(service.builder, ctx, filters),
-            search_enabled=bool(service.builder.search_fields),
-            dashboard_url=localize(request, analytics.prefix + "/" + definition.slug),
+            sections=sections,
+            dashboard_url=dashboard_url,
             widget_urls={
                 widget.slug: {
                     endpoint: localize(
@@ -179,16 +251,57 @@ def build_router(analytics: Analytics) -> APIRouter:
                     )
                     for endpoint in ("data", "records")
                 }
-                for widget in definition.widgets
+                for widget in definition.all_widgets
             },
         )
 
     async def data(request: Request, dashboard: str, widget: str, ctx: Context = dependency) -> Any:
-        definition, selected, service = resolve(ctx, dashboard, widget)
-        validate_parameters(request)
+        definition, owner, selected, service = resolve(ctx, dashboard, widget)
+        prefix = owner.slug + "." if definition.groups else ""
+        validate_parameters(request, prefixes=prefixes(definition))
         started, groups, outcome = monotonic(), 0, "error"
         try:
             await timeout(ctx)
+            if isinstance(selected, Chart) and selected.y is not None:
+                from obox_builder.contrib.analytics.query import execute, selector
+
+                payload = await execute(
+                    service,
+                    selected,
+                    ctx,
+                    max_rows=analytics.max_pie_groups
+                    if selected.kind in {"pie", "donut"}
+                    else analytics.max_chart_groups,
+                    max_groups=analytics.max_columns,
+                    max_cells=analytics.max_cells,
+                    max_points=analytics.max_points,
+                    **options(request, service.builder, selected, prefix=prefix),
+                )
+                binding = selection_binding(request, ctx, definition.slug, selected, prefix)
+                for series in payload["series"]:
+                    for point in series["points"]:
+                        key = point.pop("key")
+                        if selected.drill:
+                            point["selector"] = selector(app.csrf.secret, binding, key=key)
+                from dataclasses import asdict
+
+                payload["config"] = {
+                    key: getattr(selected, key)
+                    for key in (
+                        "kind",
+                        "orientation",
+                        "stack",
+                        "legend",
+                        "labels",
+                        "percent",
+                        "drill",
+                    )
+                }
+                for key in ("primary_axis", "secondary_axis"):
+                    axis = getattr(selected, key)
+                    payload["config"][key] = asdict(axis) if axis else {}
+                groups, outcome = payload["pointCount"], "ok"
+                return JSONResponse(payload, headers=HEADERS)
             limit = analytics.max_rows
             if isinstance(selected, Chart):
                 limit = (
@@ -199,7 +312,7 @@ def build_router(analytics: Analytics) -> APIRouter:
             result = await service.aggregate(
                 selected.aggregation,
                 ctx=ctx,
-                **options(request, service.builder, selected),
+                **options(request, service.builder, selected, prefix=prefix),
                 max_rows=limit,
                 max_columns=analytics.max_columns,
                 max_cells=analytics.max_cells,
@@ -240,12 +353,24 @@ def build_router(analytics: Analytics) -> APIRouter:
         widget: str,
         ctx: Context = dependency,
     ) -> Any:
-        definition, selected, service = resolve(ctx, dashboard, widget)
-        validate_parameters(request, records=True)
+        definition, owner, selected, service = resolve(ctx, dashboard, widget)
+        prefix = owner.slug + "." if definition.groups else ""
+        validate_parameters(request, records=True, prefixes=prefixes(definition))
+        if isinstance(selected, Chart) and not selected.drill:
+            raise NotFound("Record inspection is disabled.")
+        extended = isinstance(selected, Chart) and selected.y is not None
+        if (extended and any(key in request.query_params for key in ("row", "column"))) or (
+            not extended and "selector" in request.query_params
+        ):
+            raise BuilderValidationError({"selector": ["Invalid widget selection."]})
         keys = {}
         for parameter, name in (
-            ("row", selected.aggregation.rows),
-            ("column", selected.aggregation.columns),
+            ()
+            if extended
+            else (
+                ("row", selected.aggregation.rows),
+                ("column", selected.aggregation.columns),
+            )
         ):
             if parameter not in request.query_params:
                 continue
@@ -263,14 +388,33 @@ def build_router(analytics: Analytics) -> APIRouter:
             raise BuilderValidationError({"pagination": ["Use integer offset and limit."]}) from exc
         try:
             await timeout(ctx)
-            objects = await service.aggregate_records(
-                selected.aggregation,
-                ctx=ctx,
-                keys=keys,
-                offset=offset,
-                limit=limit,
-                **options(request, service.builder, selected),
-            )
+            if extended:
+                from obox_builder.contrib.analytics.query import records as chart_records
+                from obox_builder.contrib.analytics.query import selector
+
+                key = selector(
+                    app.csrf.secret,
+                    selection_binding(request, ctx, definition.slug, selected, prefix),
+                    token=request.query_params.get("selector"),
+                )
+                objects = await chart_records(
+                    service,
+                    selected,
+                    ctx,
+                    key,
+                    offset=offset,
+                    limit=limit,
+                    **options(request, service.builder, selected, prefix=prefix),
+                )
+            else:
+                objects = await service.aggregate_records(
+                    selected.aggregation,
+                    ctx=ctx,
+                    keys=keys,
+                    offset=offset,
+                    limit=limit,
+                    **options(request, service.builder, selected, prefix=prefix),
+                )
             builder = service.builder
             columns = [
                 name
@@ -302,7 +446,7 @@ def build_router(analytics: Analytics) -> APIRouter:
             [
                 (key, value)
                 for key, value in request.query_params.multi_items()
-                if key not in {"row", "column", "offset", "limit"}
+                if key not in {"row", "column", "selector", "offset", "limit"}
             ]
         )
         back = localize(request, analytics.prefix + "/" + definition.slug)
