@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  obox-builder\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-11-12 15:21+0700\n"
+"POT-Creation-Date: 2026-11-12 20:39+0700\n"
 "PO-Revision-Date: 2026-10-31 20:45+0700\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: vi\n"
@@ -490,39 +490,63 @@ msgstr "Hiện mật khẩu"
 msgid "Sign in"
 msgstr "Đăng nhập"
 
-#: obox_builder/contrib/analytics/routes.py:286
+#: obox_builder/contrib/analytics/routes.py:287
 msgid "Empty"
 msgstr "Trống"
 
-#: obox_builder/contrib/analytics/routes.py:287
+#: obox_builder/contrib/analytics/routes.py:288
 msgid "Total"
 msgstr "Tổng"
 
-#: obox_builder/contrib/analytics/routes.py:288
+#: obox_builder/contrib/analytics/routes.py:289
 msgid "Loading…"
 msgstr "Đang tải…"
 
-#: obox_builder/contrib/analytics/routes.py:289
+#: obox_builder/contrib/analytics/routes.py:290
 #: obox_builder/contrib/analytics/templates/obox_analytics/records.html:21
 msgid "No records found."
 msgstr "Không có bản ghi."
 
-#: obox_builder/contrib/analytics/routes.py:290
+#: obox_builder/contrib/analytics/routes.py:291
 msgid "Unable to load data. Try again."
 msgstr "Không thể tải dữ liệu. Vui lòng thử lại."
 
-#: obox_builder/contrib/analytics/routes.py:291
+#: obox_builder/contrib/analytics/routes.py:292
 msgid "Value"
 msgstr "Giá trị"
 
-#: obox_builder/contrib/analytics/routes.py:292
+#: obox_builder/contrib/analytics/routes.py:293
 msgid "Series"
 msgstr "Chuỗi dữ liệu"
 
-#: obox_builder/contrib/analytics/routes.py:293
+#: obox_builder/contrib/analytics/routes.py:294
 #: obox_builder/contrib/analytics/templates/obox_analytics/records.html:10
 msgid "View records"
 msgstr "Xem bản ghi"
+
+#: obox_builder/contrib/analytics/routes.py:295
+msgid "Chart options"
+msgstr "Tùy chọn biểu đồ"
+
+#: obox_builder/contrib/analytics/routes.py:296
+msgid "View as table"
+msgstr "Xem dạng bảng"
+
+#: obox_builder/contrib/analytics/routes.py:297
+msgid "View as chart"
+msgstr "Xem dạng biểu đồ"
+
+#: obox_builder/contrib/analytics/routes.py:298
+msgid "Expand"
+msgstr "Mở rộng"
+
+#: obox_builder/contrib/analytics/routes.py:299
+msgid "Close"
+msgstr "Đóng"
+
+#: obox_builder/contrib/analytics/routes.py:300
+msgid "All records"
+msgstr "Tất cả bản ghi"
 
 #: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:48
 msgid "Apply filters"
@@ -847,4 +871,16 @@ msgstr "Không tìm thấy người dùng nào."
 #~ msgstr "Bản ghi"
 
 #~ msgid "View"
-#~ msgstr "Xem"
+#~ msgstr "Chế độ hiển thị"
+
+#~ msgid "Chart"
+#~ msgstr "Biểu đồ"
+
+#~ msgid "Table"
+#~ msgstr "Bảng"
+
+#~ msgid "Exit full screen"
+#~ msgstr "Thoát toàn màn hình"
+
+#~ msgid "Unable to expand this chart."
+#~ msgstr "Không thể mở rộng biểu đồ này."

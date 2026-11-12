@@ -7,9 +7,15 @@ const source = readFileSync(
   new URL("../../obox_builder/contrib/analytics/static/analytics.js", import.meta.url),
   "utf8",
 ).replace('"./http.js"', JSON.stringify(client));
-const { chartData, DashboardLoader, pooled, recordURL } = await import(
-  `data:text/javascript;base64,${Buffer.from(source).toString("base64")}`
-);
+const {
+  chartData,
+  DashboardLoader,
+  pooled,
+  recordURL,
+  selectWidget,
+  setWidgetView,
+  widgetRecordSelections,
+} = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
 
 test("drill-down preserves filters and distinguishes totals, null and empty groups", () => {
   const filters = new URLSearchParams({ "filter.region": "East" });
@@ -37,6 +43,82 @@ test("charts retain exact values for tooltips and omit zero/null circular slices
       { key: "large", value: "9007199254740993.01" },
     ]);
   }
+});
+
+test("chart menu switches views and resizes the chart when it is shown", () => {
+  const chartHolder = { hidden: true };
+  const table = { hidden: true };
+  const buttons = ["chart", "table"].map((widgetView) => ({
+    dataset: { widgetView },
+    hidden: widgetView === "chart",
+  }));
+  const widget = {
+    dataset: {},
+    querySelector(selector) {
+      return selector === "[data-chart]" ? chartHolder : table;
+    },
+    querySelectorAll() {
+      return buttons;
+    },
+  };
+  let resizes = 0;
+  const chart = {
+    resize() {
+      resizes++;
+    },
+  };
+
+  setWidgetView(widget, "table", chart);
+  assert.equal(widget.dataset.view, "table");
+  assert.equal(chartHolder.hidden, true);
+  assert.equal(table.hidden, false);
+  assert.equal(buttons[0].hidden, false);
+  assert.equal(buttons[1].hidden, true);
+  assert.equal(resizes, 0);
+
+  setWidgetView(widget, "chart", chart);
+  assert.equal(chartHolder.hidden, false);
+  assert.equal(table.hidden, true);
+  assert.equal(buttons[0].hidden, true);
+  assert.equal(buttons[1].hidden, false);
+  assert.equal(resizes, 1);
+});
+
+test("only the selected chart exposes its menu", () => {
+  const widget = () => {
+    const attributes = new Set();
+    return {
+      toggleAttribute(name, enabled) {
+        if (enabled) attributes.add(name);
+        else attributes.delete(name);
+      },
+      hasAttribute: (name) => attributes.has(name),
+    };
+  };
+  const charts = [widget(), widget()];
+
+  selectWidget(charts, charts[1]);
+  assert.equal(charts[0].hasAttribute("data-selected"), false);
+  assert.equal(charts[1].hasAttribute("data-selected"), true);
+  selectWidget(charts, null);
+  assert.equal(charts[1].hasAttribute("data-selected"), false);
+});
+
+test("expanded chart records follow chart categories and current filters", () => {
+  const widget = { dataset: { drill: "true", recordsUrl: "/records" } };
+  const filters = new URLSearchParams({ "filter.region": "South" });
+  const selections = widgetRecordSelections(widget, { rows: ["North", null] }, filters, {
+    empty: "Empty",
+    allRecords: "All records",
+  });
+
+  assert.deepEqual(
+    selections.map(({ label }) => label),
+    ["North", "Empty", "All records"],
+  );
+  assert.equal(new URL(selections[0].url).searchParams.get("filter.region"), "South");
+  assert.equal(new URL(selections[0].url).searchParams.get("row"), '"North"');
+  assert.equal(new URL(selections.at(-1).url).searchParams.has("row"), false);
 });
 
 test("widget loading caps concurrent requests at two", async () => {

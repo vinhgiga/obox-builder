@@ -363,6 +363,43 @@ function renderChart(widget, data, filters, labels, Chart) {
   });
 }
 
+export function setWidgetView(widget, view, chart) {
+  const selected = view === "table" ? "table" : "chart";
+  const chartHolder = widget.querySelector("[data-chart]");
+  const table = widget.querySelector("[data-table]");
+  widget.dataset.view = selected;
+  chartHolder.hidden = selected !== "chart" || !chart;
+  table.hidden = selected !== "table";
+  for (const button of widget.querySelectorAll("[data-widget-view]")) {
+    button.hidden = button.dataset.widgetView === selected;
+  }
+  if (!chartHolder.hidden) chart.resize();
+}
+
+export function selectWidget(widgets, selected) {
+  for (const widget of widgets) widget.toggleAttribute("data-selected", widget === selected);
+}
+
+export function widgetRecordSelections(widget, data, filters, labels) {
+  if (widget.dataset.drill !== "true") return [];
+  if (data.series) {
+    if (data.grouped || data.series.length !== 1) return [];
+    return data.series[0].points
+      .filter((point) => point.selector)
+      .map((point) => ({
+        label: point.x === null ? labels.empty : String(point.x),
+        url: selectionURL(widget.dataset.recordsUrl, filters, point.selector),
+      }));
+  }
+  return [
+    ...data.rows.map((key) => ({
+      label: key === null ? labels.empty : String(key),
+      url: recordURL(widget.dataset.recordsUrl, filters, key),
+    })),
+    { label: labels.allRecords, url: recordURL(widget.dataset.recordsUrl, filters) },
+  ];
+}
+
 const mounted = new WeakMap();
 
 export function mount(root, { filters, Chart = globalThis.Chart } = {}) {
@@ -374,12 +411,167 @@ export function mount(root, { filters, Chart = globalThis.Chart } = {}) {
     (widget) => widget.closest("[data-analytics]") === root,
   );
   const charts = new Map();
+  const widgetData = new Map();
   const loader = new DashboardLoader();
   const events = new AbortController();
+  const ownerDocument = root.ownerDocument;
+  const dialog = node("dialog", undefined, root);
+  dialog.className = "analytics-expanded";
+  const dialogContent = node("div", undefined, dialog);
+  dialogContent.className = "analytics-expanded-content";
+  const dialogHeader = node("header", undefined, dialogContent);
+  dialogHeader.className = "analytics-expanded-header";
+  const dialogTitle = node("h2", undefined, dialogHeader);
+  dialogTitle.id = "obox-analytics-expanded-title";
+  dialog.setAttribute("aria-labelledby", dialogTitle.id);
+  const close = node("button", "×", dialogHeader);
+  close.type = "button";
+  close.className = "btn btn-icon btn-sm";
+  close.setAttribute("aria-label", root.dataset.close);
+  close.title = root.dataset.close;
+  close.autofocus = true;
+  const dialogChart = node("div", undefined, dialogContent);
+  dialogChart.className = "analytics-expanded-chart";
+  const recordTabs = node("div", undefined, dialogContent);
+  recordTabs.className = "analytics-expanded-tabs";
+  const recordPanel = node("div", undefined, dialogContent);
+  recordPanel.className = "analytics-expanded-records";
+  let activeWidget;
+  let activeElement;
+  let activePosition;
+  let recordsController;
+
+  async function loadRecords(url) {
+    recordsController?.abort();
+    recordsController = new AbortController();
+    const { signal } = recordsController;
+    recordPanel.textContent = labels.loading;
+    try {
+      const response = await request(url, { signal, headers: { Accept: "text/html" } });
+      if (!response.ok) throw new Error(labels.error);
+      const page = new ownerDocument.defaultView.DOMParser().parseFromString(
+        await response.text(),
+        "text/html",
+      );
+      const table = page.querySelector(".table-responsive");
+      if (!table) throw new Error(labels.error);
+      recordPanel.replaceChildren(ownerDocument.importNode(table, true));
+      const pagination = table.nextElementSibling;
+      if (pagination?.matches("nav"))
+        recordPanel.append(ownerDocument.importNode(pagination, true));
+    } catch (error) {
+      if (!signal.aborted) recordPanel.textContent = error.message || labels.error;
+    }
+  }
+
+  function restoreExpanded() {
+    recordsController?.abort();
+    recordsController = null;
+    if (activeWidget && activeElement && activePosition) {
+      const { parent, next } = activePosition;
+      parent.insertBefore(activeElement, next?.parentNode === parent ? next : null);
+      if (activeElement.matches("[data-chart]")) {
+        activeElement.hidden = activeWidget.dataset.view !== "chart" || !charts.get(activeWidget);
+        charts.get(activeWidget)?.resize();
+      } else activeElement.hidden = activeWidget.dataset.view !== "table";
+    }
+    activeWidget = activeElement = activePosition = undefined;
+    dialogChart.replaceChildren();
+  }
+
+  function openExpanded(widget) {
+    const data = widgetData.get(widget);
+    const view = widget.dataset.view === "table" ? "table" : "chart";
+    const element = widget.querySelector(view === "table" ? "[data-table]" : "[data-chart]");
+    if (!data || !element || !dialog.showModal) return;
+    activeWidget = widget;
+    activeElement = element;
+    activePosition = { parent: element.parentNode, next: element.nextSibling };
+    dialogTitle.textContent = widget.querySelector("h2").textContent;
+    dialogChart.replaceChildren(element);
+    element.hidden = false;
+    recordTabs.replaceChildren();
+    recordPanel.replaceChildren();
+    const selections =
+      view === "chart" ? widgetRecordSelections(widget, data, currentFilters, labels) : [];
+    dialog.toggleAttribute("data-record-list", Boolean(selections.length));
+    recordTabs.hidden = !selections.length;
+    recordPanel.hidden = !selections.length;
+    for (const [index, selection] of selections.entries()) {
+      const button = node("button", selection.label, recordTabs);
+      button.type = "button";
+      button.setAttribute("aria-pressed", String(index === 0));
+      button.addEventListener(
+        "click",
+        () => {
+          for (const tab of recordTabs.querySelectorAll("button")) {
+            tab.setAttribute("aria-pressed", String(tab === button));
+          }
+          void loadRecords(selection.url);
+        },
+        { signal: events.signal },
+      );
+    }
+    dialog.showModal();
+    ownerDocument.defaultView.requestAnimationFrame(() => charts.get(widget)?.resize());
+    if (selections.length) void loadRecords(selections[0].url);
+  }
+
+  close.addEventListener("click", () => dialog.close(), { signal: events.signal });
+  dialog.addEventListener("close", restoreExpanded, { signal: events.signal });
+  recordPanel.addEventListener(
+    "click",
+    (event) => {
+      const link = event.target.closest("nav a");
+      if (!link) return;
+      event.preventDefault();
+      void loadRecords(link.href);
+    },
+    { signal: events.signal },
+  );
+  root.addEventListener(
+    "click",
+    (event) => {
+      const widget = event.target.closest("[data-widget]");
+      if (widget && widgets.includes(widget)) selectWidget(widgets, widget);
+      else if (!dialog.contains(event.target)) selectWidget(widgets, null);
+    },
+    { signal: events.signal },
+  );
+  for (const widget of widgets) {
+    widget.addEventListener("focusin", () => selectWidget(widgets, widget), {
+      signal: events.signal,
+    });
+    for (const button of widget.querySelectorAll("[data-widget-view]")) {
+      button.addEventListener(
+        "click",
+        () => {
+          setWidgetView(widget, button.dataset.widgetView, charts.get(widget));
+          widget.querySelector("[data-widget-menu]").open = false;
+        },
+        { signal: events.signal },
+      );
+    }
+    const expand = widget.querySelector("[data-widget-expand]");
+    expand?.addEventListener("click", () => openExpanded(widget), { signal: events.signal });
+  }
+  ownerDocument.addEventListener(
+    "click",
+    (event) => {
+      for (const widget of widgets) {
+        const menu = widget.querySelector("[data-widget-menu]");
+        if (menu && !menu.contains(event.target)) menu.open = false;
+      }
+    },
+    { signal: events.signal },
+  );
+  let currentFilters = new URLSearchParams(filters ?? globalThis.location.search);
   async function load(filters) {
+    currentFilters = filters;
     for (const widget of widgets) {
       charts.get(widget)?.destroy();
       charts.delete(widget);
+      widgetData.delete(widget);
       widget.querySelector("[data-chart]").hidden = true;
       widget.querySelector("[data-table]").replaceChildren();
       widget.querySelector("[data-status]").textContent = labels.loading;
@@ -406,6 +598,7 @@ export function mount(root, { filters, Chart = globalThis.Chart } = {}) {
           status.textContent = error.message || labels.error;
           return;
         }
+        widgetData.set(widget, data);
         renderTable(widget, data, filters, labels);
         const isCircle = ["pie", "donut"].includes(widget.dataset.kind);
         const empty =
@@ -422,6 +615,11 @@ export function mount(root, { filters, Chart = globalThis.Chart } = {}) {
             status.textContent = failure.message;
           }
         }
+        setWidgetView(
+          widget,
+          widget.dataset.view || (widget.dataset.kind === "pivot" ? "table" : "chart"),
+          charts.get(widget),
+        );
       },
     );
   }
@@ -466,7 +664,7 @@ export function mount(root, { filters, Chart = globalThis.Chart } = {}) {
     },
     { signal: events.signal },
   );
-  const initial = new URLSearchParams(filters ?? globalThis.location.search);
+  const initial = currentFilters;
   if (prefix) {
     for (const key of [...initial.keys()]) {
       if (!key.startsWith(prefix)) initial.delete(key);
@@ -474,10 +672,13 @@ export function mount(root, { filters, Chart = globalThis.Chart } = {}) {
   }
   void load(initial);
   const destroy = () => {
+    if (dialog.open) dialog.close();
+    restoreExpanded();
     events.abort();
     loader.controller?.abort();
     for (const chart of charts.values()) chart?.destroy();
     charts.clear();
+    dialog.remove();
     if (mounted.get(root) === destroy) mounted.delete(root);
   };
   mounted.set(root, destroy);
@@ -494,6 +695,8 @@ export function mountWidget(root, widget, options = {}) {
   Object.assign(card.dataset, {
     widget: "",
     kind: widget.kind,
+    view: widget.kind === "pivot" ? "table" : "chart",
+    drill: widget.drill ?? widget.kind !== "pivot",
     url: widget.url,
     recordsUrl: widget.recordsUrl,
     rowLabel: widget.rowLabel,
@@ -501,7 +704,41 @@ export function mountWidget(root, widget, options = {}) {
     rowTotals: widget.rowTotals ?? true,
     columnTotals: widget.columnTotals ?? true,
   });
-  node("h2", widget.title, card).className = "card-header h3";
+  const header = node("header", undefined, card);
+  header.className = "card-header d-flex align-items-center justify-content-between gap-2";
+  node("h2", widget.title, header).className = "h3 mb-0";
+  const actions = node("div", undefined, header);
+  actions.className = "analytics-widget-actions";
+  if (widget.kind !== "pivot") {
+    const menu = node("details", undefined, actions);
+    menu.className = "analytics-widget-menu";
+    menu.dataset.widgetMenu = "";
+    const trigger = node("summary", "⋮", menu);
+    trigger.className = "btn btn-icon btn-sm btn-outline-secondary";
+    trigger.setAttribute("aria-label", root.dataset.chartOptions);
+    trigger.title = root.dataset.chartOptions;
+    const items = node("div", undefined, menu);
+    items.className = "analytics-widget-menu-items";
+    for (const [view, label] of [
+      ["table", root.dataset.viewAsTable],
+      ["chart", root.dataset.viewAsChart],
+    ]) {
+      const button = node("button", label, items);
+      button.type = "button";
+      button.className = "btn btn-ghost-secondary";
+      button.dataset.widgetView = view;
+      button.hidden = view === "chart";
+    }
+  }
+  const expand = node("button", undefined, actions);
+  expand.type = "button";
+  expand.className = "btn btn-icon btn-sm btn-outline-secondary";
+  expand.dataset.widgetExpand = "";
+  const icon = node("span", "↗", expand);
+  icon.dataset.expandIcon = "";
+  icon.setAttribute("aria-hidden", "true");
+  expand.setAttribute("aria-label", root.dataset.expand);
+  expand.title = root.dataset.expand;
   const body = node("div", undefined, card);
   body.className = "card-body";
   if (widget.description) node("p", widget.description, body);
@@ -518,6 +755,7 @@ export function mountWidget(root, widget, options = {}) {
   const table = node("div", undefined, body);
   table.className = "analytics-table";
   table.dataset.table = "";
+  table.hidden = widget.kind !== "pivot";
   return mount(root, options);
 }
 

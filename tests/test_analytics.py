@@ -284,10 +284,19 @@ def test_http_dashboard_data_records_and_permissions(tmp_path: Path) -> None:
             assert "Sales &lt;report&gt;" in page.text
             assert "data-widget" in page.text
             assert 'role="img"' in page.text
+            assert page.text.count("data-widget-expand") == 8
+            assert page.text.count("data-widget-menu") == 6
+            assert page.text.count('data-widget-view="chart"') == 6
+            assert page.text.count('data-widget-view="table"') == 6
+            assert "View as table" in page.text
+            assert "View as chart" in page.text
             localized = await client.get("/vi/analytics/sales")
             assert localized.status_code == 200
             assert 'data-url="/vi/analytics/sales/pivot/data"' in localized.text
             assert "Áp dụng bộ lọc" in localized.text
+            assert "Xem dạng bảng" in localized.text
+            assert "Xem dạng biểu đồ" in localized.text
+            assert "Mở rộng" in localized.text
             localized_data = await client.get("/vi/analytics/sales/pivot/data")
             assert localized_data.status_code == 200, localized_data.text
             assert localized_data.headers["content-language"] == "vi"

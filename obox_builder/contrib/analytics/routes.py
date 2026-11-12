@@ -266,6 +266,7 @@ def build_router(analytics: Analytics) -> APIRouter:
                     "title": widget.title or widget.slug,
                     "description": getattr(widget, "description", ""),
                     "kind": widget.kind if isinstance(widget, Chart) else "pivot",
+                    "drill": getattr(widget, "drill", False),
                     "height": getattr(widget, "height", "md"),
                     "filterPrefix": section["prefix"],
                     "url": widget_urls[widget.slug]["data"],
@@ -291,6 +292,12 @@ def build_router(analytics: Analytics) -> APIRouter:
                 "value": translate(request, "Value"),
                 "series": translate(request, "Series"),
                 "records": translate(request, "View records"),
+                "chartOptions": translate(request, "Chart options"),
+                "viewAsTable": translate(request, "View as table"),
+                "viewAsChart": translate(request, "View as chart"),
+                "expand": translate(request, "Expand"),
+                "close": translate(request, "Close"),
+                "allRecords": translate(request, "All records"),
             },
         }
 

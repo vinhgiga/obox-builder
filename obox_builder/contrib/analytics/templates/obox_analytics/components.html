@@ -8,7 +8,13 @@
        data-error="{{ labels.error }}"
        data-value="{{ labels.value }}"
        data-series="{{ labels.series }}"
-       data-records="{{ labels.records }}">{{ caller() }}</div>
+       data-records="{{ labels.records }}"
+       data-chart-options="{{ labels.chartOptions }}"
+       data-view-as-table="{{ labels.viewAsTable }}"
+       data-view-as-chart="{{ labels.viewAsChart }}"
+       data-expand="{{ labels.expand }}"
+       data-close="{{ labels.close }}"
+       data-all-records="{{ labels.allRecords }}">{{ caller() }}</div>
 {% endmacro %}
 {% macro chart(slug, standalone=true) %}
   {% set widget = widget_config.get(slug) %}
@@ -19,20 +25,49 @@
       <section class="card analytics-widget{% if widget.kind == 'pivot' %} analytics-pivot{% endif %} analytics-height-{{ widget.height }}"
                data-widget
                data-kind="{{ widget.kind }}"
+               data-view="{{ 'table' if widget.kind == 'pivot' else 'chart' }}"
+               data-drill="{{ 'true' if widget.kind != 'pivot' and widget.drill else 'false' }}"
                data-url="{{ widget.url }}"
                data-records-url="{{ widget.recordsUrl }}"
                data-row-label="{{ widget.rowLabel }}"
                data-column-label="{{ widget.columnLabel }}"
                data-row-totals="{{ 'true' if widget.rowTotals else 'false' }}"
                data-column-totals="{{ 'true' if widget.columnTotals else 'false' }}">
-        <h2 class="card-header h3">{{ widget.title }}</h2>
+        <header class="card-header d-flex align-items-center justify-content-between gap-2">
+          <h2 class="h3 mb-0">{{ widget.title }}</h2>
+          <div class="analytics-widget-actions">
+            {% if widget.kind != "pivot" %}
+              <details class="analytics-widget-menu" data-widget-menu>
+                <summary class="btn btn-action btn-icon btn-sm"
+                         aria-label="{{ labels.chartOptions }}"
+                         title="{{ labels.chartOptions }}"><span aria-hidden="true">⋮</span></summary>
+                <div class="analytics-widget-menu-items">
+                  <button class="btn btn-ghost-secondary"
+                          type="button"
+                          data-widget-view="table">{{ labels.viewAsTable }}</button>
+                  <button class="btn btn-ghost-secondary"
+                          type="button"
+                          data-widget-view="chart"
+                          hidden>{{ labels.viewAsChart }}</button>
+                </div>
+              </details>
+            {% endif %}
+            <button class="btn btn-icon btn-sm btn-outline-secondary"
+                    type="button"
+                    data-widget-expand
+                    aria-label="{{ labels.expand }}"
+                    title="{{ labels.expand }}"><span data-expand-icon aria-hidden="true">↗</span></button>
+          </div>
+        </header>
         <div class="card-body">
           {% if widget.description %}<p>{{ widget.description }}</p>{% endif %}
           <p role="status" data-status>{{ labels.loading }}</p>
           <div class="analytics-chart" data-chart hidden>
             <canvas role="img" aria-label="{{ widget.title }}"></canvas>
           </div>
-          <div class="analytics-table" data-table></div>
+          <div class="analytics-table"
+               data-table{% if widget.kind != 'pivot' %}
+               hidden{% endif %}></div>
         </div>
       </section>
     {% endif %}
