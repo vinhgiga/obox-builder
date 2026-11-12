@@ -41,7 +41,7 @@
       {% elif data.link %}
         <a href="{{ data.link }}">{{ data.value }}</a>
       {% else %}
-        <p class="text-break whitespace-pre-wrap">{{ data.value if data.value is not none else '—' }}</p>
+        <p class="text-break text-pre-wrap">{{ data.value if data.value is not none else '—' }}</p>
       {% endif %}
       {% if data.editable %}<a class="btn btn-link btn-sm"
    href="{{ data.record_url }}/fields/{{ data.field }}/edit"

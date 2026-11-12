@@ -17,9 +17,8 @@ build/
 coverage.xml
 htmlcov/
 
-# Node (Tailwind standalone downloads, frontend tooling)
+# Node (frontend tooling)
 node_modules/
-/obox_builder/builder/static/ui.css
 
 # Environment
 .env

@@ -7,8 +7,8 @@
     "node": ">=24 <25"
   },
   "scripts": {
-    "build:css": "tailwindcss -i obox_builder/builder/tailwind.css -o obox_builder/builder/static/ui.css --minify",
     "build:analytics": "node scripts/vendor-chart.mjs",
+    "vendor:tabler": "node scripts/vendor-tabler.mjs",
     "commitlint": "commitlint",
     "lint": "biome ci",
     "test:commitlint": "node --test tests/tooling/commitlint.test.mjs",
@@ -18,8 +18,6 @@
     "@biomejs/biome": "2.6.4",
     "@commitlint/cli": "21.2.4",
     "@tabler/core": "1.7.1",
-    "@tailwindcss/cli": "4.3.3",
-    "chart.js": "^4.6.1",
-    "tailwindcss": "4.3.3"
+    "chart.js": "^4.6.1"
   }
 }

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-11-12 11:48+0700\n"
+"POT-Creation-Date: 2026-11-12 11:53+0700\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -184,19 +184,19 @@ msgstr ""
 msgid "No resources are available for your account."
 msgstr ""
 
-#: obox_builder/builder/templates/obox/base.html:20
+#: obox_builder/builder/templates/obox/base.html:22
 msgid "Skip to content"
 msgstr ""
 
-#: obox_builder/builder/templates/obox/base.html:38
+#: obox_builder/builder/templates/obox/base.html:40
 msgid "Sign out"
 msgstr ""
 
-#: obox_builder/builder/templates/obox/base.html:43
+#: obox_builder/builder/templates/obox/base.html:45
 msgid "Language"
 msgstr ""
 
-#: obox_builder/builder/templates/obox/base.html:56
+#: obox_builder/builder/templates/obox/base.html:58
 msgid "Resources"
 msgstr ""
 
@@ -467,16 +467,16 @@ msgstr ""
 msgid "Next page →"
 msgstr ""
 
-#: obox_builder/builder/templates/obox/login.html:28
+#: obox_builder/builder/templates/obox/login.html:30
 #: obox_builder/contrib/auth/templates/obox/auth/user_form.html:45
 msgid "Password"
 msgstr ""
 
-#: obox_builder/builder/templates/obox/login.html:38
+#: obox_builder/builder/templates/obox/login.html:40
 msgid "Show password"
 msgstr ""
 
-#: obox_builder/builder/templates/obox/login.html:42
+#: obox_builder/builder/templates/obox/login.html:44
 #: obox_builder/contrib/auth/views.py:67
 msgid "Sign in"
 msgstr ""

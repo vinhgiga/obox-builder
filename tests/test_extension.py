@@ -495,6 +495,10 @@ def test_http_crud_scoped_errors_locale_static_and_openapi(root_path: str) -> No
                 assert f'href="{root_path}/vi/admin/items/new"' in page.text
                 asset = await client.get(f"{root_path}/vi/admin/_static/list.js")
                 assert asset.status_code == 200
+                for stylesheet in ("ui.css", "tabler.min.css"):
+                    response = await client.get(f"{root_path}/vi/admin/_static/{stylesheet}")
+                    assert response.status_code == 200
+                    assert response.headers["content-type"].startswith("text/css")
             listed = await request(app, "GET", "/api/items")
             assert listed.status_code == 200
             assert listed.json() == {
