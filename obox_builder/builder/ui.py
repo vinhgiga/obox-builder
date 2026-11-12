@@ -624,6 +624,7 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
                     **translation_context(request),
                 },
                 status_code=status,
+                headers={"Cache-Control": "private, no-store"},
             ),
         )
 

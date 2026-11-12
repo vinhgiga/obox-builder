@@ -30,6 +30,7 @@ class Settings:
     template_dirs: Sequence[str | PathLike[str]] = ()
     templates: Jinja2Templates | None = field(default=None, repr=False)
     base_template: str = "obox/base.html"
+    static_root: str | PathLike[str] | None = None
     auth_password_validators: Sequence[Mapping[str, Any]] = ()
 
     def __post_init__(self) -> None:
@@ -76,6 +77,10 @@ class Settings:
             raise ImproperlyConfigured("TEMPLATES must be a Jinja2Templates instance.")
         if not isinstance(self.base_template, str) or not self.base_template:
             raise ImproperlyConfigured("BASE_TEMPLATE must be a nonempty string.")
+        if self.static_root is not None and (
+            not isinstance(self.static_root, str | PathLike) or not os.fspath(self.static_root)
+        ):
+            raise ImproperlyConfigured("STATIC_ROOT must be a nonempty path or None.")
         if not isinstance(self.auth_password_validators, Sequence):
             raise ImproperlyConfigured("AUTH_PASSWORD_VALIDATORS must be a sequence.")
         validators: list[Mapping[str, Any]] = []

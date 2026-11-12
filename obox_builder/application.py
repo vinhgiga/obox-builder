@@ -17,7 +17,6 @@ from fastapi.exception_handlers import http_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.routing import iter_route_contexts
-from fastapi.staticfiles import StaticFiles
 from sqlalchemy import event, inspect
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Mapper
@@ -39,6 +38,7 @@ from obox_builder.errors import (
 )
 from obox_builder.i18n import LANGUAGES, LanguageMiddleware, negotiate
 from obox_builder.plugin import LifespanPlugin, Plugin
+from obox_builder.staticfiles import AssetMount
 
 T = TypeVar("T")
 P = TypeVar("P", bound=Plugin)
@@ -181,18 +181,11 @@ class Obox:
 
         app.router.lifespan_context = lifespan
         app.add_middleware(LanguageMiddleware, prefixes=self.ui_prefixes, routes=self._ui_routes)
-        app.mount(
+        self.mount_static(
             f"{self.settings.ui_prefix}/_static",
-            StaticFiles(
-                packages=[
-                    ("obox_builder.builder", "static"),
-                    ("obox_builder.contrib.auth", "static"),
-                ]
-            ),
+            namespace="builder",
             name="obox_static",
         )
-        self._owned_routes.add(id(app.routes[-1]))
-        self._ui_routes.append(app.routes[-1])
         app.state.obox = self
         for plugin in plugins:
             self.install(plugin)
@@ -273,6 +266,13 @@ class Obox:
             raise ImproperlyConfigured("UI prefixes must be nonempty absolute URL paths.")
         if prefix not in self.ui_prefixes:
             self.ui_prefixes.append(prefix)
+
+    def mount_static(self, path: str, *, namespace: str, name: str) -> None:
+        self._check_mutable()
+        route = AssetMount(path, namespace=namespace, name=name, root=self.settings.static_root)
+        self.app.routes.append(route)
+        self._owned_routes.add(id(route))
+        self._ui_routes.append(route)
 
     @staticmethod
     async def _problem(request: Request, exc: Exception) -> Response:

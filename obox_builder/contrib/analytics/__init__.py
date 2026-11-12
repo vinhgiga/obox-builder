@@ -5,7 +5,6 @@ from __future__ import annotations
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 from sqlalchemy.exc import DBAPIError
@@ -244,8 +243,6 @@ class Analytics:
         self.timeout_ms = timeout_ms
 
     def setup(self, app: Obox) -> None:
-        from fastapi.staticfiles import StaticFiles
-
         from obox_builder.contrib.analytics.routes import build_router
 
         if hasattr(self, "app"):
@@ -307,12 +304,9 @@ class Analytics:
             dashboards.append(dashboard)
         self.dashboards = tuple(dashboards)
         self.app = app
-        app.app.mount(
+        app.mount_static(
             self.prefix + "/_static",
-            StaticFiles(
-                directory=Path(__file__).parent / "static",
-                packages=[("obox_builder.builder", "static")],
-            ),
+            namespace="analytics",
             name="obox_analytics_static",
         )
         app.include_router(build_router(self), ui=True)

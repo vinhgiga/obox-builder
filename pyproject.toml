@@ -71,8 +71,10 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["obox_builder"]
 
+[tool.hatch.build.targets.wheel.hooks.custom]
+
 [tool.hatch.build.targets.sdist]
-include = ["LICENSE", "README.md", "docs", "obox_builder", "pyproject.toml"]
+include = ["LICENSE", "README.md", "docs", "obox_builder", "pyproject.toml", "hatch_build.py"]
 
 [tool.ruff]
 line-length = 100

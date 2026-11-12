@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-11-12 11:53+0700\n"
+"POT-Creation-Date: 2026-11-12 15:21+0700\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -65,30 +65,30 @@ msgstr ""
 msgid "Roles"
 msgstr ""
 
-#: obox_builder/builder/ui.py:749 obox_builder/builder/ui.py:752
+#: obox_builder/builder/ui.py:750 obox_builder/builder/ui.py:753
 msgid "Invalid inline count."
 msgstr ""
 
-#: obox_builder/builder/ui.py:764 obox_builder/builder/ui.py:793
+#: obox_builder/builder/ui.py:765 obox_builder/builder/ui.py:794
 msgid "An inline record is unavailable."
 msgstr ""
 
-#: obox_builder/builder/ui.py:835
+#: obox_builder/builder/ui.py:836
 msgid "Unknown inline field."
 msgstr ""
 
-#: obox_builder/builder/ui.py:1068 obox_builder/contrib/auth/admin.py:233
+#: obox_builder/builder/ui.py:1069 obox_builder/contrib/auth/admin.py:233
 #: obox_builder/contrib/auth/views.py:217
 msgid "Duplicate form fields are not permitted."
 msgstr ""
 
 #: obox_builder/builder/templates/obox/_record_activity.html:22
 #: obox_builder/builder/templates/obox/confirm_delete.html:3
-#: obox_builder/builder/ui.py:1197
+#: obox_builder/builder/ui.py:1198
 msgid "Are you sure?"
 msgstr ""
 
-#: obox_builder/builder/ui.py:1226 obox_builder/builder/ui.py:1244
+#: obox_builder/builder/ui.py:1227 obox_builder/builder/ui.py:1245
 msgid "Choose a valid action and records."
 msgstr ""
 

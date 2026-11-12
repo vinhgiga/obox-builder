@@ -94,6 +94,8 @@ def startproject(name: str, directory: Path | None = None) -> Path:
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="obox")
     commands = parser.add_subparsers(dest="command", required=True)
+    collect = commands.add_parser("collectstatic", help="Publish immutable static assets.")
+    collect.add_argument("directory", type=Path, help="Persistent static output directory")
     start = commands.add_parser("startproject", help="Create a runnable Obox project.")
     start.add_argument(
         "directory",
@@ -117,6 +119,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = _parser()
     arguments = parser.parse_args(argv)
     try:
+        if arguments.command == "collectstatic":
+            from obox_builder._assets import collect_assets
+
+            manifest = collect_assets(Path(__file__).parent, arguments.directory.expanduser())
+            print(json.dumps(manifest, sort_keys=True))
+            return 0
         if arguments.command == "webhooks":
             from obox_builder.contrib.webhooks.cli import run as run_webhooks
 

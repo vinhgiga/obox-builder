@@ -44,20 +44,15 @@ class Files:
             raise ImproperlyConfigured("Files.prefix must be an absolute URL path.")
 
     def setup(self, app: Obox) -> None:
-        from fastapi.staticfiles import StaticFiles
-
         from obox_builder.contrib.files.routes import build_router
 
         if hasattr(self, "app"):
             raise ImproperlyConfigured("Files is already installed.")
         self.app = app
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
-        app.app.mount(
+        app.mount_static(
             self.prefix + "/_static",
-            StaticFiles(
-                directory=Path(__file__).parent / "static",
-                packages=[("obox_builder.builder", "static")],
-            ),
+            namespace="files",
             name="obox_files_static",
         )
         app.include_router(build_router(self), ui=True)
