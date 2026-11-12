@@ -1,0 +1,40 @@
+{% macro scope(prefix='') %}
+  <div data-analytics
+       data-filter-prefix="{{ prefix }}"
+       data-empty="{{ labels.empty }}"
+       data-total="{{ labels.total }}"
+       data-loading="{{ labels.loading }}"
+       data-no-data="{{ labels.noData }}"
+       data-error="{{ labels.error }}"
+       data-value="{{ labels.value }}"
+       data-series="{{ labels.series }}"
+       data-records="{{ labels.records }}">{{ caller() }}</div>
+{% endmacro %}
+{% macro chart(slug, standalone=true) %}
+  {% set widget = widget_config.get(slug) %}
+  {% if widget %}
+    {% if standalone %}
+      {% call scope(widget.filterPrefix) %}{{ chart(slug, false) }}{% endcall %}
+    {% else %}
+      <section class="card analytics-widget{% if widget.kind == 'pivot' %} analytics-pivot{% endif %} analytics-height-{{ widget.height }}"
+               data-widget
+               data-kind="{{ widget.kind }}"
+               data-url="{{ widget.url }}"
+               data-records-url="{{ widget.recordsUrl }}"
+               data-row-label="{{ widget.rowLabel }}"
+               data-column-label="{{ widget.columnLabel }}"
+               data-row-totals="{{ 'true' if widget.rowTotals else 'false' }}"
+               data-column-totals="{{ 'true' if widget.columnTotals else 'false' }}">
+        <h2 class="card-header h3">{{ widget.title }}</h2>
+        <div class="card-body">
+          {% if widget.description %}<p>{{ widget.description }}</p>{% endif %}
+          <p role="status" data-status>{{ labels.loading }}</p>
+          <div class="analytics-chart" data-chart hidden>
+            <canvas role="img" aria-label="{{ widget.title }}"></canvas>
+          </div>
+          <div class="analytics-table" data-table></div>
+        </div>
+      </section>
+    {% endif %}
+  {% endif %}
+{% endmacro %}

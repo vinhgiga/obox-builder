@@ -119,6 +119,7 @@ class Dashboard:
     source: type[Any] | None
     widgets: tuple[Pivot | Chart, ...]
     groups: tuple[Group, ...]
+    template: str
     _row_sizes: tuple[int, ...] = field(repr=False)
 
     def __init__(
@@ -130,6 +131,7 @@ class Dashboard:
         *,
         groups: Sequence[Group] = (),
         charts: _Layout | None = None,
+        template: str = "obox_analytics/dashboard.html",
         _row_sizes: tuple[int, ...] = (),
     ) -> None:
         _slug(slug)
@@ -170,6 +172,7 @@ class Dashboard:
             ("source", source),
             ("widgets", tuple(normalized)),
             ("groups", tuple(groups)),
+            ("template", template),
             ("_row_sizes", _row_sizes),
         ):
             object.__setattr__(self, name, value)
@@ -179,6 +182,8 @@ class Dashboard:
             or not (self.widgets or self.groups)
         ):
             raise ImproperlyConfigured("Dashboards require a title and at least one widget.")
+        if not isinstance(self.template, str) or not self.template.strip():
+            raise ImproperlyConfigured("Dashboard templates require a nonempty template name.")
         if self.groups:
             if self.widgets or self.source is not None:
                 raise ImproperlyConfigured(

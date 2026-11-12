@@ -24,7 +24,7 @@ from obox_builder.context import Context
 from obox_builder.contrib.analytics import AggregateTimeout, Chart, Pivot, _source, is_timeout
 from obox_builder.errors import BuilderValidationError, NotFound
 from obox_builder.i18n import context as translation_context
-from obox_builder.i18n import localize
+from obox_builder.i18n import localize, translate
 
 if TYPE_CHECKING:
     from obox_builder.contrib.analytics import Analytics
@@ -177,8 +177,7 @@ def build_router(analytics: Analytics) -> APIRouter:
                 sa.select(sa.func.set_config("statement_timeout", str(analytics.timeout_ms), True))
             )
 
-    @router.get("/{dashboard}", name="obox_analytics_dashboard")
-    async def dashboard_page(request: Request, dashboard: str, ctx: Context = dependency) -> Any:
+    async def dashboard_context(request: Request, dashboard: str, ctx: Context) -> dict[str, Any]:
         definition, _, _, service = resolve(ctx, dashboard)
         if not definition.groups or not await analytics.visible(definition, ctx):
             await service.authorize("list", ctx)
@@ -224,6 +223,7 @@ def build_router(analytics: Analytics) -> APIRouter:
             )
             sections.append(
                 {
+                    "slug": section.slug,
                     "title": section.title,
                     "widgets": widgets,
                     "rows": rows,
@@ -236,31 +236,104 @@ def build_router(analytics: Analytics) -> APIRouter:
             )
         if definition.groups and not sections:
             raise NotFound("Unknown dashboard.")
-        return await page(
-            "obox_analytics/dashboard.html",
-            request,
-            ctx,
-            title=definition.title,
-            dashboard=definition,
-            sections=sections,
-            dashboard_url=dashboard_url,
-            widget_urls={
+        widget_urls = {
+            widget.slug: {
+                endpoint: localize(
+                    request,
+                    str(
+                        request.url_for(
+                            "obox_analytics_" + endpoint,
+                            dashboard=definition.slug,
+                            widget=widget.slug,
+                        ).path
+                    ),
+                    rooted=True,
+                )
+                for endpoint in ("data", "records")
+            }
+            for section in sections
+            for widget in section["widgets"]
+        }
+        return {
+            "title": definition.title,
+            "dashboard": definition,
+            "sections": sections,
+            "dashboard_url": dashboard_url,
+            "widget_urls": widget_urls,
+            "widget_config": {
                 widget.slug: {
-                    endpoint: localize(
-                        request,
-                        str(
-                            request.url_for(
-                                "obox_analytics_" + endpoint,
-                                dashboard=definition.slug,
-                                widget=widget.slug,
-                            ).path
-                        ),
-                        rooted=True,
-                    )
-                    for endpoint in ("data", "records")
+                    "slug": widget.slug,
+                    "title": widget.title or widget.slug,
+                    "description": getattr(widget, "description", ""),
+                    "kind": widget.kind if isinstance(widget, Chart) else "pivot",
+                    "height": getattr(widget, "height", "md"),
+                    "filterPrefix": section["prefix"],
+                    "url": widget_urls[widget.slug]["data"],
+                    "recordsUrl": widget_urls[widget.slug]["records"],
+                    "rowLabel": (
+                        widget.dimension.label or widget.dimension.field
+                        if isinstance(widget, Chart)
+                        else widget.rows
+                    ).replace("_", " "),
+                    "columnLabel": (getattr(widget, "columns", None) or "").replace("_", " "),
+                    "rowTotals": getattr(widget, "show_row_totals", True),
+                    "columnTotals": getattr(widget, "show_column_totals", True),
                 }
-                for widget in definition.all_widgets
+                for section in sections
+                for widget in section["widgets"]
             },
+            "labels": {
+                "empty": translate(request, "Empty"),
+                "total": translate(request, "Total"),
+                "loading": translate(request, "Loading…"),
+                "noData": translate(request, "No records found."),
+                "error": translate(request, "Unable to load data. Try again."),
+                "value": translate(request, "Value"),
+                "series": translate(request, "Series"),
+                "records": translate(request, "View records"),
+            },
+        }
+
+    @router.get("/{dashboard}", name="obox_analytics_dashboard")
+    async def dashboard_page(request: Request, dashboard: str, ctx: Context = dependency) -> Any:
+        values = await dashboard_context(request, dashboard, ctx)
+        return await page(values["dashboard"].template, request, ctx, **values)
+
+    async def manifest(request: Request, dashboard: str, ctx: Context = dependency) -> JSONResponse:
+        values = await dashboard_context(request, dashboard, ctx)
+        return JSONResponse(
+            {
+                "slug": values["dashboard"].slug,
+                "title": values["title"],
+                "widgets": values["widget_config"],
+                "labels": values["labels"],
+                "sections": [
+                    {
+                        **{
+                            key: section[key]
+                            for key in (
+                                "slug",
+                                "title",
+                                "prefix",
+                                "filters",
+                                "search_enabled",
+                                "explicit_rows",
+                            )
+                        },
+                        "rows": [[widget.slug for widget in row] for row in section["rows"]],
+                    }
+                    for section in values["sections"]
+                ],
+                "assets": {
+                    key: str(request.url_for("obox_analytics_static", path=path))
+                    for key, path in (
+                        ("stylesheet", "analytics.css"),
+                        ("charts", "chart.umd.js"),
+                        ("module", "analytics.js"),
+                    )
+                },
+            },
+            headers=HEADERS,
         )
 
     async def data(request: Request, dashboard: str, widget: str, ctx: Context = dependency) -> Any:
@@ -474,6 +547,13 @@ def build_router(analytics: Analytics) -> APIRouter:
             dashboard_url=back + ("?" + filters if filters else ""),
         )
 
+    router.add_api_route(
+        "/{dashboard}/manifest",
+        manifest,
+        methods=["GET"],
+        name="obox_analytics_manifest",
+        route_class_override=AnalyticsDataRoute,
+    )
     router.add_api_route(
         "/{dashboard}/{widget}/data",
         data,

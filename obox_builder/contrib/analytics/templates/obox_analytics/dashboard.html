@@ -1,4 +1,5 @@
 {% extends base_template %}
+{% from "obox_analytics/components.html" import chart, scope with context %}
 {% block head %}
   {{ super() }}
   <link rel="stylesheet"
@@ -10,81 +11,58 @@
   {% for section in sections %}
     {% if dashboard.groups %}<h2 class="h2 mt-3">{{ section.title }}</h2>{% endif %}
     {% set filter_prefix = section.prefix %}
-    <div data-analytics
-         data-filter-prefix="{{ filter_prefix }}"
-         data-empty="{{ _('Empty') }}"
-         data-total="{{ _('Total') }}"
-         data-loading="{{ _('Loading…') }}"
-         data-no-data="{{ _('No records found.') }}"
-         data-error="{{ _('Unable to load data. Try again.') }}"
-         data-value="{{ _('Value') }}"
-         data-series="{{ _('Series') }}"
-         data-records="{{ _('View records') }}">
-      <form method="get" class="analytics-filters mb-3" data-analytics-filters>
-        {% if section.search_enabled %}
-          <label>
-            {{ _("Search") }}
-            <input class="form-control"
-                   type="search"
-                   name="{{ filter_prefix }}search"
-                   value="{{ request.query_params.get(filter_prefix ~ 'search', '') }}">
-          </label>
-        {% endif %}
-        {% if request.query_params.get(filter_prefix ~ "filter") %}
-          <input type="hidden"
-                 name="{{ filter_prefix }}filter"
-                 value="{{ request.query_params[filter_prefix ~ 'filter'] }}">
-        {% endif %}
-        {% for field in section.filters %}
-          <label>
-            {{ field.label }}
-            <select class="form-select"
-                    name="{{ filter_prefix }}filter_op.{{ field.name }}"
-                    aria-label="{{ field.label }} {{ _('Filter') }}">
-              {% for operator in field.operators %}
-                <option value="{{ operator }}"
-                        {% if request.query_params.get(filter_prefix ~ 'filter_op.' ~ field.name, 'is') == operator %}selected{% endif %}>{{ operator.replace('_', ' ') }}</option>
+    {% call scope(filter_prefix) %}
+      {% block analytics_filters scoped %}
+        <form method="get" class="analytics-filters mb-3" data-analytics-filters>
+          {% if section.search_enabled %}
+            <label>
+              {{ _("Search") }}
+              <input class="form-control"
+                     type="search"
+                     name="{{ filter_prefix }}search"
+                     value="{{ request.query_params.get(filter_prefix ~ 'search', '') }}">
+            </label>
+          {% endif %}
+          {% if request.query_params.get(filter_prefix ~ "filter") %}
+            <input type="hidden"
+                   name="{{ filter_prefix }}filter"
+                   value="{{ request.query_params[filter_prefix ~ 'filter'] }}">
+          {% endif %}
+          {% for field in section.filters %}
+            <label>
+              {{ field.label }}
+              <select class="form-select"
+                      name="{{ filter_prefix }}filter_op.{{ field.name }}"
+                      aria-label="{{ field.label }} {{ _('Filter') }}">
+                {% for operator in field.operators %}
+                  <option value="{{ operator }}"
+                          {% if request.query_params.get(filter_prefix ~ 'filter_op.' ~ field.name, 'is') == operator %}selected{% endif %}>{{ operator.replace('_', ' ') }}</option>
+                {% endfor %}
+              </select>
+              <input class="form-control"
+                     name="{{ filter_prefix }}filter.{{ field.name }}"
+                     aria-label="{{ field.label }}"
+                     value="{{ request.query_params.get(filter_prefix ~ 'filter.' ~ field.name, '') }}">
+            </label>
+          {% endfor %}
+          <button class="btn btn-primary" type="submit">{{ _("Apply filters") }}</button>
+          <a class="btn btn-outline-secondary"
+             href="{{ section.reset_url }}"
+             data-reset>{{ _("Reset") }}</a>
+        </form>
+      {% endblock %}
+      {% block analytics_layout scoped %}
+        <div class="analytics-rows">
+          {% for row in section.rows %}
+            <div class="analytics-grid{% if section.explicit_rows %} analytics-row{% endif %}">
+              {% for widget in row %}
+                {{ chart(widget.slug, false) }}
               {% endfor %}
-            </select>
-            <input class="form-control"
-                   name="{{ filter_prefix }}filter.{{ field.name }}"
-                   aria-label="{{ field.label }}"
-                   value="{{ request.query_params.get(filter_prefix ~ 'filter.' ~ field.name, '') }}">
-          </label>
-        {% endfor %}
-        <button class="btn btn-primary" type="submit">{{ _("Apply filters") }}</button>
-        <a class="btn btn-outline-secondary"
-           href="{{ section.reset_url }}"
-           data-reset>{{ _("Reset") }}</a>
-      </form>
-      <div class="analytics-rows">
-        {% for row in section.rows %}
-          <div class="analytics-grid{% if section.explicit_rows %} analytics-row{% endif %}">
-            {% for widget in row %}
-              <section class="card analytics-widget{% if widget.kind is not defined %} analytics-pivot{% endif %} analytics-height-{{ widget.height|default('md') }}"
-                       data-widget
-                       data-kind="{{ widget.kind|default('pivot') }}"
-                       data-url="{{ widget_urls[widget.slug]['data'] }}"
-                       data-records-url="{{ widget_urls[widget.slug]['records'] }}"
-                       data-row-label="{{ widget.rows|default(widget.x)|replace('_', ' ') }}"
-                       data-column-label="{{ widget.columns|default('', true)|replace('_', ' ') }}"
-                       data-row-totals="{{ 'true' if widget.show_row_totals|default(true) else 'false' }}"
-                       data-column-totals="{{ 'true' if widget.show_column_totals|default(true) else 'false' }}">
-                <h2 class="card-header h3">{{ widget.title or widget.slug }}</h2>
-                <div class="card-body">
-                  {% if widget.description|default("") %}<p>{{ widget.description }}</p>{% endif %}
-                  <p role="status" data-status>{{ _("Loading…") }}</p>
-                  <div class="analytics-chart" data-chart hidden>
-                    <canvas role="img" aria-label="{{ widget.title or widget.slug }}"></canvas>
-                  </div>
-                  <div class="analytics-table" data-table></div>
-                </div>
-              </section>
-            {% endfor %}
-          </div>
-        {% endfor %}
-      </div>
-    </div>
+            </div>
+          {% endfor %}
+        </div>
+      {% endblock %}
+    {% endcall %}
   {% endfor %}
 {% endblock %}
 {% block scripts %}

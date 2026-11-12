@@ -312,12 +312,12 @@ export function chartConfiguration(data, labels, open) {
   };
 }
 
-function renderChart(widget, data, filters, labels) {
+function renderChart(widget, data, filters, labels, Chart) {
   const holder = widget.querySelector("[data-chart]");
   if (data.series) {
-    if (!globalThis.Chart) throw new Error(labels.error);
+    if (!Chart) throw new Error(labels.error);
     holder.hidden = false;
-    return new globalThis.Chart(
+    return new Chart(
       holder.querySelector("canvas"),
       chartConfiguration(data, labels, (selector) =>
         globalThis.location.assign(selectionURL(widget.dataset.recordsUrl, filters, selector)),
@@ -326,11 +326,11 @@ function renderChart(widget, data, filters, labels) {
   }
   const points = chartData(data, widget.dataset.kind, labels.empty);
   if (!points.length) return;
-  if (!globalThis.Chart) throw new Error(labels.error);
+  if (!Chart) throw new Error(labels.error);
   const canvas = holder.querySelector("canvas");
   holder.hidden = false;
   const colors = ["#2563eb", "#0891b2", "#7c3aed", "#db2777", "#d97706", "#059669"];
-  return new globalThis.Chart(canvas, {
+  return new Chart(canvas, {
     type: widget.dataset.kind === "donut" ? "doughnut" : widget.dataset.kind,
     data: {
       labels: points.map((point) => (point.key === null ? labels.empty : String(point.key))),
@@ -363,12 +363,19 @@ function renderChart(widget, data, filters, labels) {
   });
 }
 
-export function mount(root) {
+const mounted = new WeakMap();
+
+export function mount(root, { filters, Chart = globalThis.Chart } = {}) {
+  mounted.get(root)?.();
+  root.dataset.analytics = "";
   const labels = root.dataset;
   const prefix = root.dataset.filterPrefix || "";
-  const widgets = Array.from(root.querySelectorAll("[data-widget]"));
+  const widgets = Array.from(root.querySelectorAll("[data-widget]")).filter(
+    (widget) => widget.closest("[data-analytics]") === root,
+  );
   const charts = new Map();
   const loader = new DashboardLoader();
+  const events = new AbortController();
   async function load(filters) {
     for (const widget of widgets) {
       charts.get(widget)?.destroy();
@@ -410,7 +417,7 @@ export function mount(root) {
         status.textContent = empty ? labels.noData : "";
         if (!empty && widget.dataset.kind !== "pivot") {
           try {
-            charts.set(widget, renderChart(widget, data, filters, labels));
+            charts.set(widget, renderChart(widget, data, filters, labels, Chart));
           } catch (failure) {
             status.textContent = failure.message;
           }
@@ -418,46 +425,100 @@ export function mount(root) {
       },
     );
   }
-  root.querySelector("form").addEventListener("submit", (event) => {
-    event.preventDefault();
-    const values = new FormData(event.currentTarget);
-    const filters = new URLSearchParams();
-    for (const [key, value] of values) {
-      const name = key.slice(prefix.length);
-      if (name.startsWith("filter_op.")) continue;
-      const field = name.startsWith("filter.") ? name.slice(7) : null;
-      const operator = field && values.get(`${prefix}filter_op.${field}`);
-      if (value || ["is_empty", "is_not_empty"].includes(operator)) {
-        filters.set(key, value);
-        if (operator) filters.set(`${prefix}filter_op.${field}`, operator);
+  root.querySelector("[data-analytics-filters]")?.addEventListener(
+    "submit",
+    (event) => {
+      event.preventDefault();
+      const values = new FormData(event.currentTarget);
+      const filters = new URLSearchParams();
+      for (const [key, value] of values) {
+        const name = key.slice(prefix.length);
+        if (name.startsWith("filter_op.")) continue;
+        const field = name.startsWith("filter.") ? name.slice(7) : null;
+        const operator = field && values.get(`${prefix}filter_op.${field}`);
+        if (value || ["is_empty", "is_not_empty"].includes(operator)) {
+          filters.set(key, value);
+          if (operator) filters.set(`${prefix}filter_op.${field}`, operator);
+        }
       }
-    }
-    const url = new URL(globalThis.location.href);
-    if (prefix) {
+      const url = new URL(globalThis.location.href);
+      if (prefix) {
+        for (const key of [...url.searchParams.keys()]) {
+          if (key.startsWith(prefix)) url.searchParams.delete(key);
+        }
+        for (const [key, value] of filters) url.searchParams.set(key, value);
+      } else url.search = filters.toString();
+      globalThis.history.replaceState(null, "", url);
+      void load(filters);
+    },
+    { signal: events.signal },
+  );
+  root.querySelector("[data-reset]")?.addEventListener(
+    "click",
+    (event) => {
+      if (!prefix) return;
+      event.preventDefault();
+      const url = new URL(globalThis.location.href);
       for (const key of [...url.searchParams.keys()]) {
         if (key.startsWith(prefix)) url.searchParams.delete(key);
       }
-      for (const [key, value] of filters) url.searchParams.set(key, value);
-    } else url.search = filters.toString();
-    globalThis.history.replaceState(null, "", url);
-    void load(filters);
-  });
-  root.querySelector("[data-reset]")?.addEventListener("click", (event) => {
-    if (!prefix) return;
-    event.preventDefault();
-    const url = new URL(globalThis.location.href);
-    for (const key of [...url.searchParams.keys()]) {
-      if (key.startsWith(prefix)) url.searchParams.delete(key);
-    }
-    globalThis.location.assign(url.href);
-  });
-  const initial = new URLSearchParams(globalThis.location.search);
+      globalThis.location.assign(url.href);
+    },
+    { signal: events.signal },
+  );
+  const initial = new URLSearchParams(filters ?? globalThis.location.search);
   if (prefix) {
     for (const key of [...initial.keys()]) {
       if (!key.startsWith(prefix)) initial.delete(key);
     }
   }
   void load(initial);
+  const destroy = () => {
+    events.abort();
+    loader.controller?.abort();
+    for (const chart of charts.values()) chart?.destroy();
+    charts.clear();
+    if (mounted.get(root) === destroy) mounted.delete(root);
+  };
+  mounted.set(root, destroy);
+  return destroy;
+}
+
+export function mountWidget(root, widget, options = {}) {
+  mounted.get(root)?.();
+  root.replaceChildren();
+  Object.assign(root.dataset, options.labels);
+  root.dataset.filterPrefix = widget.filterPrefix || "";
+  const card = node("section", undefined, root);
+  card.className = `card analytics-widget analytics-height-${widget.height || "md"}`;
+  Object.assign(card.dataset, {
+    widget: "",
+    kind: widget.kind,
+    url: widget.url,
+    recordsUrl: widget.recordsUrl,
+    rowLabel: widget.rowLabel,
+    columnLabel: widget.columnLabel || "",
+    rowTotals: widget.rowTotals ?? true,
+    columnTotals: widget.columnTotals ?? true,
+  });
+  node("h2", widget.title, card).className = "card-header h3";
+  const body = node("div", undefined, card);
+  body.className = "card-body";
+  if (widget.description) node("p", widget.description, body);
+  const status = node("p", undefined, body);
+  status.setAttribute("role", "status");
+  status.dataset.status = "";
+  const holder = node("div", undefined, body);
+  holder.className = "analytics-chart";
+  holder.dataset.chart = "";
+  holder.hidden = true;
+  const canvas = node("canvas", undefined, holder);
+  canvas.setAttribute("role", "img");
+  canvas.setAttribute("aria-label", widget.title);
+  const table = node("div", undefined, body);
+  table.className = "analytics-table";
+  table.dataset.table = "";
+  return mount(root, options);
 }
 
 if (typeof document !== "undefined") {
