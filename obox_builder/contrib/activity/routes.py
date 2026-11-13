@@ -3,6 +3,7 @@
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request, Response
+from fastapi.routing import APIRoute
 from pydantic.alias_generators import to_camel
 
 from obox_builder.builder.api_schema import FieldError, Problem
@@ -24,9 +25,10 @@ class ActivityRoute(ApiRoute):
     cache_control = "private, no-store"
 
 
-def build_router(activity: Activity) -> APIRouter:
+def build_router(activity: Activity, app_label: str | None = None) -> APIRouter:
     app = activity.app
-    router = APIRouter(prefix=app.settings.api_prefix, route_class=ActivityRoute)
+    prefix = app.settings.api_prefix + (f"/{app_label}" if app_label else "")
+    router = APIRouter(prefix=prefix, route_class=ActivityRoute)
     dependency = Depends(app.context_dependency("api"), scope="function")
     problem = Problem.model_json_schema()
     problem["properties"]["errors"]["items"] = FieldError.model_json_schema()
@@ -43,7 +45,7 @@ def build_router(activity: Activity) -> APIRouter:
             (
                 item.builder
                 for item in app._registrations.values()
-                if (item.builder.api.prefix or item.slug) == slug
+                if (item.builder.api.prefix or item.slug) == slug and item.app_label == app_label
             ),
             None,
         )
@@ -176,4 +178,9 @@ def build_router(activity: Activity) -> APIRouter:
         )
         return Response(status_code=204)
 
+    if app_label:
+        for route in router.routes:
+            if isinstance(route, APIRoute):
+                route.name = f"{app_label}.{route.name}"
+                route.operation_id = f"{app_label}.{route.operation_id}"
     return router

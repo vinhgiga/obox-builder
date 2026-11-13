@@ -119,7 +119,7 @@ def build_record_ui(
     app: Any, builder: Any, service: Any, page: Any, base: Callable[[Request], str]
 ) -> tuple[APIRouter, Any, Any]:
     router = APIRouter(route_class=RecordRoute, include_in_schema=False)
-    path = f"{app.settings.ui_prefix}/{builder.slug}/{{id}}"
+    path = f"{builder.ui_path}/{{id}}"
     dependency = Depends(app.context_dependency("ui"), scope="function")
     activity = app.get_plugin("activity")
 
@@ -243,9 +243,7 @@ def build_record_ui(
                         )
                         if target.view.enabled:
                             key = quote(str(getattr(child, target.pk_name)), safe="")
-                            link = localize(
-                                request, f"{app.settings.ui_prefix}/{target.slug}/{key}"
-                            )
+                            link = localize(request, f"{target.ui_path}/{key}")
         control = None
         initial = input_values(builder, visible).get(field, "")
         if editing:
@@ -351,7 +349,7 @@ def build_record_ui(
             record_url=url(request, id),
         )
 
-    @router.get(path + "/fields/{field}", name=f"obox_ui_{builder.slug}_field")
+    @router.get(path + "/fields/{field}", name=f"obox_ui_{builder.route_key}_field")
     async def field_value(request: Request, id: str, field: str, ctx: Context = dependency) -> Any:
         parameters(request.query_params.multi_items())
         return await render(
@@ -361,7 +359,7 @@ def build_record_ui(
             field_data=await field_data(request, id, field, ctx),
         )
 
-    @router.get(path + "/fields/{field}/edit", name=f"obox_ui_{builder.slug}_field_edit")
+    @router.get(path + "/fields/{field}/edit", name=f"obox_ui_{builder.route_key}_field_edit")
     async def field_edit(request: Request, id: str, field: str, ctx: Context = dependency) -> Any:
         parameters(request.query_params.multi_items())
         return await render(
@@ -371,7 +369,7 @@ def build_record_ui(
             field_data=await field_data(request, id, field, ctx, editing=True),
         )
 
-    @router.post(path + "/fields/{field}", name=f"obox_ui_{builder.slug}_field_save")
+    @router.post(path + "/fields/{field}", name=f"obox_ui_{builder.route_key}_field_save")
     async def field_save(request: Request, id: str, field: str, ctx: Context = dependency) -> Any:
         values = await form(request, ctx, {"csrf_token", "if_match", "value", "set_null"})
         data = await field_data(request, id, field, ctx, editing=True)
@@ -416,7 +414,7 @@ def build_record_ui(
             return await record_page(request, id, ctx, full=False)
         return RedirectResponse(url(request, id), status_code=303)
 
-    @router.get(path + "/relationships/{field}", name=f"obox_ui_{builder.slug}_relationship")
+    @router.get(path + "/relationships/{field}", name=f"obox_ui_{builder.route_key}_relationship")
     async def related(request: Request, id: str, field: str, ctx: Context = dependency) -> Any:
         params = parameters(request.query_params.multi_items(), {"limit", "cursor"})
         data = await relationship(app, builder, id, field, params, ctx)
@@ -438,7 +436,7 @@ def build_record_ui(
 
     if activity is not None:
 
-        @router.get(path + "/activity", name=f"obox_ui_{builder.slug}_activity")
+        @router.get(path + "/activity", name=f"obox_ui_{builder.route_key}_activity")
         async def activity_page(request: Request, id: str, ctx: Context = dependency) -> Any:
             params = parameters(request.query_params.multi_items(), {"kind", "limit", "cursor"})
             return await render(
@@ -462,7 +460,7 @@ def build_record_ui(
             }
 
         @router.get(
-            path + "/comments/{comment_id}/edit", name=f"obox_ui_{builder.slug}_comment_edit"
+            path + "/comments/{comment_id}/edit", name=f"obox_ui_{builder.route_key}_comment_edit"
         )
         async def comment_editor(
             request: Request, id: str, comment_id: str, ctx: Context = dependency
@@ -530,12 +528,12 @@ def build_record_ui(
                 )
             return RedirectResponse(url(request, id) + "#activity", status_code=303)
 
-        @router.post(path + "/comments", name=f"obox_ui_{builder.slug}_comment_create")
+        @router.post(path + "/comments", name=f"obox_ui_{builder.route_key}_comment_create")
         async def comment_create(request: Request, id: str, ctx: Context = dependency) -> Any:
             return await mutate_comment(request, id, ctx, "create")
 
         @router.post(
-            path + "/comments/{comment_id}/edit", name=f"obox_ui_{builder.slug}_comment_save"
+            path + "/comments/{comment_id}/edit", name=f"obox_ui_{builder.route_key}_comment_save"
         )
         async def comment_update(
             request: Request, id: str, comment_id: str, ctx: Context = dependency
@@ -543,7 +541,8 @@ def build_record_ui(
             return await mutate_comment(request, id, ctx, "update", comment_id)
 
         @router.post(
-            path + "/comments/{comment_id}/delete", name=f"obox_ui_{builder.slug}_comment_delete"
+            path + "/comments/{comment_id}/delete",
+            name=f"obox_ui_{builder.route_key}_comment_delete",
         )
         async def comment_delete(
             request: Request, id: str, comment_id: str, ctx: Context = dependency

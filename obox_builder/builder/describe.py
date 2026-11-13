@@ -191,7 +191,7 @@ async def describe(app: Any, builder: Any, ctx: Context, record_schema: Any) -> 
                 and "retrieve" in target.api.operations
                 and await app.service(target.model).permitted("retrieve", ctx)
             ):
-                reference = target.api.prefix or target.slug
+                reference = target.api_key
         editable = {
             action: name in values and alias in input_schemas[action]["properties"]
             for action, values in writable.items()
@@ -214,9 +214,9 @@ async def describe(app: Any, builder: Any, ctx: Context, record_schema: Any) -> 
             )
         )
     return ResourceDescription(
-        slug=builder.api.prefix or builder.slug,
+        slug=builder.api_key,
         path=(ctx.request.scope.get("root_path", "") if ctx.request is not None else "")
-        + f"{app.settings.api_prefix}/{builder.api.prefix or builder.slug}",
+        + builder.api_path,
         operations=operations,
         scopes={to_camel(name): value for name, value in scopes.items()},
         fields=fields,

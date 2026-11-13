@@ -24,7 +24,32 @@
       {% block sidebar %}
         <header class="navbar navbar-expand-md bg-white border-bottom">
           <div class="container-fluid">
-            <div class="navbar-brand">{% block branding %}{{ site_title }}{% endblock %}</div>
+            {% set catalog = request.state.obox_catalog|default(none) %}
+            <div class="navbar-brand me-3">
+              {% block branding scoped %}
+                {% if catalog %}
+                  <a class="text-reset text-decoration-none"
+                     href="{{ catalog.home_url }}">{{ site_title }}</a>
+                {% else %}
+                  {{ site_title }}
+                {% endif %}
+              {% endblock %}
+            </div>
+            {% if catalog %}
+              {% if catalog.current %}<a class="nav-link"
+   href="{{ catalog.current.url }}">{{ catalog.current.title }}</a>{% endif %}
+              {% if catalog.apps %}
+                <details class="position-relative ms-2">
+                  <summary class="btn btn-sm">{% trans %}Switch application{% endtrans %}</summary>
+                  <nav class="card position-absolute start-0 mt-2 p-2 z-3"
+                       aria-label="{{ _('Applications') }}">
+                    {% for item in catalog.apps %}
+                      <a class="nav-link text-nowrap" href="{{ item.url }}">{{ item.title }}</a>
+                    {% endfor %}
+                  </nav>
+                </details>
+              {% endif %}
+            {% endif %}
             {% if auth and principal.is_authenticated %}
               <form class="navbar-nav flex-row align-items-center gap-3 ms-auto m-0"
                     method="post"

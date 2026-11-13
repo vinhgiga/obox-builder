@@ -9,6 +9,7 @@ from obox_builder.errors import ImproperlyConfigured
 
 
 class Activity:
+    requires_resources = True
     name = "activity"
     requires: tuple[str, ...] = ()
 
@@ -37,4 +38,5 @@ class Activity:
         if hasattr(self, "app"):
             raise ImproperlyConfigured("Activity is already installed.")
         self.app = app
-        app.include_router(build_router(self))
+        for app_label in app.apps if app.catalog_enabled else (None,):
+            app.include_router(build_router(self, app_label))

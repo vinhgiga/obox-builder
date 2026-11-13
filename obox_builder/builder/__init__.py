@@ -75,6 +75,7 @@ def _infer_model(builder: type[Any]) -> type[Any] | None:
 class ModelBuilder(Generic[T]):
     model: type[T] | None
     slug: str | None = None
+    app_label: str | None = None
     label_field: str | None = None
     fields: FieldRefs | None = None
     read_only_fields: FieldRefs = ()
@@ -90,6 +91,33 @@ class ModelBuilder(Generic[T]):
     Form = Form
     View = View
     API = API
+
+    @property
+    def route_key(self) -> str:
+        return f"{self.app_label}.{self.slug}" if self.app_label else str(self.slug)
+
+    @property
+    def schema_name(self) -> str:
+        name = self.model.__name__ if self.model is not None else str(self.slug)
+        return f"{self.app_label}.{name}" if self.app_label else name
+
+    @property
+    def api_key(self) -> str:
+        slug = self.api.prefix or self.slug
+        return f"{self.app_label}/{slug}" if self.app_label else str(slug)
+
+    @property
+    def ui_path(self) -> str:
+        prefix = (
+            self.app.apps[self.app_label].ui_path(self.app.settings)
+            if self.app_label
+            else self.app.settings.ui_prefix
+        )
+        return f"{prefix}/{self.slug}"
+
+    @property
+    def api_path(self) -> str:
+        return f"{self.app.settings.api_prefix}/{self.api_key}"
 
     @classmethod
     def _model_type(cls) -> type[T] | None:
@@ -358,12 +386,17 @@ class ModelBuilder(Generic[T]):
                 raise ImproperlyConfigured("Unknown or duplicate surface operations.")
         if self.api.prefix is not None:
             self._validate_path(self.api.prefix)
-        if self.api.enabled and (self.api.prefix or self.slug) in {
-            "auth",
-            "events",
-            "tasks",
-            "webhooks",
-        }:
+        if (
+            self.api.enabled
+            and self.app_label is None
+            and (self.api.prefix or self.slug)
+            in {
+                "auth",
+                "events",
+                "tasks",
+                "webhooks",
+            }
+        ):
             raise ImproperlyConfigured("Resource API collection name is reserved.")
         for mapping in (self.form.labels, self.form.help_texts, self.form.widgets):
             if set(mapping) - set(self.form_fields):
@@ -551,7 +584,11 @@ class ModelBuilder(Generic[T]):
         )
 
     def permission_name(self, action: str) -> str:
-        prefix = self.policy.resource if isinstance(self.policy, RBAC) else f"admin.{self.slug}"
+        prefix = (
+            self.policy.resource
+            if isinstance(self.policy, RBAC)
+            else f"{self.app_label or 'admin'}.{self.slug}"
+        )
         return f"{prefix}.{action}"
 
     async def validate_create(self, data: dict[str, Any], ctx: Context) -> Mapping[str, Any]:

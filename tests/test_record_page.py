@@ -207,7 +207,10 @@ def test_record_fragment_authentication_and_permissions(
                 )
                 assert response.status_code == (401 if status == 303 else status)
                 if status == 303:
-                    assert response.headers["x-obox-redirect"] == "/vi/auth/login"
+                    assert (
+                        response.headers["x-obox-redirect"]
+                        == "/vi/auth/login?next=%2Fvi%2Fadmin%2Fparents%2F1%2Ffields%2Fname"
+                    )
                 else:
                     assert "location" not in response.headers
                     assert "x-obox-redirect" not in response.headers

@@ -66,7 +66,7 @@ async def relationship(
         raise invalid("cursor", "Cursor requires a positive limit.")
     binding = (
         str(ctx.principal.id),
-        builder.slug,
+        builder.route_key,
         id,
         field,
         limit,
@@ -108,11 +108,7 @@ async def relationship(
             row = await service.serialize(child, ctx=ctx, fields=names)
             key = getattr(child, target.pk_name)
             label = getattr(child, target.label_field) if target.label_field in fields else None
-            url = (
-                f"{app.settings.ui_prefix}/{target.slug}/{quote(str(key), safe='')}"
-                if target.view.enabled
-                else None
-            )
+            url = f"{target.ui_path}/{quote(str(key), safe='')}" if target.view.enabled else None
             if url and ctx.request is not None:
                 url = localize(ctx.request, url)
             items.append(
@@ -141,7 +137,7 @@ async def relationship(
     more = limit is not None and len(items) > limit
     return {
         "field": field,
-        "target_slug": target.api.prefix or target.slug,
+        "target_slug": target.api_key,
         "items": items if limit is None else items[:limit],
         "page": {
             "limit": limit,

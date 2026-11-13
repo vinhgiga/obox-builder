@@ -86,7 +86,7 @@ class API:
 
     def get_read_schema(self, *, builder: Any) -> type[BaseModel]:
         return schema(
-            builder.model.__name__ + "Read",
+            builder.schema_name + "Read",
             builder.specs,
             builder.api_read,
             partial=True,
@@ -97,7 +97,7 @@ class API:
 
     def get_create_schema(self, *, builder: Any) -> type[BaseModel]:
         return schema(
-            builder.model.__name__ + "Create",
+            builder.schema_name + "Create",
             builder.specs,
             builder.api_write,
             conditional=builder.conditional_writes,
@@ -108,7 +108,7 @@ class API:
 
     def get_update_schema(self, *, builder: Any) -> type[BaseModel]:
         return schema(
-            builder.model.__name__ + "Update",
+            builder.schema_name + "Update",
             builder.specs,
             builder.api_write,
             partial=True,

@@ -1,0 +1,14 @@
+{% extends base_template %}
+{% block content %}
+  <div class="row g-3">
+    {% for application in applications %}
+      <div class="col-12 col-md-6 col-xl-4">
+        <a class="card card-link card-body" href="{{ application.url }}">
+          <h2 class="card-title m-0">{{ application.title }}</h2>
+        </a>
+      </div>
+    {% else %}
+      <p class="text-secondary m-0">{% trans %}No applications available.{% endtrans %}</p>
+    {% endfor %}
+  </div>
+{% endblock %}

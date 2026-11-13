@@ -17,6 +17,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from jinja2 import ChoiceLoader, Environment, FileSystemLoader, PackageLoader, select_autoescape
 
+from obox_builder.apps import AppConfig
 from obox_builder.builder.api import query_options, record_etag
 from obox_builder.builder.conditional import check_match
 from obox_builder.builder.fields import FILTER_EMPTY_OPERATORS
@@ -37,13 +38,18 @@ from obox_builder.i18n import context as translation_context
 from obox_builder.i18n import localize, translate
 
 
-def create_templates(settings: Settings) -> Jinja2Templates:
+def create_templates(settings: Settings, apps: Sequence[AppConfig] = ()) -> Jinja2Templates:
     if settings.templates is not None:
         return settings.templates
     env = Environment(
         loader=ChoiceLoader(
             [
                 FileSystemLoader(settings.template_dirs),
+                *(
+                    PackageLoader(config.name, "templates")
+                    for config in apps
+                    if config.has_directory("templates")
+                ),
                 PackageLoader("obox_builder.builder", "templates"),
                 PackageLoader("obox_builder.contrib.auth", "templates"),
                 PackageLoader("obox_builder.contrib.files", "templates"),
@@ -112,7 +118,7 @@ async def reference(app: Any, spec: Any, value: Any, ctx: Context, request: Requ
         obj = (await ctx.session.scalars(stmt)).unique().one_or_none()
         if obj is not None and await invoke(target.policy.allow, "retrieve", ctx, obj=obj):
             record_id = quote(str(getattr(obj, target.pk_name)), safe="")
-            return localize(request, f"{app.settings.ui_prefix}/{target.slug}/{record_id}")
+            return localize(request, f"{target.ui_path}/{record_id}")
     return None
 
 
@@ -412,7 +418,7 @@ async def form_fields(
             target = builder.app._for_table(next(iter(column.foreign_keys)).column.table)
             config["options_url"] = (
                 ctx.request.scope.get("root_path", "") if ctx.request else ""
-            ) + f"{builder.app.settings.api_prefix}/{target.api.prefix or target.slug}:queryOptions"
+            ) + f"{target.api_path}:queryOptions"
         widget = config.get("type", widget)
         if "obox_files" in column.info:
             files = builder.app.get_plugin("files")
@@ -540,6 +546,10 @@ async def build_navigation(
     active_builder: Any = None,
     active_admin: str | None = None,
 ) -> list[dict[str, Any]]:
+    if app.catalog_enabled:
+        from obox_builder.builder.catalog import navigation as catalog_navigation
+
+        return await catalog_navigation(app, request, ctx)
     navigation = []
     for registration in app._registrations.values():
         target = registration.builder
@@ -549,7 +559,7 @@ async def build_navigation(
                     "label": target.model.__name__,
                     "url": localize(
                         request,
-                        str(request.url_for(f"obox_ui_{target.slug}_list").path),
+                        str(request.url_for(f"obox_ui_{target.route_key}_list").path),
                         rooted=True,
                     ),
                     "active": target is active_builder,
@@ -579,7 +589,7 @@ async def build_navigation(
     if analytics is not None:
         for dashboard in analytics.dashboards:
             if await analytics.visible(dashboard, ctx):
-                url = localize(request, analytics.prefix + "/" + dashboard.slug)
+                url = localize(request, analytics.dashboard_path(dashboard))
                 navigation.append(
                     {"label": dashboard.title, "url": url, "active": request.url.path == url}
                 )
@@ -590,7 +600,7 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
     from obox_builder.builder.record_ui import RecordRoute, build_record_ui
 
     router = APIRouter(route_class=OboxRoute)
-    path = f"{app.settings.ui_prefix}/{builder.slug}"
+    path = builder.ui_path
     dependency = Depends(app.context_dependency("ui"), scope="function")
 
     def base(request: Request) -> str:
@@ -651,9 +661,7 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
             link_field = list_link_field(list_display)
             for record, row in zip(records, rows, strict=True):
                 record_id = quote(str(getattr(record, target.pk_name)), safe="")
-                row["url"] = localize(
-                    request, f"{app.settings.ui_prefix}/{target.slug}/{record_id}"
-                )
+                row["url"] = localize(request, f"{target.ui_path}/{record_id}")
                 row["detail"] = bool(
                     target.view.enabled
                     and await invoke(target.policy.allow, "retrieve", ctx, obj=record)
@@ -1337,7 +1345,7 @@ def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:
                 endpoint,
                 methods=methods,
                 response_class=HTMLResponse,
-                name=f"obox_ui_{builder.slug}_{name}",
+                name=f"obox_ui_{builder.route_key}_{name}",
                 include_in_schema=False,
                 route_class_override=RecordRoute
                 if name == "detail"

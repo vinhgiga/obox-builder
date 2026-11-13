@@ -56,7 +56,7 @@ def permission_tree(app: Obox) -> tuple[list[dict[str, Any]], set[str]]:
         else:
             if builder.slug is None:
                 continue
-            service, resource = "admin", builder.slug
+            service, resource = builder.app_label or "admin", builder.slug
         resources.setdefault(service, {}).setdefault(resource, set()).update(
             (*ACTIONS, *builder.permissions)
         )

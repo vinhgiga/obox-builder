@@ -258,7 +258,7 @@ class ListQuery:
         ]
 
     def fingerprint(self, builder: Any) -> str:
-        payload = [builder.slug, self.filters.to_dict(), self.params.get("search"), self.order]
+        payload = [builder.route_key, self.filters.to_dict(), self.params.get("search"), self.order]
         return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 
     def cursor(self, builder: Any, secret: bytes, values: list[Any] | None = None) -> Any:

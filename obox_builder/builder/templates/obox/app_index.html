@@ -1,0 +1,40 @@
+{% extends base_template %}
+{% block content %}
+  <a class="mb-3"
+     href="{{ request.state.obox_catalog.home_url }}">{% trans %}Applications{% endtrans %}</a>
+  <h2 class="h3">{% trans %}Data{% endtrans %}</h2>
+  <div class="table-responsive">
+    <table class="table align-middle">
+      <caption class="visually-hidden">{{ application.title }}</caption>
+      <thead>
+        <tr>
+          <th scope="col">{% trans %}Resources{% endtrans %}</th>
+          <th scope="col">{% trans %}Actions{% endtrans %}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in application.entries if item.kind != 'dashboard' %}
+          <tr>
+            <td><a href="{{ item.url }}">{{ item.label }}</a></td>
+            <td class="text-end">
+              {% if item.list_url %}<a class="btn btn-sm"
+   href="{{ item.list_url }}">{% trans %}Open{% endtrans %}</a>{% endif %}
+              {% if item.add_url %}<a class="btn btn-sm btn-primary"
+   href="{{ item.add_url }}">{% trans %}Create{% endtrans %}</a>{% endif %}
+            </td>
+          </tr>
+        {% else %}
+          <tr><td colspan="2"
+    class="text-secondary">{% trans %}No resources available.{% endtrans %}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% set dashboards = application.entries|selectattr('kind', 'equalto', 'dashboard')|list %}
+  {% if dashboards %}
+    <h2 class="h3 mt-3">{% trans %}Reports{% endtrans %}</h2>
+    <ul class="list-unstyled mb-0">
+      {% for item in dashboards %}<li class="mb-2"><a href="{{ item.url }}">{{ item.label }}</a></li>{% endfor %}
+    </ul>
+  {% endif %}
+{% endblock %}

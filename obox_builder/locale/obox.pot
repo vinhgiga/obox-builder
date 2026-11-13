@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-11-13 16:25+0700\n"
+"POT-Creation-Date: 2026-11-13 19:38+0700\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -16,6 +16,16 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 2.18.0\n"
+
+#: obox_builder/builder/catalog.py:102
+msgid "Home"
+msgstr ""
+
+#: obox_builder/builder/catalog.py:132
+#: obox_builder/builder/templates/obox/app_index.html:4
+#: obox_builder/builder/templates/obox/base.html:45
+msgid "Applications"
+msgstr ""
 
 #: obox_builder/builder/http.py:198
 msgid "msg"
@@ -45,50 +55,51 @@ msgstr ""
 msgid "A value is outside the database column limits."
 msgstr ""
 
-#: obox_builder/builder/ui.py:436
+#: obox_builder/builder/ui.py:442
 msgid "Unsupported form widget."
 msgstr ""
 
-#: obox_builder/builder/ui.py:524
+#: obox_builder/builder/ui.py:530
 msgid "Enter valid JSON."
 msgstr ""
 
-#: obox_builder/builder/ui.py:567 obox_builder/contrib/auth/admin.py:260
+#: obox_builder/builder/ui.py:577 obox_builder/contrib/auth/admin.py:260
+#: obox_builder/contrib/auth/apps.py:30
 msgid "Users"
 msgstr ""
 
-#: obox_builder/builder/ui.py:572 obox_builder/contrib/auth/admin.py:472
+#: obox_builder/builder/ui.py:582 obox_builder/contrib/auth/admin.py:472
 #: obox_builder/contrib/auth/admin.py:507
-#: obox_builder/contrib/auth/admin.py:560
+#: obox_builder/contrib/auth/admin.py:560 obox_builder/contrib/auth/apps.py:31
 #: obox_builder/contrib/auth/templates/obox/auth/user_form.html:96
 #: obox_builder/contrib/auth/templates/obox/profile.html:34
 msgid "Roles"
 msgstr ""
 
-#: obox_builder/builder/ui.py:750 obox_builder/builder/ui.py:753
+#: obox_builder/builder/ui.py:758 obox_builder/builder/ui.py:761
 msgid "Invalid inline count."
 msgstr ""
 
-#: obox_builder/builder/ui.py:765 obox_builder/builder/ui.py:794
+#: obox_builder/builder/ui.py:773 obox_builder/builder/ui.py:802
 msgid "An inline record is unavailable."
 msgstr ""
 
-#: obox_builder/builder/ui.py:836
+#: obox_builder/builder/ui.py:844
 msgid "Unknown inline field."
 msgstr ""
 
-#: obox_builder/builder/ui.py:1069 obox_builder/contrib/auth/admin.py:233
-#: obox_builder/contrib/auth/views.py:251
+#: obox_builder/builder/ui.py:1077 obox_builder/contrib/auth/admin.py:233
+#: obox_builder/contrib/auth/views.py:255
 msgid "Duplicate form fields are not permitted."
 msgstr ""
 
 #: obox_builder/builder/templates/obox/_record_activity.html:22
 #: obox_builder/builder/templates/obox/confirm_delete.html:3
-#: obox_builder/builder/ui.py:1198
+#: obox_builder/builder/ui.py:1206
 msgid "Are you sure?"
 msgstr ""
 
-#: obox_builder/builder/ui.py:1227 obox_builder/builder/ui.py:1245
+#: obox_builder/builder/ui.py:1235 obox_builder/builder/ui.py:1253
 msgid "Choose a valid action and records."
 msgstr ""
 
@@ -184,20 +195,51 @@ msgstr ""
 msgid "No resources are available for your account."
 msgstr ""
 
+#: obox_builder/builder/templates/obox/app_index.html:5
+msgid "Data"
+msgstr ""
+
+#: obox_builder/builder/templates/obox/app_index.html:11
+#: obox_builder/builder/templates/obox/base.html:83
+msgid "Resources"
+msgstr ""
+
+#: obox_builder/builder/templates/obox/app_index.html:12
+#: obox_builder/contrib/auth/templates/obox/auth/users.html:17
+msgid "Actions"
+msgstr ""
+
+#: obox_builder/builder/templates/obox/app_index.html:21
+#: obox_builder/contrib/analytics/templates/obox_analytics/records.html:17
+msgid "Open"
+msgstr ""
+
+#: obox_builder/builder/templates/obox/app_index.html:23
+msgid "Create"
+msgstr ""
+
+#: obox_builder/builder/templates/obox/app_index.html:28
+msgid "No resources available."
+msgstr ""
+
+#: obox_builder/builder/templates/obox/app_index.html:35
+msgid "Reports"
+msgstr ""
+
 #: obox_builder/builder/templates/obox/base.html:22
 msgid "Skip to content"
 msgstr ""
 
-#: obox_builder/builder/templates/obox/base.html:40
+#: obox_builder/builder/templates/obox/base.html:43
+msgid "Switch application"
+msgstr ""
+
+#: obox_builder/builder/templates/obox/base.html:65
 msgid "Sign out"
 msgstr ""
 
-#: obox_builder/builder/templates/obox/base.html:45
+#: obox_builder/builder/templates/obox/base.html:70
 msgid "Language"
-msgstr ""
-
-#: obox_builder/builder/templates/obox/base.html:58
-msgid "Resources"
 msgstr ""
 
 #: obox_builder/builder/templates/obox/confirm_delete.html:4
@@ -245,6 +287,10 @@ msgstr ""
 
 #: obox_builder/builder/templates/obox/form.html:123
 msgid "Save and continue"
+msgstr ""
+
+#: obox_builder/builder/templates/obox/index.html:11
+msgid "No applications available."
 msgstr ""
 
 #: obox_builder/builder/templates/obox/list.html:10
@@ -481,61 +527,61 @@ msgstr ""
 msgid "Sign in"
 msgstr ""
 
-#: obox_builder/contrib/analytics/routes.py:287
+#: obox_builder/contrib/analytics/routes.py:291
 msgid "Empty"
 msgstr ""
 
-#: obox_builder/contrib/analytics/routes.py:288
+#: obox_builder/contrib/analytics/routes.py:292
 msgid "Total"
 msgstr ""
 
-#: obox_builder/contrib/analytics/routes.py:289
+#: obox_builder/contrib/analytics/routes.py:293
 msgid "Loading…"
 msgstr ""
 
-#: obox_builder/contrib/analytics/routes.py:290
+#: obox_builder/contrib/analytics/routes.py:294
 #: obox_builder/contrib/analytics/templates/obox_analytics/records.html:21
 msgid "No records found."
 msgstr ""
 
-#: obox_builder/contrib/analytics/routes.py:291
+#: obox_builder/contrib/analytics/routes.py:295
 msgid "Unable to load data. Try again."
 msgstr ""
 
-#: obox_builder/contrib/analytics/routes.py:292
+#: obox_builder/contrib/analytics/routes.py:296
 msgid "Value"
 msgstr ""
 
-#: obox_builder/contrib/analytics/routes.py:293
+#: obox_builder/contrib/analytics/routes.py:297
 msgid "Series"
 msgstr ""
 
-#: obox_builder/contrib/analytics/routes.py:294
+#: obox_builder/contrib/analytics/routes.py:298
 #: obox_builder/contrib/analytics/templates/obox_analytics/records.html:10
 msgid "View records"
 msgstr ""
 
-#: obox_builder/contrib/analytics/routes.py:295
+#: obox_builder/contrib/analytics/routes.py:299
 msgid "Chart options"
 msgstr ""
 
-#: obox_builder/contrib/analytics/routes.py:296
+#: obox_builder/contrib/analytics/routes.py:300
 msgid "View as table"
 msgstr ""
 
-#: obox_builder/contrib/analytics/routes.py:297
+#: obox_builder/contrib/analytics/routes.py:301
 msgid "View as chart"
 msgstr ""
 
-#: obox_builder/contrib/analytics/routes.py:298
+#: obox_builder/contrib/analytics/routes.py:302
 msgid "Expand"
 msgstr ""
 
-#: obox_builder/contrib/analytics/routes.py:299
+#: obox_builder/contrib/analytics/routes.py:303
 msgid "Close"
 msgstr ""
 
-#: obox_builder/contrib/analytics/routes.py:300
+#: obox_builder/contrib/analytics/routes.py:304
 msgid "All records"
 msgstr ""
 
@@ -545,10 +591,6 @@ msgstr ""
 
 #: obox_builder/contrib/analytics/templates/obox_analytics/records.html:3
 msgid "Back"
-msgstr ""
-
-#: obox_builder/contrib/analytics/templates/obox_analytics/records.html:17
-msgid "Open"
 msgstr ""
 
 #: obox_builder/contrib/analytics/templates/obox_analytics/records.html:27
@@ -599,8 +641,8 @@ msgstr ""
 #: obox_builder/contrib/auth/admin.py:340
 #: obox_builder/contrib/auth/admin.py:486
 #: obox_builder/contrib/auth/admin.py:533
-#: obox_builder/contrib/auth/views.py:258
-#: obox_builder/contrib/auth/views.py:266
+#: obox_builder/contrib/auth/views.py:262
+#: obox_builder/contrib/auth/views.py:270
 msgid "This field is required."
 msgstr ""
 
@@ -626,7 +668,7 @@ msgid "Choose valid roles."
 msgstr ""
 
 #: obox_builder/contrib/auth/admin.py:342
-#: obox_builder/contrib/auth/views.py:268
+#: obox_builder/contrib/auth/views.py:272
 msgid "Passwords do not match."
 msgstr ""
 
@@ -653,6 +695,10 @@ msgstr ""
 msgid "Role not found."
 msgstr ""
 
+#: obox_builder/contrib/auth/apps.py:21
+msgid "Users and roles"
+msgstr ""
+
 #: obox_builder/contrib/auth/password_validation.py:54
 msgid "This password is too similar to your personal information."
 msgstr ""
@@ -669,21 +715,21 @@ msgstr ""
 msgid "Invalid username or password."
 msgstr ""
 
-#: obox_builder/contrib/auth/views.py:151
-#: obox_builder/contrib/auth/views.py:197
+#: obox_builder/contrib/auth/views.py:155
+#: obox_builder/contrib/auth/views.py:201
 msgid "Account"
 msgstr ""
 
-#: obox_builder/contrib/auth/views.py:246
-#: obox_builder/contrib/auth/views.py:278
+#: obox_builder/contrib/auth/views.py:250
+#: obox_builder/contrib/auth/views.py:282
 msgid "Password changes are not supported by this backend."
 msgstr ""
 
-#: obox_builder/contrib/auth/views.py:260
+#: obox_builder/contrib/auth/views.py:264
 msgid "Use at most 1024 characters."
 msgstr ""
 
-#: obox_builder/contrib/auth/views.py:264
+#: obox_builder/contrib/auth/views.py:268
 msgid "Current password is incorrect."
 msgstr ""
 
@@ -818,10 +864,6 @@ msgstr ""
 
 #: obox_builder/contrib/auth/templates/obox/auth/users.html:10
 msgid "User deleted."
-msgstr ""
-
-#: obox_builder/contrib/auth/templates/obox/auth/users.html:17
-msgid "Actions"
 msgstr ""
 
 #: obox_builder/contrib/auth/templates/obox/auth/users.html:37

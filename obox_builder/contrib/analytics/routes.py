@@ -109,9 +109,12 @@ def validate_parameters(
             raise BuilderValidationError({key: ["Use a declared group's filter prefix."]})
 
 
-def build_router(analytics: Analytics) -> APIRouter:
+def build_router(analytics: Analytics, app_label: str | None = None) -> APIRouter:
     app = analytics.app
-    router = APIRouter(prefix=analytics.prefix, route_class=AnalyticsRoute, include_in_schema=False)
+    prefix = (
+        app.apps[app_label].ui_path(app.settings) + "/dashboards" if app_label else analytics.prefix
+    )
+    router = APIRouter(prefix=prefix, route_class=AnalyticsRoute, include_in_schema=False)
     dependency = Depends(app.context_dependency("ui"), scope="function")
 
     def selection_binding(
@@ -120,6 +123,7 @@ def build_router(analytics: Analytics) -> APIRouter:
         return repr(
             (
                 dashboard,
+                app_label,
                 chart,
                 ctx.principal.id,
                 ctx.source,
@@ -136,7 +140,7 @@ def build_router(analytics: Analytics) -> APIRouter:
     ) -> tuple[Any, Any, Any, Any]:
         if getattr(ctx.principal, "api_scopes", None) is not None:
             ctx.source = "api"
-        definition = analytics.dashboard(dashboard)
+        definition = analytics.dashboard(dashboard, app_label)
         selected = next((w for w in definition.all_widgets if w.slug == widget), None)
         if widget is not None and selected is None:
             raise NotFound("Unknown widget.")
@@ -182,7 +186,7 @@ def build_router(analytics: Analytics) -> APIRouter:
         if not definition.groups or not await analytics.visible(definition, ctx):
             await service.authorize("list", ctx)
         validate_parameters(request, prefixes=prefixes(definition))
-        dashboard_url = localize(request, analytics.prefix + "/" + definition.slug)
+        dashboard_url = localize(request, analytics.dashboard_path(definition))
         sections = []
         for section in definition.sections:
             service = app.service(section.source)
@@ -242,7 +246,7 @@ def build_router(analytics: Analytics) -> APIRouter:
                     request,
                     str(
                         request.url_for(
-                            "obox_analytics_" + endpoint,
+                            analytics.route_name(endpoint, app_label),
                             dashboard=definition.slug,
                             widget=widget.slug,
                         ).path
@@ -301,7 +305,7 @@ def build_router(analytics: Analytics) -> APIRouter:
             },
         }
 
-    @router.get("/{dashboard}", name="obox_analytics_dashboard")
+    @router.get("/{dashboard}", name=analytics.route_name("dashboard", app_label))
     async def dashboard_page(request: Request, dashboard: str, ctx: Context = dependency) -> Any:
         values = await dashboard_context(request, dashboard, ctx)
         return await page(values["dashboard"].template, request, ctx, **values)
@@ -434,7 +438,7 @@ def build_router(analytics: Analytics) -> APIRouter:
                 outcome,
             )
 
-    @router.get("/{dashboard}/{widget}/records", name="obox_analytics_records")
+    @router.get("/{dashboard}/{widget}/records", name=analytics.route_name("records", app_label))
     async def records(
         request: Request,
         dashboard: str,
@@ -518,7 +522,7 @@ def build_router(analytics: Analytics) -> APIRouter:
                         request,
                         str(
                             request.url_for(
-                                f"obox_ui_{builder.slug}_detail",
+                                f"obox_ui_{builder.route_key}_detail",
                                 id=str(getattr(obj, builder.pk_name)),
                             ).path
                         ),
@@ -537,7 +541,7 @@ def build_router(analytics: Analytics) -> APIRouter:
                 if key not in {"row", "column", "selector", "offset", "limit"}
             ]
         )
-        back = localize(request, analytics.prefix + "/" + definition.slug)
+        back = localize(request, analytics.dashboard_path(definition))
         return await page(
             "obox_analytics/records.html",
             request,
@@ -558,14 +562,14 @@ def build_router(analytics: Analytics) -> APIRouter:
         "/{dashboard}/manifest",
         manifest,
         methods=["GET"],
-        name="obox_analytics_manifest",
+        name=analytics.route_name("manifest", app_label),
         route_class_override=AnalyticsDataRoute,
     )
     router.add_api_route(
         "/{dashboard}/{widget}/data",
         data,
         methods=["GET"],
-        name="obox_analytics_data",
+        name=analytics.route_name("data", app_label),
         route_class_override=AnalyticsDataRoute,
     )
     return router

@@ -237,6 +237,11 @@ class Auth:
             if "roles" in inspect(user_model).relationships:
                 app.include_router(self.get_admin_router(app), ui=True)
                 self._admin_installed = True
+                from obox_builder.contrib.auth.apps import AuthConfig
+
+                config = AuthConfig()
+                config.ui_prefix = self.prefix
+                app.add_app(config)
         app.include_router(routes, ui=True)
         app.provide_defaults(
             principal_dependency=self.principal,

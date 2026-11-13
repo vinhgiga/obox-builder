@@ -201,7 +201,7 @@ def test_admin_routes_static_and_superuser_access() -> None:
         try:
             response = await get(anonymous, "/auth/users")
             assert response.status_code == 303
-            assert response.headers["location"] == "/en/auth/login"
+            assert response.headers["location"] == "/auth/login?next=%2Fauth%2Fusers"
         finally:
             await engine.dispose()
 
@@ -282,8 +282,8 @@ def test_user_list_navigation_and_non_superuser_navigation() -> None:
 
             builder = await get(app, "/admin/widgets")
             assert builder.status_code == 200
-            assert 'href="/en/auth/users"' in builder.text
-            assert 'href="/en/auth/roles"' in builder.text
+            assert 'href="/auth/users"' in builder.text
+            assert 'href="/auth/roles"' in builder.text
         finally:
             await engine.dispose()
 
@@ -346,7 +346,7 @@ def test_create_user_with_roles_and_defaults() -> None:
                 },
             )
             assert response.status_code == 303
-            assert response.headers["location"] == "/en/auth/users?saved=1"
+            assert response.headers["location"] == "/auth/users?saved=1"
 
             async with app.uow(principal=SUPERUSER) as ctx:
                 user = await ctx.session.scalar(
@@ -587,7 +587,7 @@ def test_self_and_last_superuser_guards() -> None:
 
             deleted = await post(app, f"/auth/users/{user_id}/delete", {"csrf_token": ""})
             assert deleted.status_code == 303
-            assert deleted.headers["location"] == "/en/auth/users?error=self"
+            assert deleted.headers["location"] == "/auth/users?error=self"
             assert await fetch_user(app, user_id) is not None
         finally:
             await engine.dispose()
@@ -615,7 +615,7 @@ def test_self_and_last_superuser_guards() -> None:
 
             deleted = await post(other, f"/auth/users/{user_id}/delete", {"csrf_token": ""})
             assert deleted.status_code == 303
-            assert deleted.headers["location"] == "/en/auth/users?error=last_superuser"
+            assert deleted.headers["location"] == "/auth/users?error=last_superuser"
             assert await fetch_user(other, user_id) is not None
         finally:
             await engine.dispose()
@@ -642,7 +642,7 @@ def test_delete_user_removes_role_links() -> None:
                 )
             response = await post(app, f"/auth/users/{user_id}/delete", {"csrf_token": ""})
             assert response.status_code == 303
-            assert response.headers["location"] == "/en/auth/users?deleted=1"
+            assert response.headers["location"] == "/auth/users?deleted=1"
             assert await fetch_user(app, user_id) is None
             async with app.uow(principal=SUPERUSER) as ctx:
                 links = await ctx.session.scalar(
@@ -720,7 +720,7 @@ def test_role_update_preserves_unknown_permissions_and_validates() -> None:
                 },
             )
             assert response.status_code == 303
-            assert response.headers["location"] == "/en/auth/roles?saved=1"
+            assert response.headers["location"] == "/auth/roles?saved=1"
 
             role = await fetch_role(app, role_id)
             assert role.name == "Editors"
@@ -784,7 +784,7 @@ def test_role_create_and_delete_removes_user_links() -> None:
                 },
             )
             assert response.status_code == 303
-            assert response.headers["location"] == "/en/auth/roles?saved=1"
+            assert response.headers["location"] == "/auth/roles?saved=1"
 
             async with app.uow(principal=SUPERUSER) as ctx:
                 role = await ctx.session.scalar(sa.select(Role).where(Role.name == "Operators"))
@@ -805,7 +805,7 @@ def test_role_create_and_delete_removes_user_links() -> None:
 
             deleted = await post(app, f"/auth/roles/{assigned}/delete", {"csrf_token": ""})
             assert deleted.status_code == 303
-            assert deleted.headers["location"] == "/en/auth/roles?deleted=1"
+            assert deleted.headers["location"] == "/auth/roles?deleted=1"
             assert await fetch_role(app, assigned) is None
             assert await fetch_role(app, created_id) is not None
             user = await fetch_user(app, user_id)
@@ -853,7 +853,7 @@ def test_csrf_token_is_required_and_accepted() -> None:
                     },
                 )
                 assert accepted.status_code == 303
-                assert accepted.headers["location"] == "/en/auth/users?saved=1"
+                assert accepted.headers["location"] == "/auth/users?saved=1"
 
             async with app.uow(principal=SUPERUSER) as ctx:
                 usernames = set((await ctx.session.scalars(sa.select(User.username))).all())

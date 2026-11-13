@@ -16,14 +16,16 @@ from fastapi import APIRouter, Depends, FastAPI, Request, Response
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from fastapi.routing import iter_route_contexts
+from fastapi.routing import RouteContext, iter_route_contexts
 from sqlalchemy import event, inspect
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Mapper
 from sqlalchemy.orm.exc import StaleDataError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.routing import BaseRoute, Mount
+from starlette.staticfiles import StaticFiles
 
+from obox_builder.apps import AppConfig
 from obox_builder.auth import Policy
 from obox_builder.builder import ModelBuilder
 from obox_builder.builder.service import ResourceService, invoke
@@ -60,6 +62,7 @@ class Registration(Generic[T]):
     service: ResourceService[T]
     slug: str
     routes: tuple[str, ...]
+    app_label: str | None = None
 
 
 def _overlap(left: str, right: str) -> bool:
@@ -156,9 +159,13 @@ class Obox:
         self.database = Database(self.settings)
         self.session_factory = self.database.sessions
         self._plugins: dict[str, Plugin] = {}
+        self._pending_plugins: list[Plugin] = []
+        self._loading_apps = True
+        self._apps: dict[str, AppConfig] = {}
+        self.catalog_enabled = self.settings.installed_apps is not None
         self._installation_failed = False
-        self.ui_prefixes = [self.settings.ui_prefix]
-        self._ui_routes: list[BaseRoute] = []
+        self.ui_prefixes = [self.settings.ui_prefix] if self.settings.ui_prefix else []
+        self._ui_routes: list[BaseRoute | RouteContext] = []
         self._registrations: dict[type[Any], Registration[Any]] = {}
         self._generated: dict[Callable[..., Any] | None, type[Any]] = {}
         self._owned_routes: set[int] = set()
@@ -189,6 +196,78 @@ class Obox:
         app.state.obox = self
         for plugin in plugins:
             self.install(plugin)
+        try:
+            self._load_apps()
+            self._loading_apps = False
+            for plugin in self._pending_plugins:
+                self._setup_plugin(plugin)
+            self._pending_plugins.clear()
+        except BaseException:
+            self._installation_failed = True
+            raise
+
+    @property
+    def apps(self) -> Mapping[str, AppConfig]:
+        return MappingProxyType(self._apps)
+
+    def add_app(self, config: AppConfig) -> None:
+        self._check_mutable()
+        if self.catalog_enabled and not self._loading_apps:
+            raise ImproperlyConfigured("Declare applications before app configuration is complete.")
+        config = AppConfig.load(config)
+        if config.label in self._apps or any(c.name == config.name for c in self._apps.values()):
+            raise ImproperlyConfigured(f"Application {config.label!r} is already installed.")
+        config.ui_path(self.settings)
+        self._apps[config.label] = config
+
+    def _load_apps(self) -> None:
+        from obox_builder.builder.catalog import build_catalog
+        from obox_builder.builder.ui import create_templates
+
+        for entry in self.settings.installed_apps or ():
+            self.add_app(AppConfig.load(entry))
+        for config in self._apps.values():
+            for dependency in config.requires:
+                if dependency not in self._apps and dependency not in self._plugins:
+                    raise ImproperlyConfigured(
+                        f"Application {config.label!r} requires {dependency!r}."
+                    )
+            path = config.ui_path(self.settings)
+            if path == self.settings.api_prefix or path.startswith(self.settings.api_prefix + "/"):
+                raise ImproperlyConfigured("Application UI paths must not overlap the API prefix.")
+            if path.strip("/").split("/")[0] in LANGUAGES:
+                raise ImproperlyConfigured("Application UI paths must not use language prefixes.")
+            if any(
+                other is not config and path.startswith(other.ui_path(self.settings) + "/")
+                for other in self._apps.values()
+            ):
+                raise ImproperlyConfigured("Application UI prefixes must not overlap.")
+        for config in self._apps.values():
+            for builder in config.builders:
+                self.register(builder, app_label=config.label)
+            if config.ui_router is not None:
+                self.include_router(config.ui_router, prefix=config.ui_path(self.settings), ui=True)
+            if config.api_router is not None:
+                self.include_router(
+                    config.api_router, prefix=f"{self.settings.api_prefix}/{config.label}"
+                )
+            if config.has_directory("static"):
+                route = Mount(
+                    config.ui_path(self.settings) + "/_static",
+                    app=StaticFiles(packages=[(config.name, "static")]),
+                    name=f"obox_{config.label}_static",
+                )
+                self.app.routes.append(route)
+                self._owned_routes.add(id(route))
+                self._ui_routes.append(route)
+            self.add_ui_prefix(config.ui_path(self.settings))
+        if self.catalog_enabled and self.settings.templates is None:
+            self.templates.env.loader = create_templates(
+                self.settings, tuple(self._apps.values())
+            ).env.loader
+        if self.catalog_enabled:
+            self.add_ui_prefix(self.settings.ui_prefix or "/")
+            self.include_router(build_catalog(self), ui=True)
 
     @property
     def plugins(self) -> Mapping[str, Plugin]:
@@ -232,13 +311,19 @@ class Obox:
                     f"Plugin {name!r} requires {dependency!r}; install it first."
                 )
         self._plugins[name] = plugin
+        if self._loading_apps and getattr(plugin, "requires_resources", False):
+            self._pending_plugins.append(plugin)
+        else:
+            self._setup_plugin(plugin)
+        return plugin
+
+    def _setup_plugin(self, plugin: Plugin) -> None:
         try:
             plugin.setup(self)
         except BaseException:
-            del self._plugins[name]
+            del self._plugins[plugin.name]
             self._installation_failed = True
             raise
-        return plugin
 
     def provide_defaults(
         self,
@@ -261,7 +346,7 @@ class Obox:
         self._check_mutable()
         if not isinstance(prefix, str):
             raise ImproperlyConfigured("UI prefixes must be nonempty absolute URL paths.")
-        prefix = prefix.rstrip("/")
+        prefix = prefix.rstrip("/") or "/"
         if not prefix.startswith("/") or any(char in prefix for char in "{}?#"):
             raise ImproperlyConfigured("UI prefixes must be nonempty absolute URL paths.")
         if prefix not in self.ui_prefixes:
@@ -313,16 +398,22 @@ class Obox:
         )
 
     @overload
-    def register(self, builder: type[ModelBuilder[T]]) -> Registration[T]: ...
+    def register(
+        self, builder: type[ModelBuilder[T]], *, app_label: str | None = None
+    ) -> Registration[T]: ...
 
     @overload
-    def register(self, builder: type[T]) -> Registration[T]: ...
+    def register(self, builder: type[T], *, app_label: str | None = None) -> Registration[T]: ...
 
-    def register(self, builder: type[Any]) -> Registration[Any]:
+    def register(self, builder: type[Any], *, app_label: str | None = None) -> Registration[Any]:
         from obox_builder.builder.api import build_api
         from obox_builder.builder.ui import build_ui
 
         self._check_mutable()
+        if app_label is not None and app_label not in self._apps:
+            raise ImproperlyConfigured(f"Unknown application {app_label!r}.")
+        if self.catalog_enabled and app_label is None:
+            raise ImproperlyConfigured("Register catalog resources with an application label.")
         if isinstance(builder, type) and isinstance(inspect(builder, raiseerr=False), Mapper):
             model_type = builder
             builder = new_class(
@@ -337,6 +428,7 @@ class Obox:
                 "Builder.model is no longer supported; specialize ModelBuilder[Model]."
             )
         definition = builder()
+        definition.app_label = app_label
         model = builder._model_type()
         if model is None:
             raise ImproperlyConfigured(
@@ -351,7 +443,10 @@ class Obox:
         definition._compile(model, self.settings.default_policy, self)
         if definition.slug is None:
             raise ImproperlyConfigured("The compiled builder has no slug.")
-        if any(item.slug == definition.slug for item in self._registrations.values()):
+        if any(
+            item.slug == definition.slug and item.app_label == app_label
+            for item in self._registrations.values()
+        ):
             raise ImproperlyConfigured(f"Duplicate resource slug: {definition.slug!r}.")
         service = ResourceService[Any](definition, self)
         routers = (build_api(self, definition, service), build_ui(self, definition, service))
@@ -367,6 +462,7 @@ class Obox:
             service,
             definition.slug,
             tuple(route.path for route in candidates if route.path is not None),
+            app_label,
         )
         self._registrations[model] = registration
         for route in candidates:
@@ -376,12 +472,15 @@ class Obox:
         self.app.openapi_schema = None
         return registration
 
-    def include_router(self, router: APIRouter, *, ui: bool = False) -> None:
+    def include_router(self, router: APIRouter, *, ui: bool = False, prefix: str = "") -> None:
         self._check_mutable()
-        self.app.include_router(router)
-        self._owned_routes.update(id(r.original_route) for r in iter_route_contexts(router.routes))
+        self.app.include_router(router, prefix=prefix)
+        owned = {id(r.original_route) for r in iter_route_contexts(router.routes)}
+        self._owned_routes.update(owned)
         if ui:
-            self._ui_routes.extend(r.original_route for r in iter_route_contexts(router.routes))
+            self._ui_routes.extend(
+                r for r in iter_route_contexts(self.app.routes) if id(r.original_route) in owned
+            )
 
     @staticmethod
     def _conflict(
@@ -430,7 +529,15 @@ class Obox:
 
         if self._installation_failed:
             raise ImproperlyConfigured("Plugin setup failed; create a new application.")
-        diagnostics = []
+        diagnostics = [
+            Diagnostic(
+                "error",
+                "app.analytics_missing",
+                f"{config.label}: install Analytics to enable its dashboards.",
+            )
+            for config in self._apps.values()
+            if config.dashboards and self.get_plugin("analytics") is None
+        ]
         routes = list(iter_route_contexts(self.app.routes))
         for i, route in enumerate(routes):
             for other in routes[:i]:
@@ -468,7 +575,7 @@ class Obox:
                     Diagnostic(
                         "warning",
                         "api.unversioned_writes",
-                        f"{item.slug}: configure version_id_col to detect stale writes.",
+                        f"{b.route_key}: configure version_id_col to detect stale writes.",
                     )
                 )
             if b.policy is None or b.fields is None:
@@ -477,7 +584,7 @@ class Obox:
                 Diagnostic(
                     "info",
                     "resource.exposure",
-                    item.slug,
+                    b.route_key,
                     {
                         "fields": b.fields,
                         "label_field": b.label_field,

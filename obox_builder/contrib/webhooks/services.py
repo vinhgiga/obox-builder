@@ -48,7 +48,7 @@ def actor(ctx: Context) -> str:
 def resource(plugin: Any, slug: str) -> Any:
     for item in plugin.app._registrations.values():
         b = item.builder
-        if (b.api.prefix or b.slug) == slug and b.api.enabled and "retrieve" in b.api.operations:
+        if b.api_key == slug and b.api.enabled and "retrieve" in b.api.operations:
             return b
     raise NotFound("The webhook resource is unavailable.")
 
@@ -118,7 +118,7 @@ async def record(plugin: Any, builder: Any, action: str, obj: Any, ctx: Context)
         or "retrieve" not in builder.api.operations
     ):
         return
-    slug = builder.api.prefix or builder.slug
+    slug = builder.api_key
     timestamp = now()
     # Serialize allocation on each subscription. A polling cursor must never skip
     # a lower sequence that commits after a higher sequence.

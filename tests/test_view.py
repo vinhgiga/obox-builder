@@ -115,7 +115,7 @@ def test_list_display_controls_columns_and_order() -> None:
 def test_list_exposes_bulk_delete_controls() -> None:
     html, _ = asyncio.run(get_list(OrderedBuilder))
     assert 'class="page grid-layout"' in html
-    assert re.search(r'action="/en/admin/widgets/bulk-actions"', html)
+    assert re.search(r'action="/admin/widgets/bulk-actions"', html)
     assert "data-select-all" in html
     assert 'name="record_ids"' in html
     assert "data-selection-status" in html
@@ -129,7 +129,7 @@ def test_list_exposes_bulk_delete_controls() -> None:
 
 def test_list_renders_create_action_above_footer() -> None:
     html, _ = asyncio.run(get_list(OrderedBuilder))
-    assert re.search(r'<a class="grid-add" href="/en/admin/widgets/new">', html)
+    assert re.search(r'<a class="grid-add" href="/admin/widgets/new">', html)
     assert "Add record" in html
     assert (
         html.index('class="grid-scroll"')
@@ -168,7 +168,7 @@ def test_bulk_delete_validates_and_deletes_selected_records() -> None:
                 data["record_ids"] = [str(first.id)]
                 deleted = await client.post("/admin/widgets/bulk-actions", data=data)
                 assert deleted.status_code == 303
-                assert deleted.headers["location"] == "/en/admin/widgets"
+                assert deleted.headers["location"] == "/admin/widgets"
 
                 data.update(record_ids=[str(third.id)], select_across="1")
                 across = await client.post(
@@ -177,7 +177,7 @@ def test_bulk_delete_validates_and_deletes_selected_records() -> None:
                 )
                 assert across.status_code == 303
                 assert across.headers["location"] == (
-                    "/en/admin/widgets?filter.status=live&limit=1&offset=0"
+                    "/admin/widgets?filter.status=live&limit=1&offset=0"
                 )
 
             async with app.uow(principal=STAFF) as ctx:

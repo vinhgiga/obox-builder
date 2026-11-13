@@ -127,6 +127,10 @@ def router(app: Obox, auth: Auth) -> APIRouter:
         principal = await auth.principal(request)
         if not principal.is_authenticated:
             return RedirectResponse(auth.login_url(request), status_code=303)
+        if app.catalog_enabled:
+            return RedirectResponse(
+                localize(request, app.settings.ui_prefix or "/"), status_code=303
+            )
         async with app.uow(principal=principal, request=request, source="ui") as ctx:
             for registration in app._registrations.values():
                 builder = registration.builder
@@ -138,7 +142,7 @@ def router(app: Obox, auth: Auth) -> APIRouter:
                     return RedirectResponse(
                         localize(
                             request,
-                            str(request.url_for(f"obox_ui_{builder.slug}_list").path),
+                            str(request.url_for(f"obox_ui_{builder.route_key}_list").path),
                             rooted=True,
                         ),
                         status_code=303,
@@ -295,7 +299,7 @@ def router(app: Obox, auth: Auth) -> APIRouter:
         return response
 
     routes.add_api_route(
-        "/",
+        "/account" if app.catalog_enabled else "/",
         account,
         methods=["GET"],
         name=auth.account_route,

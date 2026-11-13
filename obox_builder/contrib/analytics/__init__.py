@@ -120,6 +120,7 @@ class Dashboard:
     widgets: tuple[Pivot | Chart, ...]
     groups: tuple[Group, ...]
     template: str
+    app_label: str | None
     _row_sizes: tuple[int, ...] = field(repr=False)
 
     def __init__(
@@ -132,6 +133,7 @@ class Dashboard:
         groups: Sequence[Group] = (),
         charts: _Layout | None = None,
         template: str = "obox_analytics/dashboard.html",
+        app_label: str | None = None,
         _row_sizes: tuple[int, ...] = (),
     ) -> None:
         _slug(slug)
@@ -173,6 +175,7 @@ class Dashboard:
             ("widgets", tuple(normalized)),
             ("groups", tuple(groups)),
             ("template", template),
+            ("app_label", app_label),
             ("_row_sizes", _row_sizes),
         ):
             object.__setattr__(self, name, value)
@@ -260,11 +263,12 @@ def is_timeout(exc: DBAPIError) -> bool:
 
 class Analytics:
     name = "analytics"
+    requires_resources = True
     requires: tuple[str, ...] = ()
 
     def __init__(
         self,
-        dashboards: Dashboard | Sequence[Dashboard],
+        dashboards: Dashboard | Sequence[Dashboard] = (),
         *,
         prefix: str = "/analytics",
         max_rows: int = 200,
@@ -305,10 +309,24 @@ class Analytics:
             raise ImproperlyConfigured("Analytics is already installed.")
         seen = set()
         dashboards = []
-        for dashboard in self.dashboards:
-            if not isinstance(dashboard, Dashboard) or dashboard.slug in seen:
+        declarations = list(self.dashboards)
+        for config in app.apps.values():
+            for declaration in config.dashboards:
+                if not isinstance(declaration, Dashboard) or declaration.app_label not in (
+                    None,
+                    config.label,
+                ):
+                    raise ImproperlyConfigured("Declare dashboards in their owning application.")
+                declarations.append(replace(declaration, app_label=config.label))
+        for dashboard in declarations:
+            if (
+                not isinstance(dashboard, Dashboard)
+                or (dashboard.app_label, dashboard.slug) in seen
+            ):
                 raise ImproperlyConfigured("Use dashboards with unique slugs.")
-            seen.add(dashboard.slug)
+            if dashboard.app_label is not None and dashboard.app_label not in app.apps:
+                raise ImproperlyConfigured("A dashboard must belong to an installed application.")
+            seen.add((dashboard.app_label, dashboard.slug))
             if not dashboard.groups and dashboard.source is None:
                 grouped: dict[type[Any], list[Chart | tuple[Chart, ...]]] = {}
                 for row in dashboard.rows:
@@ -400,12 +418,27 @@ class Analytics:
             namespace="analytics",
             name="obox_analytics_static",
         )
-        app.include_router(build_router(self), ui=True)
+        for app_label in dict.fromkeys(d.app_label for d in self.dashboards):
+            app.include_router(build_router(self, app_label), ui=True)
         app.add_ui_prefix(self.prefix)
 
-    def dashboard(self, slug: str) -> Dashboard:
+    def dashboard_path(self, dashboard: Dashboard) -> str:
+        prefix = (
+            self.app.apps[dashboard.app_label].ui_path(self.app.settings) + "/dashboards"
+            if dashboard.app_label
+            else self.prefix
+        )
+        return f"{prefix}/{dashboard.slug}"
+
+    @staticmethod
+    def route_name(endpoint: str, app_label: str | None = None) -> str:
+        return (
+            f"obox_analytics_{app_label}.{endpoint}" if app_label else f"obox_analytics_{endpoint}"
+        )
+
+    def dashboard(self, slug: str, app_label: str | None = None) -> Dashboard:
         for dashboard in self.dashboards:
-            if dashboard.slug == slug:
+            if dashboard.slug == slug and dashboard.app_label == app_label:
                 return dashboard
         raise NotFound("Unknown dashboard.")
 

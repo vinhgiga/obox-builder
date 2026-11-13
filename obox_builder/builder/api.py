@@ -137,7 +137,7 @@ def list_schema(builder: Any, *, expanded: bool = True) -> type[BaseModel]:
         if len(set(aliases)) != len(aliases):
             raise ImproperlyConfigured("Relationship aliases must be unique.")
         expanded_schema = create_model(
-            builder.model.__name__ + "Expanded", __base__=ApiResponse, **relationships
+            builder.schema_name + "Expanded", __base__=ApiResponse, **relationships
         )
         definitions["expanded"] = (expanded_schema, Field(default_factory=expanded_schema))
     for name, spec in builder.specs.items():
@@ -150,7 +150,7 @@ def list_schema(builder: Any, *, expanded: bool = True) -> type[BaseModel]:
             )
     definitions[builder.pk_name] = (str, Field(alias="id"))
     return create_model(
-        builder.model.__name__ + ("ListItem" if expanded else "Response"),
+        builder.schema_name + ("ListItem" if expanded else "Response"),
         __base__=builder.read_schema,
         __validators__=serializers,
         **definitions,
@@ -247,7 +247,7 @@ async def record_etag(builder: Any, service: Any, obj: Any, ctx: Context) -> str
         obj, sa.inspect(builder.model).get_property_by_column(builder.version_column).key
     )
     digest = hashlib.sha256(
-        (builder.slug + ":" + str(json_value(version)) + ":" + data).encode()
+        (builder.route_key + ":" + str(json_value(version)) + ":" + data).encode()
     ).hexdigest()
     return '"' + digest + '"'
 
@@ -259,7 +259,7 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
     router = APIRouter(route_class=ApiRoute)
     if not builder.api.enabled:
         return router
-    path = f"{app.settings.api_prefix}/{builder.api.prefix or builder.slug}"
+    path = builder.api_path
     dependency = Depends(app.context_dependency("api"), scope="function")
     list_item_schema: Any = list_schema(builder)
     record_schema: Any = list_schema(builder, expanded=False)
@@ -267,7 +267,7 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
         "items": (list[list_item_schema], ...),
         "page": (Page, ...),
     }
-    page_schema = create_model(builder.model.__name__ + "Page", __base__=ApiResponse, **page_fields)
+    page_schema = create_model(builder.schema_name + "Page", __base__=ApiResponse, **page_fields)
     problems: dict[int | str, dict[str, Any]] = {
         status: {
             "content": {
@@ -280,8 +280,8 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
     @router.get(
         path + ":describe",
         response_model=ResourceDescription,
-        name=f"obox_api_{builder.slug}_describe",
-        operation_id=f"{builder.slug}_describe",
+        name=f"obox_api_{builder.route_key}_describe",
+        operation_id=f"{builder.route_key}_describe",
         responses=problems,
     )
     async def describe_resource(
@@ -330,8 +330,8 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
             path + ":queryMetadata",
             response_model=MetadataResults,
             response_model_exclude_unset=True,
-            name=f"obox_api_{builder.slug}_query_metadata",
-            operation_id=f"{builder.slug}_query_metadata",
+            name=f"obox_api_{builder.route_key}_query_metadata",
+            operation_id=f"{builder.route_key}_query_metadata",
             responses=problems,
         )
         async def metadata(
@@ -530,8 +530,8 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
 
         @router.get(
             path + ":queryOptions",
-            name=f"obox_api_{builder.slug}_query_options",
-            operation_id=f"{builder.slug}_query_options",
+            name=f"obox_api_{builder.route_key}_query_options",
+            operation_id=f"{builder.route_key}_query_options",
             response_model=OptionsPage,
             responses=problems,
             tags=list(builder.api.tags or (builder.model.__name__,)),
@@ -598,7 +598,7 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
                 )
             operation_schemas.append(
                 create_model(
-                    builder.model.__name__ + name.title() + "Operation",
+                    builder.schema_name + name.title() + "Operation",
                     __base__=ApiRequest,
                     **definitions,
                 )
@@ -614,7 +614,7 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
             )
         }
         batch_schema = create_model(
-            builder.model.__name__ + "BatchWrite",
+            builder.schema_name + "BatchWrite",
             __base__=ApiRequest,
             **batch_fields,
         )
@@ -627,13 +627,13 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
         if builder.api.upsert_fields:
             result_fields["created"] = (bool | None, None)
         result_schema: Any = create_model(
-            builder.model.__name__ + "BatchResult",
+            builder.schema_name + "BatchResult",
             __base__=ApiResponse,
             **result_fields,
         )
         results_fields: dict[str, Any] = {"results": (list[result_schema], ...)}
         results_schema = create_model(
-            builder.model.__name__ + "BatchResults", __base__=ApiResponse, **results_fields
+            builder.schema_name + "BatchResults", __base__=ApiResponse, **results_fields
         )
 
         async def batch_write(
@@ -726,8 +726,8 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
             path + ":batchWrite",
             batch_write,
             methods=["POST"],
-            name=f"obox_api_{builder.slug}_batch_write",
-            operation_id=f"{builder.slug}_batch_write",
+            name=f"obox_api_{builder.route_key}_batch_write",
+            operation_id=f"{builder.route_key}_batch_write",
             response_model=results_schema,
             response_model_exclude_unset=True,
             responses=problems,
@@ -750,9 +750,9 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
 
         @router.get(
             path + "/{id}/relationships/{field}",
-            name=f"obox_api_{builder.slug}_relationships",
+            name=f"obox_api_{builder.route_key}_relationships",
             response_model=RelationshipPage,
-            operation_id=f"{builder.slug}_relationships",
+            operation_id=f"{builder.route_key}_relationships",
             responses=problems,
         )
         async def related(
@@ -807,8 +807,8 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
                 path + "/{id}/relationships/{field}",
                 write_relationship,
                 methods=[method],
-                name=f"obox_api_{builder.slug}_relationship_{method.lower()}",
-                operation_id=f"{builder.slug}_relationship_{method.lower()}",
+                name=f"obox_api_{builder.route_key}_relationship_{method.lower()}",
+                operation_id=f"{builder.route_key}_relationship_{method.lower()}",
                 response_model=record_schema,
                 response_model_exclude_unset=True,
                 responses=problems,
@@ -912,13 +912,14 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
         responses = dict(problems)
         if builder.version_column is not None and operation in {"retrieve", "create", "update"}:
             responses[code] = {"headers": {"ETag": {"schema": {"type": "string"}}}}
+        endpoint_name = "query" if endpoint is query_records else operation
         router.add_api_route(
             path + suffix,
             endpoint,
             methods=[method],
             status_code=code,
-            operation_id=f"{builder.slug}_{'query' if endpoint is query_records else operation}",
-            name=f"obox_api_{builder.slug}_{'query' if endpoint is query_records else operation}",
+            operation_id=f"{builder.route_key}_{endpoint_name}",
+            name=f"obox_api_{builder.route_key}_{endpoint_name}",
             response_model=None
             if operation == "delete"
             else (
@@ -944,8 +945,8 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
             path + ":" + to_camel(name),
             action_endpoint(name),
             methods=["POST"],
-            operation_id=f"{builder.slug}_action_{to_camel(name)}",
-            name=f"obox_api_{builder.slug}_action_{name}",
+            operation_id=f"{builder.route_key}_action_{to_camel(name)}",
+            name=f"obox_api_{builder.route_key}_action_{name}",
             response_model=ActionResult,
             responses=problems,
             tags=list(builder.api.tags or (builder.model.__name__,)),

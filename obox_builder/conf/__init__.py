@@ -1,18 +1,23 @@
 """Configuration and project scaffolding resources."""
 
+from __future__ import annotations
+
 import os
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, fields
 from importlib import import_module
 from os import PathLike
 from types import MappingProxyType
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from obox_builder.auth import Policy
 from obox_builder.errors import ImproperlyConfigured
+
+if TYPE_CHECKING:
+    from obox_builder.apps import AppConfig
 
 
 @dataclass(frozen=True)
@@ -33,6 +38,7 @@ class Settings:
     static_root: str | PathLike[str] | None = None
     auth_password_validators: Sequence[Mapping[str, Any]] = ()
     login_redirect_url: str = "/accounts/profile/"
+    installed_apps: Sequence[str | type[AppConfig] | AppConfig] | None = None
 
     def __post_init__(self) -> None:
         for value in (self.api_default_limit, self.api_max_limit, self.api_max_batch):
@@ -105,13 +111,27 @@ class Settings:
             if not isinstance(value, str):
                 raise ImproperlyConfigured("Surface prefixes must be strings.")
             prefix = value.rstrip("/")
-            if not prefix.startswith("/") or any(char in prefix for char in "{}?#"):
-                raise ImproperlyConfigured("Surface prefixes must be nonempty absolute URL paths.")
+            if (
+                (not prefix and name != "ui_prefix")
+                or (prefix and not prefix.startswith("/"))
+                or any(char in prefix for char in "{}?#")
+            ):
+                raise ImproperlyConfigured(
+                    "Use absolute surface paths; only UI_PREFIX may be empty."
+                )
             object.__setattr__(self, name, prefix)
         if self.templates is not None and self.template_dirs:
             raise ImproperlyConfigured("Pass either templates or template_dirs, not both.")
         object.__setattr__(self, "template_dirs", tuple(self.template_dirs))
         object.__setattr__(self, "auth_password_validators", tuple(validators))
+        if self.installed_apps is not None:
+            if isinstance(self.installed_apps, (str, bytes)) or not isinstance(
+                self.installed_apps, Sequence
+            ):
+                raise ImproperlyConfigured(
+                    "INSTALLED_APPS must be a sequence of app configurations."
+                )
+            object.__setattr__(self, "installed_apps", tuple(self.installed_apps))
 
 
 def load_settings(settings: Settings | str | None = None) -> Settings:

@@ -10,6 +10,7 @@ from typing import Any
 
 from babel import negotiate_locale
 from babel.support import Translations
+from fastapi.routing import RouteContext
 from starlette._utils import get_route_path
 from starlette.requests import Request
 from starlette.responses import RedirectResponse
@@ -116,7 +117,7 @@ def context(request: Request) -> dict[str, Any]:
 
 class LanguageMiddleware:
     def __init__(
-        self, app: ASGIApp, *, prefixes: Sequence[str], routes: Sequence[BaseRoute]
+        self, app: ASGIApp, *, prefixes: Sequence[str], routes: Sequence[BaseRoute | RouteContext]
     ) -> None:
         self.app, self.prefixes, self.routes = app, prefixes, routes
 

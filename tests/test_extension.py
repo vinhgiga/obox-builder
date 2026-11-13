@@ -5,6 +5,7 @@ from dataclasses import FrozenInstanceError
 from pathlib import Path
 from types import ModuleType
 from typing import Any, Generic, TypeVar
+from urllib.parse import urlencode
 
 import httpx
 import pytest
@@ -216,7 +217,9 @@ def test_custom_login_and_shared_authentication_responses(
                 )
                 assert response.status_code == 401
                 assert response.headers["www-authenticate"] == challenge
-                assert response.headers["x-obox-redirect"] == login_url
+                assert response.headers["x-obox-redirect"] == login_url + "?" + urlencode(
+                    {"next": f"{root_path}/vi{path}"}
+                )
                 assert response.headers["cache-control"] == "private, no-store"
                 assert "location" not in response.headers
                 assert "X-Obox-Request" in response.headers["vary"]
@@ -233,7 +236,9 @@ def test_custom_login_and_shared_authentication_responses(
                 )
                 assert response.status_code == 401, (method, path, response.text)
                 assert response.headers["www-authenticate"] == challenge
-                assert response.headers["x-obox-redirect"] == login_url
+                assert response.headers["x-obox-redirect"] == login_url + "?" + urlencode(
+                    {"next": root_path + path}
+                )
                 assert "location" not in response.headers
             response = await client.get(f"{root_path}/data/items")
             assert response.status_code == 401
@@ -254,7 +259,9 @@ def test_custom_login_and_shared_authentication_responses(
                 )
                 assert response.status_code == 401
                 assert response.headers["www-authenticate"] == challenge
-                assert response.headers["x-obox-redirect"] == login_url
+                assert response.headers["x-obox-redirect"] == login_url + "?" + urlencode(
+                    {"next": root_path + path}
+                )
             script = await client.get(f"{root_path}/console/_static/http.js")
             files_script = await client.get(f"{root_path}/media/_static/http.js")
             assert script.status_code == files_script.status_code == 200
@@ -598,11 +605,14 @@ def test_auth_redirect_and_login_work_without_database_queries(
                 headers={"X-Obox-Fragment": "true"} if fragment else {},
             )
             assert page.history[0].status_code == 303
-            assert page.history[0].headers["location"] == f"{root_path}/vi/auth/login"
+            assert page.history[0].headers["location"] == f"{root_path}/vi/auth/login?" + urlencode(
+                {"next": f"{root_path}/vi{path}"}
+            )
             if path != "/admin/items":
                 assert page.history[0].headers["cache-control"] == "private, no-store"
             assert page.status_code == 200
             assert page.url.path == f"{root_path}/vi/auth/login"
+            assert page.url.params["next"] == f"{root_path}/vi{path}"
             assert 'lang="vi"' in page.text
 
     asyncio.run(scenario())
