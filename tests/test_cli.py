@@ -23,6 +23,7 @@ PROJECT_FILES = {
     "migrations",
     "models.py",
     "setting.py",
+    "templates",
 }
 
 
@@ -134,7 +135,11 @@ def test_generated_project_runs_with_plain_fastapi(
             ) as client,
         ):
             response = await client.get("/")
-            assert response.json() == {"message": "Welcome to generated"}
+            assert response.status_code == 200
+            assert response.headers["content-type"].startswith("text/html")
+            assert "<title>generated</title>" in response.text
+            assert 'href="http://test/docs"' in response.text
+            assert 'href="http://test/auth/login"' in response.text
             login_redirect = await client.get("/auth/login")
             assert login_redirect.status_code == 303
             assert login_redirect.headers["location"].endswith("/auth/login")

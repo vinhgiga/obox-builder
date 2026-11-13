@@ -18,6 +18,7 @@ _TEMPLATE_FILES = {
     "main.py": "main.py.tmpl",
     "models.py": "models.py.tmpl",
     "setting.py": "setting.py.tmpl",
+    "templates/index.html": "index.html.tmpl",
     "alembic.ini": "alembic.ini.tmpl",
     "migrations/env.py": "migrations/env.py.tmpl",
     "migrations/script.py.mako": "migrations/script.py.mako.tmpl",

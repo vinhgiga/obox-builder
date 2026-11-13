@@ -1,12 +1,41 @@
+from typing import Annotated, cast
+
 import setting
-from fastapi import FastAPI
-from obox_builder import Obox
+from fastapi import Depends, FastAPI, Request
+from fastapi.responses import HTMLResponse
+from obox_builder import Context, Obox
+from obox_builder.builder.ui import build_navigation
 from obox_builder.contrib.auth import Auth
 
 app = FastAPI(title=setting.PROJECT_NAME, debug=setting.DEBUG)
+frontend_enabled = (setting.FRONTEND_DIR / "index.html").is_file()
+if frontend_enabled:
+    app.frontend("/frontend", directory=setting.FRONTEND_DIR)
+
 obox = Obox(app, settings="setting", plugins=[Auth(secure=not setting.DEBUG)])
+ui_context = obox.context_dependency("ui")
 
 
-@app.get("/")
-async def index() -> dict[str, str]:
-    return {"message": f"Welcome to {setting.PROJECT_NAME}"}
+@app.get("/", response_class=HTMLResponse)
+async def index(
+    request: Request, ctx: Annotated[Context, Depends(ui_context)]
+) -> HTMLResponse:
+    pages = await build_navigation(obox, request, ctx)
+    root_path = request.scope.get("root_path", "").rstrip("/")
+    return cast(
+        HTMLResponse,
+        obox.templates.TemplateResponse(
+            request=request,
+            name="index.html",
+            context={
+                "request": request,
+                "project_name": setting.PROJECT_NAME,
+                "pages": pages,
+                "frontend_url": f"{root_path}/frontend/" if frontend_enabled else None,
+            },
+            headers={
+                "Cache-Control": "private, no-store",
+                "Vary": "Cookie, Authorization, Accept-Language",
+            },
+        ),
+    )
