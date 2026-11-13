@@ -25,6 +25,7 @@ class AppConfig:
     name: str = ""
     label: str = ""
     verbose_name: str = ""
+    tab_bar_color: str = "#f3f4f6"
     requires: tuple[str, ...] = ()
     builders: tuple[type[ModelBuilder[Any]], ...] = ()
     dashboards: tuple[Dashboard, ...] = ()
@@ -57,6 +58,11 @@ class AppConfig:
         config.verbose_name = config.verbose_name or config.label.replace("_", " ").title()
         if not isinstance(config.verbose_name, str):
             raise ImproperlyConfigured("AppConfig.verbose_name must be a string.")
+        if (
+            not isinstance(config.tab_bar_color, str)
+            or re.fullmatch(r"#[\da-fA-F]{6}", config.tab_bar_color) is None
+        ):
+            raise ImproperlyConfigured("AppConfig.tab_bar_color must be a six-digit hex color.")
         for field in ("requires", "builders", "dashboards"):
             if not isinstance(getattr(config, field), tuple):
                 raise ImproperlyConfigured(f"AppConfig.{field} must be a tuple.")

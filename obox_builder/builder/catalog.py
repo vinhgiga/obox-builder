@@ -73,6 +73,7 @@ async def app_list(obox: Obox, request: Request, ctx: Context) -> list[dict[str,
                     "label": config.label,
                     "title": translate(request, config.verbose_name),
                     "url": localize(request, config.ui_path(obox.settings)),
+                    "tab_bar_color": config.tab_bar_color,
                     "entries": entries,
                 }
             )

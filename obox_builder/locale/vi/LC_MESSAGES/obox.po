@@ -18,13 +18,12 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 2.18.0\n"
 
-#: obox_builder/builder/catalog.py:102
+#: obox_builder/builder/catalog.py:103
 msgid "Home"
 msgstr "Trang chủ"
 
-#: obox_builder/builder/catalog.py:132
+#: obox_builder/builder/catalog.py:133
 #: obox_builder/builder/templates/obox/app_index.html:4
-#: obox_builder/builder/templates/obox/base.html:45
 msgid "Applications"
 msgstr "Ứng dụng"
 
@@ -201,7 +200,8 @@ msgid "Data"
 msgstr "Dữ liệu"
 
 #: obox_builder/builder/templates/obox/app_index.html:11
-#: obox_builder/builder/templates/obox/base.html:83
+#: obox_builder/builder/templates/obox/base.html:103
+#: obox_builder/builder/templates/obox/base.html:118
 msgid "Resources"
 msgstr "Tài nguyên"
 
@@ -231,17 +231,27 @@ msgstr "Báo cáo"
 msgid "Skip to content"
 msgstr "Bỏ qua nội dung"
 
-#: obox_builder/builder/templates/obox/base.html:43
-msgid "Switch application"
-msgstr "Chuyển ứng dụng"
-
-#: obox_builder/builder/templates/obox/base.html:65
+#: obox_builder/builder/templates/obox/base.html:53
 msgid "Sign out"
 msgstr "Đăng xuất"
 
-#: obox_builder/builder/templates/obox/base.html:70
+#: obox_builder/builder/templates/obox/base.html:58
 msgid "Language"
 msgstr "Ngôn ngữ"
+
+#: obox_builder/builder/templates/obox/base.html:75
+#: obox_builder/builder/templates/obox/base.html:76
+msgid "Browse tabs"
+msgstr "Danh sách tab"
+
+#: obox_builder/builder/templates/obox/base.html:98
+#: obox_builder/builder/templates/obox/base.html:99
+msgid "Search tabs"
+msgstr "Tìm tab"
+
+#: obox_builder/builder/templates/obox/base.html:114
+msgid "No tabs match your search."
+msgstr "Không tìm thấy tab phù hợp."
 
 #: obox_builder/builder/templates/obox/confirm_delete.html:4
 #, python-format

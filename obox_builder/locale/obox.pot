@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-11-13 19:38+0700\n"
+"POT-Creation-Date: 2026-11-13 20:25+0700\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -17,13 +17,12 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 2.18.0\n"
 
-#: obox_builder/builder/catalog.py:102
+#: obox_builder/builder/catalog.py:103
 msgid "Home"
 msgstr ""
 
-#: obox_builder/builder/catalog.py:132
+#: obox_builder/builder/catalog.py:133
 #: obox_builder/builder/templates/obox/app_index.html:4
-#: obox_builder/builder/templates/obox/base.html:45
 msgid "Applications"
 msgstr ""
 
@@ -200,7 +199,8 @@ msgid "Data"
 msgstr ""
 
 #: obox_builder/builder/templates/obox/app_index.html:11
-#: obox_builder/builder/templates/obox/base.html:83
+#: obox_builder/builder/templates/obox/base.html:103
+#: obox_builder/builder/templates/obox/base.html:118
 msgid "Resources"
 msgstr ""
 
@@ -230,16 +230,26 @@ msgstr ""
 msgid "Skip to content"
 msgstr ""
 
-#: obox_builder/builder/templates/obox/base.html:43
-msgid "Switch application"
-msgstr ""
-
-#: obox_builder/builder/templates/obox/base.html:65
+#: obox_builder/builder/templates/obox/base.html:53
 msgid "Sign out"
 msgstr ""
 
-#: obox_builder/builder/templates/obox/base.html:70
+#: obox_builder/builder/templates/obox/base.html:58
 msgid "Language"
+msgstr ""
+
+#: obox_builder/builder/templates/obox/base.html:75
+#: obox_builder/builder/templates/obox/base.html:76
+msgid "Browse tabs"
+msgstr ""
+
+#: obox_builder/builder/templates/obox/base.html:98
+#: obox_builder/builder/templates/obox/base.html:99
+msgid "Search tabs"
+msgstr ""
+
+#: obox_builder/builder/templates/obox/base.html:114
+msgid "No tabs match your search."
 msgstr ""
 
 #: obox_builder/builder/templates/obox/confirm_delete.html:4
