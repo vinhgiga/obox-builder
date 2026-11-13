@@ -67,7 +67,24 @@ def localize(request: Request, path: str, *, rooted: bool = False) -> str:
     root = request.scope.get("root_path", "")
     if rooted:
         _, path = _path_parts(request, path)
-    return f"{root}/{resolve_language(request)}{path}"
+    language_prefix = request.scope.get("obox_language_prefix", resolve_language(request))
+    if language_prefix is None:
+        return f"{root}{path}"
+    return f"{root}/{language_prefix}{path}"
+
+
+def request_target(request: Request) -> str:
+    """Return the current request path and query with its original locale prefix."""
+    path = request.scope.get("obox_path")
+    if not isinstance(path, str):
+        path = request.url.path
+    root, path = _path_parts(request, path)
+    language_prefix = request.scope.get("obox_language_prefix")
+    if isinstance(language_prefix, str):
+        path = f"/{language_prefix}{path}"
+    target = f"{root}{path}"
+    query = request.url.query
+    return f"{target}?{query}" if query else target
 
 
 def translate(request: Request, text: str, **values: Any) -> str:
@@ -129,6 +146,7 @@ class LanguageMiddleware:
             await self.app(scope, receive, send)
             return
         scope["state"] = dict(scope.get("state", {}))
+        scope["obox_language_prefix"] = first if localized else None
         request = Request(scope)
         request.state.language = (
             first if localized else negotiate(request.headers.get("accept-language", ""))

@@ -5,6 +5,7 @@ from __future__ import annotations
 import secrets
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, cast
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -27,20 +28,48 @@ if TYPE_CHECKING:
     from obox_builder.contrib.auth import Auth
 
 
+def safe_redirect_url(request: Request, target: str) -> str | None:
+    target = target.strip()
+    if (
+        not target
+        or len(target) > 2048
+        or "\\" in target
+        or target.startswith("///")
+        or any(ord(character) < 32 or ord(character) == 127 for character in target)
+    ):
+        return None
+    try:
+        url = urlsplit(target)
+    except ValueError:
+        return None
+    if url.scheme and url.scheme.lower() not in {"http", "https"}:
+        return None
+    if url.scheme and not url.netloc:
+        return None
+    if url.netloc and url.netloc.casefold() != request.url.netloc.casefold():
+        return None
+    if request.url.scheme == "https" and url.scheme.lower() == "http":
+        return None
+    return target
+
+
 def router(app: Obox, auth: Auth) -> APIRouter:
     routes = APIRouter(prefix=auth.prefix, route_class=OboxRoute)
 
     async def login(request: Request) -> Response:
         anonymous = auth.anonymous()
         error, status = "", 200
+        redirect_to = request.query_params.get(auth.redirect_field_name, "")
         if request.method == "GET" and not request.cookies.get(auth.login_cookie):
             # Seed a cookie before issuing a CSRF token bound to it.
-            response = RedirectResponse(auth.login_url(request), status_code=303)
+            next_url = redirect_to if auth.redirect_field_name in request.query_params else None
+            response = RedirectResponse(auth.login_url(request, next_url=next_url), status_code=303)
             auth.set_cookie(response, auth.login_cookie, secrets.token_urlsafe(32), 3600)
             response.headers["cache-control"] = "no-store"
             return response
         if request.method == "POST":
             form = await read_form(request)
+            redirect_to = str(form.get(auth.redirect_field_name, redirect_to))
             if not request.cookies.get(auth.login_cookie) or any(
                 len(form.getlist(key)) != 1 for key in form
             ):
@@ -53,7 +82,10 @@ def router(app: Obox, auth: Auth) -> APIRouter:
                 request=request,
             )
             if token:
-                response = RedirectResponse(auth.account_url(request), status_code=303)
+                response = RedirectResponse(
+                    safe_redirect_url(request, redirect_to) or auth.get_login_redirect_url(request),
+                    status_code=303,
+                )
                 auth.set_cookie(response, auth.cookie_name, token, auth.max_age)
                 auth.set_cookie(response, auth.login_cookie, "", 0)
                 response.headers["cache-control"] = "no-store"
@@ -70,6 +102,8 @@ def router(app: Obox, auth: Auth) -> APIRouter:
                 "navigation": [],
                 "error": error,
                 "login_label": auth.login_label,
+                "redirect_field_name": auth.redirect_field_name,
+                "redirect_to": redirect_to,
                 "csrf": app.csrf.token(request, anonymous),
             },
             status_code=status,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, cast
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -52,6 +53,7 @@ class Auth:
     name = "auth"
     requires: tuple[str, ...] = ()
     login_route = "obox_login"
+    redirect_field_name = "next"
     logout_route = "obox_logout"
     account_route = "obox_account"
     profile_route = "obox_profile"
@@ -164,8 +166,18 @@ class Auth:
             return localize(request, path, rooted=True)
         return path
 
-    def login_url(self, request: Request) -> str:
-        return self._url(request, self.login_route)
+    def login_url(self, request: Request, *, next_url: str | None = None) -> str:
+        url = self._url(request, self.login_route)
+        if next_url is not None:
+            return f"{url}?{urlencode({self.redirect_field_name: next_url})}"
+        return url
+
+    def get_login_redirect_url(self, request: Request) -> str:
+        target = cast(str, request.app.state.obox.settings.login_redirect_url)
+        try:
+            return self._url(request, target)
+        except NoMatchFound:
+            return target
 
     def logout_url(self, request: Request) -> str:
         return self._url(request, self.logout_route)

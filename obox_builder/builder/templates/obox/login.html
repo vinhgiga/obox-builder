@@ -19,6 +19,9 @@
           {% if error %}<p class="alert alert-danger" role="alert">{{ _(error) }}</p>{% endif %}
           <form class="login-form" method="post">
             <input type="hidden" name="csrf_token" value="{{ csrf }}">
+            <input type="hidden"
+                   name="{{ redirect_field_name }}"
+                   value="{{ redirect_to }}">
             <label class="form-label" for="username">{{ _(login_label) }}</label>
             <input class="form-control mb-3"
                    id="username"

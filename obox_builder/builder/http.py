@@ -25,7 +25,7 @@ from obox_builder.errors import (
     NotAuthenticated,
     OboxError,
 )
-from obox_builder.i18n import negotiate, translate
+from obox_builder.i18n import negotiate, request_target, translate
 
 
 class OboxRoute(APIRoute):
@@ -69,10 +69,12 @@ def authentication_response(
     if getattr(auth, "api_tokens", False) and "authorization" in request.headers:
         return response
     if request.headers.get("x-obox-request") == "true":
-        response.headers["X-Obox-Redirect"] = auth.login_url(request)
+        response.headers["X-Obox-Redirect"] = auth.login_url(
+            request, next_url=request_target(request)
+        )
     elif ui and request.method in {"GET", "HEAD"}:
         return RedirectResponse(
-            auth.login_url(request),
+            auth.login_url(request, next_url=request_target(request)),
             status_code=303,
             headers={"Cache-Control": "private, no-store", "Vary": "X-Obox-Request"},
         )

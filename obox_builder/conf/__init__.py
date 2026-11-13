@@ -32,6 +32,7 @@ class Settings:
     base_template: str = "obox/base.html"
     static_root: str | PathLike[str] | None = None
     auth_password_validators: Sequence[Mapping[str, Any]] = ()
+    login_redirect_url: str = "/accounts/profile/"
 
     def __post_init__(self) -> None:
         for value in (self.api_default_limit, self.api_max_limit, self.api_max_batch):
@@ -77,6 +78,8 @@ class Settings:
             raise ImproperlyConfigured("TEMPLATES must be a Jinja2Templates instance.")
         if not isinstance(self.base_template, str) or not self.base_template:
             raise ImproperlyConfigured("BASE_TEMPLATE must be a nonempty string.")
+        if not isinstance(self.login_redirect_url, str) or not self.login_redirect_url:
+            raise ImproperlyConfigured("LOGIN_REDIRECT_URL must be a nonempty string.")
         if self.static_root is not None and (
             not isinstance(self.static_root, str | PathLike) or not os.fspath(self.static_root)
         ):
