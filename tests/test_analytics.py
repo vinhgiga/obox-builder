@@ -124,7 +124,7 @@ WIDGETS = (
 
 @asynccontextmanager
 async def application(
-    path: Path, **limits: Any
+    path: Path, *, widgets: tuple[Pivot | Chart, ...] = WIDGETS, **limits: Any
 ) -> AsyncIterator[tuple[Obox, httpx.AsyncClient, Policy]]:
     engine = create_async_engine(
         os.getenv("OBOX_TEST_DATABASE_URL", f"sqlite+aiosqlite:///{path / 'analytics.db'}")
@@ -148,7 +148,7 @@ async def application(
             ),
         )
         app.register(Sales)
-        app.install(Analytics((Dashboard("sales", "Sales <report>", Sale, WIDGETS),), **limits))
+        app.install(Analytics((Dashboard("sales", "Sales <report>", Sale, widgets),), **limits))
         async with app.app.router.lifespan_context(app.app):
             async with app.uow(principal=STAFF) as ctx:
                 values = [
@@ -536,7 +536,7 @@ def test_reference_dashboard_totals_match_all_widgets(tmp_path: Path) -> None:
                 data = response.json()
                 assert Decimal(data["total"]) == Decimal("479341.89")
                 assert data["records"] == 12
-                assert sum(map(Decimal, data["row_totals"])) == Decimal("479341.89")
+                assert sum(map(Decimal, data["rowTotals"])) == Decimal("479341.89")
 
     asyncio.run(scenario())
 
@@ -559,5 +559,70 @@ def test_postgres_timeout_rolls_back_and_connection_recovers(tmp_path: Path) -> 
             assert response.json()["total"] == "85.00"
             response = await client.get("/analytics/sales/pivot/records")
             assert response.status_code == 200
+
+    asyncio.run(scenario())
+
+
+def test_json_contract_and_openapi(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        async with application(tmp_path) as (app, client, policy):
+            root = "/analytics/sales"
+            manifest = await client.get(root + "/manifest")
+            assert manifest.status_code == 200, manifest.text
+            section = manifest.json()["sections"][0]
+            assert "searchEnabled" in section
+            assert "explicitRows" in section
+            assert "search_enabled" not in section
+            assert "explicit_rows" not in section
+            response = await client.get(root + "/pivot/data")
+            assert response.status_code == 200
+            assert "rowTotals" in response.json()
+            assert "columnTotals" in response.json()
+            head = await client.head(root + "/pivot/data")
+            assert head.status_code == response.status_code
+            assert head.content == b""
+            assert head.headers["content-type"] == response.headers["content-type"]
+            options = await client.options(root + "/pivot/data")
+            assert options.status_code == 204
+            assert options.content == b""
+            assert set(options.headers["allow"].split(", ")) == {"GET", "HEAD", "OPTIONS"}
+            paths = app.app.openapi()["paths"]
+            assert root.replace("sales", "{dashboard}") + "/manifest" in paths
+            data_path = "/analytics/{dashboard}/{widget}/data"
+            assert paths[data_path]["get"]["responses"]["200"]["content"]["application/json"][
+                "schema"
+            ]
+            assert "/analytics/{dashboard}" not in paths
+            assert "/analytics/{dashboard}/{widget}/records" not in paths
+            policy.granted = False
+            assert (await client.get(root + "/pivot/data")).status_code == 403
+            assert (await client.head(root + "/pivot/data")).status_code == 403
+
+    asyncio.run(scenario())
+
+
+def test_chart_json_axes_and_widget_keys(tmp_path: Path) -> None:
+    from obox_builder.contrib.analytics.charts import Axis, Series
+
+    async def scenario() -> None:
+        chart = Chart(
+            "user_key",
+            "bar",
+            "distributor",
+            y=(Series(Measure("sum", "amount")),),
+            primary_axis=Axis(label="Revenue", minimum=-10),
+            drill=False,
+        )
+        async with application(tmp_path, widgets=(chart,)) as (_, client, _):
+            manifest = await client.get("/analytics/sales/manifest")
+            assert "user_key" in manifest.json()["widgets"]
+            response = await client.get("/analytics/sales/user_key/data")
+            assert response.status_code == 200, response.text
+            data = response.json()
+            assert data["config"]["primaryAxis"]["minimum"] == -10
+            assert data["config"]["primaryAxis"]["label"] == "Revenue"
+            assert data["config"]["secondaryAxis"] == {}
+            assert "primary_axis" not in data["config"]
+            assert data["series"][0]["points"][0]["recordCount"] >= 1
 
     asyncio.run(scenario())

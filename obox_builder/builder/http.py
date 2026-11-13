@@ -3,18 +3,20 @@
 import logging
 import re
 from http import HTTPStatus
+from typing import Any
 from urllib.parse import parse_qsl
 from uuid import uuid4
 
 from fastapi.exceptions import RequestValidationError
-from fastapi.routing import APIRoute
+from fastapi.routing import APIRoute, iter_route_contexts
 from pydantic.alias_generators import to_camel
+from starlette._utils import get_route_path
 from starlette.datastructures import FormData, MutableHeaders
 from starlette.exceptions import HTTPException
 from starlette.middleware.exceptions import ExceptionMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, RedirectResponse, Response
-from starlette.routing import NoMatchFound
+from starlette.routing import Match, NoMatchFound
 from starlette.types import Message, Receive, Scope, Send
 
 from obox_builder.builder.api_schema import FieldError, Problem
@@ -28,14 +30,55 @@ from obox_builder.errors import (
 from obox_builder.i18n import negotiate, request_target, translate
 
 
-class OboxRoute(APIRoute):
+def allow_header(scope: Scope) -> str:
+    methods: set[str] = set()
+    for route in iter_route_contexts(scope["app"].routes):
+        if route.path and route.path_regex.fullmatch(get_route_path(scope)):
+            methods.update(route.methods or ())
+    if "GET" in methods:
+        methods.add("HEAD")
+    methods.add("OPTIONS")
+    return ", ".join(sorted(methods))
+
+
+class MethodRoute(APIRoute):
+    methods: set[str]
+
+    def matches(self, scope: Scope) -> tuple[Match, Scope]:
+        if scope.get("method") == "HEAD" and "GET" in self.methods:
+            return super().matches({**scope, "method": "GET"})
+        return super().matches(scope)
+
+    async def handle(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["method"] == "OPTIONS" and "OPTIONS" not in self.methods:
+            await Response(status_code=204, headers={"Allow": allow_header(scope)})(
+                scope, receive, send
+            )
+            return
+        if scope["method"] not in self.methods and not (
+            scope["method"] == "HEAD" and "GET" in self.methods
+        ):
+            raise HTTPException(405, "Method Not Allowed", headers={"Allow": allow_header(scope)})
+        if scope["method"] == "HEAD" and "GET" in self.methods:
+            await self.app(scope, receive, send)
+        else:
+            await super().handle(scope, receive, send)
+
+
+class OboxRoute(MethodRoute):
     async def handle(self, scope: Scope, receive: Receive, send: Send) -> None:
         obox = scope["app"].state.obox
         middleware = ExceptionMiddleware(
             super().handle,
             handlers={OboxError: obox._problem, RequestValidationError: obox._validation_problem},
         )
-        await middleware(dict(scope), receive, send)
+
+        async def respond(message: Message) -> None:
+            if scope["method"] == "HEAD" and message["type"] == "http.response.body":
+                message = {**message, "body": b""}
+            await send(message)
+
+        await middleware(dict(scope), receive, respond)
 
 
 def _authentication_challenge(request: Request, auth: object | None) -> str:
@@ -82,14 +125,38 @@ def authentication_response(
 
 
 def accepts_json(value: str, media_type: str = "application/json") -> bool:
-    for item in value.split(","):
+    if len(value) > 8192:
+        return False
+    items = value.split(",")
+    if len(items) > 64:
+        return False
+    matches: list[tuple[int, float]] = []
+    for item in items:
+        if len(item.strip()) > 256:
+            return False
         parts = [part.strip().lower() for part in item.split(";")]
-        if parts[0] not in {"*/*", media_type, media_type.split("/")[0] + "/*"}:
+        media = parts[0]
+        if not re.fullmatch(r"(?:[a-z0-9!#$&^_.+-]+|\*)/(?:[a-z0-9!#$&^_.+-]+|\*)", media):
             continue
-        if any(part == "q=0" for part in parts[1:]):
+        parameters = [part.partition("=") for part in parts[1:]]
+        if any(
+            not name.strip() or not separator or not operand.strip()
+            for name, separator, operand in parameters
+        ):
             continue
-        return True
-    return False
+        qualities = [operand.strip() for name, _, operand in parameters if name.strip() == "q"]
+        if len(qualities) > 1 or any(
+            not re.fullmatch(r"(?:0(?:\.[0-9]{0,3})?|1(?:\.0{0,3})?)", q) for q in qualities
+        ):
+            continue
+        quality = float(qualities[0]) if qualities else 1.0
+        if media == media_type:
+            matches.append((2, quality))
+        elif media == media_type.split("/")[0] + "/*":
+            matches.append((1, quality))
+        elif media == "*/*":
+            matches.append((0, quality))
+    return bool(matches) and max(matches)[1] > 0
 
 
 async def api_problem(request: Request, exc: Exception) -> Response:
@@ -236,8 +303,22 @@ async def api_problem(request: Request, exc: Exception) -> Response:
     return authentication_response(request, exc, response)
 
 
-class ApiRoute(APIRoute):
+class ApiRoute(MethodRoute):
     cache_control: str | None = None
+    binary_upload = False
+    download = False
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        responses = {
+            status: {
+                "content": {
+                    "application/problem+json": {"schema": {"$ref": "#/components/schemas/Problem"}}
+                }
+            }
+            for status in (400, 401, 403, 404, 405, 406, 409, 412, 415, 422, 428, 500)
+        }
+        kwargs["responses"] = {**responses, **(kwargs.get("responses") or {})}
+        super().__init__(*args, **kwargs)
 
     async def handle(self, scope: Scope, receive: Receive, send: Send) -> None:
         scope = dict(scope)
@@ -250,8 +331,8 @@ class ApiRoute(APIRoute):
         request.state.record_write = (
             request.method in {"POST", "PUT", "PATCH", "DELETE"} and not request.state.query_body
         )
-        json_body = request.state.query_body or (
-            request.state.record_write and self.body_field is not None
+        json_body = not self.binary_upload and (
+            request.state.query_body or (request.state.record_write and self.body_field is not None)
         )
         no_store = json_body or request.state.record_write
         provided = request.headers.get("x-request-id", "")
@@ -271,10 +352,15 @@ class ApiRoute(APIRoute):
                 )
                 headers.add_vary_header("Cookie, Authorization, Accept-Language")
                 headers["Content-Language"] = request.state.language
+            if request.method == "HEAD" and message["type"] == "http.response.body":
+                message = {**message, "body": b""}
             await send(message)
 
         async def dispatch(scope: Scope, receive: Receive, send: Send) -> None:
-            if not accepts_json(request.headers.get("accept", "*/*")):
+            if request.method == "OPTIONS":
+                await MethodRoute.handle(self, scope, receive, send)
+                return
+            if not self.download and not accepts_json(request.headers.get("accept", "*/*")):
                 raise HTTPException(406, "Use an application/json response.")
             if request.method in {"PATCH", "DELETE"}:
                 for name in ("If-None-Match", "If-Unmodified-Since"):
@@ -291,7 +377,7 @@ class ApiRoute(APIRoute):
                     "Query string must be empty.",
                     "unknown_parameter",
                 )
-            await APIRoute.handle(self, scope, receive, send)
+            await MethodRoute.handle(self, scope, receive, send)
 
         await ExceptionMiddleware(
             dispatch,

@@ -115,7 +115,7 @@ STAFF = Principal(id=1, is_authenticated=True, is_staff=True)
 
 @asynccontextmanager
 async def application(
-    configured: type[ModelBuilder[Record]] = RecordBuilder,
+    configured: type[ModelBuilder[Any]] = RecordBuilder,
     principal: Identity = STAFF,
     document_builder: type[ModelBuilder[Document]] = DocumentBuilder,
     with_activity: bool = False,
@@ -725,7 +725,11 @@ def test_batch_validates_nested_aliases_limits_duplicates_and_exposure() -> None
                     ],
                     ctx=ctx,
                 )
-                assert [obj.name for obj in results if obj is not None] == ["direct", "service"]
+                assert all(isinstance(obj, Record) for obj in results)
+                assert [obj.name for obj in results if isinstance(obj, Record)] == [
+                    "direct",
+                    "service",
+                ]
 
     asyncio.run(scenario())
 

@@ -9,7 +9,7 @@ export function recordURL(base, filters, row, column) {
 }
 
 export function chartData(data, kind, empty) {
-  const points = data.rows.map((key, index) => ({ key, value: data.row_totals[index] }));
+  const points = data.rows.map((key, index) => ({ key, value: data.rowTotals[index] }));
   return kind === "pie" || kind === "donut"
     ? points.filter((point) => Number(point.value) > 0)
     : points.map((point) => ({ ...point, label: point.key === null ? empty : String(point.key) }));
@@ -92,13 +92,13 @@ function renderTable(widget, data, filters, labels) {
     data.columns.forEach((column, columnIndex) => {
       cell(row, data.cells[index][columnIndex], key, hasColumns ? column : undefined);
     });
-    if (showRowTotals) cell(row, data.row_totals[index], key, undefined);
+    if (showRowTotals) cell(row, data.rowTotals[index], key, undefined);
   });
   if (widget.dataset.columnTotals === "true") {
     const row = node("tr", undefined, node("tfoot", undefined, table));
     node("th", labels.total, row).scope = "row";
     data.columns.forEach((column, index) => {
-      cell(row, data.column_totals[index], undefined, hasColumns ? column : undefined);
+      cell(row, data.columnTotals[index], undefined, hasColumns ? column : undefined);
     });
     if (showRowTotals) cell(row, data.total, undefined, undefined);
   }
@@ -210,7 +210,7 @@ export function chartConfiguration(data, labels, open) {
     };
     for (const axis of ["primary", "secondary"]) {
       if (!data.series.some((series) => series.axis === axis)) continue;
-      const settings = config[`${axis}_axis`];
+      const settings = config[`${axis}Axis`];
       scales[axis] = {
         axis: valueAxis,
         type: "linear",

@@ -376,7 +376,6 @@ class View:
 | `write_fields` | `FieldRefs \| None` | Inherit builder write projection |
 | `prefix` | `str \| None` | Inherit resource `slug` |
 | `tags` | `tuple[str, ...] \| None` | Generated from model name |
-| `pagination` | `bool` | `False`; does not gate API pagination query parameters |
 | `default_limit` | `int \| None` | `None`; optional nonnegative limit used when the request omits `limit` |
 | `max_limit` | `int \| None` | `None`; optional nonnegative limit used when no limit applies; reject larger requested limits with `422` |
 | `max_batch` | `int \| None` | `None`; optional nonnegative maximum operation count for HTTP batch writes |

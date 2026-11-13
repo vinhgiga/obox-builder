@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-11-13 20:25+0700\n"
+"POT-Creation-Date: 2026-11-13 23:09+0700\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -26,15 +26,15 @@ msgstr ""
 msgid "Applications"
 msgstr ""
 
-#: obox_builder/builder/http.py:198
+#: obox_builder/builder/http.py:265
 msgid "msg"
 msgstr ""
 
-#: obox_builder/builder/http.py:207
+#: obox_builder/builder/http.py:274
 msgid "Internal server error."
 msgstr ""
 
-#: obox_builder/builder/http.py:219
+#: obox_builder/builder/http.py:286
 msgid "Internal server error.Invalid input."
 msgstr ""
 
@@ -537,61 +537,61 @@ msgstr ""
 msgid "Sign in"
 msgstr ""
 
-#: obox_builder/contrib/analytics/routes.py:291
+#: obox_builder/contrib/analytics/routes.py:292
 msgid "Empty"
 msgstr ""
 
-#: obox_builder/contrib/analytics/routes.py:292
+#: obox_builder/contrib/analytics/routes.py:293
 msgid "Total"
 msgstr ""
 
-#: obox_builder/contrib/analytics/routes.py:293
+#: obox_builder/contrib/analytics/routes.py:294
 msgid "Loading…"
 msgstr ""
 
-#: obox_builder/contrib/analytics/routes.py:294
+#: obox_builder/contrib/analytics/routes.py:295
 #: obox_builder/contrib/analytics/templates/obox_analytics/records.html:21
 msgid "No records found."
 msgstr ""
 
-#: obox_builder/contrib/analytics/routes.py:295
+#: obox_builder/contrib/analytics/routes.py:296
 msgid "Unable to load data. Try again."
 msgstr ""
 
-#: obox_builder/contrib/analytics/routes.py:296
+#: obox_builder/contrib/analytics/routes.py:297
 msgid "Value"
 msgstr ""
 
-#: obox_builder/contrib/analytics/routes.py:297
+#: obox_builder/contrib/analytics/routes.py:298
 msgid "Series"
 msgstr ""
 
-#: obox_builder/contrib/analytics/routes.py:298
+#: obox_builder/contrib/analytics/routes.py:299
 #: obox_builder/contrib/analytics/templates/obox_analytics/records.html:10
 msgid "View records"
 msgstr ""
 
-#: obox_builder/contrib/analytics/routes.py:299
+#: obox_builder/contrib/analytics/routes.py:300
 msgid "Chart options"
 msgstr ""
 
-#: obox_builder/contrib/analytics/routes.py:300
+#: obox_builder/contrib/analytics/routes.py:301
 msgid "View as table"
 msgstr ""
 
-#: obox_builder/contrib/analytics/routes.py:301
+#: obox_builder/contrib/analytics/routes.py:302
 msgid "View as chart"
 msgstr ""
 
-#: obox_builder/contrib/analytics/routes.py:302
+#: obox_builder/contrib/analytics/routes.py:303
 msgid "Expand"
 msgstr ""
 
-#: obox_builder/contrib/analytics/routes.py:303
+#: obox_builder/contrib/analytics/routes.py:304
 msgid "Close"
 msgstr ""
 
-#: obox_builder/contrib/analytics/routes.py:304
+#: obox_builder/contrib/analytics/routes.py:305
 msgid "All records"
 msgstr ""
 

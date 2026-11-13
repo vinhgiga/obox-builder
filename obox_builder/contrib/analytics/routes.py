@@ -10,7 +10,7 @@ from urllib.parse import urlencode
 
 import sqlalchemy as sa
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse
 from sqlalchemy.exc import DBAPIError
 from starlette.datastructures import MutableHeaders
 from starlette.types import Message, Receive, Scope, Send
@@ -22,6 +22,7 @@ from obox_builder.builder.http import ApiRoute, OboxRoute
 from obox_builder.builder.ui import build_navigation, filter_columns, list_columns
 from obox_builder.context import Context
 from obox_builder.contrib.analytics import AggregateTimeout, Chart, Pivot, _source, is_timeout
+from obox_builder.contrib.analytics.schemas import ChartData, Manifest, PivotData
 from obox_builder.errors import BuilderValidationError, NotFound
 from obox_builder.i18n import context as translation_context
 from obox_builder.i18n import localize, translate
@@ -114,7 +115,7 @@ def build_router(analytics: Analytics, app_label: str | None = None) -> APIRoute
     prefix = (
         app.apps[app_label].ui_path(app.settings) + "/dashboards" if app_label else analytics.prefix
     )
-    router = APIRouter(prefix=prefix, route_class=AnalyticsRoute, include_in_schema=False)
+    router = APIRouter(prefix=prefix, route_class=AnalyticsRoute)
     dependency = Depends(app.context_dependency("ui"), scope="function")
 
     def selection_binding(
@@ -305,47 +306,46 @@ def build_router(analytics: Analytics, app_label: str | None = None) -> APIRoute
             },
         }
 
-    @router.get("/{dashboard}", name=analytics.route_name("dashboard", app_label))
+    @router.get(
+        "/{dashboard}", name=analytics.route_name("dashboard", app_label), include_in_schema=False
+    )
     async def dashboard_page(request: Request, dashboard: str, ctx: Context = dependency) -> Any:
         values = await dashboard_context(request, dashboard, ctx)
         return await page(values["dashboard"].template, request, ctx, **values)
 
-    async def manifest(request: Request, dashboard: str, ctx: Context = dependency) -> JSONResponse:
+    async def manifest(request: Request, dashboard: str, ctx: Context = dependency) -> Any:
         values = await dashboard_context(request, dashboard, ctx)
-        return JSONResponse(
-            {
-                "slug": values["dashboard"].slug,
-                "title": values["title"],
-                "widgets": values["widget_config"],
-                "labels": values["labels"],
-                "sections": [
-                    {
-                        **{
-                            key: section[key]
-                            for key in (
-                                "slug",
-                                "title",
-                                "prefix",
-                                "filters",
-                                "search_enabled",
-                                "explicit_rows",
-                            )
-                        },
-                        "rows": [[widget.slug for widget in row] for row in section["rows"]],
-                    }
-                    for section in values["sections"]
-                ],
-                "assets": {
-                    key: str(request.url_for("obox_analytics_static", path=path))
-                    for key, path in (
-                        ("stylesheet", "analytics.css"),
-                        ("charts", "chart.umd.js"),
-                        ("module", "analytics.js"),
-                    )
-                },
+        return {
+            "slug": values["dashboard"].slug,
+            "title": values["title"],
+            "widgets": values["widget_config"],
+            "labels": values["labels"],
+            "sections": [
+                {
+                    **{
+                        key: section[key]
+                        for key in (
+                            "slug",
+                            "title",
+                            "prefix",
+                            "filters",
+                            "search_enabled",
+                            "explicit_rows",
+                        )
+                    },
+                    "rows": [[widget.slug for widget in row] for row in section["rows"]],
+                }
+                for section in values["sections"]
+            ],
+            "assets": {
+                key: str(request.url_for("obox_analytics_static", path=path))
+                for key, path in (
+                    ("stylesheet", "analytics.css"),
+                    ("charts", "chart.umd.js"),
+                    ("module", "analytics.js"),
+                )
             },
-            headers=HEADERS,
-        )
+        }
 
     async def data(request: Request, dashboard: str, widget: str, ctx: Context = dependency) -> Any:
         definition, owner, selected, service = resolve(ctx, dashboard, widget)
@@ -393,7 +393,7 @@ def build_router(analytics: Analytics, app_label: str | None = None) -> APIRoute
                     axis = getattr(selected, key)
                     payload["config"][key] = asdict(axis) if axis else {}
                 groups, outcome = payload["pointCount"], "ok"
-                return JSONResponse(payload, headers=HEADERS)
+                return payload
             limit = analytics.max_rows
             if isinstance(selected, Chart):
                 limit = (
@@ -419,7 +419,7 @@ def build_router(analytics: Analytics, app_label: str | None = None) -> APIRoute
                     {"chart": ["Negative values require a bar chart."]}, code="negative_chart"
                 )
             outcome = "ok"
-            return JSONResponse(result.to_dict(), headers=HEADERS)
+            return result.to_dict()
         except DBAPIError as exc:
             if not is_timeout(exc):
                 raise
@@ -438,7 +438,11 @@ def build_router(analytics: Analytics, app_label: str | None = None) -> APIRoute
                 outcome,
             )
 
-    @router.get("/{dashboard}/{widget}/records", name=analytics.route_name("records", app_label))
+    @router.get(
+        "/{dashboard}/{widget}/records",
+        name=analytics.route_name("records", app_label),
+        include_in_schema=False,
+    )
     async def records(
         request: Request,
         dashboard: str,
@@ -564,6 +568,8 @@ def build_router(analytics: Analytics, app_label: str | None = None) -> APIRoute
         methods=["GET"],
         name=analytics.route_name("manifest", app_label),
         route_class_override=AnalyticsDataRoute,
+        response_model=Manifest,
+        response_model_exclude_unset=True,
     )
     router.add_api_route(
         "/{dashboard}/{widget}/data",
@@ -571,5 +577,7 @@ def build_router(analytics: Analytics, app_label: str | None = None) -> APIRoute
         methods=["GET"],
         name=analytics.route_name("data", app_label),
         route_class_override=AnalyticsDataRoute,
+        response_model=ChartData | PivotData,
+        response_model_exclude_unset=True,
     )
     return router

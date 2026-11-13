@@ -1,6 +1,6 @@
 [project]
 name = "obox-builder"
-version = "0.4.0"
+version = "0.5.0"
 description = "Model-driven forms, views and REST APIs for native FastAPI applications."
 readme = "README.md"
 license = "MIT"

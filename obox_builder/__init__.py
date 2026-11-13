@@ -1,6 +1,6 @@
 """Model-driven CRUD applications built on native FastAPI and SQLAlchemy."""
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 from obox_builder import builder
 from obox_builder.application import Diagnostic, Obox, Registration

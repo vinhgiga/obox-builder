@@ -41,6 +41,8 @@ only the envelope shape.
 ## Endpoint overview
 
 Paths use the default `/api` prefix and have no trailing slash.
+For app-catalog resources, `{slug}` below expands to `{app_label}/{slug}`,
+for example `/api/polls/questions`; the collection name itself remains camelCase.
 `{slug}` is a resource's plural collection name, such as `questions` or
 `questionCategories`; `{id}` is its primary key. Collection names use camelCase,
 start with a lowercase ASCII letter, and contain only ASCII letters and digits
@@ -71,6 +73,7 @@ and defines its own query, response, and batch contracts.
 | GET | `/api/{slug}:queryOptions` | List record IDs and labels for relationship selectors. |
 | GET | `/api:describe` | Describe resources available to the current principal. |
 | GET | `/api/{slug}:describe` | Describe a resource's fields, permissions, and operations. |
+| POST | `/api/{slug}:queryMetadata` | Retrieve attachment metadata or comment counts for selected records; requires Files or Activity. |
 | POST | `/api/{slug}:batchWrite` | Apply create, update, delete, or configured upsert operations atomically. |
 | POST | `/api/{slug}:{name}` | Run an action on selected records. |
 | GET | `/api/{slug}/{id}/relationships/{field}` | List readable linked-record cards configured by `View.related`. |
@@ -281,7 +284,7 @@ with an empty `items` array.
 `API.default_limit` supplies an omitted `limit`; `API.max_limit` supplies a
 limit when none is otherwise configured and rejects an explicit larger value
 with `422 validation_error`. Both default to `None`, so no result maximum is
-imposed unless the host opts in. `API.pagination` does not gate query parameters.
+imposed unless the host opts in. The obsolete `API.pagination` attribute was removed in 0.5.0.
 
 **Selection and expansion**
 
@@ -1293,8 +1296,10 @@ Comment writes do not change the parent's ETag. Cookie mutations require CSRF.
 
 Responses use `private, no-store`. Revision/comment persistence shares the
 resource transaction; after-commit callbacks are best-effort and are not a
-durable event delivery mechanism. There is no automatic `commentCount`, public
-webhook API, or comment idempotency. The
+durable event delivery mechanism. `commentCount` is available through
+`:queryMetadata`, rather than automatically included in records. The Webhooks
+plugin exposes resource-event subscriptions; comment webhook delivery and
+comment idempotency are not provided. The
 [record-page specification](record-activity-spec.md) contains detailed examples.
 
 ## File uploads — Files plugin
@@ -1324,7 +1329,7 @@ removed by periodic collection; there is currently no file DELETE endpoint.
 
 Resource attachment fields serialize as ordered arrays of file UUID strings,
 not metadata objects. Upload/state responses provide metadata separately;
-the current API has no batch metadata endpoint. Downloads remain access-checked
+use `POST /api/{slug}:queryMetadata` with `include: ["attachments"]` for batched metadata. Downloads remain access-checked
 at the Files route; there is no URL import or signed-download-URL API.
 Chunks are at most 8 MiB. Per-field `max_size`, `min_count`, and `max_count`
 are optional constraints, with no default global file-size cap. Hourly cleanup
@@ -1522,3 +1527,64 @@ Invalid bearer credentials do not fall back to a cookie session. Requests carryi
 cookies still require CSRF for mutations. Host-defined endpoints must enforce
 their own appropriate permission checks or use the shared resource service.
 Logging out a cookie session does not revoke personal tokens; revoke them explicitly.
+
+
+## HTTP and plugin contracts — 0.5.0
+
+HEAD is supported for generated GET endpoints, with the same authorization,
+status and representation headers as GET and no response body. OPTIONS on a
+resource collection or detail URL returns its current `ResourceDescription`
+and `Allow`, using the same visibility rules as `:describe` (404 when hidden).
+OPTIONS on plugin/custom-method URLs returns 204 and `Allow`, without running
+business operations. CORS preflight remains controlled by the host middleware.
+405 responses aggregate the methods registered for the requested URL.
+
+JSON content negotiation respects the most specific matching media range;
+`application/json;q=0.0` excludes JSON even when a less specific wildcard allows
+it. Invalid tokens are ignored. Accept headers exceeding 8,192 characters,
+64 tokens, or 256 characters per token return 406. Binary downloads keep their
+file media type rather than requiring JSON Accept.
+
+Float fields return JSON numbers. Decimal and BigInteger fields remain strings.
+NaN and positive/negative Infinity are invalid. Numeric fields reject boolean
+input, while valid numeric strings remain accepted. The shared validation
+applies to create/update/batch/upsert and direct service callers. Nullable
+numeric fields continue accepting null. `API.pagination` has been removed;
+use query controls and `default_limit`/`max_limit`.
+
+`POST /api/{slug}:queryMetadata` accepts `{recordIds, include}`, with include
+values `attachments` and/or `commentCount`. It returns `{items}` in requested
+ID order, checking retrieve permission per record and comment permission for
+counts. Duplicate IDs, unavailable plugins and configured max_batch overflow
+are rejected. Attachment fields are keyed by their public field aliases.
+
+### Webhooks plugin
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| POST | `/api/webhooks` | Create an owned subscription; return the signing secret once. |
+| GET | `/api/webhooks` | List owned subscriptions. |
+| PATCH | `/api/webhooks/{id}` | Enable or disable an owned subscription. |
+| POST | `/api/webhooks/{id}:refresh` | Renew an owned subscription. |
+| DELETE | `/api/webhooks/{id}` | Revoke an owned subscription. |
+| GET | `/api/webhooks/{id}/deliveries` | Poll authorized resource events. |
+
+Deliveries use integer sequence cursors and `{items, nextCursor, hasMore}`,
+with a default limit of 50 and a maximum of 100. This cursor is distinct from
+the signed resource-list cursor. Webhooks do not imply comment-event support.
+
+### Plugin JSON boundaries
+
+Files JSON responses and errors share the API Problem schema, correlation,
+language and cache headers. Upload chunks remain binary; download responses
+retain their media type, offset/range semantics and authorization. Upload
+conflicts and failed content inspection return 409 Problem responses; retrieve
+`GET /files/{id}/state` for current offset/status before retrying.
+
+Analytics GET `/{dashboard}/manifest` and `/{dashboard}/{widget}/data` use the
+configured dashboard prefix (including app prefixes), have concrete response
+schemas, and appear in OpenAPI. Manifest sections expose `searchEnabled` and
+`explicitRows`; pivot results expose `rowTotals`/`columnTotals`; chart config
+exposes `primaryAxis`/`secondaryAxis`. Dictionary keys representing user data
+or configured widget IDs are preserved. The dashboard page and drill
+`/{dashboard}/{widget}/records` remain HTML and are excluded from OpenAPI.

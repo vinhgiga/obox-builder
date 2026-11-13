@@ -9,6 +9,7 @@ const source = readFileSync(
 ).replace('"./http.js"', JSON.stringify(client));
 const {
   chartData,
+  chartConfiguration,
   DashboardLoader,
   pooled,
   recordURL,
@@ -33,7 +34,7 @@ test("drill-down preserves filters and distinguishes totals, null and empty grou
 });
 
 test("charts retain exact values for tooltips and omit zero/null circular slices", () => {
-  const data = { rows: [null, "", "large"], row_totals: [null, "0.00", "9007199254740993.01"] };
+  const data = { rows: [null, "", "large"], rowTotals: [null, "0.00", "9007199254740993.01"] };
   const bar = chartData(data, "bar", "Empty");
   assert.equal(bar[0].label, "Empty");
   assert.equal(bar[1].label, "");
@@ -181,4 +182,37 @@ test("a widget failure leaves other widgets usable", async () => {
     ok: "ok",
     "also-ok": "also-ok",
   });
+});
+
+test("chart configuration reads camelCase axis contracts", () => {
+  const config = chartConfiguration(
+    {
+      categories: ["A"],
+      xType: "category",
+      grouped: false,
+      config: {
+        kind: "bar",
+        orientation: "vertical",
+        stack: "none",
+        legend: "auto",
+        primaryAxis: { label: "Revenue", minimum: -10, maximum: 100 },
+        secondaryAxis: {},
+      },
+      series: [
+        {
+          id: "sales",
+          axis: "primary",
+          label: "Sales",
+          kind: "bar",
+          valueType: "number",
+          points: [{ x: "A", y: "2.50" }],
+        },
+      ],
+    },
+    { empty: "Empty" },
+    () => {},
+  );
+  assert.equal(config.options.scales.primary.min, -10);
+  assert.equal(config.options.scales.primary.max, 100);
+  assert.equal(config.options.scales.primary.title.text, "Revenue");
 });

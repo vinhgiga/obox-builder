@@ -13,9 +13,10 @@ import anyio
 import sqlalchemy as sa
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import FileResponse, JSONResponse
+from starlette.exceptions import HTTPException
 from starlette.requests import ClientDisconnect
 
-from obox_builder.builder.http import OboxRoute
+from obox_builder.builder.http import ApiRoute
 from obox_builder.contrib.files.models import File
 from obox_builder.contrib.files.rules import IMAGES, VIDEOS, sniff
 from obox_builder.contrib.files.schemas import (
@@ -26,7 +27,13 @@ from obox_builder.contrib.files.schemas import (
     ReorderFiles,
     UploadCreated,
 )
-from obox_builder.errors import BuilderValidationError, NotAuthenticated, NotFound, PermissionDenied
+from obox_builder.errors import (
+    BuilderValidationError,
+    NotAuthenticated,
+    NotFound,
+    PermissionDenied,
+    ResourceConflict,
+)
 
 if TYPE_CHECKING:
     from obox_builder.context import Context
@@ -63,9 +70,18 @@ def publish(files: Files, file: File, chunk: Path) -> None:
         file.status, file.completed_at = "ready", datetime.now(UTC)
 
 
+class FileRoute(ApiRoute):
+    cache_control = "private, no-store"
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.binary_upload = self.name == "obox_files_append"
+        self.download = self.name == "obox_files_download"
+
+
 def build_router(files: Files) -> APIRouter:
     app = files.app
-    router = APIRouter(prefix=files.prefix, tags=["files"], route_class=OboxRoute)
+    router = APIRouter(prefix=files.prefix, tags=["files"], route_class=FileRoute)
     principal = Depends(app.settings.principal_dependency)
 
     def source(who: Any) -> Literal["api", "ui"]:
@@ -177,21 +193,20 @@ def build_router(files: Files) -> APIRouter:
         return {"ids": [str(fid) for fid in body.ids]}
 
     @router.get("/{fid}/state", name="obox_files_state", response_model=FileMetadata)
-    async def state(fid: UUID, request: Request, who: Any = principal) -> JSONResponse:
+    async def state(fid: UUID, request: Request, who: Any = principal) -> dict[str, Any]:
         async with app.uow(principal=who, source=source(who), request=request) as ctx:
             file = await ctx.session.get(File, fid)
             if file is None:
                 raise NotFound("Unknown upload.")
             await files.authorize(ctx, file)
-            result = view(file)
-        return JSONResponse(result, headers={"Cache-Control": "private, no-store"})
+            return view(file)
 
     @router.patch("/{fid}", name="obox_files_append", response_model=FileMetadata)
     async def append(fid: UUID, request: Request, who: Any = principal) -> JSONResponse:
         created_by = actor(who)
         app.csrf.validate(request, who)
         if request.headers.get("content-type") != "application/offset+octet-stream":
-            return JSONResponse({"detail": "Use application/offset+octet-stream."}, status_code=415)
+            raise HTTPException(415, "Use application/offset+octet-stream.")
         raw_offset = request.headers.get("upload-offset", "")
         if len(raw_offset) > 19 or not raw_offset.isascii() or not raw_offset.isdecimal():
             raise BuilderValidationError({"upload-offset": ["Send a nonnegative byte offset."]})
@@ -199,7 +214,7 @@ def build_router(files: Files) -> APIRouter:
         async with app.uow(principal=who, source=source(who), request=request) as ctx:
             file = await mine(ctx, fid)
             if file.offset != offset or file.status != "pending" or file.owner_id is not None:
-                return JSONResponse(view(file), status_code=409)
+                raise ResourceConflict("Upload offset or status has changed.")
             limit = min(CHUNK, file.size - offset)
         stage = anyio.Path(files.root / "tmp" / f"{fid}.{uuid4()}")
         try:
@@ -228,12 +243,17 @@ def build_router(files: Files) -> APIRouter:
                     .returning(File)
                 )
                 if locked is None:
-                    return JSONResponse(view(await mine(ctx, fid)), status_code=409)
+                    await mine(ctx, fid)
+                    raise ResourceConflict("Upload offset or status has changed.")
                 await anyio.to_thread.run_sync(publish, files, locked, Path(stage))
                 result = view(locked)
-            return JSONResponse(result, status_code=409 if result["status"] == "failed" else 200)
+            if result["status"] == "failed":
+                raise ResourceConflict("Uploaded file failed content validation.")
+            return JSONResponse(result)
         except ClientDisconnect:
-            return JSONResponse({"offset": offset}, status_code=409)
+            raise ResourceConflict(
+                "Upload disconnected; retrieve upload state before retrying."
+            ) from None
         finally:
             with anyio.CancelScope(shield=True):
                 await stage.unlink(missing_ok=True)

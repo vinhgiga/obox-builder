@@ -92,7 +92,8 @@ def test_file_json_contract_across_upload_resume_claim_and_widget(tmp_path: Path
 
             conflict = await client.patch(path, headers=headers, content=PNG[:8])
             assert conflict.status_code == 409
-            assert conflict.json() == partial.json()
+            assert conflict.json()["code"] == "resource_conflict"
+            assert conflict.headers["content-type"] == "application/problem+json"
             state = await client.get(path + "/state")
             assert state.status_code == 200
             assert state.json() == partial.json()
@@ -202,7 +203,7 @@ def test_file_openapi_matches_json_properties(tmp_path: Path) -> None:
     asyncio.run(scenario())
 
 
-def test_failed_upload_returns_the_same_metadata_contract(tmp_path: Path) -> None:
+def test_failed_upload_returns_problem_and_preserves_state(tmp_path: Path) -> None:
     async def scenario() -> None:
         async with application(tmp_path) as (_, client):
             created = await client.post(
@@ -217,9 +218,63 @@ def test_failed_upload_returns_the_same_metadata_contract(tmp_path: Path) -> Non
                 content=b"bad",
             )
             assert failed.status_code == 409
-            assert set(failed.json()) == FILE_FIELDS
-            assert failed.json()["contentType"] == "image/png"
-            assert failed.json()["status"] == "failed"
-            assert (await client.get(path + "/state")).json() == failed.json()
+            assert failed.json()["code"] == "resource_conflict"
+            state = (await client.get(path + "/state")).json()
+            assert set(state) == FILE_FIELDS
+            assert state["contentType"] == "image/png"
+            assert state["status"] == "failed"
+
+    asyncio.run(scenario())
+
+
+def test_file_protocol_headers_and_problems(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        async with application(tmp_path) as (app, client):
+            created = await client.post(
+                "/files",
+                json={
+                    "filename": "test.png",
+                    "size": len(PNG),
+                    "field": "file_documents.attachments",
+                },
+            )
+            path = f"/files/{created.json()['id']}"
+            ready = await client.patch(
+                path,
+                headers={"content-type": "application/offset+octet-stream", "upload-offset": "0"},
+                content=PNG,
+            )
+            assert ready.status_code == 200
+            for url in (path, path + "/state"):
+                get = await client.get(url)
+                head = await client.head(url)
+                assert get.status_code == head.status_code == 200
+                assert head.content == b""
+                for name in ("content-type", "content-length", "cache-control", "etag"):
+                    assert head.headers.get(name) == get.headers.get(name)
+                denied = await client.head(url, headers={"actor": "2"})
+                assert denied.status_code == 404
+                assert denied.content == b""
+            options = await client.options(path)
+            assert options.status_code == 204
+            assert set(options.headers["allow"].split(", ")) == {
+                "GET",
+                "HEAD",
+                "PATCH",
+                "PUT",
+                "OPTIONS",
+            }
+            invalid = await client.post("/files", json={"filename": "bad"})
+            assert invalid.status_code == 422
+            problem = invalid.json()
+            assert problem["traceId"] == invalid.headers["x-request-id"]
+            assert invalid.headers["content-type"] == "application/problem+json"
+            assert invalid.headers["cache-control"] == "private, no-store"
+            assert problem["errors"][0]["pointer"].startswith("#/")
+            schema = app.app.openapi()
+            assert (
+                "application/problem+json"
+                in schema["paths"]["/files"]["post"]["responses"]["422"]["content"]
+            )
 
     asyncio.run(scenario())

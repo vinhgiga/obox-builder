@@ -15,6 +15,7 @@ from pydantic import (
     AfterValidator,
     AwareDatetime,
     BaseModel,
+    BeforeValidator,
     ConfigDict,
     Field,
     ValidationError,
@@ -64,26 +65,34 @@ def _validate_text(value: str) -> str:
     return value
 
 
+def _numeric(value: Any) -> Any:
+    if isinstance(value, bool):
+        raise ValueError("Booleans are not numeric values.")
+    return value
+
+
 def _constrained_annotation(column: sa.Column[Any], annotation: Any) -> Any:
     column_type = column.type
     if isinstance(column_type, sa.DateTime):
         return AwareDatetime
+    if isinstance(column_type, sa.Float):
+        return Annotated[float, Field(allow_inf_nan=False), BeforeValidator(_numeric)]
     if isinstance(column_type, sa.BigInteger):
-        return Annotated[int, Field(ge=-(2**63), le=2**63 - 1)]
+        return Annotated[int, Field(ge=-(2**63), le=2**63 - 1), BeforeValidator(_numeric)]
     if isinstance(column_type, sa.Integer):
         bounds = (
             (-(2**15), 2**15 - 1)
             if isinstance(column_type, sa.SmallInteger)
             else (-(2**31), 2**31 - 1)
         )
-        return Annotated[int, Field(ge=bounds[0], le=bounds[1])]
+        return Annotated[int, Field(ge=bounds[0], le=bounds[1]), BeforeValidator(_numeric)]
     if isinstance(column_type, sa.Numeric):
-        constraints: dict[str, Any] = {}
+        constraints: dict[str, Any] = {"allow_inf_nan": False}
         if column_type.precision is not None:
             constraints["max_digits"] = column_type.precision
         if column_type.scale is not None:
             constraints["decimal_places"] = column_type.scale
-        return Annotated[Decimal, Field(**constraints)] if constraints else annotation
+        return Annotated[Decimal, Field(**constraints), BeforeValidator(_numeric)]
     if annotation is str and isinstance(column_type, sa.String):
         if column_type.length:
             return Annotated[

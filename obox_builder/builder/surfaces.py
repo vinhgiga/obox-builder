@@ -76,7 +76,6 @@ class API:
     write_fields: FieldRefs | None = None
     prefix: str | None = None
     tags: tuple[str, ...] | None = None
-    pagination = False
     default_limit: int | None = None
     max_limit: int | None = None
     max_batch: int | None = None

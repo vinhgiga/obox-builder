@@ -105,6 +105,8 @@ def list_schema(builder: Any, *, expanded: bool = True) -> type[BaseModel]:
                 return None if value is None else str(value)
 
             result: Any = str | None if spec.column.nullable else str
+        elif isinstance(spec.column.type, sa.Float):
+            continue
         elif isinstance(spec.column.type, sa.Numeric):
 
             def convert(value: Any) -> Any:
@@ -342,6 +344,27 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
             return await query_metadata(app, builder, data, ctx)
 
         metadata.__annotations__["data"] = MetadataQuery
+
+    @router.options(
+        path,
+        response_model=ResourceDescription,
+        name=f"obox_api_{builder.route_key}_options",
+        responses=problems,
+    )
+    @router.options(
+        path + "/{id}",
+        response_model=ResourceDescription,
+        name=f"obox_api_{builder.route_key}_detail_options",
+        responses=problems,
+    )
+    async def options_resource(
+        request: Request, response: Response, ctx: Context = dependency
+    ) -> Any:
+        from obox_builder.builder.http import allow_header
+
+        response.headers["Allow"] = allow_header(request.scope)
+        response.headers["Cache-Control"] = "private, no-store"
+        return await describe(app, builder, ctx, record_schema)
 
     async def record_row(
         obj: Any, ctx: Context, fields: Sequence[str] | None = None
