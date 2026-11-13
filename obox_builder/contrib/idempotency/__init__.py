@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -29,11 +28,10 @@ class Idempotency:
         self,
         *,
         ttl: timedelta = timedelta(hours=24),
-        partition: Callable[[Context], str] | None = None,
     ) -> None:
         if ttl <= timedelta(0):
             raise ImproperlyConfigured("Idempotency.ttl must be positive.")
-        self.ttl, self.partition = ttl, partition
+        self.ttl = ttl
 
     def setup(self, app: Obox) -> None:
         if hasattr(self, "app"):
@@ -50,18 +48,7 @@ class Idempotency:
             raise invalid("Idempotency-Key", "Use one key of 1-255 visible ASCII characters.")
         if not getattr(ctx.principal, "is_authenticated", False) or ctx.principal.id is None:
             raise NotAuthenticated("Idempotency requires an authenticated identity.")
-        partition = self.partition(ctx) if self.partition else "default"
-        if self.partition is None and ctx.tenant is not None:
-            raise ImproperlyConfigured(
-                "Tenant idempotency requires an explicit partition resolver."
-            )
-        if not isinstance(partition, str) or not partition or len(partition) > 255:
-            raise ImproperlyConfigured(
-                "Use a nonempty idempotency partition of at most 255 characters."
-            )
         binding = [
-            partition,
-            str(ctx.tenant),
             str(ctx.principal.id),
             request.method,
             request.scope.get("root_path", "") + request.url.path,

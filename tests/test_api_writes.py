@@ -775,7 +775,7 @@ def test_upsert_composite_key_presets_and_column_aliases(path: Path) -> None:
     class Compound(Base):
         __tablename__ = "write_compound"
         __table_args__ = (
-            sa.UniqueConstraint("tenant_key", "external_code"),
+            sa.UniqueConstraint("account_key", "external_code"),
             sa.Index(
                 "uq_compound_partial",
                 "title",
@@ -785,22 +785,22 @@ def test_upsert_composite_key_presets_and_column_aliases(path: Path) -> None:
             ),
         )
         id: Mapped[int] = mapped_column(primary_key=True)
-        tenant_id: Mapped[str] = mapped_column("tenant_key", sa.String(50))
+        account_id: Mapped[str] = mapped_column("account_key", sa.String(50))
         external_key: Mapped[str] = mapped_column("external_code", sa.String(50))
         title: Mapped[str] = mapped_column(sa.String(50))
         optional_key: Mapped[str | None] = mapped_column(sa.String(50), unique=True)
 
-    class TenantPolicy(StaffOnly[Compound]):
+    class AccountPolicy(StaffOnly[Compound]):
         def presets(self, action: str, ctx: Context) -> Mapping[str, Any]:
-            return {"tenant_id": "tenant-one"}
+            return {"account_id": "account-one"}
 
     class CompoundBuilder(ModelBuilder[Compound]):
         slug = "compound"
-        fields = ("id", "tenant_id", "external_key", "title", "optional_key")
-        policy = TenantPolicy()
+        fields = ("id", "account_id", "external_key", "title", "optional_key")
+        policy = AccountPolicy()
 
         class API(surfaces.API):
-            upsert_fields: tuple[tuple[str, ...], ...] = (("tenant_id", "external_key"),)
+            upsert_fields: tuple[tuple[str, ...], ...] = (("account_id", "external_key"),)
 
     async def scenario() -> None:
         for key in ("title", "optional_key"):
@@ -830,7 +830,7 @@ def test_upsert_composite_key_presets_and_column_aliases(path: Path) -> None:
                         "operations": [
                             {
                                 "op": "upsert",
-                                "mergeOn": names or ["tenantId", "externalKey"],
+                                "mergeOn": names or ["accountId", "externalKey"],
                                 "data": data,
                             }
                         ]
@@ -842,22 +842,26 @@ def test_upsert_composite_key_presets_and_column_aliases(path: Path) -> None:
             assert first.status_code == 200, first.text
             assert first.json()["results"][0]["created"] is True
             async with app.uow(principal=STAFF) as ctx:
-                ctx.session.add(Compound(tenant_id="tenant-two", external_key="x", title="foreign"))
+                ctx.session.add(
+                    Compound(account_id="account-two", external_key="x", title="foreign")
+                )
             second = await write({"externalKey": "x", "title": "changed"})
             assert second.status_code == 200, second.text
             assert second.json()["results"][0]["created"] is False
             assert second.json()["results"][0]["id"] == first.json()["results"][0]["id"]
-            assert (await write({"externalKey": "x", "tenantId": "tenant-two"})).status_code == 403
-            wrong_alias = await write({"externalKey": "x"}, ["tenant_id", "externalKey"])
+            assert (
+                await write({"externalKey": "x", "accountId": "account-two"})
+            ).status_code == 403
+            wrong_alias = await write({"externalKey": "x"}, ["account_id", "externalKey"])
             assert wrong_alias.status_code == 422
             assert wrong_alias.json()["errors"][0]["pointer"] == "#/operations/0/mergeOn"
             async with app.uow(principal=STAFF) as ctx:
                 rows = (
-                    await ctx.session.scalars(sa.select(Compound).order_by(Compound.tenant_id))
+                    await ctx.session.scalars(sa.select(Compound).order_by(Compound.account_id))
                 ).all()
-                assert [(row.tenant_id, row.title) for row in rows] == [
-                    ("tenant-one", "changed"),
-                    ("tenant-two", "foreign"),
+                assert [(row.account_id, row.title) for row in rows] == [
+                    ("account-one", "changed"),
+                    ("account-two", "foreign"),
                 ]
 
     asyncio.run(scenario())

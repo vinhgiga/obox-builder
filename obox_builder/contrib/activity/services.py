@@ -23,23 +23,14 @@ from obox_builder.contrib.activity.models import Comment, Event
 from obox_builder.contrib.activity.schemas import CommentRead
 from obox_builder.errors import (
     BuilderValidationError,
-    ImproperlyConfigured,
     NotAuthenticated,
     NotFound,
     PermissionDenied,
 )
 
 
-async def ownership(activity: Activity, builder: Any, obj: Any, ctx: Context) -> dict[str, str]:
-    partition = await invoke(activity.partition, ctx) if activity.partition else "default"
-    if activity.partition is None and ctx.tenant is not None:
-        raise ImproperlyConfigured("Tenant activity requires an explicit partition resolver.")
-    if not isinstance(partition, str) or not partition or len(partition) > 255:
-        raise ImproperlyConfigured(
-            "Activity partition must be a nonempty string of at most 255 characters."
-        )
+def ownership(builder: Any, obj: Any) -> dict[str, str]:
     return {
-        "partition_key": partition,
         "resource_key": builder.model.__table__.fullname,
         "record_id": str(getattr(obj, builder.pk_name)),
     }
@@ -94,7 +85,7 @@ async def comment(
     async with service._mutation(ctx, conditional=action in {"update", "delete"}):
         parent = await service.get(id, ctx=ctx)
         await service._get(id, ctx, "comment", lock=action != "get")
-        owner = await ownership(activity, builder, parent, ctx)
+        owner = ownership(builder, parent)
         if action == "create":
             if not getattr(ctx.principal, "is_authenticated", False) or not getattr(
                 ctx.principal, "is_active", True
@@ -191,7 +182,7 @@ async def record(
     if changes:
         ctx.session.add(
             Event(
-                **await ownership(activity, builder, obj, ctx),
+                **ownership(builder, obj),
                 kind="revision",
                 action=action,
                 changes=changes,
@@ -394,7 +385,6 @@ async def read(
             kinds.append(entry_kind)
     if not kinds:
         raise PermissionDenied("The requested activity is not permitted.")
-    partition = (await ownership(activity, builder, obj, ctx))["partition_key"]
     resource, record_id = builder.model.__table__.fullname, str(key)
     fields = set(
         builder.readable(ctx, obj=obj, fields=builder.api_read if fields is None else fields)
@@ -406,7 +396,6 @@ async def read(
         if name in builder.view_related and (allowed is None or name in allowed)
     )
     binding = [
-        partition,
         resource,
         record_id,
         str(getattr(ctx.principal, "id", None)),
@@ -423,14 +412,12 @@ async def read(
             Comment,
             sa.and_(
                 Comment.id == Event.comment_id,
-                Comment.partition_key == Event.partition_key,
                 Comment.resource_key == Event.resource_key,
                 Comment.record_id == Event.record_id,
                 Comment.deleted_at.is_(None),
             ),
         )
         .where(
-            Event.partition_key == partition,
             Event.resource_key == resource,
             Event.record_id == record_id,
             Event.kind.in_(kinds),

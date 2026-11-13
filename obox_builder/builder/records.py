@@ -66,7 +66,6 @@ async def relationship(
         raise invalid("cursor", "Cursor requires a positive limit.")
     binding = (
         str(ctx.principal.id),
-        str(ctx.tenant),
         builder.slug,
         id,
         field,

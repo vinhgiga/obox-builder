@@ -32,7 +32,7 @@ class Base(DeclarativeBase):
 class Sale(Base):
     __tablename__ = "analytics_sale"
     id: Mapped[int] = mapped_column(primary_key=True)
-    tenant_id: Mapped[int]
+    account_id: Mapped[int]
     distributor: Mapped[str | None]
     region: Mapped[str | None]
     amount: Mapped[Decimal | None] = mapped_column(sa.Numeric(18, 2))
@@ -70,7 +70,7 @@ class Policy(StaffOnly[Sale]):
         )
 
     def scope(self, action: str, ctx: Context) -> Any:
-        return Sale.tenant_id == ctx.principal.id
+        return Sale.account_id == ctx.principal.id
 
     def read_fields(self, ctx: Context, *, obj: Sale | None = None) -> frozenset[str] | None:
         return (
@@ -88,7 +88,7 @@ class Policy(StaffOnly[Sale]):
 class Sales(ModelBuilder[Sale]):
     fields = (
         "id",
-        "tenant_id",
+        "account_id",
         "distributor",
         "region",
         "amount",
@@ -164,7 +164,7 @@ async def application(
                     [
                         Sale(
                             id=i,
-                            tenant_id=1,
+                            account_id=1,
                             distributor=r,
                             region=c,
                             amount=Decimal(v) if v is not None else None,
@@ -174,7 +174,7 @@ async def application(
                 )
                 ctx.session.add(
                     Sale(
-                        id=8, tenant_id=2, distributor="SECRET", region="East", amount=Decimal(999)
+                        id=8, account_id=2, distributor="SECRET", region="East", amount=Decimal(999)
                     )
                 )
                 await ctx.session.flush()
@@ -346,9 +346,9 @@ def test_http_dashboard_data_records_and_permissions(tmp_path: Path) -> None:
         {"source": "other"},
         {"ordering": "amount"},
         {"row": "null"},
-        {"filter.tenant_id": "2"},
+        {"filter.account_id": "2"},
         {"filter.amount": "invalid"},
-        {"filter": '{"conjunction":"or","children":[{"field":"tenant_id","op":"is","value":2}]}'},
+        {"filter": '{"conjunction":"or","children":[{"field":"account_id","op":"is","value":2}]}'},
         {"filter_op.region": "is"},
         {"filter_op.region": "sql", "filter.region": "East"},
     ],
@@ -478,7 +478,7 @@ def test_declarations_and_default_denial() -> None:
             create()
 
 
-def test_datetime_keys_tenant_and_api_field_scope(tmp_path: Path) -> None:
+def test_datetime_keys_account_and_api_field_scope(tmp_path: Path) -> None:
     async def scenario() -> None:
         async with application(tmp_path) as (app, client, _):
             response = await client.get("/analytics/sales/moment/data")
@@ -521,7 +521,10 @@ def test_reference_dashboard_totals_match_all_widgets(tmp_path: Path) -> None:
                 ctx.session.add_all(
                     [
                         Sale(
-                            tenant_id=1, distributor=f"D{i}", region=f"R{j}", amount=Decimal(amount)
+                            account_id=1,
+                            distributor=f"D{i}",
+                            region=f"R{j}",
+                            amount=Decimal(amount),
                         )
                         for i, row in enumerate(amounts)
                         for j, amount in enumerate(row)

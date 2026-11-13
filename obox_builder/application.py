@@ -565,7 +565,6 @@ class Obox:
         principal: Any,
         source: str = "job",
         request: Request | None = None,
-        tenant: Any = None,
         locale: str | None = None,
         trace_id: str | None = None,
     ) -> AsyncIterator[Context]:
@@ -577,7 +576,14 @@ class Obox:
                 expire_on_commit=False, close_resets_only=False
             ) as session:
                 ctx = Context(
-                    principal, session, request, source, tenant, locale, trace_id, self, True
+                    principal=principal,
+                    session=session,
+                    request=request,
+                    source=source,
+                    locale=locale,
+                    trace_id=trace_id,
+                    _owner=self,
+                    _active=True,
                 )
                 session.info["obox.context"] = ctx
 

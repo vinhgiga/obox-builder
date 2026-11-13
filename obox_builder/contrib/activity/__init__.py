@@ -15,10 +15,8 @@ class Activity:
     def __init__(
         self,
         *,
-        partition: Callable[[Context], str] | None = None,
         identities: Callable[[set[str], Context], Any] | None = None,
     ) -> None:
-        self.partition = partition
         self.identities = identities
 
     async def snapshot(self, builder: Any, obj: Any, ctx: Context) -> dict[str, Any]:

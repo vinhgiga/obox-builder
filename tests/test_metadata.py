@@ -240,7 +240,6 @@ async def seed(app: Obox, count: int = 2) -> list[str]:
         for row in rows:
             ctx.session.add(
                 Comment(
-                    partition_key="default",
                     resource_key=Record.__tablename__,
                     record_id=str(row.id),
                     author_id="1",

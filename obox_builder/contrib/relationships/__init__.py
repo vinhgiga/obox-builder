@@ -116,7 +116,7 @@ async def mutate(
 
             ctx.session.add(
                 Event(
-                    **await ownership(activity, b, parent, ctx),
+                    **ownership(b, parent),
                     kind="revision",
                     action="update",
                     source=ctx.source,

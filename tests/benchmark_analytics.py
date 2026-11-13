@@ -30,7 +30,7 @@ async def main() -> None:
                         [
                             {
                                 "id": i + 1,
-                                "tenant_id": 1,
+                                "account_id": 1,
                                 "distributor": f"D{i % 4}",
                                 "region": f"R{i % 3}",
                                 "amount": Decimal(i % 10_000) / 100,

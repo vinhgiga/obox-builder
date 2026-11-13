@@ -20,7 +20,6 @@ class Base(DeclarativeBase):
 
 
 class Ownership:
-    partition_key: Mapped[str] = mapped_column(sa.String(255), default="default")
     resource_key: Mapped[str] = mapped_column(sa.String(255))
     record_id: Mapped[str] = mapped_column(sa.String(255))
 
@@ -41,7 +40,7 @@ class Comment(Ownership, Base):
     __mapper_args__ = {"version_id_col": version}  # noqa: RUF012
 
     __table_args__ = (
-        sa.Index("ix_obox_comment_owner", "partition_key", "resource_key", "record_id"),
+        sa.Index("ix_obox_comment_owner", "resource_key", "record_id"),
         sa.CheckConstraint(
             "(deleted_at IS NULL AND body IS NOT NULL) OR "
             "(deleted_at IS NOT NULL AND body IS NULL)",
@@ -69,7 +68,7 @@ class Event(Ownership, Base):
     )
 
     __table_args__ = (
-        sa.Index("ix_obox_activity_feed", "partition_key", "resource_key", "record_id", "id"),
+        sa.Index("ix_obox_activity_feed", "resource_key", "record_id", "id"),
         sa.CheckConstraint(
             "(kind = 'revision' AND action IN ('create', 'update', 'delete') "
             "AND action IS NOT NULL AND changes IS NOT NULL AND comment_id IS NULL) OR "

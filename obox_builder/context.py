@@ -22,7 +22,6 @@ class Context:
     session: AsyncSession
     request: Request | None = None
     source: str = "job"
-    tenant: Any = None
     locale: str | None = None
     trace_id: str | None = None
     _owner: Any = field(default=None, repr=False)

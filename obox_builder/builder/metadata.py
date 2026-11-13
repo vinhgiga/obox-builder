@@ -34,7 +34,6 @@ class MetadataResults(ApiResponse):
 
 async def query_metadata(app: Any, builder: Any, data: MetadataQuery, ctx: Context) -> Any:
     from obox_builder.contrib.activity.models import Comment
-    from obox_builder.contrib.activity.services import ownership
     from obox_builder.contrib.files.models import File
 
     service = app.service(builder.model)
@@ -119,12 +118,11 @@ async def query_metadata(app: Any, builder: Any, data: MetadataQuery, ctx: Conte
             )
             if permitted != set(batch):
                 raise PermissionDenied("Comments are unavailable for a requested record.")
-            owner = await ownership(activity, builder, records[batch[0]], ctx)
+            resource_key = builder.model.__table__.fullname
             counts = await ctx.session.execute(
                 sa.select(Comment.record_id, sa.func.count())
                 .where(
-                    Comment.partition_key == owner["partition_key"],
-                    Comment.resource_key == owner["resource_key"],
+                    Comment.resource_key == resource_key,
                     Comment.record_id.in_(rows),
                     Comment.deleted_at.is_(None),
                 )
