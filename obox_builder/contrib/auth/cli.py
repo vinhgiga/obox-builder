@@ -28,12 +28,16 @@ def add_parser(commands: Any) -> None:
 
 
 async def _hash_password(
-    password: str, validators: tuple[PasswordValidator, ...], user: Any
+    password: str,
+    validators: tuple[PasswordValidator, ...],
+    user: Any,
+    *,
+    validate: bool = True,
 ) -> str:
     from obox_builder.contrib.auth.passwords import hash_password
 
     try:
-        return await hash_password(password, validators=validators, user=user)
+        return await hash_password(password, validate=validate, validators=validators, user=user)
     except ModuleNotFoundError as error:
         if error.name != "pwdlib":
             raise
@@ -89,6 +93,11 @@ async def _prompt_password_hash(validators: tuple[PasswordValidator, ...], user:
         except BuilderValidationError as error:
             for message in error.errors.get("password", []):
                 print(f"Error: {message}")
+            bypass = await asyncio.to_thread(
+                input, "Bypass password validation and create user anyway? [y/N]: "
+            )
+            if bypass.lower() == "y":
+                return await _hash_password(password, validators, user, validate=False)
 
 
 async def run(arguments: argparse.Namespace) -> None:
