@@ -10,6 +10,7 @@ from obox_builder.builder import API, Form, Inline, ModelBuilder, View
 from obox_builder.builder.service import BatchOperation, ResourceService
 from obox_builder.conf import Settings
 from obox_builder.context import Context, DomainEvent
+from obox_builder.dependencies import api_context
 from obox_builder.errors import BuilderValidationError, ImproperlyConfigured
 from obox_builder.pages import Page
 from obox_builder.plugin import Plugin
@@ -38,5 +39,6 @@ __all__ = [
     "Settings",
     "View",
     "__version__",
+    "api_context",
     "builder",
 ]

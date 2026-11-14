@@ -32,6 +32,7 @@ from obox_builder.builder.service import ResourceService, invoke
 from obox_builder.conf import Settings, load_settings
 from obox_builder.context import Context
 from obox_builder.db import Database
+from obox_builder.dependencies import _api_context, _api_contexts
 from obox_builder.errors import (
     BuilderValidationError,
     ImproperlyConfigured,
@@ -151,12 +152,15 @@ class Obox:
                 response.headers["Vary"] = "Cookie, Authorization, Accept-Language"
                 response.headers["Content-Language"] = request.state.language
                 return response
+            if isinstance(exc, OboxError):
+                return await self._problem(request, exc)
             if previous_http_handler is not None:
                 result = previous_http_handler(request, exc)
                 return await result if isawaitable(result) else result
             return await http_exception_handler(request, cast(StarletteHTTPException, exc))
 
         app.add_exception_handler(StarletteHTTPException, http_error)
+        app.exception_handlers.setdefault(OboxError, http_error)
         self.database = Database(self.settings)
         self.session_factory = self.database.sessions
         self._plugins: dict[str, Plugin] = {}
@@ -230,6 +234,10 @@ class Obox:
                     page.permission,
                     Permission(page.permission, page.title or page.name, "page"),
                 )
+        for dependency in _api_contexts(self.app.routes):
+            if dependency.permission is not None:
+                name = dependency.permission
+                result.setdefault(name, Permission(name, name.rsplit(".", 1)[-1].title(), "api"))
         return MappingProxyType(result)
 
     def add_page(self, page: Page, *, app_label: str) -> None:
@@ -400,6 +408,8 @@ class Obox:
             if self.settings.default_policy is not None
             else default_policy,
         )
+        if _api_context in self.app.dependency_overrides:
+            self.app.dependency_overrides[_api_context] = self.context_dependency("api")
 
     def add_ui_prefix(self, prefix: str) -> None:
         self._check_mutable()
@@ -533,6 +543,8 @@ class Obox:
 
     def include_router(self, router: APIRouter, *, ui: bool = False, prefix: str = "") -> None:
         self._check_mutable()
+        if any(_api_contexts(router.routes)):
+            self.app.dependency_overrides.setdefault(_api_context, self.context_dependency("api"))
         self.app.include_router(router, prefix=prefix)
         owned = {id(r.original_route) for r in iter_route_contexts(router.routes)}
         self._owned_routes.update(owned)
@@ -597,6 +609,16 @@ class Obox:
             for config in self._apps.values()
             if config.dashboards and self.get_plugin("analytics") is None
         ]
+        if any(_api_contexts(self.app.routes)):
+            self.app.dependency_overrides.setdefault(_api_context, self.context_dependency("api"))
+            if self.settings.principal_dependency is None:
+                diagnostics.append(
+                    Diagnostic(
+                        "error",
+                        "api.identity_resolver",
+                        "Protected APIs require an identity resolver.",
+                    )
+                )
         from jinja2 import TemplateError
 
         for (label, name), page in self._pages.items():
