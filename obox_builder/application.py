@@ -26,7 +26,7 @@ from starlette.routing import BaseRoute, Mount
 from starlette.staticfiles import StaticFiles
 
 from obox_builder.apps import AppConfig
-from obox_builder.auth import Policy
+from obox_builder.auth import Permission, Policy, Principal
 from obox_builder.builder import ModelBuilder
 from obox_builder.builder.service import ResourceService, invoke
 from obox_builder.conf import Settings, load_settings
@@ -39,6 +39,7 @@ from obox_builder.errors import (
     ResourceConflict,
 )
 from obox_builder.i18n import LANGUAGES, LanguageMiddleware, negotiate
+from obox_builder.pages import Page
 from obox_builder.plugin import LifespanPlugin, Plugin
 from obox_builder.staticfiles import AssetMount
 
@@ -162,6 +163,7 @@ class Obox:
         self._pending_plugins: list[Plugin] = []
         self._loading_apps = True
         self._apps: dict[str, AppConfig] = {}
+        self._pages: dict[tuple[str, str], Page] = {}
         self.catalog_enabled = self.settings.installed_apps is not None
         self._installation_failed = False
         self.ui_prefixes = [self.settings.ui_prefix] if self.settings.ui_prefix else []
@@ -210,6 +212,55 @@ class Obox:
     def apps(self) -> Mapping[str, AppConfig]:
         return MappingProxyType(self._apps)
 
+    @property
+    def pages(self) -> Mapping[tuple[str, str], Page]:
+        return MappingProxyType(self._pages)
+
+    @property
+    def permissions(self) -> Mapping[str, Permission]:
+        result = {}
+        for registration in self._registrations.values():
+            builder = registration.builder
+            for action in ("list", "retrieve", "create", "update", "delete", *builder.permissions):
+                name = builder.permission_name(action)
+                result[name] = Permission(name, action.replace("_", " ").title(), "model")
+        for page in self._pages.values():
+            if page.permission is not None:
+                result.setdefault(
+                    page.permission,
+                    Permission(page.permission, page.title or page.name, "page"),
+                )
+        return MappingProxyType(result)
+
+    def add_page(self, page: Page, *, app_label: str) -> None:
+        from obox_builder.builder.pages import build_page
+
+        self._check_mutable()
+        if not isinstance(page, Page):
+            raise ImproperlyConfigured("Register a Page declaration.")
+        if app_label not in self._apps:
+            raise ImproperlyConfigured(f"Unknown application {app_label!r}.")
+        if (app_label, page.name) in self._pages:
+            raise ImproperlyConfigured(f"Page {app_label}.{page.name} is already registered.")
+        if not page.public and not callable(self.settings.principal_dependency):
+            raise ImproperlyConfigured("Protected pages require an identity resolver.")
+        config = self._apps[app_label]
+        bound = replace(
+            page,
+            path=config.ui_path(self.settings) + (page.path or f"/{page.name}"),
+            template=page.template or f"{app_label}/{page.name}.html",
+            title=page.title or page.name.replace("_", " ").title(),
+        )
+        router = build_page(self, bound, app_label)
+        for candidate in iter_route_contexts(router.routes):
+            if any(
+                self._conflict(candidate, other) for other in iter_route_contexts(self.app.routes)
+            ):
+                raise ImproperlyConfigured(f"Page route conflicts at {candidate.path!r}.")
+        self.include_router(router, ui=True)
+        self._pages[app_label, page.name] = bound
+        self.add_ui_prefix(config.ui_path(self.settings))
+
     def add_app(self, config: AppConfig) -> None:
         self._check_mutable()
         if self.catalog_enabled and not self._loading_apps:
@@ -219,6 +270,12 @@ class Obox:
             raise ImproperlyConfigured(f"Application {config.label!r} is already installed.")
         config.ui_path(self.settings)
         self._apps[config.label] = config
+        if not self._loading_apps and self.settings.templates is None:
+            from obox_builder.builder.ui import create_templates
+
+            self.templates.env.loader = create_templates(
+                self.settings, tuple(self._apps.values())
+            ).env.loader
 
     def _load_apps(self) -> None:
         from obox_builder.builder.catalog import build_catalog
@@ -245,6 +302,8 @@ class Obox:
         for config in self._apps.values():
             for builder in config.builders:
                 self.register(builder, app_label=config.label)
+            for page in config.pages:
+                self.add_page(page, app_label=config.label)
             if config.ui_router is not None:
                 self.include_router(config.ui_router, prefix=config.ui_path(self.settings), ui=True)
             if config.api_router is not None:
@@ -261,7 +320,7 @@ class Obox:
                 self._owned_routes.add(id(route))
                 self._ui_routes.append(route)
             self.add_ui_prefix(config.ui_path(self.settings))
-        if self.catalog_enabled and self.settings.templates is None:
+        if self.settings.templates is None:
             self.templates.env.loader = create_templates(
                 self.settings, tuple(self._apps.values())
             ).env.loader
@@ -538,6 +597,13 @@ class Obox:
             for config in self._apps.values()
             if config.dashboards and self.get_plugin("analytics") is None
         ]
+        from jinja2 import TemplateError
+
+        for (label, name), page in self._pages.items():
+            try:
+                self.templates.env.get_template(cast(str, page.template))
+            except TemplateError as exc:
+                diagnostics.append(Diagnostic("error", "page.template", f"{label}.{name}: {exc}"))
         routes = list(iter_route_contexts(self.app.routes))
         for i, route in enumerate(routes):
             for other in routes[:i]:
@@ -727,8 +793,11 @@ class Obox:
                     logger.exception("Best-effort after_commit callback failed.")
 
     def context_dependency(self, source: str) -> Callable[..., Any]:
+        resolver = self.settings.principal_dependency or (lambda: Principal())
+
         async def dependency(
-            request: Request, principal: Any = Depends(self.settings.principal_dependency)
+            request: Request,
+            principal: Any = Depends(resolver),
         ) -> AsyncIterator[Context]:
             async with self.uow(
                 principal=principal,

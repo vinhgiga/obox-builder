@@ -7,7 +7,7 @@ import pytest
 import sqlalchemy as sa
 from fastapi import FastAPI
 from obox_builder import ModelBuilder, Obox, Principal, View, builder
-from obox_builder.auth import StaffOnly
+from obox_builder.auth import RBAC
 from obox_builder.conf import Settings
 from obox_builder.context import Context
 from obox_builder.errors import ImproperlyConfigured
@@ -59,24 +59,24 @@ class ChildBuilder(ModelBuilder[Child]):
     View: type[builder.View] = ChildListView
 
 
-class ScopedParentPolicy(StaffOnly[Parent]):
+class ScopedParentPolicy(RBAC[Parent]):
     def scope(self, action: str, ctx: Context) -> Any:
         return Parent.id != 2 if action == "retrieve" else sa.true()
 
 
-class ObjectDeniedParentPolicy(StaffOnly[Parent]):
+class ObjectDeniedParentPolicy(RBAC[Parent]):
     async def allow(self, action: str, ctx: Context, *, obj: Any = None) -> bool:
         if obj is not None and obj.name == "Hidden":
             return False
         return await super().allow(action, ctx, obj=obj)
 
 
-class LabelDeniedParentPolicy(StaffOnly[Parent]):
+class LabelDeniedParentPolicy(RBAC[Parent]):
     def read_fields(self, ctx: Context, *, obj: Any = None) -> frozenset[str] | None:
         return frozenset() if obj is not None else None
 
 
-class ChildNameOnlyPolicy(StaffOnly[Child]):
+class ChildNameOnlyPolicy(RBAC[Child]):
     def read_fields(self, ctx: Context, *, obj: Any = None) -> frozenset[str] | None:
         return frozenset({"name"}) if obj is not None else None
 
@@ -116,7 +116,7 @@ class MissingForeignKeyBuilder(ChildBuilder):
     fields = ("name",)
 
 
-STAFF = Principal(id=1, is_authenticated=True, is_staff=True)
+STAFF = Principal(id=1, is_authenticated=True, is_staff=True, is_superuser=True)
 
 
 async def make_app(
@@ -130,7 +130,7 @@ async def make_app(
         settings=Settings(
             session_factory=async_sessionmaker(engine, expire_on_commit=False),
             principal_dependency=lambda: STAFF,
-            default_policy=StaffOnly(),
+            default_policy=RBAC(),
             csrf_secret="x" * 32,
         ),
     )

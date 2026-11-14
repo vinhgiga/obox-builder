@@ -23,7 +23,7 @@ from obox_builder import (
     Principal,
     builder,
 )
-from obox_builder.auth import Identity, ScopedIdentity, StaffOnly
+from obox_builder.auth import RBAC, Identity, ScopedIdentity
 from obox_builder.builder.api_schema import ApiResponse
 from obox_builder.conf import Settings
 from obox_builder.contrib.activity import Activity
@@ -80,6 +80,14 @@ class UUIDRecord(Base):
     record_key: Mapped[uuid.UUID] = mapped_column(primary_key=True)
 
 
+class LargeRecordBuilder(ModelBuilder[LargeRecord]):
+    fields = ("record_key",)
+
+
+class UUIDRecordBuilder(ModelBuilder[UUIDRecord]):
+    fields = ("record_key",)
+
+
 class DocumentBuilder(ModelBuilder[Document]):
     fields = ("title_text",)
     slug = "documents"
@@ -92,11 +100,13 @@ class DocumentBuilder(ModelBuilder[Document]):
 
 
 class CategoryBuilder(ModelBuilder[Category]):
+    fields = ("id", "label")
     slug = "categories"
     label_field = "label"
 
 
 class RecordBuilder(ModelBuilder[Record]):
+    fields = ("id", "name", "amount", "moment", "category_id", "payload")
     slug = "records"
     label_field = "name"
     filter_fields: tuple[str, ...] = ("id", "category_id", "moment", "name")
@@ -110,7 +120,7 @@ class RecordBuilder(ModelBuilder[Record]):
             obj.name = obj.name.upper()
 
 
-STAFF = Principal(id=1, is_authenticated=True, is_staff=True)
+STAFF = Principal(id=1, is_authenticated=True, is_staff=True, is_superuser=True)
 
 
 @asynccontextmanager
@@ -140,7 +150,7 @@ async def application(
         settings=Settings(
             session_factory=async_sessionmaker(engine, expire_on_commit=False),
             principal_dependency=lambda: principal,
-            default_policy=StaffOnly(),
+            default_policy=RBAC(),
             csrf_secret="x" * 32,
         ),
         plugins=[Activity()] if with_activity else [],
@@ -149,8 +159,8 @@ async def application(
         app.register(CategoryBuilder)
         app.register(configured)
         app.register(document_builder)
-        app.register(LargeRecord)
-        app.register(UUIDRecord)
+        app.register(LargeRecordBuilder)
+        app.register(UUIDRecordBuilder)
         async with app.app.router.lifespan_context(app.app):
             yield app
     finally:
@@ -478,7 +488,7 @@ def test_query_validation_errors_use_public_field_names() -> None:
 
 @pytest.mark.parametrize("per_record", [False, True])
 def test_identity_never_bypasses_field_policy(per_record: bool) -> None:
-    class HiddenIdentity(StaffOnly[Record]):
+    class HiddenIdentity(RBAC[Record]):
         def read_fields(self, ctx: Context, *, obj: Record | None = None) -> frozenset[str] | None:
             return frozenset({"name"}) if obj is not None or not per_record else None
 
@@ -946,7 +956,7 @@ def test_preconditions_do_not_mask_authorization_or_constraint_errors() -> None:
 
 @pytest.mark.parametrize("hidden_by", ["permission", "scope"])
 def test_versioned_writes_use_mutation_permissions_and_scope(hidden_by: str) -> None:
-    class MutationPolicy(StaffOnly[Document]):
+    class MutationPolicy(RBAC[Document]):
         async def allow(self, action: str, ctx: Context, *, obj: Document | None = None) -> bool:
             if action == "retrieve" and hidden_by == "permission":
                 return False

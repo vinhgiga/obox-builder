@@ -12,7 +12,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import selectinload
 from starlette.datastructures import FormData
 
-from obox_builder.auth import RBAC, Identity
+from obox_builder.auth import Identity
 from obox_builder.builder.http import OboxRoute, read_form
 from obox_builder.builder.ui import build_navigation
 from obox_builder.contrib.auth.models import Role, User
@@ -49,26 +49,20 @@ def role_model(auth: Auth) -> type[Any]:
 
 def permission_tree(app: Obox) -> tuple[list[dict[str, Any]], set[str]]:
     resources: dict[str, dict[str, set[str]]] = {}
-    for registration in app._registrations.values():
-        builder = registration.builder
-        if isinstance(builder.policy, RBAC):
-            service, resource = builder.policy.resource.split(".", 1)
-        else:
-            if builder.slug is None:
-                continue
-            service, resource = builder.app_label or "admin", builder.slug
-        resources.setdefault(service, {}).setdefault(resource, set()).update(
-            (*ACTIONS, *builder.permissions)
-        )
-    for resource in ("users", "roles"):
-        resources.setdefault("auth", {}).setdefault(resource, set()).update(ACTIONS)
+    for name in app.permissions:
+        service, resource, action = name.split(".")
+        resources.setdefault(service, {}).setdefault(resource, set()).add(action)
     tree: list[dict[str, Any]] = []
     known: set[str] = set()
     for service in sorted(resources):
         items = []
         for resource in sorted(resources[service]):
             actions = []
-            for action in (*ACTIONS, *sorted(resources[service][resource] - set(ACTIONS))):
+            available = resources[service][resource]
+            for action in (
+                *(item for item in ACTIONS if item in available),
+                *sorted(available - set(ACTIONS)),
+            ):
                 value = f"{service}.{resource}.{action}"
                 known.add(value)
                 actions.append({"action": action, "value": value})
@@ -180,9 +174,12 @@ def router(app: Obox, auth: Auth) -> APIRouter:
 
     async def superuser(request: Request) -> Identity:
         principal = await auth.principal(request)
-        if not principal.is_authenticated:
+        if principal.is_authenticated is not True or principal.is_active is not True:
             raise NotAuthenticated(N_("Authentication is required."))
-        if not getattr(principal, "is_superuser", False):
+        if (
+            getattr(principal, "is_superuser", False) is not True
+            or getattr(principal, "api_scopes", None) is not None
+        ):
             raise PermissionDenied(N_("Superuser access is required."))
         return principal
 
@@ -405,6 +402,7 @@ def router(app: Obox, auth: Auth) -> APIRouter:
                     last_name=last_name,
                     department=department,
                     is_active=is_active,
+                    roles=[],
                 )
                 ctx.session.add(user)
             else:
@@ -416,7 +414,9 @@ def router(app: Obox, auth: Auth) -> APIRouter:
                 user.is_active = is_active
                 if encoded is not None:
                     user.password_hash = encoded
-            user.roles = [roles_by_id[role_id] for role_id in sorted(selected)]
+            await auth.authorization.set_roles(
+                user, [roles_by_id[role_id] for role_id in sorted(selected)], ctx=ctx
+            )
             return RedirectResponse(f"{auth.users_url(request)}?saved=1", status_code=303)
 
     async def user_create(
@@ -512,7 +512,7 @@ def router(app: Obox, auth: Auth) -> APIRouter:
                     forms=[role_form(role) for role in roles],
                 )
 
-            ctx.session.add(model(name=name, permissions=sorted(set(selected))))
+            await auth.create_role(name, permissions=selected, ctx=ctx)
             return RedirectResponse(f"{auth.roles_url(request)}?saved=1", status_code=303)
 
     async def role_update(
@@ -565,9 +565,10 @@ def router(app: Obox, auth: Auth) -> APIRouter:
                     forms=forms,
                 )
 
-            role.name = name
             unknown = [permission for permission in role.permissions if permission not in known]
-            role.permissions = unknown + sorted(set(selected))
+            await auth.authorization.update_role(
+                id, name=name, permissions=unknown + selected, ctx=ctx
+            )
             return RedirectResponse(f"{auth.roles_url(request)}?saved=1", status_code=303)
 
     async def role_delete(
@@ -575,26 +576,7 @@ def router(app: Obox, auth: Auth) -> APIRouter:
     ) -> RedirectResponse:
         async with app.uow(principal=principal, request=request, source="ui") as ctx:
             await form_data(request, principal)
-            model = role_model(auth)
-            role = await ctx.session.get(model, id)
-            if role is None:
-                raise NotFound(N_("Role not found."))
-            relation = sa.inspect(user_model(auth)).relationships.get("roles")
-            if relation is not None and relation.secondary is not None:
-                primary_key = sa.inspect(model).primary_key[0]
-                column = next(
-                    (
-                        item
-                        for item in relation.secondary.columns
-                        if any(foreign.column is primary_key for foreign in item.foreign_keys)
-                    ),
-                    None,
-                )
-                if column is not None:
-                    await ctx.session.execute(
-                        sa.delete(relation.secondary).where(column == role.id)
-                    )
-            await ctx.session.delete(role)
+            await auth.authorization.delete_role(id, ctx=ctx)
             return RedirectResponse(f"{auth.roles_url(request)}?deleted=1", status_code=303)
 
     routes.add_api_route(

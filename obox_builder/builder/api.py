@@ -413,7 +413,7 @@ def build_api(app: Any, builder: Any, service: Any) -> APIRouter:
                 schema("ReceiptIdentity", builder.specs, (builder.pk_name,)),
                 {builder.pk_name: proof["id"]},
             )[builder.pk_name]
-            action = "update" if proof["action"] == "update" else "retrieve"
+            action = proof["action"]
             obj = (
                 (
                     await ctx.session.scalars(

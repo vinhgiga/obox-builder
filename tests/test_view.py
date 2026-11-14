@@ -7,7 +7,7 @@ import httpx
 import sqlalchemy as sa
 from fastapi import FastAPI
 from obox_builder import ModelBuilder, Obox, Principal, View
-from obox_builder.auth import StaffOnly
+from obox_builder.auth import RBAC
 from obox_builder.conf import Settings
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -31,6 +31,7 @@ class OrderedView(View):
 
 
 class OrderedBuilder(ModelBuilder[Widget]):
+    fields = ("id", "name", "status")
     View = OrderedView
 
 
@@ -42,6 +43,7 @@ class DynamicView(View):
 
 
 class DynamicBuilder(ModelBuilder[Widget]):
+    fields = ("id", "name", "status")
     View = DynamicView
 
 
@@ -51,6 +53,7 @@ class FilterView(View):
 
 
 class FilterBuilder(ModelBuilder[Widget]):
+    fields = ("id", "name", "status")
     View = FilterView
     filter_fields = ("status",)
 
@@ -61,14 +64,16 @@ class GroupedView(View):
 
 
 class GroupedBuilder(ModelBuilder[Widget]):
+    fields = ("id", "name", "status")
     View = GroupedView
 
 
 class SearchBuilder(ModelBuilder[Widget]):
+    fields = ("id", "name", "status")
     search_fields = ("name",)
 
 
-STAFF = Principal(id=1, is_authenticated=True, is_staff=True)
+STAFF = Principal(id=1, is_authenticated=True, is_staff=True, is_superuser=True)
 
 
 async def make_app(builder: type[ModelBuilder[Widget]]) -> tuple[Obox, Any]:
@@ -80,7 +85,7 @@ async def make_app(builder: type[ModelBuilder[Widget]]) -> tuple[Obox, Any]:
         settings=Settings(
             session_factory=async_sessionmaker(engine, expire_on_commit=False),
             principal_dependency=lambda: STAFF,
-            default_policy=StaffOnly(),
+            default_policy=RBAC(),
             csrf_secret="x" * 32,
         ),
     )

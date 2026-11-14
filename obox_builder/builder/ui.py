@@ -586,6 +586,16 @@ async def build_navigation(
             ]
         )
     analytics = app.get_plugin("analytics")
+    for (label, _), page in app.pages.items():
+        if page.menu and page.permitted(ctx.principal):
+            url = localize(request, str(request.url_for(page.route_name(label)).path), rooted=True)
+            navigation.append(
+                {
+                    "label": translate(request, page.title or page.name),
+                    "url": url,
+                    "active": request.url.path == url,
+                }
+            )
     if analytics is not None:
         for dashboard in analytics.dashboards:
             if await analytics.visible(dashboard, ctx):

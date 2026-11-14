@@ -6,7 +6,7 @@ import pytest
 import sqlalchemy as sa
 from fastapi import FastAPI
 from obox_builder import Form, ModelBuilder, Obox, Principal
-from obox_builder.auth import StaffOnly
+from obox_builder.auth import RBAC
 from obox_builder.builder.ui import fieldset_groups, form_fields
 from obox_builder.conf import Settings
 from obox_builder.context import Context
@@ -30,7 +30,7 @@ class Widget(Base):
 
 
 class WidgetBuilder(ModelBuilder[Widget]):
-    pass
+    fields = ("id", "name", "status", "note")
 
 
 class GroupedForm(Form):
@@ -41,10 +41,11 @@ class GroupedForm(Form):
 
 
 class GroupedBuilder(ModelBuilder[Widget]):
+    fields = ("id", "name", "status", "note")
     Form = GroupedForm
 
 
-class NameOnlyPolicy(StaffOnly[Widget]):
+class NameOnlyPolicy(RBAC[Widget]):
     def write_fields(self, action: str, ctx: Context, *, obj: Any = None) -> frozenset[str]:
         return frozenset({"name"})
 
@@ -55,7 +56,7 @@ class FilteredBuilder(ModelBuilder[Widget]):
     policy = NameOnlyPolicy()
 
 
-STAFF = Principal(id=1, is_authenticated=True, is_staff=True)
+STAFF = Principal(id=1, is_authenticated=True, is_staff=True, is_superuser=True)
 
 
 async def make_app(
@@ -69,7 +70,7 @@ async def make_app(
         settings=Settings(
             session_factory=async_sessionmaker(engine, expire_on_commit=False),
             principal_dependency=lambda: principal,
-            default_policy=StaffOnly(),
+            default_policy=RBAC(),
             csrf_secret="x" * 32,
         ),
     )
@@ -89,7 +90,7 @@ def compile_error(form: type[Form], **builder_attrs: Any) -> str:
             settings=Settings(
                 session_factory=async_sessionmaker(engine, expire_on_commit=False),
                 principal_dependency=lambda: None,
-                default_policy=StaffOnly(),
+                default_policy=RBAC(),
                 csrf_secret="x" * 32,
             ),
         )

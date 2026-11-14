@@ -13,7 +13,7 @@ from contextlib import asynccontextmanager
 from datetime import timedelta
 from pathlib import Path
 from types import ModuleType
-from typing import Any
+from typing import Any, cast
 from uuid import UUID, uuid4
 
 import httpx
@@ -21,7 +21,7 @@ import pytest
 import sqlalchemy as sa
 from fastapi import FastAPI, Request
 from obox_builder import Context, ModelBuilder, Obox, Principal, Settings
-from obox_builder.auth import ScopedIdentity, StaffOnly
+from obox_builder.auth import RBAC, ScopedIdentity
 from obox_builder.contrib.webhooks import Webhooks
 from obox_builder.contrib.webhooks.cli import run
 from obox_builder.contrib.webhooks.models import Base as WebhookBase
@@ -43,11 +43,11 @@ class Record(Base):
     name: Mapped[str] = mapped_column(sa.String(40), unique=True)
 
 
-STAFF = Principal(id=1, is_authenticated=True, is_staff=True)
-OTHER = Principal(id=2, is_authenticated=True, is_staff=True)
+STAFF = Principal(id=1, is_authenticated=True, is_staff=True, is_superuser=True)
+OTHER = Principal(id=2, is_authenticated=True, is_staff=True, is_superuser=True)
 
 
-class Policy(StaffOnly[Any]):
+class Policy(RBAC[Any]):
     hide_identity = False
 
     def scope(self, action: str, ctx: Context) -> Any:
@@ -119,6 +119,7 @@ async def application(
     app.app.state.identities = {"1": STAFF, "2": OTHER}
     try:
         app.register(Resource)
+        policy = cast(Policy, app.get_builder(Record).policy)
         async with (
             app.app.router.lifespan_context(app.app),
             httpx.AsyncClient(

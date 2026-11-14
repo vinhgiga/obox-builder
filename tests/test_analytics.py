@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 import httpx
@@ -16,7 +16,7 @@ import pytest
 import sqlalchemy as sa
 from fastapi import FastAPI
 from obox_builder import Context, ModelBuilder, Obox, Principal, Settings
-from obox_builder.auth import ScopedIdentity, StaffOnly
+from obox_builder.auth import RBAC, ScopedIdentity
 from obox_builder.builder.aggregates import Aggregation, Measure
 from obox_builder.builder.filters import FilterGroup, FilterTerm
 from obox_builder.contrib.analytics import Analytics, Chart, Dashboard, Pivot
@@ -51,10 +51,10 @@ class Duplicate(Base):
     sale_id: Mapped[int] = mapped_column(sa.ForeignKey(Sale.id))
 
 
-STAFF = Principal(id=1, is_authenticated=True, is_staff=True)
+STAFF = Principal(id=1, is_authenticated=True, is_staff=True, is_superuser=True)
 
 
-class Policy(StaffOnly[Sale]):
+class Policy(RBAC[Sale]):
     granted = True
     hidden = False
     joined = False
@@ -148,6 +148,7 @@ async def application(
             ),
         )
         app.register(Sales)
+        policy = cast(Policy, app.get_builder(Sale).policy)
         app.install(Analytics((Dashboard("sales", "Sales <report>", Sale, widgets),), **limits))
         async with app.app.router.lifespan_context(app.app):
             async with app.uow(principal=STAFF) as ctx:
@@ -465,7 +466,7 @@ def test_invalid_fields_fail_at_installation(tmp_path: Path, query: Aggregation)
 
 
 def test_declarations_and_default_denial() -> None:
-    assert StaffOnly().aggregate_fields(None) == frozenset()  # type: ignore[arg-type]
+    assert RBAC().aggregate_fields(None) == frozenset()  # type: ignore[arg-type]
     for create in (
         lambda: Measure("sum"),
         lambda: Measure("count", "amount"),
@@ -493,7 +494,7 @@ def test_datetime_keys_account_and_api_field_scope(tmp_path: Path) -> None:
             dependency = app.settings.principal_dependency
             assert dependency is not None
             app.app.dependency_overrides[dependency] = lambda: Principal(
-                id=2, is_authenticated=True, is_staff=True
+                id=2, is_authenticated=True, is_staff=True, is_superuser=True
             )
             assert (await client.get("/analytics/sales/pivot/data")).json()["total"] == "999.00"
             app.get_builder(Sale).api_read = ("id", "distributor", "region")

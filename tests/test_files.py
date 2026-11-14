@@ -12,8 +12,8 @@ import httpx
 import pytest
 import sqlalchemy as sa
 from fastapi import FastAPI, Request
-from obox_builder import Obox, Principal, Settings
-from obox_builder.auth import StaffOnly
+from obox_builder import ModelBuilder, Obox, Principal, Settings
+from obox_builder.auth import RBAC
 from obox_builder.contrib.files import IMAGES, File, Files, attachments
 from obox_builder.contrib.files.models import Base as FileBase
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -31,6 +31,10 @@ class Document(Base):
     attachments: Mapped[list[File]] = attachments(types=IMAGES)
 
 
+class DocumentBuilder(ModelBuilder[Document]):
+    fields = ("id", "name", "attachments")
+
+
 PNG = b"\x89PNG\r\n\x1a\ncontent"
 FILE_FIELDS = {"id", "filename", "size", "contentType", "offset", "status"}
 
@@ -38,19 +42,24 @@ FILE_FIELDS = {"id", "filename", "size", "contentType", "offset", "status"}
 @asynccontextmanager
 async def application(tmp_path: Path) -> AsyncIterator[tuple[Obox, httpx.AsyncClient]]:
     def principal(request: Request) -> Principal:
-        return Principal(id=request.headers.get("actor", "1"), is_authenticated=True, is_staff=True)
+        return Principal(
+            id=request.headers.get("actor", "1"),
+            is_authenticated=True,
+            is_staff=True,
+            is_superuser=True,
+        )
 
     app = Obox(
         FastAPI(),
         settings=Settings(
             database_url=f"sqlite+aiosqlite:///{tmp_path / 'files.sqlite3'}",
             principal_dependency=principal,
-            default_policy=StaffOnly(),
+            default_policy=RBAC(),
             csrf_secret="x" * 32,
         ),
         plugins=[Files(root=tmp_path / "media")],
     )
-    app.register(Document)
+    app.register(DocumentBuilder)
     async with app.app.router.lifespan_context(app.app):
         assert app.database.engine is not None
         async with app.database.engine.begin() as connection:

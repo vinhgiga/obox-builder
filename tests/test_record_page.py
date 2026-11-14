@@ -9,7 +9,7 @@ import pytest
 import sqlalchemy as sa
 from fastapi import FastAPI
 from obox_builder import ModelBuilder, Obox, Principal, View, builder
-from obox_builder.auth import PublicReadOnly, StaffOnly
+from obox_builder.auth import RBAC, PublicReadOnly
 from obox_builder.conf import Settings
 from obox_builder.contrib.auth import Auth
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -79,7 +79,7 @@ class RelatedParentBuilder(ParentBuilder):
     inlines = ()
 
 
-class ReadOnlyPolicy(StaffOnly[Any]):
+class ReadOnlyPolicy(RBAC[Any]):
     async def allow(self, action: str, ctx: Any, *, obj: Any = None) -> bool:
         return action in {"list", "retrieve"} and await super().allow(action, ctx, obj=obj)
 
@@ -92,7 +92,7 @@ class PublicParentBuilder(ParentBuilder):
     policy = PublicReadOnly[Parent]()
 
 
-class HiddenChildPolicy(StaffOnly[Child]):
+class HiddenChildPolicy(RBAC[Child]):
     async def allow(self, action: str, ctx: Any, *, obj: Any = None) -> bool:
         if action == "retrieve" and obj is not None and obj.label == "secret":
             return False
@@ -103,7 +103,7 @@ class HiddenChildBuilder(ChildBuilder):
     policy = HiddenChildPolicy()
 
 
-class HiddenParentPolicy(StaffOnly[Parent]):
+class HiddenParentPolicy(RBAC[Parent]):
     async def allow(self, action: str, ctx: Any, *, obj: Any = None) -> bool:
         if action == "retrieve" and obj is not None and obj.name == "secret":
             return False
@@ -114,7 +114,7 @@ class HiddenParentBuilder(ParentBuilder):
     policy = HiddenParentPolicy()
 
 
-class UpdateOnlyPolicy(StaffOnly[Parent]):
+class UpdateOnlyPolicy(RBAC[Parent]):
     async def allow(self, action: str, ctx: Any, *, obj: Any = None) -> bool:
         return action in {"list", "update"} and await super().allow(action, ctx, obj=obj)
 
@@ -131,7 +131,7 @@ class DisabledParentBuilder(ParentBuilder):
     View = DisabledView
 
 
-STAFF = Principal(id=1, is_authenticated=True, is_staff=True)
+STAFF = Principal(id=1, is_authenticated=True, is_staff=True, is_superuser=True)
 
 
 async def make_app(
@@ -148,7 +148,7 @@ async def make_app(
         settings=Settings(
             session_factory=async_sessionmaker(engine, expire_on_commit=False),
             principal_dependency=lambda: principal,
-            default_policy=StaffOnly(),
+            default_policy=RBAC(),
             csrf_secret="x" * 32,
         ),
     )

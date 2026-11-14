@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from obox_builder.auth import Policy
+from obox_builder.auth import Policy, StaffOnly
 from obox_builder.errors import ImproperlyConfigured
 
 if TYPE_CHECKING:
@@ -66,6 +66,8 @@ class Settings:
             raise ImproperlyConfigured("PRINCIPAL_DEPENDENCY must be callable.")
         if self.default_policy is not None and not isinstance(self.default_policy, Policy):
             raise ImproperlyConfigured("DEFAULT_POLICY must be a Policy instance.")
+        if isinstance(self.default_policy, StaffOnly):
+            raise ImproperlyConfigured("StaffOnly is no longer supported; use RBAC instead.")
         if self.csrf_secret is not None and (
             not isinstance(self.csrf_secret, str | bytes)
             or len(

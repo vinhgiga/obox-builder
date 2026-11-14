@@ -12,6 +12,7 @@ from fastapi import APIRouter, Request
 
 from obox_builder.errors import ImproperlyConfigured
 from obox_builder.i18n import LANGUAGES
+from obox_builder.pages import Page
 
 if TYPE_CHECKING:
     from obox_builder.application import Obox
@@ -29,6 +30,7 @@ class AppConfig:
     requires: tuple[str, ...] = ()
     builders: tuple[type[ModelBuilder[Any]], ...] = ()
     dashboards: tuple[Dashboard, ...] = ()
+    pages: tuple[Page, ...] = ()
     ui_prefix: str | None = None
     ui_router: APIRouter | None = None
     api_router: APIRouter | None = None
@@ -63,7 +65,7 @@ class AppConfig:
             or re.fullmatch(r"#[\da-fA-F]{6}", config.tab_bar_color) is None
         ):
             raise ImproperlyConfigured("AppConfig.tab_bar_color must be a six-digit hex color.")
-        for field in ("requires", "builders", "dashboards"):
+        for field in ("requires", "builders", "dashboards", "pages"):
             if not isinstance(getattr(config, field), tuple):
                 raise ImproperlyConfigured(f"AppConfig.{field} must be a tuple.")
         if any(not isinstance(dependency, str) for dependency in config.requires):

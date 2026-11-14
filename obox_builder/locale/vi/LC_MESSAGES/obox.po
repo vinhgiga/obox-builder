@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  obox-builder\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-11-13 19:38+0700\n"
+"POT-Creation-Date: 2026-11-14 12:50+0700\n"
 "PO-Revision-Date: 2026-10-31 20:45+0700\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: vi\n"
@@ -18,11 +18,11 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 2.18.0\n"
 
-#: obox_builder/builder/catalog.py:103
+#: obox_builder/builder/catalog.py:114
 msgid "Home"
 msgstr "Trang chủ"
 
-#: obox_builder/builder/catalog.py:133
+#: obox_builder/builder/catalog.py:144
 #: obox_builder/builder/templates/obox/app_index.html:4
 msgid "Applications"
 msgstr "Ứng dụng"
@@ -63,7 +63,7 @@ msgstr "Kiểu nhập không được hỗ trợ."
 msgid "Enter valid JSON."
 msgstr "Nhập JSON hợp lệ."
 
-#: obox_builder/builder/ui.py:577 obox_builder/contrib/auth/admin.py:260
+#: obox_builder/builder/ui.py:577 obox_builder/contrib/auth/admin.py:257
 #: obox_builder/contrib/auth/apps.py:30
 msgid "Users"
 msgstr "Người dùng"
@@ -76,30 +76,30 @@ msgstr "Người dùng"
 msgid "Roles"
 msgstr "Vai trò"
 
-#: obox_builder/builder/ui.py:758 obox_builder/builder/ui.py:761
+#: obox_builder/builder/ui.py:768 obox_builder/builder/ui.py:771
 msgid "Invalid inline count."
 msgstr "Số dòng không hợp lệ."
 
-#: obox_builder/builder/ui.py:773 obox_builder/builder/ui.py:802
+#: obox_builder/builder/ui.py:783 obox_builder/builder/ui.py:812
 msgid "An inline record is unavailable."
 msgstr "Không tìm thấy bản ghi inline."
 
-#: obox_builder/builder/ui.py:844
+#: obox_builder/builder/ui.py:854
 msgid "Unknown inline field."
 msgstr "Trường inline không hợp lệ."
 
-#: obox_builder/builder/ui.py:1077 obox_builder/contrib/auth/admin.py:233
+#: obox_builder/builder/ui.py:1087 obox_builder/contrib/auth/admin.py:230
 #: obox_builder/contrib/auth/views.py:255
 msgid "Duplicate form fields are not permitted."
 msgstr "Không được gửi trường trùng lặp."
 
 #: obox_builder/builder/templates/obox/_record_activity.html:22
 #: obox_builder/builder/templates/obox/confirm_delete.html:3
-#: obox_builder/builder/ui.py:1206
+#: obox_builder/builder/ui.py:1216
 msgid "Are you sure?"
 msgstr "Bạn có chắc không?"
 
-#: obox_builder/builder/ui.py:1235 obox_builder/builder/ui.py:1253
+#: obox_builder/builder/ui.py:1245 obox_builder/builder/ui.py:1263
 msgid "Choose a valid action and records."
 msgstr ""
 
@@ -624,93 +624,103 @@ msgstr ""
 msgid "Next"
 msgstr ""
 
-#: obox_builder/contrib/auth/__init__.py:96
+#: obox_builder/contrib/auth/__init__.py:100
 #: obox_builder/contrib/auth/templates/obox/auth/user_form.html:19
 #: obox_builder/contrib/auth/templates/obox/auth/users.html:19
 #: obox_builder/contrib/auth/templates/obox/profile.html:14
 msgid "Username"
 msgstr "Tên đăng nhập"
 
-#: obox_builder/contrib/auth/admin.py:170
+#: obox_builder/contrib/auth/admin.py:164
 msgid "You cannot delete your own account."
 msgstr ""
 
-#: obox_builder/contrib/auth/admin.py:171
+#: obox_builder/contrib/auth/admin.py:165
 msgid "At least one superuser is required."
 msgstr ""
 
-#: obox_builder/contrib/auth/admin.py:184
+#: obox_builder/contrib/auth/admin.py:178
+#: obox_builder/contrib/auth/authorization.py:44
 msgid "Authentication is required."
 msgstr "Cần đăng nhập."
 
-#: obox_builder/contrib/auth/admin.py:186
+#: obox_builder/contrib/auth/admin.py:183
+#: obox_builder/contrib/auth/authorization.py:49
 msgid "Superuser access is required."
 msgstr ""
 
-#: obox_builder/contrib/auth/admin.py:244
+#: obox_builder/contrib/auth/admin.py:241
+#: obox_builder/contrib/auth/authorization.py:164
 msgid "User not found."
 msgstr ""
 
-#: obox_builder/contrib/auth/admin.py:284
-#: obox_builder/contrib/auth/admin.py:387
+#: obox_builder/contrib/auth/admin.py:281
+#: obox_builder/contrib/auth/admin.py:384
 msgid "Edit userNew user"
 msgstr ""
 
-#: obox_builder/contrib/auth/admin.py:307
-#: obox_builder/contrib/auth/admin.py:340
+#: obox_builder/contrib/auth/admin.py:304
+#: obox_builder/contrib/auth/admin.py:337
 #: obox_builder/contrib/auth/admin.py:486
 #: obox_builder/contrib/auth/admin.py:533
+#: obox_builder/contrib/auth/authorization.py:105
 #: obox_builder/contrib/auth/views.py:262
 #: obox_builder/contrib/auth/views.py:270
 msgid "This field is required."
 msgstr "Trường này là bắt buộc."
 
-#: obox_builder/contrib/auth/admin.py:309
-#: obox_builder/contrib/auth/admin.py:320
-#: obox_builder/contrib/auth/admin.py:322
-#: obox_builder/contrib/auth/admin.py:324
+#: obox_builder/contrib/auth/admin.py:306
+#: obox_builder/contrib/auth/admin.py:317
+#: obox_builder/contrib/auth/admin.py:319
+#: obox_builder/contrib/auth/admin.py:321
 #: obox_builder/contrib/auth/admin.py:488
 #: obox_builder/contrib/auth/admin.py:535
+#: obox_builder/contrib/auth/authorization.py:107
 msgid "Use at most 150 characters."
 msgstr ""
 
-#: obox_builder/contrib/auth/admin.py:316
+#: obox_builder/contrib/auth/admin.py:313
 msgid "This username is already taken."
 msgstr ""
 
-#: obox_builder/contrib/auth/admin.py:318
+#: obox_builder/contrib/auth/admin.py:315
 msgid "Use at most 254 characters."
 msgstr ""
 
-#: obox_builder/contrib/auth/admin.py:335
+#: obox_builder/contrib/auth/admin.py:332
+#: obox_builder/contrib/auth/authorization.py:170
 msgid "Choose valid roles."
 msgstr ""
 
-#: obox_builder/contrib/auth/admin.py:342
+#: obox_builder/contrib/auth/admin.py:339
 #: obox_builder/contrib/auth/views.py:272
 msgid "Passwords do not match."
 msgstr "Mật khẩu xác nhận không khớp."
 
-#: obox_builder/contrib/auth/admin.py:361
+#: obox_builder/contrib/auth/admin.py:358
 msgid "You cannot deactivate your own account."
 msgstr ""
 
-#: obox_builder/contrib/auth/admin.py:369
+#: obox_builder/contrib/auth/admin.py:366
 msgid "At least one superuser must remain active."
 msgstr ""
 
 #: obox_builder/contrib/auth/admin.py:492
 #: obox_builder/contrib/auth/admin.py:541
+#: obox_builder/contrib/auth/authorization.py:119
 msgid "This role name is already taken."
 msgstr ""
 
 #: obox_builder/contrib/auth/admin.py:494
 #: obox_builder/contrib/auth/admin.py:543
+#: obox_builder/contrib/auth/authorization.py:63
 msgid "Choose valid permissions."
 msgstr ""
 
 #: obox_builder/contrib/auth/admin.py:525
-#: obox_builder/contrib/auth/admin.py:581
+#: obox_builder/contrib/auth/authorization.py:137
+#: obox_builder/contrib/auth/authorization.py:146
+#: obox_builder/contrib/auth/authorization.py:199
 msgid "Role not found."
 msgstr ""
 

@@ -12,7 +12,7 @@ import pytest
 import sqlalchemy as sa
 from fastapi import FastAPI
 from obox_builder import Context, DomainEvent, ModelBuilder, Obox, Principal, View, builder
-from obox_builder.auth import RBAC, StaffOnly
+from obox_builder.auth import RBAC
 from obox_builder.conf import Settings
 from obox_builder.errors import BuilderValidationError, ImproperlyConfigured, PermissionDenied
 from sqlalchemy.exc import DBAPIError
@@ -105,7 +105,7 @@ async def application(
             settings=Settings(
                 session_factory=async_sessionmaker(engine, expire_on_commit=False),
                 principal_dependency=lambda: principal,
-                default_policy=StaffOnly(),
+                default_policy=RBAC(),
                 csrf_secret="x" * 32,
             ),
         )

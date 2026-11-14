@@ -53,6 +53,17 @@ async def app_list(obox: Obox, request: Request, ctx: Context) -> list[dict[str,
                         "kind": "model",
                     }
                 )
+        entries.extend(
+            {
+                "label": translate(request, page.title or page.name),
+                "url": localize(
+                    request, str(request.url_for(page.route_name(label)).path), rooted=True
+                ),
+                "kind": "page",
+            }
+            for (label, _), page in obox.pages.items()
+            if label == config.label and page.menu and page.permitted(ctx.principal)
+        )
         entries.extend(await config.get_navigation(obox, request, ctx))
         if analytics is not None:
             entries.extend(

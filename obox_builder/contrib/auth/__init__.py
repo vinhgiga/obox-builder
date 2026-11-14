@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
+from collections.abc import Sequence
+from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Request, Response
@@ -10,7 +11,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette._utils import get_route_path
 from starlette.routing import NoMatchFound
 
-from obox_builder.auth import Identity, Principal, StaffOnly
+from obox_builder.auth import RBAC, Identity, Principal
+from obox_builder.context import Context
+from obox_builder.contrib.auth.authorization import Authorization
 from obox_builder.contrib.auth.backends import Backend, ModelBackend, TokenBackend
 from obox_builder.contrib.auth.models import (
     APIToken,
@@ -86,6 +89,7 @@ class Auth:
         self.admin = admin
         self.router = router
         self._admin_installed = False
+        self._authorization: Authorization | None = None
         self.secure, self.max_age = secure, max_age
         self.prefix = prefix.rstrip("/")
         if not self.prefix.startswith("/") or any(char in self.prefix for char in "{}?#"):
@@ -209,6 +213,27 @@ class Auth:
 
         return router(app, self)
 
+    @property
+    def authorization(self) -> Authorization:
+        if self._authorization is None:
+            raise ImproperlyConfigured("Install Auth before managing roles.")
+        return self._authorization
+
+    async def create_role(self, name: str, *, permissions: Sequence[str] = (), ctx: Context) -> Any:
+        return await self.authorization.create_role(name, permissions=permissions, ctx=ctx)
+
+    async def grant_permissions(self, role_id: Any, *permissions: str, ctx: Context) -> None:
+        await self.authorization.change_permissions(role_id, permissions, grant=True, ctx=ctx)
+
+    async def revoke_permissions(self, role_id: Any, *permissions: str, ctx: Context) -> None:
+        await self.authorization.change_permissions(role_id, permissions, grant=False, ctx=ctx)
+
+    async def add_roles(self, user_id: Any, *role_ids: Any, ctx: Context) -> None:
+        await self.authorization.change_roles(user_id, role_ids, add=True, ctx=ctx)
+
+    async def remove_roles(self, user_id: Any, *role_ids: Any, ctx: Context) -> None:
+        await self.authorization.change_roles(user_id, role_ids, add=False, ctx=ctx)
+
     def setup(self, app: Obox) -> None:
         if getattr(self, "_installed", False):
             raise ImproperlyConfigured("Auth is already installed.")
@@ -224,6 +249,7 @@ class Auth:
                 "Auth routes must include the configured login and logout names."
             )
         self.backend = backend
+        self._authorization = Authorization(app, self)
         self._api_prefix = app.settings.api_prefix
         if self.api_tokens:
             if not isinstance(backend, TokenBackend):
@@ -245,7 +271,7 @@ class Auth:
         app.include_router(routes, ui=True)
         app.provide_defaults(
             principal_dependency=self.principal,
-            default_policy=StaffOnly(),
+            default_policy=RBAC(),
         )
         if self.api:
             from obox_builder.contrib.auth.api import build_router

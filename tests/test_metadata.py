@@ -8,7 +8,7 @@ from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from uuid import UUID, uuid4
 
 import httpx
@@ -16,7 +16,7 @@ import pytest
 import sqlalchemy as sa
 from fastapi import FastAPI
 from obox_builder import Context, ModelBuilder, Obox, Principal, Settings
-from obox_builder.auth import StaffOnly
+from obox_builder.auth import RBAC
 from obox_builder.contrib.activity import Activity
 from obox_builder.contrib.activity.models import Base as ActivityBase
 from obox_builder.contrib.activity.models import Comment
@@ -62,10 +62,10 @@ class Document(Base):
     files: Mapped[list[File]] = attachments()
 
 
-STAFF = Principal(id=1, is_authenticated=True, is_staff=True)
+STAFF = Principal(id=1, is_authenticated=True, is_staff=True, is_superuser=True)
 
 
-class Policy(StaffOnly[Any]):
+class Policy(RBAC[Any]):
     hide_files = False
     hide_pk = False
     deny_comments = False
@@ -151,12 +151,13 @@ async def application(
     class DocumentResource(ModelBuilder[Document]):
         slug = "documents"
         fields = ("id", "name", "files")
-        policy = StaffOnly[Document]()
+        policy = RBAC[Document]()
 
     try:
         app.register(Resource if plugins else PlainResource)
         if plugins:
             app.register(DocumentResource)
+        policy = cast(Policy, app.get_builder(Record if plugins else Plain).policy)
         async with (
             app.app.router.lifespan_context(app.app),
             httpx.AsyncClient(

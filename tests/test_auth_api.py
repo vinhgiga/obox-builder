@@ -15,7 +15,7 @@ import pytest
 import sqlalchemy as sa
 from fastapi import FastAPI
 from obox_builder import API, Context, ModelBuilder, Obox, Principal, Settings
-from obox_builder.auth import RBAC, Policy, StaffOnly
+from obox_builder.auth import RBAC, Policy
 from obox_builder.contrib.activity import Activity
 from obox_builder.contrib.activity.models import Base as ActivityBase
 from obox_builder.contrib.auth import (
@@ -78,8 +78,9 @@ class Upload(Base):
 
 
 class UploadBuilder(ModelBuilder[Upload]):
+    fields = ("id", "name", "attachments")
     slug = "uploads"
-    policy = StaffOnly[Upload]()
+    policy = RBAC[Upload]()
 
 
 class CustomAuthBase(DeclarativeBase):
@@ -160,6 +161,11 @@ async def application(
                             "comment",
                             "history",
                         )
+                    ]
+                    + [
+                        f"admin.{resource}.{action}"
+                        for resource in ("notes", "uploads")
+                        for action in ("list", "retrieve", "create", "update", "delete")
                     ],
                 )
                 db.add_all(
@@ -346,7 +352,7 @@ def test_api_tokens_recheck_expiry_revocation_password_and_user(
 
 def test_token_ownership_validation_and_staff_only_scope_enforcement(tmp_path: Path) -> None:
     class StaffBuilder(NoteBuilder):
-        policy = StaffOnly[Note]()
+        policy = RBAC[Note]()
 
     async def scenario() -> None:
         async with application(tmp_path, configured=StaffBuilder) as (app, client):
@@ -467,7 +473,7 @@ def test_file_bearer_upload_cannot_bypass_api_write_fields(tmp_path: Path) -> No
 
 def test_token_management_uses_its_own_authenticated_backend(tmp_path: Path) -> None:
     class StaffBuilder(NoteBuilder):
-        policy = StaffOnly[Note]()
+        policy = RBAC[Note]()
 
     async def scenario() -> None:
         async with application(tmp_path, configured=StaffBuilder, host_identity=True) as (
@@ -552,7 +558,7 @@ def test_token_expiry_is_required_to_be_future_and_timezone_aware(
 
 def test_custom_uuid_users_and_token_models_preserve_identity_and_expiry(tmp_path: Path) -> None:
     class StaffBuilder(NoteBuilder):
-        policy = StaffOnly[Note]()
+        policy = RBAC[Note]()
 
     async def scenario() -> None:
         engine = create_async_engine(
@@ -594,6 +600,7 @@ def test_custom_uuid_users_and_token_models_preserve_identity_and_expiry(tmp_pat
                             login="alice",
                             password_hash=await hash_password(PASSWORD),
                             department="Ops",
+                            is_superuser=True,
                         )
                     )
                     db.add(Note(title_text="Visible"))

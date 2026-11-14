@@ -7,14 +7,14 @@ from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import pytest
 import sqlalchemy as sa
 from fastapi import FastAPI
 from obox_builder import Context, DomainEvent, ModelBuilder, Obox, Principal, Settings, View
-from obox_builder.auth import ScopedIdentity, StaffOnly
+from obox_builder.auth import RBAC, ScopedIdentity
 from obox_builder.builder import surfaces
 from obox_builder.contrib.activity import Activity
 from obox_builder.contrib.activity.models import Base as ActivityBase
@@ -95,7 +95,7 @@ class ParentBuilder(ModelBuilder[Parent]):
         self.app.app.state.events.append(event.action)
 
 
-STAFF = Principal(id=1, is_authenticated=True, is_staff=True)
+STAFF = Principal(id=1, is_authenticated=True, is_staff=True, is_superuser=True)
 
 
 class TagBuilder(ModelBuilder[Tag]):
@@ -112,7 +112,7 @@ async def application(
     path: Path,
     *,
     configured: type[ModelBuilder[Parent]] = ParentBuilder,
-    policy: StaffOnly[Any] | None = None,
+    policy: RBAC[Any] | None = None,
     idempotency: bool = True,
     extra_builders: tuple[type[ModelBuilder[Any]], ...] = (),
 ) -> AsyncIterator[Obox]:
@@ -130,7 +130,7 @@ async def application(
         settings=Settings(
             session_factory=async_sessionmaker(engine, expire_on_commit=False),
             principal_dependency=lambda: STAFF,
-            default_policy=policy or StaffOnly(),
+            default_policy=policy or RBAC(),
             csrf_secret="s" * 32,
         ),
         plugins=[Activity(), *([Idempotency()] if idempotency else [])],
@@ -370,7 +370,7 @@ def test_concurrent_upserts_resolve_unique_insert_race_without_duplicate_rows(pa
 
 
 def test_upsert_does_not_update_hidden_records_or_bypass_policy_check(path: Path) -> None:
-    class Scoped(StaffOnly[Any]):
+    class Scoped(RBAC[Any]):
         def scope(self, action: str, ctx: Context) -> Any:
             return Parent.name != "hidden"
 
@@ -504,7 +504,7 @@ def test_idempotency_batch_replays_stale_conditions_and_concurrent_requests(path
 
 
 def test_idempotency_expiry_validation_and_permissions(path: Path) -> None:
-    class Policy(StaffOnly[Any]):
+    class Policy(RBAC[Any]):
         restricted = False
 
         def read_fields(self, ctx: Context, *, obj: Any = None) -> frozenset[str] | None:
@@ -513,6 +513,7 @@ def test_idempotency_expiry_validation_and_permissions(path: Path) -> None:
     async def scenario() -> None:
         policy = Policy()
         async with application(path, policy=policy) as app:
+            policy = cast(Policy, app.get_builder(Parent).policy)
             for key in ("", "contains spaces", "x" * 256):
                 response = await request(
                     app,
@@ -571,7 +572,7 @@ def test_idempotency_identity_endpoint_and_create_only_scope(path: Path) -> None
             assert first.status_code == second.status_code == 201
             assert first.json() == second.json()
             app.app.dependency_overrides[dependency] = lambda: Principal(
-                id=2, is_authenticated=True, is_staff=True
+                id=2, is_authenticated=True, is_staff=True, is_superuser=True
             )
             other = await request(
                 app, "POST", "/api/parents", json={"name": "two"}, headers=headers
@@ -674,7 +675,7 @@ def test_relationship_add_replace_remove_preserves_rows_and_versions(
 
 
 def test_relationship_rejects_stale_targets_scope_and_reparenting(path: Path) -> None:
-    class Policy(StaffOnly[Any]):
+    class Policy(RBAC[Any]):
         denied = False
 
         async def allow(self, action: str, ctx: Context, *, obj: Any = None) -> bool:
@@ -685,6 +686,7 @@ def test_relationship_rejects_stale_targets_scope_and_reparenting(path: Path) ->
     async def scenario() -> None:
         policy = Policy()
         async with application(path, policy=policy) as app:
+            policy = cast(Policy, app.get_builder(Tag).policy)
             parent = await request(app, "POST", "/api/parents", json={"name": "one"})
             tag = await request(app, "POST", "/api/tags", json={"name": "tag"})
             url = f"/api/parents/{parent.json()['id']}/relationships/tags"
@@ -790,7 +792,7 @@ def test_upsert_composite_key_presets_and_column_aliases(path: Path) -> None:
         title: Mapped[str] = mapped_column(sa.String(50))
         optional_key: Mapped[str | None] = mapped_column(sa.String(50), unique=True)
 
-    class AccountPolicy(StaffOnly[Compound]):
+    class AccountPolicy(RBAC[Compound]):
         def presets(self, action: str, ctx: Context) -> Mapping[str, Any]:
             return {"account_id": "account-one"}
 
@@ -813,7 +815,7 @@ def test_upsert_composite_key_presets_and_column_aliases(path: Path) -> None:
                 FastAPI(),
                 settings=Settings(
                     database_url="sqlite+aiosqlite://",
-                    default_policy=StaffOnly(),
+                    default_policy=RBAC(),
                     principal_dependency=lambda: STAFF,
                 ),
             )

@@ -6,7 +6,7 @@ import pytest
 import sqlalchemy as sa
 from fastapi import FastAPI
 from obox_builder import API, ModelBuilder, Obox, Principal, View
-from obox_builder.auth import StaffOnly
+from obox_builder.auth import RBAC
 from obox_builder.builder.ui import allowed_operations
 from obox_builder.conf import Settings
 from obox_builder.context import Context
@@ -28,7 +28,7 @@ class Widget(Base):
 
 
 class WidgetBuilder(ModelBuilder[Widget]):
-    pass
+    fields = ("id", "name")
 
 
 class NoCreateView(View):
@@ -39,6 +39,7 @@ class NoCreateView(View):
 
 
 class NoCreateBuilder(ModelBuilder[Widget]):
+    fields = ("id", "name")
     View = NoCreateView
 
 
@@ -47,10 +48,11 @@ class ReadOnlyAPI(API):
 
 
 class ReadOnlyAPIBuilder(ModelBuilder[Widget]):
+    fields = ("id", "name")
     API = ReadOnlyAPI
 
 
-STAFF = Principal(id=1, is_authenticated=True, is_staff=True)
+STAFF = Principal(id=1, is_authenticated=True, is_staff=True, is_superuser=True)
 
 
 async def make_app(
@@ -64,7 +66,7 @@ async def make_app(
         settings=Settings(
             session_factory=async_sessionmaker(engine, expire_on_commit=False),
             principal_dependency=lambda: principal,
-            default_policy=StaffOnly(),
+            default_policy=RBAC(),
             csrf_secret="x" * 32,
         ),
     )
@@ -80,7 +82,7 @@ def compile_error(builder: type[ModelBuilder[Widget]]) -> str:
             settings=Settings(
                 session_factory=async_sessionmaker(engine, expire_on_commit=False),
                 principal_dependency=lambda: None,
-                default_policy=StaffOnly(),
+                default_policy=RBAC(),
                 csrf_secret="x" * 32,
             ),
         )

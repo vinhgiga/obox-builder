@@ -128,6 +128,8 @@ class ModelBuilder(Generic[T]):
         self.policy = self.policy if self.policy is not None else default_policy
         if not isinstance(self.policy, Policy):
             raise ImproperlyConfigured("Builder.policy must be a Policy instance.")
+        if isinstance(self.policy, StaffOnly):
+            raise ImproperlyConfigured("StaffOnly is no longer supported; use RBAC instead.")
         standard = {"list", "retrieve", "create", "update", "delete"}
         for names in (self.permissions, self.actions):
             if (
@@ -176,9 +178,9 @@ class ModelBuilder(Generic[T]):
         self.pk_name = mapper.get_property_by_column(self.pk).key
         if self.pk_name not in self.specs:
             raise ImproperlyConfigured("The primary key has an unsupported scalar type.")
-        if self.fields is None and type(self.policy) is not StaffOnly:
+        if self.fields is None:
             raise ImproperlyConfigured(
-                "Resources using custom/public policies need explicit fields."
+                "Resources need explicit fields, including those using RBAC or public policies."
             )
         eligible = {key: spec for key, spec in self.specs.items() if spec.exposed}
         self.fields = normalize(
@@ -219,6 +221,8 @@ class ModelBuilder(Generic[T]):
             else name + "s"
         )
         self._validate_path(self.slug)
+        if isinstance(self.policy, RBAC):
+            self.policy = self.policy.bind(f"{self.app_label or 'admin'}.{self.slug}")
         for configured, base in ((self.Form, Form), (self.View, View), (self.API, API)):
             if not isinstance(configured, type) or not issubclass(configured, base):
                 raise ImproperlyConfigured("Surface configuration must extend Form, View or API.")

@@ -6,7 +6,7 @@ import httpx
 import sqlalchemy as sa
 from fastapi import FastAPI
 from obox_builder import ModelBuilder, Obox, Principal
-from obox_builder.auth import StaffOnly
+from obox_builder.auth import RBAC
 from obox_builder.conf import Settings
 from obox_builder.contrib.auth import Auth
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -26,10 +26,10 @@ class Widget(Base):
 
 
 class WidgetBuilder(ModelBuilder[Widget]):
-    pass
+    fields = ("id", "name")
 
 
-STAFF = Principal(id=1, is_authenticated=True, is_staff=True)
+STAFF = Principal(id=1, is_authenticated=True, is_staff=True, is_superuser=True)
 
 
 class AnonymousBackend:
@@ -60,7 +60,7 @@ async def make_app(*, principal: Principal | None = STAFF, auth: bool = False) -
         settings=Settings(
             session_factory=async_sessionmaker(engine, expire_on_commit=False),
             principal_dependency=lambda: principal,
-            default_policy=StaffOnly(),
+            default_policy=RBAC(),
             csrf_secret="x" * 32,
         ),
     )

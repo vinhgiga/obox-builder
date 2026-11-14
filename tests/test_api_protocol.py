@@ -25,6 +25,7 @@ class NumericRecord(Base):
 
 
 class Numbers(ModelBuilder[NumericRecord]):
+    fields = ("id", "name", "value", "number", "amount")
     slug = "numbers"
 
     class API(API):

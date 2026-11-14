@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from copy import copy
 from dataclasses import dataclass
 from inspect import iscoroutinefunction
 from typing import Any, Generic, Protocol, TypeVar
@@ -19,6 +20,25 @@ T = TypeVar("T")
 def _valid_permission(name: str) -> bool:
     parts = name.split(".")
     return len(parts) == 3 and all(part.isidentifier() for part in parts)
+
+
+def has_permission(actor: Any, permission: str) -> bool:
+    check = getattr(actor, "has_perm", None)
+    return bool(
+        getattr(actor, "is_authenticated", False) is True
+        and getattr(actor, "is_active", False) is True
+        and _valid_permission(permission)
+        and callable(check)
+        and not iscoroutinefunction(check)
+        and check(permission) is True
+    )
+
+
+@dataclass(frozen=True)
+class Permission:
+    name: str
+    label: str
+    kind: str
 
 
 class Identity(Protocol):
@@ -115,15 +135,10 @@ class Policy(Generic[T]):
 
 class StaffOnly(Policy[T]):
     async def allow(self, action: str, ctx: Context, *, obj: T | None = None) -> bool:
-        actor = ctx.principal
-        return bool(
-            getattr(actor, "is_authenticated", False) is True
-            and getattr(actor, "is_active", True) is True
-            and getattr(actor, "is_staff", False) is True
-        )
+        raise ImproperlyConfigured("StaffOnly is no longer supported; use RBAC instead.")
 
     def scope(self, action: str, ctx: Context) -> ColumnElement[bool]:
-        return sa.true()
+        raise ImproperlyConfigured("StaffOnly is no longer supported; use RBAC instead.")
 
     async def check(self, action: str, instance: T, ctx: Context) -> bool:
         return await self.allow(action, ctx, obj=instance)
@@ -140,25 +155,26 @@ class PublicReadOnly(Policy[T]):
 class RBAC(Policy[T]):
     """Exact service.resource.action grants, e.g. RBAC('blog.questions')."""
 
-    def __init__(self, resource: str) -> None:
-        if not _valid_permission(f"{resource}.list"):
+    def __init__(self, resource: str | None = None) -> None:
+        if resource is not None and not _valid_permission(f"{resource}.list"):
             raise ImproperlyConfigured("RBAC requires service.resource, e.g. blog.questions.")
         self.resource = resource
+
+    def bind(self, resource: str) -> RBAC[T]:
+        bound = copy(self)
+        if bound.resource is None:
+            if not _valid_permission(f"{resource}.list"):
+                raise ImproperlyConfigured("RBAC requires a valid application and resource name.")
+            bound.resource = resource
+        return bound
 
     async def allow(self, action: str, ctx: Context, *, obj: T | None = None) -> bool:
         return self._allowed(action, ctx)
 
     def _allowed(self, action: str, ctx: Context) -> bool:
-        actor = ctx.principal
-        has_perm = getattr(actor, "has_perm", None)
-        return bool(
-            getattr(actor, "is_authenticated", False) is True
-            and getattr(actor, "is_active", False) is True
-            and _valid_permission(f"{self.resource}.{action}")
-            and callable(has_perm)
-            and not iscoroutinefunction(has_perm)
-            and has_perm(f"{self.resource}.{action}") is True
-        )
+        if self.resource is None:
+            raise ImproperlyConfigured("Bind RBAC to a registered resource before using it.")
+        return has_permission(ctx.principal, f"{self.resource}.{action}")
 
     def scope(self, action: str, ctx: Context) -> ColumnElement[bool]:
         return sa.true() if self._allowed(action, ctx) else sa.false()

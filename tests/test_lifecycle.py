@@ -6,7 +6,7 @@ import pytest
 import sqlalchemy as sa
 from fastapi import FastAPI
 from obox_builder import Form, ModelBuilder, Obox, Principal
-from obox_builder.auth import StaffOnly
+from obox_builder.auth import RBAC
 from obox_builder.builder.ui import form_fields
 from obox_builder.conf import Settings
 from obox_builder.context import Context
@@ -28,6 +28,8 @@ class Widget(Base):
 
 
 class RecordingBuilder(ModelBuilder[Widget]):
+    fields = ("id", "name", "status")
+
     def __init__(self) -> None:
         self.saved: list[tuple[bool, dict[str, Any], str]] = []
         self.deleted: list[int] = []
@@ -52,6 +54,8 @@ class RecordingBuilder(ModelBuilder[Widget]):
 
 
 class FailingBuilder(ModelBuilder[Widget]):
+    fields = ("id", "name", "status")
+
     async def before_save(
         self,
         instance: Widget,
@@ -68,6 +72,7 @@ class OrderedForm(Form):
 
 
 class OrderedBuilder(ModelBuilder[Widget]):
+    fields = ("id", "name", "status")
     Form = OrderedForm
 
 
@@ -79,6 +84,7 @@ class ReorderedForm(OrderedForm):
 
 
 class ReorderedBuilder(ModelBuilder[Widget]):
+    fields = ("id", "name", "status")
     Form = ReorderedForm
 
 
@@ -88,6 +94,7 @@ class DuplicateForm(OrderedForm):
 
 
 class DuplicateBuilder(ModelBuilder[Widget]):
+    fields = ("id", "name", "status")
     Form = DuplicateForm
 
 
@@ -103,7 +110,7 @@ async def make_app(builder: type[ModelBuilder[Widget]]) -> tuple[Obox, Any]:
         settings=Settings(
             session_factory=async_sessionmaker(engine, expire_on_commit=False),
             principal_dependency=lambda: None,
-            default_policy=StaffOnly(),
+            default_policy=RBAC(),
             csrf_secret="x" * 32,
         ),
     )
@@ -116,7 +123,7 @@ def test_before_save_receives_created_and_changes() -> None:
         app, engine = await make_app(RecordingBuilder)
         builder = app.get_builder(Widget)
         assert isinstance(builder, RecordingBuilder)
-        principal = Principal(id=1, is_authenticated=True, is_staff=True)
+        principal = Principal(id=1, is_authenticated=True, is_staff=True, is_superuser=True)
         try:
             async with app.uow(principal=principal) as ctx:
                 created = await app.service(Widget).create({"name": "  alpha  "}, ctx=ctx)
@@ -147,7 +154,7 @@ def test_before_save_receives_created_and_changes() -> None:
 def test_before_save_failure_rolls_back() -> None:
     async def scenario() -> None:
         app, engine = await make_app(FailingBuilder)
-        principal = Principal(id=1, is_authenticated=True, is_staff=True)
+        principal = Principal(id=1, is_authenticated=True, is_staff=True, is_superuser=True)
         try:
             with pytest.raises(RuntimeError, match="before_save failed"):
                 async with app.uow(principal=principal) as ctx:
@@ -164,7 +171,7 @@ def test_form_fields_order_comes_from_form_fields() -> None:
     async def scenario() -> None:
         app, engine = await make_app(OrderedBuilder)
         builder = app.get_builder(Widget)
-        principal = Principal(id=1, is_authenticated=True, is_staff=True)
+        principal = Principal(id=1, is_authenticated=True, is_staff=True, is_superuser=True)
         try:
             assert builder.form_fields == ("status", "name")
             async with app.uow(principal=principal, source="ui") as ctx:
@@ -180,7 +187,7 @@ def test_form_get_fields_order_overrides_static_order() -> None:
     async def scenario() -> None:
         app, engine = await make_app(ReorderedBuilder)
         builder = app.get_builder(Widget)
-        principal = Principal(id=1, is_authenticated=True, is_staff=True)
+        principal = Principal(id=1, is_authenticated=True, is_staff=True, is_superuser=True)
         try:
             async with app.uow(principal=principal, source="ui") as ctx:
                 controls = await form_fields(builder, app.service(Widget), ctx, None)
@@ -195,7 +202,7 @@ def test_form_get_fields_deduplicates() -> None:
     async def scenario() -> None:
         app, engine = await make_app(DuplicateBuilder)
         builder = app.get_builder(Widget)
-        principal = Principal(id=1, is_authenticated=True, is_staff=True)
+        principal = Principal(id=1, is_authenticated=True, is_staff=True, is_superuser=True)
         try:
             async with app.uow(principal=principal, source="ui") as ctx:
                 controls = await form_fields(builder, app.service(Widget), ctx, None)

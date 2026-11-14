@@ -13,7 +13,7 @@ import sqlalchemy as sa
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from obox_builder import API, ModelBuilder, Obox, Principal, Settings
-from obox_builder.auth import StaffOnly
+from obox_builder.auth import RBAC
 from obox_builder.conf import load_settings
 from obox_builder.contrib.activity import Activity
 from obox_builder.contrib.auth import Auth
@@ -37,7 +37,7 @@ class Item(Base):
 
 
 class ItemBuilder(ModelBuilder[Item]):
-    pass
+    fields = ("id", "name")
 
 
 TItem = TypeVar("TItem")
@@ -48,20 +48,21 @@ class BaseBuilder(ModelBuilder[TItem], Generic[TItem]):
 
 
 class InheritedItemBuilder(BaseBuilder[Item]):
-    pass
+    fields = ("id", "name")
 
 
 class LegacyItemBuilder(ModelBuilder[Item]):
+    fields = ("id", "name")
     model = Item
 
 
-STAFF = Principal(id=1, is_authenticated=True, is_staff=True)
+STAFF = Principal(id=1, is_authenticated=True, is_staff=True, is_superuser=True)
 
 
 def configured(**values: Any) -> Settings:
     return Settings(
         principal_dependency=lambda: STAFF,
-        default_policy=StaffOnly(),
+        default_policy=RBAC(),
         csrf_secret="s" * 32,
         **values,
     )
@@ -561,7 +562,7 @@ def test_auth_is_explicit_and_uses_runtime_without_overriding_host() -> None:
     assert isinstance(auth.backend, ModelBackend)
     assert auth.backend.session_factory is obox.session_factory
     assert obox.settings.principal_dependency == auth.principal
-    assert isinstance(obox.settings.default_policy, StaffOnly)
+    assert isinstance(obox.settings.default_policy, RBAC)
     obox.register(ItemBuilder)
     second = Obox(FastAPI(), settings=configured(database_url="sqlite+aiosqlite://"))
     original = second.settings

@@ -8,7 +8,7 @@ import httpx
 import sqlalchemy as sa
 from fastapi import FastAPI
 from obox_builder import ModelBuilder, Obox, Principal
-from obox_builder.auth import RBAC, StaffOnly
+from obox_builder.auth import RBAC
 from obox_builder.conf import Settings
 from obox_builder.contrib.auth import Auth
 from obox_builder.contrib.auth.models import Base as AuthBase
@@ -31,7 +31,7 @@ class Widget(Base):
 
 
 class WidgetBuilder(ModelBuilder[Widget]):
-    pass
+    fields = ("id", "name")
 
 
 class Article(Base):
@@ -74,7 +74,14 @@ class StubBackend:
 
 
 SUPERUSER = Principal(id=1, is_authenticated=True, is_staff=True, is_superuser=True)
-STAFF = Principal(id=2, is_authenticated=True, is_staff=True)
+STAFF = Principal(
+    id=2,
+    is_authenticated=True,
+    is_staff=True,
+    permissions=frozenset(
+        f"admin.widgets.{action}" for action in ("list", "retrieve", "create", "update", "delete")
+    ),
+)
 PASSWORD = "correct horse battery staple"  # noqa: S105
 
 
@@ -88,7 +95,7 @@ async def make_app(principal: Principal = SUPERUSER, *, admin: bool = True) -> t
         settings=Settings(
             session_factory=async_sessionmaker(engine, expire_on_commit=False),
             principal_dependency=lambda: principal,
-            default_policy=StaffOnly(),
+            default_policy=RBAC(),
             csrf_secret="x" * 32,
             auth_password_validators=(
                 {
@@ -303,7 +310,7 @@ def test_create_user_with_roles_and_defaults() -> None:
     async def scenario() -> None:
         app, engine = await make_app()
         try:
-            role_id = await seed_role(app, "Editors", ["auth.users.list"])
+            role_id = await seed_role(app, "Editors", ["admin.widgets.list"])
             form = await get(app, "/auth/users/new")
             assert form.status_code == 200
             assert 'name="username"' in form.text
@@ -373,7 +380,9 @@ def test_user_form_permission_preview_is_collapsed_and_tracks_roles() -> None:
     async def scenario() -> None:
         app, engine = await make_app()
         try:
-            role_id = await seed_role(app, "Readers", ["auth.users.list", "blog.articles.retrieve"])
+            role_id = await seed_role(
+                app, "Readers", ["admin.widgets.list", "blog.articles.retrieve"]
+            )
             new_form = await get(app, "/auth/users/new")
             details = re.search(r"<details[^>]*data-permission-preview[^>]*>", new_form.text)
             assert details is not None
@@ -381,13 +390,13 @@ def test_user_form_permission_preview_is_collapsed_and_tracks_roles() -> None:
             assert "Preview permissions" in new_form.text
             assert re.search(r"data-preview-empty(?!\s+hidden)", new_form.text)
             permission = re.search(
-                r'<li[^>]*data-preview-permission="auth\.users\.list"[^>]*>',
+                r'<li[^>]*data-preview-permission="admin\.widgets\.list"[^>]*>',
                 new_form.text,
             )
             assert permission is not None
             assert "hidden" in permission.group(0)
             assert f'data-preview-roles="{role_id}"' in permission.group(0)
-            service = re.search(r'<section[^>]*data-preview-service="auth"[^>]*>', new_form.text)
+            service = re.search(r'<section[^>]*data-preview-service="admin"[^>]*>', new_form.text)
             assert service is not None
             assert "hidden" in service.group(0)
 
@@ -397,11 +406,11 @@ def test_user_form_permission_preview_is_collapsed_and_tracks_roles() -> None:
             assert details is not None
             assert "open" not in details.group(0)
             granted = re.search(
-                r'<li[^>]*data-preview-permission="auth\.users\.list"[^>]*>',
+                r'<li[^>]*data-preview-permission="admin\.widgets\.list"[^>]*>',
                 edit_form.text,
             )
             denied = re.search(
-                r'<li[^>]*data-preview-permission="auth\.users\.update"[^>]*>',
+                r'<li[^>]*data-preview-permission="admin\.widgets\.update"[^>]*>',
                 edit_form.text,
             )
             assert granted is not None
@@ -410,19 +419,14 @@ def test_user_form_permission_preview_is_collapsed_and_tracks_roles() -> None:
             assert denied is not None
             assert "hidden" in denied.group(0)
             assert re.search(r"data-preview-empty\s+hidden", edit_form.text)
-            for name in ("auth", "blog"):
+            for name in ("admin", "blog"):
                 service = re.search(
                     rf'<section[^>]*data-preview-service="{name}"[^>]*>',
                     edit_form.text,
                 )
                 assert service is not None
                 assert "hidden" not in service.group(0)
-            admin_service = re.search(
-                r'<section[^>]*data-preview-service="admin"[^>]*>',
-                edit_form.text,
-            )
-            assert admin_service is not None
-            assert "hidden" in admin_service.group(0)
+            assert 'data-preview-service="auth"' not in edit_form.text
         finally:
             await engine.dispose()
 
@@ -667,7 +671,9 @@ def test_roles_page_builds_permission_tree_from_builders() -> None:
     async def scenario() -> None:
         app, engine = await make_app()
         try:
-            role_id = await seed_role(app, "Editors", ["auth.users.list", "legacy.permission.keep"])
+            role_id = await seed_role(
+                app, "Editors", ["admin.widgets.list", "legacy.permission.keep"]
+            )
             page = await get(app, "/auth/roles")
             assert page.status_code == 200
             assert "Editors" in page.text
@@ -681,8 +687,8 @@ def test_roles_page_builds_permission_tree_from_builders() -> None:
                 re.S,
             )
             for value in (
-                "auth.users.list",
-                "auth.roles.delete",
+                "admin.widgets.list",
+                "admin.widgets.delete",
                 "admin.widgets.retrieve",
                 "admin.widgets.delete",
                 "blog.articles.update",
@@ -691,7 +697,7 @@ def test_roles_page_builds_permission_tree_from_builders() -> None:
                 "blog.articles.export",
             ):
                 assert f'value="{value}"' in page.text
-            assert re.search(r'value="auth\.users\.list"[^>]*checked', page.text)
+            assert re.search(r'value="admin\.widgets\.list"[^>]*checked', page.text)
             assert "legacy.permission.keep" not in page.text
             assert f"role-name-{role_id}" in page.text
         finally:
@@ -704,7 +710,9 @@ def test_role_update_preserves_unknown_permissions_and_validates() -> None:
     async def scenario() -> None:
         app, engine = await make_app()
         try:
-            role_id = await seed_role(app, "Readers", ["legacy.permission.keep", "auth.users.list"])
+            role_id = await seed_role(
+                app, "Readers", ["legacy.permission.keep", "admin.widgets.list"]
+            )
             other_id = await seed_role(app, "Maintainers")
             response = await post(
                 app,
@@ -713,8 +721,8 @@ def test_role_update_preserves_unknown_permissions_and_validates() -> None:
                     "csrf_token": "",
                     "name": "Editors",
                     "permissions": [
-                        "auth.roles.update",
-                        "auth.roles.delete",
+                        "admin.widgets.update",
+                        "admin.widgets.delete",
                         "blog.articles.approve",
                     ],
                 },
@@ -726,8 +734,8 @@ def test_role_update_preserves_unknown_permissions_and_validates() -> None:
             assert role.name == "Editors"
             assert set(role.permissions) == {
                 "legacy.permission.keep",
-                "auth.roles.update",
-                "auth.roles.delete",
+                "admin.widgets.update",
+                "admin.widgets.delete",
                 "blog.articles.approve",
             }
 
@@ -744,8 +752,8 @@ def test_role_update_preserves_unknown_permissions_and_validates() -> None:
             assert "Choose valid permissions." in invalid.text
             assert set((await fetch_role(app, role_id)).permissions) == {
                 "legacy.permission.keep",
-                "auth.roles.update",
-                "auth.roles.delete",
+                "admin.widgets.update",
+                "admin.widgets.delete",
                 "blog.articles.approve",
             }
 
@@ -755,7 +763,7 @@ def test_role_update_preserves_unknown_permissions_and_validates() -> None:
                 {
                     "csrf_token": "",
                     "name": "Maintainers",
-                    "permissions": "auth.roles.update",
+                    "permissions": "admin.widgets.update",
                 },
             )
             assert duplicate.status_code == 422
@@ -780,7 +788,7 @@ def test_role_create_and_delete_removes_user_links() -> None:
                 {
                     "csrf_token": "",
                     "name": "Operators",
-                    "permissions": ["auth.users.list", "auth.users.retrieve"],
+                    "permissions": ["admin.widgets.list", "admin.widgets.retrieve"],
                 },
             )
             assert response.status_code == 303
@@ -790,8 +798,8 @@ def test_role_create_and_delete_removes_user_links() -> None:
                 role = await ctx.session.scalar(sa.select(Role).where(Role.name == "Operators"))
                 assert role is not None
                 assert set(role.permissions) == {
-                    "auth.users.list",
-                    "auth.users.retrieve",
+                    "admin.widgets.list",
+                    "admin.widgets.retrieve",
                 }
                 created_id = role.id
 
