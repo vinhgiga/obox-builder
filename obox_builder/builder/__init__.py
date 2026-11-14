@@ -75,7 +75,7 @@ def _infer_model(builder: type[Any]) -> type[Any] | None:
 class ModelBuilder(Generic[T]):
     model: type[T] | None
     slug: str | None = None
-    app_label: str | None = None
+    app_label: str
     label_field: str | None = None
     fields: FieldRefs | None = None
     read_only_fields: FieldRefs = ()
@@ -94,25 +94,21 @@ class ModelBuilder(Generic[T]):
 
     @property
     def route_key(self) -> str:
-        return f"{self.app_label}.{self.slug}" if self.app_label else str(self.slug)
+        return f"{self.app_label}.{self.slug}"
 
     @property
     def schema_name(self) -> str:
         name = self.model.__name__ if self.model is not None else str(self.slug)
-        return f"{self.app_label}.{name}" if self.app_label else name
+        return f"{self.app_label}.{name}"
 
     @property
     def api_key(self) -> str:
         slug = self.api.prefix or self.slug
-        return f"{self.app_label}/{slug}" if self.app_label else str(slug)
+        return f"{self.app_label}/{slug}"
 
     @property
     def ui_path(self) -> str:
-        prefix = (
-            self.app.apps[self.app_label].ui_path(self.app.settings)
-            if self.app_label
-            else self.app.settings.ui_prefix
-        )
+        prefix = self.app.apps[self.app_label].ui_path(self.app.settings)
         return f"{prefix}/{self.slug}"
 
     @property
@@ -222,7 +218,7 @@ class ModelBuilder(Generic[T]):
         )
         self._validate_path(self.slug)
         if isinstance(self.policy, RBAC):
-            self.policy = self.policy.bind(f"{self.app_label or 'admin'}.{self.slug}")
+            self.policy = self.policy.bind(f"{self.app_label}.{self.slug}")
         for configured, base in ((self.Form, Form), (self.View, View), (self.API, API)):
             if not isinstance(configured, type) or not issubclass(configured, base):
                 raise ImproperlyConfigured("Surface configuration must extend Form, View or API.")
@@ -390,18 +386,6 @@ class ModelBuilder(Generic[T]):
                 raise ImproperlyConfigured("Unknown or duplicate surface operations.")
         if self.api.prefix is not None:
             self._validate_path(self.api.prefix)
-        if (
-            self.api.enabled
-            and self.app_label is None
-            and (self.api.prefix or self.slug)
-            in {
-                "auth",
-                "events",
-                "tasks",
-                "webhooks",
-            }
-        ):
-            raise ImproperlyConfigured("Resource API collection name is reserved.")
         for mapping in (self.form.labels, self.form.help_texts, self.form.widgets):
             if set(mapping) - set(self.form_fields):
                 raise ImproperlyConfigured("Form configuration references unpublished fields.")
@@ -591,7 +575,7 @@ class ModelBuilder(Generic[T]):
         prefix = (
             self.policy.resource
             if isinstance(self.policy, RBAC)
-            else f"{self.app_label or 'admin'}.{self.slug}"
+            else f"{self.app_label}.{self.slug}"
         )
         return f"{prefix}.{action}"
 

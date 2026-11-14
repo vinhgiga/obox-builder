@@ -8,8 +8,8 @@ from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass, replace
 from inspect import isawaitable, iscoroutinefunction
-from types import MappingProxyType, new_class
-from typing import Any, Generic, TypeVar, cast, overload
+from types import MappingProxyType
+from typing import Any, Generic, TypeVar, cast
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, FastAPI, Request, Response
@@ -19,8 +19,8 @@ from fastapi.responses import JSONResponse
 from fastapi.routing import RouteContext, iter_route_contexts
 from sqlalchemy import event, inspect
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Mapper
 from sqlalchemy.orm.exc import StaleDataError
+from starlette._utils import get_route_path
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.routing import BaseRoute, Mount
 from starlette.staticfiles import StaticFiles
@@ -64,7 +64,7 @@ class Registration(Generic[T]):
     service: ResourceService[T]
     slug: str
     routes: tuple[str, ...]
-    app_label: str | None = None
+    app_label: str
 
 
 def _overlap(left: str, right: str) -> bool:
@@ -119,16 +119,26 @@ class Obox:
                         "type": "http",
                         "scheme": "bearer",
                     }
-                for path, operations in schema.get("paths", {}).items():
-                    if path == prefix or path.startswith((prefix + "/", prefix + ":")):
-                        for operation in operations.values():
-                            security: list[dict[str, list[str]]] = [{"cookieAuth": []}]
-                            if token_auth and (
-                                not path.startswith(prefix + "/auth/")
-                                or path == prefix + "/auth/me"
-                            ):
-                                security.append({"bearerAuth": []})
-                            operation.setdefault("security", security)
+                from obox_builder.builder.http import ApiRoute
+
+                for route in iter_route_contexts(self.app.routes):
+                    if not isinstance(route.original_route, ApiRoute) and not any(
+                        _api_contexts((route,))
+                    ):
+                        continue
+                    path = route.path_format
+                    if path is None:
+                        continue
+                    for method in route.methods or ():
+                        operation = schema.get("paths", {}).get(path, {}).get(method.lower())
+                        if operation is None:
+                            continue
+                        security: list[dict[str, list[str]]] = [{"cookieAuth": []}]
+                        if token_auth and (
+                            not path.startswith(prefix + "/auth/") or path == prefix + "/auth/me"
+                        ):
+                            security.append({"bearerAuth": []})
+                        operation.setdefault("security", security)
             return schema
 
         cast(Any, app).openapi = openapi
@@ -136,7 +146,7 @@ class Obox:
         previous_http_handler = app.exception_handlers.get(StarletteHTTPException)
 
         async def http_error(request: Request, exc: Exception) -> Response:
-            path = request.scope.get("path", "")
+            path = get_route_path(request.scope)
             api_prefix = self.settings.api_prefix
             if path == api_prefix or path.startswith((api_prefix + "/", api_prefix + ":")):
                 from obox_builder.builder.http import api_problem
@@ -168,7 +178,6 @@ class Obox:
         self._loading_apps = True
         self._apps: dict[str, AppConfig] = {}
         self._pages: dict[tuple[str, str], Page] = {}
-        self.catalog_enabled = self.settings.installed_apps is not None
         self._installation_failed = False
         self.ui_prefixes = [self.settings.ui_prefix] if self.settings.ui_prefix else []
         self._ui_routes: list[BaseRoute | RouteContext] = []
@@ -258,6 +267,9 @@ class Obox:
             path=config.ui_path(self.settings) + (page.path or f"/{page.name}"),
             template=page.template or f"{app_label}/{page.name}.html",
             title=page.title or page.name.replace("_", " ").title(),
+            permission=f"{app_label}.pages.{page.permission}"
+            if page.permission is not None and "." not in page.permission
+            else page.permission,
         )
         router = build_page(self, bound, app_label)
         for candidate in iter_route_contexts(router.routes):
@@ -271,25 +283,19 @@ class Obox:
 
     def add_app(self, config: AppConfig) -> None:
         self._check_mutable()
-        if self.catalog_enabled and not self._loading_apps:
+        if not self._loading_apps:
             raise ImproperlyConfigured("Declare applications before app configuration is complete.")
         config = AppConfig.load(config)
         if config.label in self._apps or any(c.name == config.name for c in self._apps.values()):
             raise ImproperlyConfigured(f"Application {config.label!r} is already installed.")
         config.ui_path(self.settings)
         self._apps[config.label] = config
-        if not self._loading_apps and self.settings.templates is None:
-            from obox_builder.builder.ui import create_templates
-
-            self.templates.env.loader = create_templates(
-                self.settings, tuple(self._apps.values())
-            ).env.loader
 
     def _load_apps(self) -> None:
         from obox_builder.builder.catalog import build_catalog
         from obox_builder.builder.ui import create_templates
 
-        for entry in self.settings.installed_apps or ():
+        for entry in self.settings.installed_apps:
             self.add_app(AppConfig.load(entry))
         for config in self._apps.values():
             for dependency in config.requires:
@@ -309,15 +315,11 @@ class Obox:
                 raise ImproperlyConfigured("Application UI prefixes must not overlap.")
         for config in self._apps.values():
             for builder in config.builders:
-                self.register(builder, app_label=config.label)
+                self._compile_builder(builder, app_label=config.label)
             for page in config.pages:
                 self.add_page(page, app_label=config.label)
-            if config.ui_router is not None:
-                self.include_router(config.ui_router, prefix=config.ui_path(self.settings), ui=True)
-            if config.api_router is not None:
-                self.include_router(
-                    config.api_router, prefix=f"{self.settings.api_prefix}/{config.label}"
-                )
+            for router in config.routers:
+                self.include_router(router, prefix=f"{self.settings.api_prefix}/{config.label}")
             if config.has_directory("static"):
                 route = Mount(
                     config.ui_path(self.settings) + "/_static",
@@ -332,9 +334,8 @@ class Obox:
             self.templates.env.loader = create_templates(
                 self.settings, tuple(self._apps.values())
             ).env.loader
-        if self.catalog_enabled:
-            self.add_ui_prefix(self.settings.ui_prefix or "/")
-            self.include_router(build_catalog(self), ui=True)
+        self.add_ui_prefix(self.settings.ui_prefix or "/")
+        self.include_router(build_catalog(self), ui=True)
 
     @property
     def plugins(self) -> Mapping[str, Plugin]:
@@ -466,30 +467,13 @@ class Obox:
             media_type="application/problem+json",
         )
 
-    @overload
-    def register(
-        self, builder: type[ModelBuilder[T]], *, app_label: str | None = None
-    ) -> Registration[T]: ...
-
-    @overload
-    def register(self, builder: type[T], *, app_label: str | None = None) -> Registration[T]: ...
-
-    def register(self, builder: type[Any], *, app_label: str | None = None) -> Registration[Any]:
+    def _compile_builder(
+        self, builder: type[ModelBuilder[T]], *, app_label: str
+    ) -> Registration[T]:
         from obox_builder.builder.api import build_api
         from obox_builder.builder.ui import build_ui
 
         self._check_mutable()
-        if app_label is not None and app_label not in self._apps:
-            raise ImproperlyConfigured(f"Unknown application {app_label!r}.")
-        if self.catalog_enabled and app_label is None:
-            raise ImproperlyConfigured("Register catalog resources with an application label.")
-        if isinstance(builder, type) and isinstance(inspect(builder, raiseerr=False), Mapper):
-            model_type = builder
-            builder = new_class(
-                f"{model_type.__name__}Builder",
-                (cast(Any, ModelBuilder)[model_type],),
-                exec_body=lambda namespace: namespace.update(__module__=model_type.__module__),
-            )
         if not isinstance(builder, type) or not issubclass(builder, ModelBuilder):
             raise ImproperlyConfigured("Register a ModelBuilder subclass.")
         if getattr(builder, "model", None) is not None:
@@ -517,7 +501,7 @@ class Obox:
             for item in self._registrations.values()
         ):
             raise ImproperlyConfigured(f"Duplicate resource slug: {definition.slug!r}.")
-        service = ResourceService[Any](definition, self)
+        service = ResourceService[T](definition, self)
         routers = (build_api(self, definition, service), build_ui(self, definition, service))
         candidates = [route for router in routers for route in iter_route_contexts(router.routes)]
         existing = list(iter_route_contexts(self.app.routes))

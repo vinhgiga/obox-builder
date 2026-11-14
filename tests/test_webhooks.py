@@ -32,6 +32,8 @@ from obox_builder.errors import ImproperlyConfigured, PermissionDenied
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
+from tests.helpers import with_builders
+
 
 class Base(DeclarativeBase):
     pass
@@ -106,19 +108,21 @@ async def application(
         **options,
     )
     policy = Policy()
-    app = Obox(
-        FastAPI(),
-        settings=Settings(
-            session_factory=async_sessionmaker(engine, expire_on_commit=False),
-            principal_dependency=principal,
-            default_policy=policy,
-            csrf_secret="x" * 32,
-        ),
-        plugins=[plugin],
-    )
-    app.app.state.identities = {"1": STAFF, "2": OTHER}
     try:
-        app.register(Resource)
+        app = Obox(
+            FastAPI(),
+            settings=with_builders(
+                Settings(
+                    session_factory=async_sessionmaker(engine, expire_on_commit=False),
+                    principal_dependency=principal,
+                    default_policy=policy,
+                    csrf_secret="x" * 32,
+                ),
+                Resource,
+            ),
+            plugins=[plugin],
+        )
+        app.app.state.identities = {"1": STAFF, "2": OTHER}
         policy = cast(Policy, app.get_builder(Record).policy)
         async with (
             app.app.router.lifespan_context(app.app),
@@ -137,7 +141,7 @@ async def application(
 async def subscribe(client: httpx.AsyncClient, **kwargs: Any) -> httpx.Response:
     return await client.post(
         "/api/webhooks",
-        json={"resource": "records", "url": "https://receiver.example/events", **kwargs},
+        json={"resource": "admin/records", "url": "https://receiver.example/events", **kwargs},
     )
 
 
@@ -187,17 +191,19 @@ def test_subscription_ownership_secrets_expiry_filters_and_deletion(tmp_path: Pa
                 "items": []
             }
             assert (await client.patch(path, json={"enabled": False})).status_code == 200
-            await client.post("/api/records", json={"name": "disabled"})
+            await client.post("/api/admin/records", json={"name": "disabled"})
             assert (await client.get(path + "/deliveries")).json()["items"] == []
             assert (await client.patch(path, json={"enabled": True})).status_code == 200
             async with app.uow(principal=STAFF) as ctx:
                 await ctx.session.execute(
                     sa.update(Subscription).values(expires_at=now() - timedelta(seconds=1))
                 )
-            await client.post("/api/records", json={"name": "expired"})
+            await client.post("/api/admin/records", json={"name": "expired"})
             assert (await client.post(path + ":refresh")).status_code == 200
-            created = await client.post("/api/records", json={"name": "visible"})
-            await client.patch(f"/api/records/{created.json()['id']}", json={"name": "updated"})
+            created = await client.post("/api/admin/records", json={"name": "visible"})
+            await client.patch(
+                f"/api/admin/records/{created.json()['id']}", json={"name": "updated"}
+            )
             page = (await client.get(path + "/deliveries")).json()
             assert len(page["items"]) == 1
             assert page["items"][0]["event"]["action"] == "create"
@@ -224,7 +230,7 @@ def test_atomic_outbox_polling_and_no_delete_events(tmp_path: Path) -> None:
             sub = (await subscribe(client)).json()
             url = f"/api/webhooks/{sub['id']}/deliveries"
             failed = await client.post(
-                "/api/records:batchWrite",
+                "/api/admin/records:batchWrite",
                 json={
                     "operations": [
                         {"op": "create", "data": {"name": "rolled-back"}},
@@ -236,9 +242,9 @@ def test_atomic_outbox_polling_and_no_delete_events(tmp_path: Path) -> None:
             assert (await client.get(url)).json()["items"] == []
             async with app.uow(principal=STAFF) as ctx:
                 assert await ctx.session.scalar(sa.select(sa.func.count()).select_from(Event)) == 0
-            created = await client.post("/api/records", json={"name": "one"})
+            created = await client.post("/api/admin/records", json={"name": "one"})
             assert created.status_code == 201, created.text
-            path = f"/api/records/{created.json()['id']}"
+            path = f"/api/admin/records/{created.json()['id']}"
             assert (await client.patch(path, json={"name": "two"})).status_code == 200
             first = (await client.get(url, params={"limit": 1})).json()
             assert first["hasMore"] is True
@@ -297,7 +303,7 @@ def test_subscription_authentication_csrf_and_no_token_delegation(tmp_path: Path
                 result = await client.post(
                     "/api/webhooks",
                     headers={"actor": actor},
-                    json={"resource": "records", "url": "https://receiver.example/events"},
+                    json={"resource": "admin/records", "url": "https://receiver.example/events"},
                 )
                 assert result.status_code == status, result.text
             client.cookies.set("session", "invalid")
@@ -317,7 +323,7 @@ def test_delivery_signature_retry_and_pinned_destination(tmp_path: Path) -> None
 
         async with application(tmp_path) as (app, client, plugin, _):
             sub = (await subscribe(client)).json()
-            await client.post("/api/records", json={"name": "private body"})
+            await client.post("/api/admin/records", json={"name": "private body"})
             worker = Worker(plugin, transport=httpx.MockTransport(receive))
             assert await worker.run_once()
             url = f"/api/webhooks/{sub['id']}/deliveries"
@@ -359,7 +365,7 @@ def test_worker_and_polling_recheck_current_access(tmp_path: Path, revocation: s
         sent: list[httpx.Request] = []
         async with application(tmp_path) as (app, client, plugin, policy):
             assert (await subscribe(client)).status_code == 201
-            row = await client.post("/api/records", json={"name": "one"})
+            row = await client.post("/api/admin/records", json={"name": "one"})
             async with app.uow(principal=STAFF) as ctx:
                 if revocation == "identity":
                     app.app.state.identities.clear()
@@ -394,7 +400,7 @@ def test_terminal_delivery_errors_and_attempt_limits(tmp_path: Path, code: int) 
     async def scenario() -> None:
         async with application(tmp_path, max_attempts=1) as (app, client, plugin, _):
             await subscribe(client)
-            await client.post("/api/records", json={"name": "one"})
+            await client.post("/api/admin/records", json={"name": "one"})
             requests = []
 
             def receive(request: httpx.Request) -> httpx.Response:
@@ -417,7 +423,7 @@ def test_competing_workers_and_expired_lease_recovery(tmp_path: Path) -> None:
     async def scenario() -> None:
         async with application(tmp_path) as (app, client, plugin, _):
             await subscribe(client)
-            await client.post("/api/records", json={"name": "one"})
+            await client.post("/api/admin/records", json={"name": "one"})
             worker = Worker(plugin)
             claims = await asyncio.gather(worker.claim(), worker.claim())
             claimed = [claim for claim in claims if claim is not None]
@@ -475,7 +481,7 @@ def test_retention_and_signing_key_configuration(tmp_path: Path) -> None:
     async def scenario() -> None:
         async with application(tmp_path) as (app, client, plugin, _):
             await subscribe(client)
-            await client.post("/api/records", json={"name": "one"})
+            await client.post("/api/admin/records", json={"name": "one"})
             async with app.uow(principal=STAFF) as ctx:
                 await ctx.session.execute(
                     sa.update(Event).values(occurred_at=now() - timedelta(days=8))
@@ -498,7 +504,7 @@ def test_concurrent_subscription_limits_and_fanout_cursors(tmp_path: Path) -> No
                 response.json() for response in responses if response.status_code == 201
             )
             rows = await asyncio.gather(
-                *(client.post("/api/records", json={"name": name}) for name in ("one", "two"))
+                *(client.post("/api/admin/records", json={"name": name}) for name in ("one", "two"))
             )
             assert [row.status_code for row in rows] == [201, 201]
             url = f"/api/webhooks/{subscription['id']}/deliveries"
@@ -514,7 +520,7 @@ def test_lost_lease_cannot_overwrite_replacement_completion(tmp_path: Path) -> N
     async def scenario() -> None:
         async with application(tmp_path) as (app, client, plugin, _):
             await subscribe(client)
-            await client.post("/api/records", json={"name": "one"})
+            await client.post("/api/admin/records", json={"name": "one"})
             started, finish = asyncio.Event(), asyncio.Event()
 
             class Delayed(Worker):
@@ -553,7 +559,7 @@ def test_external_failures_are_bounded_and_redacted(
     async def scenario() -> None:
         async with application(tmp_path) as (app, client, plugin, _):
             await subscribe(client)
-            await client.post("/api/records", json={"name": "one"})
+            await client.post("/api/admin/records", json={"name": "one"})
             if failure == "blocked":
                 monkeypatch.setattr(
                     socket,
@@ -585,7 +591,7 @@ def test_abandoned_final_attempt_is_terminal_and_stop_is_respected(tmp_path: Pat
     async def scenario() -> None:
         async with application(tmp_path, max_attempts=1) as (app, client, plugin, _):
             await subscribe(client)
-            await client.post("/api/records", json={"name": "one"})
+            await client.post("/api/admin/records", json={"name": "one"})
             worker = Worker(plugin)
             assert await worker.claim() is not None
             async with app.uow(principal=STAFF) as ctx:
@@ -610,7 +616,7 @@ def test_worker_cli_loads_factory_and_prunes_with_host_lifecycle(
     async def scenario() -> None:
         async with application(tmp_path) as (app, client, _, _):
             await subscribe(client)
-            await client.post("/api/records", json={"name": "one"})
+            await client.post("/api/admin/records", json={"name": "one"})
             async with app.uow(principal=STAFF) as ctx:
                 await ctx.session.execute(
                     sa.update(Event).values(occurred_at=now() - timedelta(days=8))
@@ -626,15 +632,17 @@ def test_worker_cli_loads_factory_and_prunes_with_host_lifecycle(
                 )
                 obox = Obox(
                     FastAPI(),
-                    settings=Settings(
-                        session_factory=app.session_factory,
-                        csrf_secret="x" * 32,
-                        default_policy=Policy(),
-                        principal_dependency=lambda: STAFF,
+                    settings=with_builders(
+                        Settings(
+                            session_factory=app.session_factory,
+                            csrf_secret="x" * 32,
+                            default_policy=Policy(),
+                            principal_dependency=lambda: STAFF,
+                        ),
+                        Resource,
                     ),
                     plugins=[plugin],
                 )
-                obox.register(Resource)
                 created.append(obox)
                 return obox.app
 

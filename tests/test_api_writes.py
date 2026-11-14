@@ -26,6 +26,8 @@ from obox_builder.errors import ImproperlyConfigured, PermissionDenied
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
+from tests.helpers import with_builders
+
 
 class Base(DeclarativeBase):
     pass
@@ -125,23 +127,24 @@ async def application(
     async with engine.begin() as conn:
         for metadata in (Base.metadata, ReceiptBase.metadata, ActivityBase.metadata):
             await conn.run_sync(metadata.create_all)
-    app = Obox(
-        FastAPI(),
-        settings=Settings(
-            session_factory=async_sessionmaker(engine, expire_on_commit=False),
-            principal_dependency=lambda: STAFF,
-            default_policy=policy or RBAC(),
-            csrf_secret="s" * 32,
-        ),
-        plugins=[Activity(), *([Idempotency()] if idempotency else [])],
-    )
-    app.app.state.events = []
     try:
-        app.register(configured)
-        app.register(TagBuilder)
-        app.register(ChildBuilder)
-        for extra in extra_builders:
-            app.register(extra)
+        app = Obox(
+            FastAPI(),
+            settings=with_builders(
+                Settings(
+                    session_factory=async_sessionmaker(engine, expire_on_commit=False),
+                    principal_dependency=lambda: STAFF,
+                    default_policy=policy or RBAC(),
+                    csrf_secret="s" * 32,
+                ),
+                configured,
+                TagBuilder,
+                ChildBuilder,
+                *extra_builders,
+            ),
+            plugins=[Activity(), *([Idempotency()] if idempotency else [])],
+        )
+        app.app.state.events = []
         async with app.app.router.lifespan_context(app.app):
             yield app
     finally:
@@ -163,7 +166,7 @@ async def upsert(app: Obox, name: str, **data: Any) -> httpx.Response:
     return await request(
         app,
         "POST",
-        "/api/parents:batchWrite",
+        "/api/admin/parents:batchWrite",
         json={
             "operations": [
                 {
@@ -207,13 +210,15 @@ def test_nullable_cursor_matches_complete_order(path: Path, order: str, limit: i
                         ]
                     )
                 )
-            expected = (await request(app, "GET", "/api/parents", params={"order": order})).json()
+            expected = (
+                await request(app, "GET", "/api/admin/parents", params={"order": order})
+            ).json()
             seen, cursor = [], None
             for _ in range(10):
                 response = await request(
                     app,
                     "GET",
-                    "/api/parents",
+                    "/api/admin/parents",
                     params={
                         "order": order,
                         "limit": limit,
@@ -255,14 +260,14 @@ def test_openapi_exposes_configured_write_contracts(
             assert response.status_code == 200
             document = response.json()
             paths, schemas = document["paths"], document["components"]["schemas"]
-            for url in ("/api/parents", "/api/parents:batchWrite"):
+            for url in ("/api/admin/parents", "/api/admin/parents:batchWrite"):
                 headers = {
                     item["name"]
                     for item in paths[url]["post"].get("parameters", [])
                     if item["in"] == "header"
                 }
                 assert ("Idempotency-Key" in headers) is idempotency
-            batch = paths["/api/parents:batchWrite"]["post"]
+            batch = paths["/api/admin/parents:batchWrite"]["post"]
             body = schemas[
                 batch["requestBody"]["content"]["application/json"]["schema"]["$ref"].rsplit(
                     "/", 1
@@ -277,7 +282,7 @@ def test_openapi_exposes_configured_write_contracts(
                 assert {"op", "mergeOn", "data"} <= set(operation["required"])
                 assert "ifMatch" in operation["properties"]
                 assert "id" not in operation["properties"]
-            relation = paths["/api/parents/{id}/relationships/{field}"]
+            relation = paths["/api/admin/parents/{id}/relationships/{field}"]
             assert {"get", "post", "put", "delete"} <= relation.keys()
             for method in ("post", "put", "delete"):
                 assert any(
@@ -316,7 +321,7 @@ def test_upsert_preserves_versions_hooks_activity_and_batch_rollback(path: Path)
             rejected = await request(
                 app,
                 "POST",
-                "/api/parents:batchWrite",
+                "/api/admin/parents:batchWrite",
                 json={
                     "operations": [
                         {"op": "upsert", "mergeOn": ["name"], "data": {"name": "new"}},
@@ -326,7 +331,7 @@ def test_upsert_preserves_versions_hooks_activity_and_batch_rollback(path: Path)
             )
             assert rejected.status_code == 403
             assert rejected.json()["errors"][0]["pointer"].startswith("#/operations/1")
-            body = (await request(app, "GET", "/api/parents")).json()
+            body = (await request(app, "GET", "/api/admin/parents")).json()
             assert [row["name"] for row in body["items"]] == ["one"]
             assert app.app.state.events == ["create", "update"]
             async with app.uow(principal=STAFF) as ctx:
@@ -362,7 +367,7 @@ def test_concurrent_upserts_resolve_unique_insert_race_without_duplicate_rows(pa
             assert sorted(result["created"] for result in results) == [False, True]
             assert results[0]["id"] == results[1]["id"]
             assert app.app.state.events == ["create", "update"]
-            rows = (await request(app, "GET", "/api/parents")).json()["items"]
+            rows = (await request(app, "GET", "/api/admin/parents")).json()["items"]
             assert len(rows) == 1
             assert rows[0]["version"] == 2
 
@@ -405,10 +410,13 @@ def test_upsert_rejects_unconfigured_keys_duplicates_and_disabled_operations(pat
                 [{"op": "upsert", "mergeOn": ["name"], "data": {"name": "one"}}] * 2,
             ]:
                 response = await request(
-                    app, "POST", "/api/parents:batchWrite", json={"operations": operations}
+                    app,
+                    "POST",
+                    "/api/admin/parents:batchWrite",
+                    json={"operations": operations},
                 )
                 assert response.status_code == 422, response.text
-            assert (await request(app, "GET", "/api/parents")).json()["items"] == []
+            assert (await request(app, "GET", "/api/admin/parents")).json()["items"] == []
         async with application(path.parent / "disabled.sqlite3", configured=CreateOnly) as app:
             assert (await upsert(app, "one")).status_code == 403
 
@@ -420,10 +428,10 @@ def test_idempotency_replays_success_and_rejects_body_mismatch(path: Path) -> No
         async with application(path) as app:
             headers = {"Idempotency-Key": "create-1"}
             first = await request(
-                app, "POST", "/api/parents", json={"name": "one"}, headers=headers
+                app, "POST", "/api/admin/parents", json={"name": "one"}, headers=headers
             )
             second = await request(
-                app, "POST", "/api/parents", json={"name": "one"}, headers=headers
+                app, "POST", "/api/admin/parents", json={"name": "one"}, headers=headers
             )
             assert first.status_code == second.status_code == 201
             assert first.json() == second.json()
@@ -431,21 +439,27 @@ def test_idempotency_replays_success_and_rejects_body_mismatch(path: Path) -> No
             assert first.headers["location"] == second.headers["location"]
             assert app.app.state.events == ["create"]
             assert (
-                await request(app, "POST", "/api/parents", json={"name": "two"}, headers=headers)
+                await request(
+                    app, "POST", "/api/admin/parents", json={"name": "two"}, headers=headers
+                )
             ).status_code == 409
             failed_headers = {"Idempotency-Key": "retry-failure"}
             assert (
                 await request(
                     app,
                     "POST",
-                    "/api/parents",
+                    "/api/admin/parents",
                     json={"name": "bad", "score": -1},
                     headers=failed_headers,
                 )
             ).status_code == 403
             assert (
                 await request(
-                    app, "POST", "/api/parents", json={"name": "good"}, headers=failed_headers
+                    app,
+                    "POST",
+                    "/api/admin/parents",
+                    json={"name": "good"},
+                    headers=failed_headers,
                 )
             ).status_code == 201
             async with app.uow(principal=STAFF) as ctx:
@@ -459,7 +473,7 @@ def test_idempotency_replays_success_and_rejects_body_mismatch(path: Path) -> No
 def test_idempotency_batch_replays_stale_conditions_and_concurrent_requests(path: Path) -> None:
     async def scenario() -> None:
         async with application(path) as app:
-            created = await request(app, "POST", "/api/parents", json={"name": "one"})
+            created = await request(app, "POST", "/api/admin/parents", json={"name": "one"})
             body = {
                 "operations": [
                     {
@@ -475,7 +489,7 @@ def test_idempotency_batch_replays_stale_conditions_and_concurrent_requests(path
                     request(
                         app,
                         "POST",
-                        "/api/parents:batchWrite",
+                        "/api/admin/parents:batchWrite",
                         json=body,
                         headers={"Idempotency-Key": "batch-key"},
                     )
@@ -490,7 +504,7 @@ def test_idempotency_batch_replays_stale_conditions_and_concurrent_requests(path
                     request(
                         app,
                         "POST",
-                        "/api/parents",
+                        "/api/admin/parents",
                         json={"name": "two"},
                         headers={"Idempotency-Key": "parallel-create"},
                     )
@@ -518,19 +532,19 @@ def test_idempotency_expiry_validation_and_permissions(path: Path) -> None:
                 response = await request(
                     app,
                     "POST",
-                    "/api/parents",
+                    "/api/admin/parents",
                     json={"name": "one"},
                     headers={"Idempotency-Key": key},
                 )
                 assert response.status_code == 422
             headers = {"Idempotency-Key": "expiry"}
             first = await request(
-                app, "POST", "/api/parents", json={"name": "one"}, headers=headers
+                app, "POST", "/api/admin/parents", json={"name": "one"}, headers=headers
             )
             assert first.status_code == 201
             policy.restricted = True
             replay = await request(
-                app, "POST", "/api/parents", json={"name": "one"}, headers=headers
+                app, "POST", "/api/admin/parents", json={"name": "one"}, headers=headers
             )
             assert replay.status_code == 403
             policy.restricted = False
@@ -539,7 +553,7 @@ def test_idempotency_expiry_validation_and_permissions(path: Path) -> None:
                     sa.update(Receipt).values(expires_at=datetime.now(UTC) - timedelta(seconds=1))
                 )
             second = await request(
-                app, "POST", "/api/parents", json={"name": "two"}, headers=headers
+                app, "POST", "/api/admin/parents", json={"name": "two"}, headers=headers
             )
             assert second.status_code == 201
             assert first.json()["id"] != second.json()["id"]
@@ -547,7 +561,7 @@ def test_idempotency_expiry_validation_and_permissions(path: Path) -> None:
             response = await request(
                 app,
                 "POST",
-                "/api/parents",
+                "/api/admin/parents",
                 json={"name": "one"},
                 headers={"Idempotency-Key": "disabled"},
             )
@@ -567,19 +581,19 @@ def test_idempotency_identity_endpoint_and_create_only_scope(path: Path) -> None
             app.app.dependency_overrides[dependency] = lambda: ScopedIdentity(
                 STAFF, frozenset({permission})
             )
-            first = await request(app, "POST", "/api/parents", json=body, headers=headers)
-            second = await request(app, "POST", "/api/parents", json=body, headers=headers)
+            first = await request(app, "POST", "/api/admin/parents", json=body, headers=headers)
+            second = await request(app, "POST", "/api/admin/parents", json=body, headers=headers)
             assert first.status_code == second.status_code == 201
             assert first.json() == second.json()
             app.app.dependency_overrides[dependency] = lambda: Principal(
                 id=2, is_authenticated=True, is_staff=True, is_superuser=True
             )
             other = await request(
-                app, "POST", "/api/parents", json={"name": "two"}, headers=headers
+                app, "POST", "/api/admin/parents", json={"name": "two"}, headers=headers
             )
             assert other.status_code == 201
             app.app.dependency_overrides.clear()
-            tag = await request(app, "POST", "/api/tags", json=body, headers=headers)
+            tag = await request(app, "POST", "/api/admin/tags", json=body, headers=headers)
             assert tag.status_code == 201
             async with app.uow(principal=STAFF) as ctx:
                 assert (
@@ -597,14 +611,14 @@ def test_relationship_add_replace_remove_preserves_rows_and_versions(
 ) -> None:
     async def scenario() -> None:
         async with application(path) as app:
-            parent = await request(app, "POST", "/api/parents", json={"name": "one"})
+            parent = await request(app, "POST", "/api/admin/parents", json={"name": "one"})
             children = [
-                await request(app, "POST", f"/api/{target}", json={"name": name})
+                await request(app, "POST", f"/api/admin/{target}", json={"name": name})
                 for name in ("a", "b")
             ]
             assert all(child.status_code == 201 for child in children)
             parent_id = parent.json()["id"]
-            url = f"/api/parents/{parent_id}/relationships/{field}"
+            url = f"/api/admin/parents/{parent_id}/relationships/{field}"
             assert (await request(app, "POST", url, json={"recordIds": []})).status_code == 428
             added = await request(
                 app,
@@ -621,7 +635,9 @@ def test_relationship_add_replace_remove_preserves_rows_and_versions(
             related = await request(app, "GET", url)
             assert related.status_code == 200
             assert [item["id"] for item in related.json()["items"]] == [children[0].json()["id"]]
-            history = await request(app, "GET", f"/api/parents/{parent_id}/activity?kind=revision")
+            history = await request(
+                app, "GET", f"/api/admin/parents/{parent_id}/activity?kind=revision"
+            )
             assert history.status_code == 200, history.text
             assert history.json()["items"][0]["changes"] == [
                 {
@@ -631,7 +647,7 @@ def test_relationship_add_replace_remove_preserves_rows_and_versions(
                     "after": [children[0].json()["id"]],
                 }
             ]
-            a = await request(app, "GET", f"/api/{target}/{children[0].json()['id']}")
+            a = await request(app, "GET", f"/api/admin/{target}/{children[0].json()['id']}")
             b = children[1]
             replaced = await request(
                 app,
@@ -647,7 +663,7 @@ def test_relationship_add_replace_remove_preserves_rows_and_versions(
                 headers={"If-Match": added.headers["etag"]},
             )
             assert replaced.status_code == 200, replaced.text
-            b = await request(app, "GET", f"/api/{target}/{b.json()['id']}")
+            b = await request(app, "GET", f"/api/admin/{target}/{b.json()['id']}")
             removed = await request(
                 app,
                 "DELETE",
@@ -687,9 +703,9 @@ def test_relationship_rejects_stale_targets_scope_and_reparenting(path: Path) ->
         policy = Policy()
         async with application(path, policy=policy) as app:
             policy = cast(Policy, app.get_builder(Tag).policy)
-            parent = await request(app, "POST", "/api/parents", json={"name": "one"})
-            tag = await request(app, "POST", "/api/tags", json={"name": "tag"})
-            url = f"/api/parents/{parent.json()['id']}/relationships/tags"
+            parent = await request(app, "POST", "/api/admin/parents", json={"name": "one"})
+            tag = await request(app, "POST", "/api/admin/tags", json={"name": "tag"})
+            url = f"/api/admin/parents/{parent.json()['id']}/relationships/tags"
             headers = {"If-Match": parent.headers["etag"]}
             for body, status in [
                 ({"recordIds": [tag.json()["id"]]}, 428),
@@ -715,11 +731,11 @@ def test_relationship_rejects_stale_targets_scope_and_reparenting(path: Path) ->
             )
             assert response.status_code == 403
             policy.denied = False
-            other = await request(app, "POST", "/api/parents", json={"name": "other"})
+            other = await request(app, "POST", "/api/admin/parents", json={"name": "other"})
             child = await request(
                 app,
                 "POST",
-                "/api/children",
+                "/api/admin/children",
                 json={
                     "name": "child",
                     "parentId": other.json()["id"],
@@ -750,7 +766,9 @@ def test_relationship_rejects_stale_targets_scope_and_reparenting(path: Path) ->
             )
             assert added.status_code == 200, added.text
             policy.denied = True
-            history = await request(app, "GET", f"/api/parents/{parent.json()['id']}/activity")
+            history = await request(
+                app, "GET", f"/api/admin/parents/{parent.json()['id']}/activity"
+            )
             assert history.status_code == 200, history.text
             assert history.json()["items"][0]["changes"][0]["after"] == [None]
 
@@ -811,23 +829,25 @@ def test_upsert_composite_key_presets_and_column_aliases(path: Path) -> None:
                 class API(CompoundBuilder.API):
                     upsert_fields = ((key,),)
 
-            app = Obox(
-                FastAPI(),
-                settings=Settings(
-                    database_url="sqlite+aiosqlite://",
-                    default_policy=RBAC(),
-                    principal_dependency=lambda: STAFF,
-                ),
-            )
             with pytest.raises(ImproperlyConfigured, match="UNIQUE"):
-                app.register(Invalid)
+                Obox(
+                    FastAPI(),
+                    settings=with_builders(
+                        Settings(
+                            database_url="sqlite+aiosqlite://",
+                            default_policy=RBAC(),
+                            principal_dependency=lambda: STAFF,
+                        ),
+                        Invalid,
+                    ),
+                )
         async with application(path, extra_builders=(CompoundBuilder,)) as app:
 
             async def write(data: dict[str, Any], names: list[str] | None = None) -> httpx.Response:
                 return await request(
                     app,
                     "POST",
-                    "/api/compound:batchWrite",
+                    "/api/admin/compound:batchWrite",
                     json={
                         "operations": [
                             {

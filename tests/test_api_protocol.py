@@ -11,8 +11,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from obox_builder import API, BatchOperation, ModelBuilder, Principal
 from obox_builder.errors import BatchOperationError, BuilderValidationError
 from sqlalchemy.orm import Mapped, mapped_column
-from test_api_contract import STAFF, Base, application, request
-from test_operations import WidgetBuilder, make_app
+
+from tests.test_api_contract import STAFF, Base, application, request
+from tests.test_operations import WidgetBuilder, make_app
 
 
 class NumericRecord(Base):
@@ -49,14 +50,16 @@ def test_numeric_http_validation_is_atomic(field: str, value: Any, operation: st
         async with application(configured=Numbers) as app:
             row = (
                 await request(
-                    app, "POST", "/api/numbers", json={"name": "original", "value": "1.25"}
+                    app, "POST", "/api/admin/numbers", json={"name": "original", "value": "1.25"}
                 )
             ).json()
             data = {field: value}
             if operation == "create":
-                response = await request(app, "POST", "/api/numbers", json={"name": "bad", **data})
+                response = await request(
+                    app, "POST", "/api/admin/numbers", json={"name": "bad", **data}
+                )
             elif operation == "update":
-                response = await request(app, "PATCH", f"/api/numbers/{row['id']}", json=data)
+                response = await request(app, "PATCH", f"/api/admin/numbers/{row['id']}", json=data)
             else:
                 op = (
                     {"op": "upsert", "mergeOn": ["name"], "data": {"name": "original", **data}}
@@ -66,11 +69,11 @@ def test_numeric_http_validation_is_atomic(field: str, value: Any, operation: st
                 response = await request(
                     app,
                     "POST",
-                    "/api/numbers:batchWrite",
+                    "/api/admin/numbers:batchWrite",
                     json={"operations": [{"op": "create", "data": {"name": "first"}}, op]},
                 )
             assert response.status_code == 422, response.text
-            items = (await request(app, "GET", "/api/numbers")).json()["items"]
+            items = (await request(app, "GET", "/api/admin/numbers")).json()["items"]
             assert len(items) == 1
             assert items[0]["value"] == 1.25
 
@@ -128,7 +131,7 @@ def test_numeric_output_and_openapi() -> None:
             response = await request(
                 app,
                 "POST",
-                "/api/numbers",
+                "/api/admin/numbers",
                 json={"name": "valid", "value": "2.5", "amount": "3.25", "number": "7"},
             )
             assert response.status_code == 201
@@ -138,13 +141,13 @@ def test_numeric_output_and_openapi() -> None:
             response = await request(
                 app,
                 "PATCH",
-                f"/api/numbers/{response.json()['id']}",
+                f"/api/admin/numbers/{response.json()['id']}",
                 json={"value": None, "number": None, "amount": None},
             )
             assert response.status_code == 200
             assert response.json()["value"] is None
             schema = app.app.openapi()
-            ref = schema["paths"]["/api/numbers"]["post"]["responses"]["201"]["content"][
+            ref = schema["paths"]["/api/admin/numbers"]["post"]["responses"]["201"]["content"][
                 "application/json"
             ]["schema"]["$ref"]
             field = schema["components"]["schemas"][ref.rsplit("/", 1)[1]]["properties"]["value"]
@@ -158,11 +161,11 @@ def test_head_options_permissions_and_allow(principal: Principal) -> None:
     async def scenario() -> None:
         async with application(principal=principal) as app:
             for path in (
-                "/api/records",
-                "/api/records/1",
-                "/api/records:describe",
+                "/api/admin/records",
+                "/api/admin/records/1",
+                "/api/admin/records:describe",
                 "/api:describe",
-                "/api/records:queryOptions",
+                "/api/admin/records:queryOptions",
             ):
                 get = await request(app, "GET", path)
                 head = await request(app, "HEAD", path)
@@ -170,21 +173,21 @@ def test_head_options_permissions_and_allow(principal: Principal) -> None:
                 assert head.content == b""
                 for header in ("content-type", "cache-control", "vary", "www-authenticate"):
                     assert head.headers.get(header) == get.headers.get(header)
-            options = await request(app, "OPTIONS", "/api/records")
+            options = await request(app, "OPTIONS", "/api/admin/records")
             assert options.status_code == (200 if principal.is_authenticated else 404)
             if options.status_code == 200:
-                assert options.json()["slug"] == "records"
+                assert options.json()["slug"] == "admin/records"
                 assert set(options.headers["allow"].split(", ")) == {
                     "GET",
                     "HEAD",
                     "POST",
                     "OPTIONS",
                 }
-            action = await request(app, "OPTIONS", "/api/records:publish")
+            action = await request(app, "OPTIONS", "/api/admin/records:publish")
             assert action.status_code == 204
             assert action.content == b""
             assert set(action.headers["allow"].split(", ")) == {"POST", "OPTIONS"}
-            response = await request(app, "PUT", "/api/records/1")
+            response = await request(app, "PUT", "/api/admin/records/1")
             assert response.status_code == 405
             assert set(response.headers["allow"].split(", ")) == {
                 "GET",
@@ -216,7 +219,7 @@ def test_head_options_permissions_and_allow(principal: Principal) -> None:
 def test_accept_negotiation(accept: str, status: int) -> None:
     async def scenario() -> None:
         async with application() as app:
-            response = await request(app, "GET", "/api/records", headers={"Accept": accept})
+            response = await request(app, "GET", "/api/admin/records", headers={"Accept": accept})
             assert response.status_code == status
 
     asyncio.run(scenario())
@@ -238,7 +241,7 @@ def test_cors_and_host_routes() -> None:
                 transport=httpx.ASGITransport(app=app.app), base_url="http://test"
             ) as client:
                 response = await client.options(
-                    "/api/widgets",
+                    "/api/admin/widgets",
                     headers={
                         "Origin": "https://client.test",
                         "Access-Control-Request-Method": "POST",

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-11-14 12:50+0700\n"
+"POT-Creation-Date: 2026-11-14 19:46+0700\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -62,43 +62,30 @@ msgstr ""
 msgid "Enter valid JSON."
 msgstr ""
 
-#: obox_builder/builder/ui.py:577 obox_builder/contrib/auth/admin.py:257
-#: obox_builder/contrib/auth/apps.py:30
-msgid "Users"
-msgstr ""
-
-#: obox_builder/builder/ui.py:582 obox_builder/contrib/auth/admin.py:472
-#: obox_builder/contrib/auth/admin.py:507
-#: obox_builder/contrib/auth/admin.py:560 obox_builder/contrib/auth/apps.py:31
-#: obox_builder/contrib/auth/templates/obox/auth/user_form.html:96
-#: obox_builder/contrib/auth/templates/obox/profile.html:34
-msgid "Roles"
-msgstr ""
-
-#: obox_builder/builder/ui.py:768 obox_builder/builder/ui.py:771
+#: obox_builder/builder/ui.py:713 obox_builder/builder/ui.py:716
 msgid "Invalid inline count."
 msgstr ""
 
-#: obox_builder/builder/ui.py:783 obox_builder/builder/ui.py:812
+#: obox_builder/builder/ui.py:728 obox_builder/builder/ui.py:757
 msgid "An inline record is unavailable."
 msgstr ""
 
-#: obox_builder/builder/ui.py:854
+#: obox_builder/builder/ui.py:799
 msgid "Unknown inline field."
 msgstr ""
 
-#: obox_builder/builder/ui.py:1087 obox_builder/contrib/auth/admin.py:230
-#: obox_builder/contrib/auth/views.py:255
+#: obox_builder/builder/ui.py:1032 obox_builder/contrib/auth/admin.py:230
+#: obox_builder/contrib/auth/views.py:220
 msgid "Duplicate form fields are not permitted."
 msgstr ""
 
 #: obox_builder/builder/templates/obox/_record_activity.html:22
 #: obox_builder/builder/templates/obox/confirm_delete.html:3
-#: obox_builder/builder/ui.py:1216
+#: obox_builder/builder/ui.py:1161
 msgid "Are you sure?"
 msgstr ""
 
-#: obox_builder/builder/ui.py:1245 obox_builder/builder/ui.py:1263
+#: obox_builder/builder/ui.py:1190 obox_builder/builder/ui.py:1208
 msgid "Choose a valid action and records."
 msgstr ""
 
@@ -533,7 +520,7 @@ msgid "Show password"
 msgstr ""
 
 #: obox_builder/builder/templates/obox/login.html:47
-#: obox_builder/contrib/auth/views.py:99
+#: obox_builder/contrib/auth/views.py:98
 msgid "Sign in"
 msgstr ""
 
@@ -645,6 +632,10 @@ msgstr ""
 msgid "User not found."
 msgstr ""
 
+#: obox_builder/contrib/auth/admin.py:257 obox_builder/contrib/auth/apps.py:30
+msgid "Users"
+msgstr ""
+
 #: obox_builder/contrib/auth/admin.py:281
 #: obox_builder/contrib/auth/admin.py:384
 msgid "Edit userNew user"
@@ -655,8 +646,8 @@ msgstr ""
 #: obox_builder/contrib/auth/admin.py:486
 #: obox_builder/contrib/auth/admin.py:533
 #: obox_builder/contrib/auth/authorization.py:105
-#: obox_builder/contrib/auth/views.py:262
-#: obox_builder/contrib/auth/views.py:270
+#: obox_builder/contrib/auth/views.py:227
+#: obox_builder/contrib/auth/views.py:235
 msgid "This field is required."
 msgstr ""
 
@@ -684,7 +675,7 @@ msgid "Choose valid roles."
 msgstr ""
 
 #: obox_builder/contrib/auth/admin.py:339
-#: obox_builder/contrib/auth/views.py:272
+#: obox_builder/contrib/auth/views.py:237
 msgid "Passwords do not match."
 msgstr ""
 
@@ -694,6 +685,14 @@ msgstr ""
 
 #: obox_builder/contrib/auth/admin.py:366
 msgid "At least one superuser must remain active."
+msgstr ""
+
+#: obox_builder/contrib/auth/admin.py:472
+#: obox_builder/contrib/auth/admin.py:507
+#: obox_builder/contrib/auth/admin.py:560 obox_builder/contrib/auth/apps.py:31
+#: obox_builder/contrib/auth/templates/obox/auth/user_form.html:96
+#: obox_builder/contrib/auth/templates/obox/profile.html:34
+msgid "Roles"
 msgstr ""
 
 #: obox_builder/contrib/auth/admin.py:492
@@ -731,25 +730,24 @@ msgstr ""
 msgid "This password is entirely numeric."
 msgstr ""
 
-#: obox_builder/contrib/auth/views.py:93
+#: obox_builder/contrib/auth/views.py:92
 msgid "Invalid username or password."
 msgstr ""
 
-#: obox_builder/contrib/auth/views.py:155
-#: obox_builder/contrib/auth/views.py:201
+#: obox_builder/contrib/auth/views.py:166
 msgid "Account"
 msgstr ""
 
-#: obox_builder/contrib/auth/views.py:250
-#: obox_builder/contrib/auth/views.py:282
+#: obox_builder/contrib/auth/views.py:215
+#: obox_builder/contrib/auth/views.py:247
 msgid "Password changes are not supported by this backend."
 msgstr ""
 
-#: obox_builder/contrib/auth/views.py:264
+#: obox_builder/contrib/auth/views.py:229
 msgid "Use at most 1024 characters."
 msgstr ""
 
-#: obox_builder/contrib/auth/views.py:268
+#: obox_builder/contrib/auth/views.py:233
 msgid "Current password is incorrect."
 msgstr ""
 

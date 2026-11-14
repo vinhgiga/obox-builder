@@ -35,6 +35,8 @@ from obox_builder.contrib.files.models import Base as FileBase
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
+from tests.helpers import with_builders
+
 PASSWORD = "correct horse battery staple"  # noqa: S105
 
 
@@ -120,23 +122,27 @@ async def application(
         async with engine.begin() as connection:
             await connection.execute(sa.schema.CreateSchema(namespace))
         engine = engine.execution_options(schema_translate_map={None: namespace})
-    app = Obox(
-        FastAPI(),
-        settings=Settings(
-            session_factory=async_sessionmaker(engine, expire_on_commit=False),
-            csrf_secret="x" * 32,
-            principal_dependency=(lambda: Principal(id=1, is_authenticated=True, is_staff=True))
-            if host_identity
-            else None,
-        ),
-        plugins=[
-            Auth(secure=False, api_tokens=tokens),
-            Activity(),
-            *([Files(root=tmp_path / "media")] if files else []),
-        ],
-    )
-    app.register(configured)
     try:
+        app = Obox(
+            FastAPI(),
+            settings=with_builders(
+                Settings(
+                    session_factory=async_sessionmaker(engine, expire_on_commit=False),
+                    csrf_secret="x" * 32,
+                    principal_dependency=(
+                        lambda: Principal(id=1, is_authenticated=True, is_staff=True)
+                    )
+                    if host_identity
+                    else None,
+                ),
+                configured,
+            ),
+            plugins=[
+                Auth(secure=False, api_tokens=tokens),
+                Activity(),
+                *([Files(root=tmp_path / "media")] if files else []),
+            ],
+        )
         async with app.app.router.lifespan_context(app.app):
             async with engine.begin() as connection:
                 for metadata in (
@@ -244,12 +250,14 @@ def test_json_session_login_csrf_rotation_and_logout(tmp_path: Path) -> None:
             assert (await client.get("/api/auth/me")).json() == signed_in.json()
             assert "httponly" in signed_in.headers["set-cookie"].lower()
             stale = await client.post(
-                "/api/notes", json={"titleText": "New"}, headers={"x-csrf-token": before}
+                "/api/admin/notes",
+                json={"titleText": "New"},
+                headers={"x-csrf-token": before},
             )
             assert stale.status_code == 403
             headers = {"x-csrf-token": await csrf(client)}
             assert (
-                await client.post("/api/notes", json={"titleText": "New"}, headers=headers)
+                await client.post("/api/admin/notes", json={"titleText": "New"}, headers=headers)
             ).status_code == 201
             cookies = httpx.Cookies(client.cookies)
             assert (await client.post("/api/auth/logout")).status_code == 403
@@ -282,17 +290,17 @@ def test_api_token_scopes_hashing_row_scope_and_cookie_isolation(tmp_path: Path)
                 base_url="http://test",
                 headers={"authorization": "Bearer " + token},
             ) as bearer:
-                rows = await bearer.get("/api/notes")
+                rows = await bearer.get("/api/admin/notes")
                 assert [row["titleText"] for row in rows.json()["items"]] == ["Alice"]
-                assert (await bearer.get("/api/notes/2")).status_code == 404
-                assert (await bearer.get("/api/notes/1")).status_code == 200
+                assert (await bearer.get("/api/admin/notes/2")).status_code == 404
+                assert (await bearer.get("/api/admin/notes/1")).status_code == 200
                 assert (
-                    await bearer.post("/api/notes", json={"titleText": "Forbidden"})
+                    await bearer.post("/api/admin/notes", json={"titleText": "Forbidden"})
                 ).status_code == 403
-                assert (await bearer.get("/api/notes/1/activity")).status_code == 403
+                assert (await bearer.get("/api/admin/notes/1/activity")).status_code == 403
                 assert (await bearer.get("/api/auth/tokens")).status_code == 403
-                assert (await bearer.get("/admin/notes")).status_code == 401
-                metadata = (await bearer.get("/api/notes:describe")).json()
+                assert (await bearer.get("/admin/admin/notes")).status_code == 401
+                metadata = (await bearer.get("/api/admin/notes:describe")).json()
                 assert metadata["operations"]["list"] is True
                 assert metadata["operations"]["create"] is False
                 assert {field["name"] for field in metadata["fields"]} == {
@@ -306,8 +314,10 @@ def test_api_token_scopes_hashing_row_scope_and_cookie_isolation(tmp_path: Path)
                 async with app.session_factory.begin() as db:
                     role = (await db.scalars(sa.select(Role))).one()
                     role.permissions = []
-                assert (await bearer.get("/api/notes")).status_code == 403
-            invalid = await client.get("/api/notes", headers={"authorization": "Bearer invalid"})
+                assert (await bearer.get("/api/admin/notes")).status_code == 403
+            invalid = await client.get(
+                "/api/admin/notes", headers={"authorization": "Bearer invalid"}
+            )
             assert invalid.status_code == 401
             assert invalid.headers["www-authenticate"] == 'Bearer realm="obox"'
 
@@ -343,7 +353,7 @@ def test_api_tokens_recheck_expiry_revocation_password_and_user(
                 transport=httpx.ASGITransport(app=app.app), base_url="http://test"
             ) as bearer:
                 response = await bearer.get(
-                    "/api/notes", headers={"authorization": "Bearer " + token["token"]}
+                    "/api/admin/notes", headers={"authorization": "Bearer " + token["token"]}
                 )
                 assert response.status_code == 401
 
@@ -362,8 +372,8 @@ def test_token_ownership_validation_and_staff_only_scope_enforcement(tmp_path: P
                 transport=httpx.ASGITransport(app=app.app), base_url="http://test"
             ) as bearer:
                 auth = {"authorization": "Bearer " + token["token"]}
-                assert (await bearer.get("/api/notes", headers=auth)).status_code == 200
-                assert (await bearer.get("/api/notes/1", headers=auth)).status_code == 403
+                assert (await bearer.get("/api/admin/notes", headers=auth)).status_code == 200
+                assert (await bearer.get("/api/admin/notes/1", headers=auth)).status_code == 403
             await login(client, "bob")
             assert (await client.get("/api/auth/tokens")).json() == {"items": []}
             denied = await client.delete(
@@ -431,7 +441,7 @@ def test_file_bearer_tokens_enforce_scopes_and_api_field_projection(tmp_path: Pa
                 completed = await bearer.patch(path, headers={**auth, **chunk_headers}, content=png)
                 assert completed.status_code == 200
                 record = await bearer.post(
-                    "/api/uploads",
+                    "/api/admin/uploads",
                     headers=auth,
                     json={
                         "name": "Image",
@@ -504,9 +514,9 @@ def test_describe_narrows_fields_and_reports_effective_defaults(tmp_path: Path) 
     async def scenario() -> None:
         async with application(tmp_path, configured=NarrowBuilder) as (app, client):
             assert (await client.get("/api:describe")).json() == {"resources": []}
-            assert (await client.get("/api/notes:describe")).status_code == 404
+            assert (await client.get("/api/admin/notes:describe")).status_code == 404
             await login(client)
-            response = await client.get("/api/notes:describe")
+            response = await client.get("/api/admin/notes:describe")
             assert response.status_code == 200
             assert response.headers["cache-control"] == "private, no-store"
             description = response.json()
@@ -525,7 +535,7 @@ def test_describe_narrows_fields_and_reports_effective_defaults(tmp_path: Path) 
             )
             schema = app.app.openapi()
             assert schema["paths"]["/api/auth/login"]["post"]["security"] == []
-            assert schema["paths"]["/api/notes"]["get"]["security"] == [
+            assert schema["paths"]["/api/admin/notes"]["get"]["security"] == [
                 {"cookieAuth": []},
                 {"bearerAuth": []},
             ]
@@ -583,10 +593,11 @@ def test_custom_uuid_users_and_token_models_preserve_identity_and_expiry(tmp_pat
         )
         app = Obox(
             FastAPI(),
-            settings=Settings(session_factory=factory, csrf_secret="x" * 32),
+            settings=with_builders(
+                Settings(session_factory=factory, csrf_secret="x" * 32), StaffBuilder
+            ),
             plugins=[Auth(backend=backend, secure=False, api_tokens=True)],
         )
-        app.register(StaffBuilder)
         try:
             async with app.app.router.lifespan_context(app.app):
                 async with engine.begin() as connection:
@@ -627,7 +638,7 @@ def test_custom_uuid_users_and_token_models_preserve_identity_and_expiry(tmp_pat
                     assert datetime.fromisoformat(token["expiresAt"]) == expiry
                     client.cookies.clear()
                     auth = {"authorization": "Bearer " + token["token"]}
-                    assert (await client.get("/api/notes", headers=auth)).status_code == 200
+                    assert (await client.get("/api/admin/notes", headers=auth)).status_code == 200
                     assert (await client.get("/api/auth/me", headers=auth)).json()["id"] == str(key)
         finally:
             if namespace:

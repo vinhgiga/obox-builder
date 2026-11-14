@@ -13,6 +13,8 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.pool import StaticPool
 
+from tests.helpers import with_builders
+
 
 class Base(DeclarativeBase):
     pass
@@ -82,14 +84,16 @@ async def make_app(builder: type[ModelBuilder[Widget]]) -> tuple[Obox, Any]:
         await connection.run_sync(Base.metadata.create_all)
     app = Obox(
         FastAPI(),
-        settings=Settings(
-            session_factory=async_sessionmaker(engine, expire_on_commit=False),
-            principal_dependency=lambda: STAFF,
-            default_policy=RBAC(),
-            csrf_secret="x" * 32,
+        settings=with_builders(
+            Settings(
+                session_factory=async_sessionmaker(engine, expire_on_commit=False),
+                principal_dependency=lambda: STAFF,
+                default_policy=RBAC(),
+                csrf_secret="x" * 32,
+            ),
+            builder,
         ),
     )
-    app.register(builder)
     return app, engine
 
 
@@ -100,7 +104,7 @@ async def get_list(builder: type[ModelBuilder[Widget]]) -> tuple[str, Any]:
             await app.service(Widget).create({"name": "alpha", "status": "live"}, ctx=ctx)
         transport = httpx.ASGITransport(app=app.app)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-            response = await client.get("/admin/widgets")
+            response = await client.get("/admin/admin/widgets")
         return response.text, app.get_builder(Widget)
     finally:
         await engine.dispose()
@@ -120,7 +124,7 @@ def test_list_display_controls_columns_and_order() -> None:
 def test_list_exposes_bulk_delete_controls() -> None:
     html, _ = asyncio.run(get_list(OrderedBuilder))
     assert 'class="page grid-layout"' in html
-    assert re.search(r'action="/admin/widgets/bulk-actions"', html)
+    assert re.search(r'action="/admin/admin/widgets/bulk-actions"', html)
     assert "data-select-all" in html
     assert 'name="record_ids"' in html
     assert "data-selection-status" in html
@@ -134,7 +138,7 @@ def test_list_exposes_bulk_delete_controls() -> None:
 
 def test_list_renders_create_action_above_footer() -> None:
     html, _ = asyncio.run(get_list(OrderedBuilder))
-    assert re.search(r'<a class="grid-add" href="/admin/widgets/new">', html)
+    assert re.search(r'<a class="grid-add" href="/admin/admin/widgets/new">', html)
     assert "Add record" in html
     assert (
         html.index('class="grid-scroll"')
@@ -157,7 +161,7 @@ def test_bulk_delete_validates_and_deletes_selected_records() -> None:
             async with httpx.AsyncClient(
                 transport=httpx.ASGITransport(app=app.app), base_url="http://test"
             ) as client:
-                page = await client.get("/admin/widgets?filter.status=live&limit=1&offset=0")
+                page = await client.get("/admin/admin/widgets?filter.status=live&limit=1&offset=0")
                 token = re.search(r'name="csrf_token" value="([^"]+)"', page.text)
                 assert token is not None
                 assert 'data-total-count="2"' in page.text
@@ -167,22 +171,22 @@ def test_bulk_delete_validates_and_deletes_selected_records() -> None:
                     "record_ids": [str(first.id), str(first.id)],
                     "select_across": "0",
                 }
-                duplicate = await client.post("/admin/widgets/bulk-actions", data=data)
+                duplicate = await client.post("/admin/admin/widgets/bulk-actions", data=data)
                 assert duplicate.status_code == 422
 
                 data["record_ids"] = [str(first.id)]
-                deleted = await client.post("/admin/widgets/bulk-actions", data=data)
+                deleted = await client.post("/admin/admin/widgets/bulk-actions", data=data)
                 assert deleted.status_code == 303
-                assert deleted.headers["location"] == "/admin/widgets"
+                assert deleted.headers["location"] == "/admin/admin/widgets"
 
                 data.update(record_ids=[str(third.id)], select_across="1")
                 across = await client.post(
-                    "/admin/widgets/bulk-actions?filter.status=live&limit=1&offset=0",
+                    "/admin/admin/widgets/bulk-actions?filter.status=live&limit=1&offset=0",
                     data=data,
                 )
                 assert across.status_code == 303
                 assert across.headers["location"] == (
-                    "/admin/widgets?filter.status=live&limit=1&offset=0"
+                    "/admin/admin/widgets?filter.status=live&limit=1&offset=0"
                 )
 
             async with app.uow(principal=STAFF) as ctx:
@@ -200,7 +204,7 @@ def test_form_actions_explicitly_submit() -> None:
         try:
             transport = httpx.ASGITransport(app=app.app)
             async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-                response = await client.get("/admin/widgets/new")
+                response = await client.get("/admin/admin/widgets/new")
             assert response.status_code == 200
             for name in ("_save", "_addanother", "_continue"):
                 assert re.search(
@@ -222,7 +226,7 @@ def test_list_exposes_row_height_controls() -> None:
     for label in ("Short", "Medium", "Tall", "Extra Tall", "Wrap headers"):
         assert label in html
     assert re.search(
-        r'<div class="cell-value"><a href="[^"]*/admin/widgets/1">live</a></div>', html
+        r'<div class="cell-value"><a href="[^"]*/admin/admin/widgets/1">live</a></div>', html
     )
 
 
@@ -276,10 +280,10 @@ def test_list_filter_groups_match_nested_conditions() -> None:
             transport = httpx.ASGITransport(app=app.app)
             async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
                 response = await client.get(
-                    "/api/widgets",
+                    "/api/admin/widgets",
                     params={"and": '(status.neq."",or(status.eq.live,status.eq.draft))'},
                 )
-                page = await client.get("/admin/widgets", params={"filter": json.dumps(tree)})
+                page = await client.get("/admin/admin/widgets", params={"filter": json.dumps(tree)})
                 html = page.text
             assert response.status_code == 200
             assert {row["name"] for row in response.json()["items"]} == {"alpha", "beta"}
@@ -301,7 +305,9 @@ def test_list_sorts_by_multiple_fields_and_exposes_sort_config() -> None:
                     await app.service(Widget).create({"name": name, "status": status}, ctx=ctx)
             transport = httpx.ASGITransport(app=app.app)
             async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-                response = await client.get("/admin/widgets", params={"ordering": "status,-name"})
+                response = await client.get(
+                    "/admin/admin/widgets", params={"ordering": "status,-name"}
+                )
             html = response.text
             assert html.index("gamma") < html.index("beta") < html.index("alpha")
             config = json.loads(html.split("data-list-sort-config>")[1].split("</script>")[0])
@@ -341,9 +347,11 @@ def test_list_groups_nested_rows_with_cross_page_counts() -> None:
                 assert counts == {("draft",): 2, ("draft", "delta"): 1}
             transport = httpx.ASGITransport(app=app.app)
             async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-                first = await client.get("/admin/widgets", params={"group": "status,name"})
-                second = await client.get("/admin/widgets", params={"group": "status", "offset": 2})
-                invalid = await client.get("/admin/widgets", params={"group": "missing"})
+                first = await client.get("/admin/admin/widgets", params={"group": "status,name"})
+                second = await client.get(
+                    "/admin/admin/widgets", params={"group": "status", "offset": 2}
+                )
+                invalid = await client.get("/admin/admin/widgets", params={"group": "missing"})
             html = first.text
             assert 'data-group-header="1"' in html
             assert 'data-group-header="2"' in html
@@ -379,7 +387,7 @@ def test_list_filter_rejects_invalid_groups() -> None:
                         }
                     ),
                 ):
-                    response = await client.get("/admin/widgets", params={"filter": raw})
+                    response = await client.get("/admin/admin/widgets", params={"filter": raw})
                     assert response.status_code == 422
         finally:
             await engine.dispose()

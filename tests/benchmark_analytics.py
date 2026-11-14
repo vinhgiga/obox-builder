@@ -13,7 +13,8 @@ from pathlib import Path
 from time import perf_counter
 
 import sqlalchemy as sa
-from test_analytics import STAFF, Duplicate, Sale, application
+
+from tests.test_analytics import STAFF, Duplicate, Sale, application
 
 
 async def main() -> None:

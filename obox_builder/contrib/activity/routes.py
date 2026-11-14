@@ -25,9 +25,9 @@ class ActivityRoute(ApiRoute):
     cache_control = "private, no-store"
 
 
-def build_router(activity: Activity, app_label: str | None = None) -> APIRouter:
+def build_router(activity: Activity, app_label: str) -> APIRouter:
     app = activity.app
-    prefix = app.settings.api_prefix + (f"/{app_label}" if app_label else "")
+    prefix = f"{app.settings.api_prefix}/{app_label}"
     router = APIRouter(prefix=prefix, route_class=ActivityRoute)
     dependency = Depends(app.context_dependency("api"), scope="function")
     problem = Problem.model_json_schema()

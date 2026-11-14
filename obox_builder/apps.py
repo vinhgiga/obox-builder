@@ -32,8 +32,7 @@ class AppConfig:
     dashboards: tuple[Dashboard, ...] = ()
     pages: tuple[Page, ...] = ()
     ui_prefix: str | None = None
-    ui_router: APIRouter | None = None
-    api_router: APIRouter | None = None
+    routers: tuple[APIRouter, ...] = ()
 
     @classmethod
     def load(cls, entry: str | type[AppConfig] | AppConfig) -> AppConfig:
@@ -48,6 +47,8 @@ class AppConfig:
         if not isinstance(entry, cls):
             raise ImproperlyConfigured("INSTALLED_APPS must contain AppConfig classes or paths.")
         config = copy(entry)
+        if any(hasattr(config, name) for name in ("ui_router", "api_router")):
+            raise ImproperlyConfigured("Declare API routers with AppConfig.routers.")
         if not isinstance(config.name, str) or not config.name:
             raise ImproperlyConfigured("AppConfig.name must identify its Python package.")
         config.label = config.label or config.name.rsplit(".", 1)[-1]
@@ -65,9 +66,11 @@ class AppConfig:
             or re.fullmatch(r"#[\da-fA-F]{6}", config.tab_bar_color) is None
         ):
             raise ImproperlyConfigured("AppConfig.tab_bar_color must be a six-digit hex color.")
-        for field in ("requires", "builders", "dashboards", "pages"):
+        for field in ("requires", "builders", "dashboards", "pages", "routers"):
             if not isinstance(getattr(config, field), tuple):
                 raise ImproperlyConfigured(f"AppConfig.{field} must be a tuple.")
+        if any(not isinstance(router, APIRouter) for router in config.routers):
+            raise ImproperlyConfigured("AppConfig.routers must contain APIRouter instances.")
         if any(not isinstance(dependency, str) for dependency in config.requires):
             raise ImproperlyConfigured("Application dependencies must be strings.")
         try:

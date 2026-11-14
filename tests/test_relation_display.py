@@ -15,6 +15,8 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.pool import StaticPool
 
+from tests.helpers import with_builders
+
 
 class Base(DeclarativeBase):
     pass
@@ -127,15 +129,16 @@ async def make_app(
         await connection.run_sync(Base.metadata.create_all)
     app = Obox(
         FastAPI(),
-        settings=Settings(
-            session_factory=async_sessionmaker(engine, expire_on_commit=False),
-            principal_dependency=lambda: STAFF,
-            default_policy=RBAC(),
-            csrf_secret="x" * 32,
+        settings=with_builders(
+            Settings(
+                session_factory=async_sessionmaker(engine, expire_on_commit=False),
+                principal_dependency=lambda: STAFF,
+                default_policy=RBAC(),
+                csrf_secret="x" * 32,
+            ),
+            *(definition for _, definition in registrations),
         ),
     )
-    for _model, definition in registrations:
-        app.register(definition)
     return app, engine
 
 
@@ -156,7 +159,7 @@ async def seed(app: Obox) -> None:
 async def get_html(app: Obox) -> str:
     transport = httpx.ASGITransport(app=app.app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-        response = await client.get("/admin/children")
+        response = await client.get("/admin/admin/children")
         assert response.status_code == 200
         return response.text
 
@@ -175,8 +178,8 @@ def test_list_displays_relation_label_and_keeps_api_raw() -> None:
 
             transport = httpx.ASGITransport(app=app.app)
             async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-                response = await client.get("/api/children")
-                form = (await client.get("/admin/children/new")).text
+                response = await client.get("/api/admin/children")
+                form = (await client.get("/admin/admin/children/new")).text
             assert response.status_code == 200
             assert response.json()["items"] == [
                 {"id": "1", "parentId": "1", "name": "alpha"},
@@ -199,7 +202,7 @@ def test_relation_label_respects_target_scope() -> None:
             assert "Visible" in html
             assert "Hidden" not in html
             assert 'title="2"' in html
-            assert re.search(r'<a href="[^"]*/admin/children/2">2</a>', html)
+            assert re.search(r'<a href="[^"]*/admin/admin/children/2">2</a>', html)
             assert "beta" in html
         finally:
             await engine.dispose()
@@ -245,7 +248,7 @@ def test_relation_without_label_field_falls_back_to_raw_key() -> None:
             assert "Visible" not in html
             assert "TOP-SECRET" not in html
             assert 'title="1"' in html
-            assert re.search(r'<a href="[^"]*/admin/children/1">1</a>', html)
+            assert re.search(r'<a href="[^"]*/admin/admin/children/1">1</a>', html)
         finally:
             await engine.dispose()
 

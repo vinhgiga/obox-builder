@@ -35,6 +35,8 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.pool import StaticPool
 
+from tests.helpers import with_builders
+
 
 class Base(DeclarativeBase):
     pass
@@ -106,7 +108,7 @@ class CategoryBuilder(ModelBuilder[Category]):
 
 
 class RecordBuilder(ModelBuilder[Record]):
-    fields = ("id", "name", "amount", "moment", "category_id", "payload")
+    fields: tuple[str, ...] = ("id", "name", "amount", "moment", "category_id", "payload")
     slug = "records"
     label_field = "name"
     filter_fields: tuple[str, ...] = ("id", "category_id", "moment", "name")
@@ -145,22 +147,24 @@ async def application(
         await connection.run_sync(Base.metadata.create_all)
         if with_activity:
             await connection.run_sync(ActivityBase.metadata.create_all)
-    app = Obox(
-        FastAPI(),
-        settings=Settings(
-            session_factory=async_sessionmaker(engine, expire_on_commit=False),
-            principal_dependency=lambda: principal,
-            default_policy=RBAC(),
-            csrf_secret="x" * 32,
-        ),
-        plugins=[Activity()] if with_activity else [],
-    )
     try:
-        app.register(CategoryBuilder)
-        app.register(configured)
-        app.register(document_builder)
-        app.register(LargeRecordBuilder)
-        app.register(UUIDRecordBuilder)
+        app = Obox(
+            FastAPI(),
+            settings=with_builders(
+                Settings(
+                    session_factory=async_sessionmaker(engine, expire_on_commit=False),
+                    principal_dependency=lambda: principal,
+                    default_policy=RBAC(),
+                    csrf_secret="x" * 32,
+                ),
+                CategoryBuilder,
+                configured,
+                document_builder,
+                LargeRecordBuilder,
+                UUIDRecordBuilder,
+            ),
+            plugins=[Activity()] if with_activity else [],
+        )
         async with app.app.router.lifespan_context(app.app):
             yield app
     finally:
@@ -183,17 +187,19 @@ def test_api_rejects_values_that_database_would_truncate_or_fail() -> None:
             decimal_value = await request(
                 app,
                 "POST",
-                "/api/records",
+                "/api/admin/records",
                 json={"name": "decimal", "amount": "12.345"},
             )
             assert decimal_value.status_code == 422
             assert decimal_value.json()["errors"][0]["code"] == "invalid_type"
 
-            nul_value = await request(app, "POST", "/api/records", json={"name": "bad\x00value"})
+            nul_value = await request(
+                app, "POST", "/api/admin/records", json={"name": "bad\x00value"}
+            )
             assert nul_value.status_code == 422
 
             huge_filter = await request(
-                app, "GET", "/api/records?id=eq.999999999999999999999999999"
+                app, "GET", "/api/admin/records?id=eq.999999999999999999999999999"
             )
             assert huge_filter.status_code == 422
 
@@ -206,7 +212,7 @@ def test_api_normalizes_datetime_and_returns_database_numeric_value() -> None:
             created = await request(
                 app,
                 "POST",
-                "/api/records",
+                "/api/admin/records",
                 json={
                     "name": "time",
                     "amount": "12.34",
@@ -226,29 +232,29 @@ def test_api_expansion_and_http_error_contract() -> None:
             async with app.uow(principal=STAFF) as ctx:
                 ctx.session.add_all([Category(label=None), Record(name="plain")])
 
-            expanded = await request(app, "GET", "/api/records?expand=primaryCategory")
+            expanded = await request(app, "GET", "/api/admin/records?expand=primaryCategory")
             assert expanded.status_code == 200
             assert expanded.json()["items"][0]["expanded"]["primaryCategory"] is None
 
             not_acceptable = await request(
-                app, "GET", "/api/records", headers={"accept": "text/csv"}
+                app, "GET", "/api/admin/records", headers={"accept": "text/csv"}
             )
             assert not_acceptable.status_code == 406
             assert not_acceptable.headers["content-type"] == "application/problem+json"
             assert not_acceptable.json()["code"] == "not_acceptable"
 
-            missing = await request(app, "GET", "/api/nope")
+            missing = await request(app, "GET", "/api/admin/nope")
             assert missing.status_code == 404
             assert missing.headers["content-type"] == "application/problem+json"
 
-            method = await request(app, "POST", "/api/records/1", json={})
+            method = await request(app, "POST", "/api/admin/records/1", json={})
             assert method.status_code == 405
             assert method.json()["code"] == "method_not_allowed"
 
             action_type = await request(
                 app,
                 "POST",
-                "/api/records:publish",
+                "/api/admin/records:publish",
                 content="{}",
                 headers={"content-type": "text/plain"},
             )
@@ -262,7 +268,7 @@ def test_api_openapi_declares_stable_operations_and_query_parameters() -> None:
     async def scenario() -> None:
         async with application() as app:
             schema = app.app.openapi()
-            list_operation = schema["paths"]["/api/records"]["get"]
+            list_operation = schema["paths"]["/api/admin/records"]["get"]
             parameters = {parameter["name"] for parameter in list_operation["parameters"]}
             assert {
                 "select",
@@ -274,8 +280,11 @@ def test_api_openapi_declares_stable_operations_and_query_parameters() -> None:
                 "count",
                 "id",
             } <= parameters
-            assert list_operation["operationId"] == "records_list"
-            assert schema["paths"]["/api/records/{id}"]["get"]["operationId"] == "records_retrieve"
+            assert list_operation["operationId"] == "admin.records_list"
+            assert (
+                schema["paths"]["/api/admin/records/{id}"]["get"]["operationId"]
+                == "admin.records_retrieve"
+            )
             assert "Problem" in schema["components"]["schemas"]
             assert "RecordListItem" in schema["components"]["schemas"]
             assert "RecordResponse" in schema["components"]["schemas"]
@@ -315,17 +324,17 @@ def test_identity_is_required_even_when_omitted_from_presentation_and_selection(
 
     async def scenario() -> None:
         async with application(ProjectedBuilder) as app:
-            created = await request(app, "POST", "/api/records", json={"name": "identity"})
+            created = await request(app, "POST", "/api/admin/records", json={"name": "identity"})
             assert created.status_code == 201
             row = created.json()
             assert row == {"id": "1", "name": "identity"}
-            assert created.headers["location"] == "/api/records/1"
-            for path in ("/api/records?select=name", "/api/records?select=*"):
+            assert created.headers["location"] == "/api/admin/records/1"
+            for path in ("/api/admin/records?select=name", "/api/admin/records?select=*"):
                 listed = await request(app, "GET", path)
                 assert listed.json()["items"] == [row]
             retrieved = await request(app, "GET", created.headers["location"])
             assert retrieved.json() == row
-            updated = await request(app, "PATCH", "/api/records/1", json={"name": "changed"})
+            updated = await request(app, "PATCH", "/api/admin/records/1", json={"name": "changed"})
             assert updated.json() == {"id": "1", "name": "changed"}
             assert "id" not in app.get_builder(Record).form_fields
             schemas = app.app.openapi()["components"]["schemas"]
@@ -349,26 +358,26 @@ def test_identifier_types_and_relationship_options_are_consistent() -> None:
                     ]
                 )
             for slug, expected in (("largeRecords", str(2**63 - 1)), ("uuidRecords", str(key))):
-                listed = await request(app, "GET", f"/api/{slug}")
+                listed = await request(app, "GET", f"/api/admin/{slug}")
                 assert listed.json()["items"] == [{"id": expected}]
-                retrieved = await request(app, "GET", f"/api/{slug}/{expected}")
+                retrieved = await request(app, "GET", f"/api/admin/{slug}/{expected}")
                 assert retrieved.json() == {"id": expected}
-                options = await request(app, "GET", f"/api/{slug}:queryOptions")
+                options = await request(app, "GET", f"/api/admin/{slug}:queryOptions")
                 assert options.json()["items"] == [{"id": expected, "label": expected}]
             created = await request(
                 app,
                 "POST",
-                "/api/records",
+                "/api/admin/records",
                 json={"name": "related", "categoryId": "7", "payload": {"keep_snake": False}},
             )
             assert created.status_code == 201
             assert created.json()["categoryId"] == "7"
             assert created.json()["payload"] == {"keep_snake": False}
-            expanded = await request(app, "GET", "/api/records?expand=primaryCategory")
+            expanded = await request(app, "GET", "/api/admin/records?expand=primaryCategory")
             assert expanded.json()["items"][0]["expanded"] == {
                 "primaryCategory": {"id": "7", "label": "Group"}
             }
-            options = await request(app, "GET", "/api/categories:queryOptions")
+            options = await request(app, "GET", "/api/admin/categories:queryOptions")
             assert options.json()["items"] == [{"id": "7", "label": "Group"}]
 
     asyncio.run(scenario())
@@ -378,8 +387,8 @@ def test_invalid_foreign_key_is_a_validation_error() -> None:
     async def scenario() -> None:
         async with application() as app:
             for method, path, payload in (
-                ("POST", "/api/records", {"name": "orphan", "categoryId": "999"}),
-                ("PATCH", "/api/records/1", {"categoryId": "999"}),
+                ("POST", "/api/admin/records", {"name": "orphan", "categoryId": "999"}),
+                ("PATCH", "/api/admin/records/1", {"categoryId": "999"}),
             ):
                 if method == "PATCH":
                     async with app.uow(principal=STAFF) as ctx:
@@ -428,7 +437,7 @@ def test_public_field_names_work_in_all_query_positions(method: str) -> None:
             response = await request(
                 app,
                 method,
-                "/api/records" if method == "GET" else "/api/records:query",
+                "/api/admin/records" if method == "GET" else "/api/admin/records:query",
                 **({"params": pairs} if method == "GET" else {"json": {"query": pairs}}),
             )
             assert response.status_code == 200, response.text
@@ -441,7 +450,7 @@ def test_public_field_names_work_in_all_query_positions(method: str) -> None:
                 }
             ]
             schema = app.app.openapi()
-            parameters = schema["paths"]["/api/records"]["get"]["parameters"]
+            parameters = schema["paths"]["/api/admin/records"]["get"]["parameters"]
             assert "categoryId" in {p["name"] for p in parameters}
             assert "category_id" not in {p["name"] for p in parameters}
 
@@ -465,7 +474,7 @@ def test_python_field_references_are_rejected(pairs: list[tuple[str, str]]) -> N
                 response = await request(
                     app,
                     method,
-                    "/api/records" if method == "GET" else "/api/records:query",
+                    "/api/admin/records" if method == "GET" else "/api/admin/records:query",
                     **({"params": pairs} if method == "GET" else {"json": {"query": pairs}}),
                 )
                 assert response.status_code == 422
@@ -476,10 +485,12 @@ def test_python_field_references_are_rejected(pairs: list[tuple[str, str]]) -> N
 def test_query_validation_errors_use_public_field_names() -> None:
     async def scenario() -> None:
         async with application() as app:
-            response = await request(app, "GET", "/api/records?categoryId=eq.invalid")
+            response = await request(app, "GET", "/api/admin/records?categoryId=eq.invalid")
             assert response.status_code == 422
             assert response.json()["errors"][0]["field"] == "categoryId"
-            response = await request(app, "GET", "/api/records:queryOptions?categoryId=eq.invalid")
+            response = await request(
+                app, "GET", "/api/admin/records:queryOptions?categoryId=eq.invalid"
+            )
             assert response.status_code == 422
             assert response.json()["errors"][0]["field"] == "categoryId"
 
@@ -502,13 +513,13 @@ def test_identity_never_bypasses_field_policy(per_record: bool) -> None:
         async with application(HiddenBuilder) as app:
             async with app.uow(principal=STAFF) as ctx:
                 ctx.session.add(Record(name="protected"))
-            for path in ("/api/records", "/api/records/1"):
+            for path in ("/api/admin/records", "/api/admin/records/1"):
                 response = await request(app, "GET", path)
                 assert response.status_code == 403
                 assert "protected" not in response.text
-            created = await request(app, "POST", "/api/records", json={"name": "rollback"})
+            created = await request(app, "POST", "/api/admin/records", json={"name": "rollback"})
             assert created.status_code == 403
-            updated = await request(app, "PATCH", "/api/records/1", json={"name": "rollback"})
+            updated = await request(app, "PATCH", "/api/admin/records/1", json={"name": "rollback"})
             assert updated.status_code == 403
             async with app.uow(principal=STAFF) as ctx:
                 assert await ctx.session.scalar(sa.select(sa.func.count()).select_from(Record)) == 1
@@ -520,7 +531,9 @@ def test_identity_never_bypasses_field_policy(per_record: bool) -> None:
 def test_versioned_records_require_and_refresh_strong_etags() -> None:
     async def scenario() -> None:
         async with application() as app:
-            created = await request(app, "POST", "/api/documents", json={"titleText": "draft"})
+            created = await request(
+                app, "POST", "/api/admin/documents", json={"titleText": "draft"}
+            )
             assert created.status_code == 201, created.text
             row, token = created.json(), created.headers["etag"]
             assert set(row) == {"id", "titleText"}
@@ -574,13 +587,15 @@ def test_batch_writes_preserve_results_hooks_and_versions() -> None:
 
     async def scenario() -> None:
         async with application(document_builder=TracingBuilder) as app:
-            first = await request(app, "POST", "/api/documents", json={"titleText": "first"})
-            second = await request(app, "POST", "/api/documents", json={"titleText": "second"})
+            first = await request(app, "POST", "/api/admin/documents", json={"titleText": "first"})
+            second = await request(
+                app, "POST", "/api/admin/documents", json={"titleText": "second"}
+            )
             committed.clear()
             response = await request(
                 app,
                 "POST",
-                "/api/documents:batchWrite",
+                "/api/admin/documents:batchWrite",
                 json={
                     "operations": [
                         {"op": "create", "data": {"titleText": "third"}},
@@ -616,7 +631,7 @@ def test_batch_writes_preserve_results_hooks_and_versions() -> None:
 def test_batch_failure_rolls_back_every_write(failure: str) -> None:
     async def scenario() -> None:
         async with application() as app:
-            first = await request(app, "POST", "/api/documents", json={"titleText": "first"})
+            first = await request(app, "POST", "/api/admin/documents", json={"titleText": "first"})
             operation = {
                 "op": "update",
                 "id": first.json()["id"],
@@ -636,7 +651,7 @@ def test_batch_failure_rolls_back_every_write(failure: str) -> None:
             response = await request(
                 app,
                 "POST",
-                "/api/documents:batchWrite",
+                "/api/admin/documents:batchWrite",
                 json={
                     "operations": [
                         {
@@ -660,7 +675,7 @@ def test_batch_failure_rolls_back_every_write(failure: str) -> None:
             assert response.json()["errors"][0]["pointer"] == (
                 "#/operations/1/ifMatch" if failure == "malformed" else "#/operations/1"
             )
-            rows = (await request(app, "GET", "/api/documents")).json()["items"]
+            rows = (await request(app, "GET", "/api/admin/documents")).json()["items"]
             assert rows == [first.json()]
 
     asyncio.run(scenario())
@@ -674,7 +689,7 @@ def test_batch_validates_nested_aliases_limits_duplicates_and_exposure() -> None
 
     async def scenario() -> None:
         async with application(configured=Limited) as app:
-            path = "/api/records:batchWrite"
+            path = "/api/admin/records:batchWrite"
             invalid_alias = await request(
                 app,
                 "POST",
@@ -699,7 +714,7 @@ def test_batch_validates_nested_aliases_limits_duplicates_and_exposure() -> None
             assert oversized.status_code == 422
             empty = await request(app, "POST", path, json={"operations": []})
             assert empty.status_code == 422
-            created = await request(app, "POST", "/api/records", json={"name": "first"})
+            created = await request(app, "POST", "/api/admin/records", json={"name": "first"})
             denied = await request(
                 app,
                 "POST",
@@ -713,11 +728,11 @@ def test_batch_validates_nested_aliases_limits_duplicates_and_exposure() -> None
             assert denied.status_code == 403
             assert (await request(app, "GET", created.headers["location"])).json() == created.json()
         async with application() as app:
-            created = await request(app, "POST", "/api/records", json={"name": "first"})
+            created = await request(app, "POST", "/api/admin/records", json={"name": "first"})
             response = await request(
                 app,
                 "POST",
-                "/api/records:batchWrite",
+                "/api/admin/records:batchWrite",
                 json={
                     "operations": [
                         {"op": "update", "id": created.json()["id"], "data": {}},
@@ -756,7 +771,7 @@ def test_batch_internal_errors_keep_private_details_out_of_the_response() -> Non
             response = await request(
                 app,
                 "POST",
-                "/api/documents:batchWrite",
+                "/api/admin/documents:batchWrite",
                 json={
                     "operations": [
                         {"op": "create", "data": {"titleText": "fail"}},
@@ -767,7 +782,7 @@ def test_batch_internal_errors_keep_private_details_out_of_the_response() -> Non
             assert "private database configuration" not in response.text
             assert response.json()["errors"][0]["pointer"] == "#/operations/0"
             assert response.json()["errors"][0]["detail"] == "Internal server error."
-            assert (await request(app, "GET", "/api/documents")).json()["items"] == []
+            assert (await request(app, "GET", "/api/admin/documents")).json()["items"] == []
 
     asyncio.run(scenario())
 
@@ -796,19 +811,19 @@ def test_scopes_filter_metadata_expansions_and_history_references() -> None:
                     {"name": "Visible", "category_id": category.id}, ctx=ctx
                 )
                 key = record.id
-            response = await request(app, "GET", "/api/records?expand=primaryCategory")
+            response = await request(app, "GET", "/api/admin/records?expand=primaryCategory")
             assert response.status_code == 200, response.text
             assert response.json()["items"][0]["expanded"]["primaryCategory"] is None
             assert "Hidden label" not in response.text
-            hidden = await request(app, "GET", "/api/categories:describe")
+            hidden = await request(app, "GET", "/api/admin/categories:describe")
             assert hidden.status_code == 404
             descriptions = (await request(app, "GET", "/api:describe")).json()["resources"]
-            assert [item["slug"] for item in descriptions] == ["records"]
+            assert [item["slug"] for item in descriptions] == ["admin/records"]
             field = next(item for item in descriptions[0]["fields"] if item["name"] == "categoryId")
             assert field["reference"] is None
             assert field["schema"]["anyOf"][0]["type"] == "string"
             assert descriptions[0]["scopes"]["history"] == "admin.records.history"
-            activity = await request(app, "GET", f"/api/records/{key}/activity?kind=revision")
+            activity = await request(app, "GET", f"/api/admin/records/{key}/activity?kind=revision")
             assert activity.status_code == 200, activity.text
             reference = next(
                 change
@@ -828,7 +843,7 @@ def test_reversed_batches_lock_consistently_and_preserve_versions() -> None:
     async def scenario() -> None:
         async with application() as app:
             records = [
-                await request(app, "POST", "/api/documents", json={"titleText": name})
+                await request(app, "POST", "/api/admin/documents", json={"titleText": name})
                 for name in ("one", "two")
             ]
 
@@ -836,7 +851,7 @@ def test_reversed_batches_lock_consistently_and_preserve_versions() -> None:
                 return await request(
                     app,
                     "POST",
-                    "/api/documents:batchWrite",
+                    "/api/admin/documents:batchWrite",
                     json={
                         "operations": [
                             {
@@ -855,7 +870,7 @@ def test_reversed_batches_lock_consistently_and_preserve_versions() -> None:
             assert sorted(response.status_code for response in results) == [200, 412]
             winner = next(response for response in results if response.status_code == 200)
             for result in winner.json()["results"]:
-                current = await request(app, "GET", "/api/documents/" + result["id"])
+                current = await request(app, "GET", "/api/admin/documents/" + result["id"])
                 assert current.json() == result["record"]
                 assert current.headers["etag"] == result["etag"]
 
@@ -880,7 +895,9 @@ def test_reversed_batches_lock_consistently_and_preserve_versions() -> None:
 def test_if_match_entity_tag_semantics(header: str, status: int) -> None:
     async def scenario() -> None:
         async with application() as app:
-            created = await request(app, "POST", "/api/documents", json={"titleText": "draft"})
+            created = await request(
+                app, "POST", "/api/admin/documents", json={"titleText": "draft"}
+            )
             response = await request(
                 app,
                 "PATCH",
@@ -896,17 +913,19 @@ def test_if_match_entity_tag_semantics(header: str, status: int) -> None:
 def test_preconditions_do_not_mask_authorization_or_constraint_errors() -> None:
     async def scenario() -> None:
         async with application(principal=Principal()) as app:
-            response = await request(app, "PATCH", "/api/documents/hidden", json={})
+            response = await request(app, "PATCH", "/api/admin/documents/hidden", json={})
             assert response.status_code == 401
             assert response.headers["www-authenticate"] == 'Cookie realm="obox"'
         async with application(principal=Principal(id=1, is_authenticated=True)) as app:
-            response = await request(app, "PATCH", "/api/documents/hidden", json={})
+            response = await request(app, "PATCH", "/api/admin/documents/hidden", json={})
             assert response.status_code == 403
         async with application() as app:
-            response = await request(app, "PATCH", "/api/documents/missing", json={})
+            response = await request(app, "PATCH", "/api/admin/documents/missing", json={})
             assert response.status_code == 404
-            first = await request(app, "POST", "/api/documents", json={"titleText": "first"})
-            second = await request(app, "POST", "/api/documents", json={"titleText": "second"})
+            first = await request(app, "POST", "/api/admin/documents", json={"titleText": "first"})
+            second = await request(
+                app, "POST", "/api/admin/documents", json={"titleText": "second"}
+            )
             wrong_record = await request(
                 app,
                 "PATCH",
@@ -926,7 +945,7 @@ def test_preconditions_do_not_mask_authorization_or_constraint_errors() -> None:
             current = await request(app, "GET", first.headers["location"])
             assert current.json()["titleText"] == "first"
             assert current.headers["etag"] == first.headers["etag"]
-            unversioned = await request(app, "POST", "/api/records", json={"name": "plain"})
+            unversioned = await request(app, "POST", "/api/admin/records", json={"name": "plain"})
             assert "etag" not in unversioned.headers
             unsupported = await request(
                 app, "PATCH", unversioned.headers["location"], json={}, headers={"If-Match": "*"}
@@ -934,7 +953,7 @@ def test_preconditions_do_not_mask_authorization_or_constraint_errors() -> None:
             assert unsupported.status_code == 422
             assert unsupported.json()["code"] == "unsupported_precondition"
             schema = app.app.openapi()
-            operations = schema["paths"]["/api/documents/{id}"]
+            operations = schema["paths"]["/api/admin/documents/{id}"]
             for method in ("patch", "delete"):
                 assert {
                     "name": "If-Match",
@@ -944,7 +963,7 @@ def test_preconditions_do_not_mask_authorization_or_constraint_errors() -> None:
                 } in operations[method]["parameters"]
                 assert {"412", "428"} <= operations[method]["responses"].keys()
             assert "ETag" in operations["get"]["responses"]["200"]["headers"]
-            unversioned_operations = schema["paths"]["/api/records/{id}"]
+            unversioned_operations = schema["paths"]["/api/admin/records/{id}"]
             for method in ("patch", "delete"):
                 assert "If-Match" not in {
                     parameter["name"]
@@ -972,7 +991,9 @@ def test_versioned_writes_use_mutation_permissions_and_scope(hidden_by: str) -> 
 
     async def scenario() -> None:
         async with application(document_builder=MutationBuilder) as app:
-            created = await request(app, "POST", "/api/documents", json={"titleText": "draft"})
+            created = await request(
+                app, "POST", "/api/admin/documents", json={"titleText": "draft"}
+            )
             assert created.status_code == 201
             path, tag = created.headers["location"], created.headers["etag"]
             hidden = await request(app, "GET", path)
@@ -1027,7 +1048,9 @@ def test_service_version_checks_remain_available_without_http() -> None:
 def test_two_writers_cannot_commit_the_same_record_version() -> None:
     async def scenario() -> None:
         async with application() as app:
-            created = await request(app, "POST", "/api/documents", json={"titleText": "draft"})
+            created = await request(
+                app, "POST", "/api/admin/documents", json={"titleText": "draft"}
+            )
             results = await asyncio.gather(
                 *(
                     request(
@@ -1075,7 +1098,7 @@ def test_activity_uses_public_field_references_after_redaction() -> None:
                         ),
                     ]
                 )
-            response = await request(app, "GET", "/api/records/1/activity")
+            response = await request(app, "GET", "/api/admin/records/1/activity")
             assert response.status_code == 200, response.text
             assert response.json()["items"][0]["changes"] == [
                 {"field": "categoryId", "kind": "set", "before": None, "after": "7"},

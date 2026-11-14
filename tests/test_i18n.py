@@ -13,6 +13,8 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.pool import StaticPool
 
+from tests.helpers import with_builders
+
 
 class Base(DeclarativeBase):
     pass
@@ -57,16 +59,18 @@ async def make_app(*, principal: Principal | None = STAFF, auth: bool = False) -
         await connection.run_sync(Base.metadata.create_all)
     app = Obox(
         FastAPI(),
-        settings=Settings(
-            session_factory=async_sessionmaker(engine, expire_on_commit=False),
-            principal_dependency=lambda: principal,
-            default_policy=RBAC(),
-            csrf_secret="x" * 32,
+        settings=with_builders(
+            Settings(
+                session_factory=async_sessionmaker(engine, expire_on_commit=False),
+                principal_dependency=lambda: principal,
+                default_policy=RBAC(),
+                csrf_secret="x" * 32,
+            ),
+            WidgetBuilder,
         ),
     )
     if auth:
         app.install(Auth(backend=AnonymousBackend(), secure=False))
-    app.register(WidgetBuilder)
     return app, engine
 
 
@@ -110,33 +114,35 @@ async def post(
 
 
 def test_language_prefix_translates_admin_pages() -> None:
-    vietnamese = asyncio.run(get("/vi/admin/widgets"))
-    english = asyncio.run(get("/en/admin/widgets"))
+    vietnamese = asyncio.run(get("/vi/admin/admin/widgets"))
+    english = asyncio.run(get("/en/admin/admin/widgets"))
     assert vietnamese.status_code == english.status_code == 200
     assert 'lang="vi"' in vietnamese.text
     assert "Dạng lưới" in vietnamese.text
     assert "Thêm bản ghi" in vietnamese.text
-    assert 'href="/en/admin/widgets"' in vietnamese.text
-    assert 'href="/vi/admin/widgets"' in vietnamese.text
+    assert 'href="/en/admin/admin/widgets"' in vietnamese.text
+    assert 'href="/vi/admin/admin/widgets"' in vietnamese.text
     assert 'lang="en"' in english.text
     assert "Grid view" in english.text
 
 
 def test_accept_language_selects_unprefixed_language() -> None:
-    response = asyncio.run(get("/admin/widgets", headers={"accept-language": "vi-VN,vi;q=0.9"}))
+    response = asyncio.run(
+        get("/admin/admin/widgets", headers={"accept-language": "vi-VN,vi;q=0.9"})
+    )
     assert 'lang="vi"' in response.text
     assert "Dạng lưới" in response.text
-    assert 'href="/vi/admin/widgets"' in response.text
+    assert 'href="/vi/admin/admin/widgets"' in response.text
 
 
 def test_language_switch_preserves_path_and_query() -> None:
-    response = asyncio.run(get("/vi/admin/widgets?ordering=name"))
-    assert 'href="/en/admin/widgets?ordering=name"' in response.text
-    assert 'href="/vi/admin/widgets?ordering=name"' in response.text
+    response = asyncio.run(get("/vi/admin/admin/widgets?ordering=name"))
+    assert 'href="/en/admin/admin/widgets?ordering=name"' in response.text
+    assert 'href="/vi/admin/admin/widgets?ordering=name"' in response.text
 
 
 def test_auth_redirect_keeps_language_prefix() -> None:
-    response = asyncio.run(get("/vi/admin/widgets", principal=None, auth=True))
+    response = asyncio.run(get("/vi/admin/admin/widgets", principal=None, auth=True))
     assert response.status_code == 200
     assert response.url.path == "/vi/auth/login"
     assert 'lang="vi"' in response.text
@@ -148,13 +154,13 @@ def test_auth_redirect_keeps_language_prefix() -> None:
 
 
 def test_plural_form_uses_catalog() -> None:
-    vietnamese = asyncio.run(get("/vi/admin/widgets", records=2))
-    english = asyncio.run(get("/en/admin/widgets", records=2))
+    vietnamese = asyncio.run(get("/vi/admin/admin/widgets", records=2))
+    english = asyncio.run(get("/en/admin/admin/widgets", records=2))
     assert "2 bản ghi trên trang này" in vietnamese.text
     assert "2 records on this page" in english.text
 
 
 def test_runtime_validation_errors_are_translated() -> None:
-    response = asyncio.run(post("/vi/admin/widgets/new", {"csrf_token": ""}))
+    response = asyncio.run(post("/vi/admin/admin/widgets/new", {"csrf_token": ""}))
     assert response.status_code == 422
     assert "Trường này là bắt buộc." in response.text

@@ -38,7 +38,7 @@ class Settings:
     static_root: str | PathLike[str] | None = None
     auth_password_validators: Sequence[Mapping[str, Any]] = ()
     login_redirect_url: str = "/accounts/profile/"
-    installed_apps: Sequence[str | type[AppConfig] | AppConfig] | None = None
+    installed_apps: Sequence[str | type[AppConfig] | AppConfig] = ()
 
     def __post_init__(self) -> None:
         for value in (self.api_default_limit, self.api_max_limit, self.api_max_batch):
@@ -126,14 +126,11 @@ class Settings:
             raise ImproperlyConfigured("Pass either templates or template_dirs, not both.")
         object.__setattr__(self, "template_dirs", tuple(self.template_dirs))
         object.__setattr__(self, "auth_password_validators", tuple(validators))
-        if self.installed_apps is not None:
-            if isinstance(self.installed_apps, (str, bytes)) or not isinstance(
-                self.installed_apps, Sequence
-            ):
-                raise ImproperlyConfigured(
-                    "INSTALLED_APPS must be a sequence of app configurations."
-                )
-            object.__setattr__(self, "installed_apps", tuple(self.installed_apps))
+        if isinstance(self.installed_apps, (str, bytes)) or not isinstance(
+            self.installed_apps, Sequence
+        ):
+            raise ImproperlyConfigured("INSTALLED_APPS must be a sequence of app configurations.")
+        object.__setattr__(self, "installed_apps", tuple(self.installed_apps))
 
 
 def load_settings(settings: Settings | str | None = None) -> Settings:

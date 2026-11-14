@@ -13,12 +13,11 @@ import httpx
 import pytest
 import sqlalchemy as sa
 from fastapi import APIRouter, FastAPI, Request
-from obox_builder import AppConfig, Context, ModelBuilder, Obox, Principal, Settings, View
+from obox_builder import AppConfig, Context, ModelBuilder, Obox, Page, Principal, Settings, View
 from obox_builder.auth import RBAC
 from obox_builder.contrib.analytics import Analytics, Chart, Dashboard, Measure
 from obox_builder.contrib.auth import Auth
 from obox_builder.errors import ImproperlyConfigured
-from obox_builder.i18n import localize
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -101,16 +100,6 @@ def configs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[type[AppCo
     static.mkdir()
     (static / "app.css").write_text(".polls { color: red; }")
     monkeypatch.syspath_prepend(str(tmp_path))
-    pages = APIRouter()
-
-    @pages.get("/custom", name="polls_custom", include_in_schema=False)
-    async def custom(request: Request) -> Any:
-        return request.app.state.obox.templates.TemplateResponse(
-            request=request,
-            name="polls/custom.html",
-            context={"message": "module template"},
-        )
-
     api = APIRouter()
 
     @api.get("/ping", name="polls_ping")
@@ -126,24 +115,21 @@ def configs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[type[AppCo
                 "totals", "Totals", First, (Chart("sum", "bar", "name", Measure("sum", "amount")),)
             ),
         )
-        ui_router = pages
-        api_router = api
-
-        async def get_navigation(
-            self, obox: Obox, request: Request, ctx: Context
-        ) -> list[dict[str, Any]]:
-            return (
-                [{"label": "Custom", "url": localize(request, "/polls/custom"), "kind": "page"}]
-                if ctx.principal.has_perm("polls.items.list")
-                else []
-            )
+        pages = (
+            Page(
+                "custom",
+                permission="polls.items.list",
+                context=lambda request, ctx: {"message": "module template"},
+            ),
+        )
+        routers = (api,)
 
     class RevenueConfig(AppConfig):
         name = f"{package}.revenue"
         label = "revenue"
         builders = (SecondBuilder,)
 
-    importlib.import_module(PollsConfig.name).Config = PollsConfig
+    vars(importlib.import_module(PollsConfig.name))["Config"] = PollsConfig
     return PollsConfig, RevenueConfig
 
 
@@ -322,7 +308,7 @@ def test_app_config_paths_and_runtime_instances_are_independent(
     assert second.get_builder(First).app is second
     assert first.database.engine is second.database.engine is None
     with pytest.raises(TypeError):
-        first.apps["new"] = configs[0]()  # type: ignore[index]
+        first.apps["new"] = configs[0]()
 
 
 def test_empty_installed_apps_still_provides_a_catalog(tmp_path: Path) -> None:
@@ -338,18 +324,23 @@ def test_empty_installed_apps_still_provides_a_catalog(tmp_path: Path) -> None:
 def test_dashboards_with_the_same_slug_are_scoped_to_their_applications(
     tmp_path: Path, configs: tuple[type[AppConfig], ...]
 ) -> None:
-    class Revenue(configs[1]):
-        dashboards = (
-            Dashboard(
-                "totals",
-                "Revenue totals",
-                Second,
-                (Chart("sum", "bar", "name", Measure("sum", "amount")),),
-            ),
-        )
+    revenue: type[AppConfig] = type(
+        "Revenue",
+        (configs[1],),
+        {
+            "dashboards": (
+                Dashboard(
+                    "totals",
+                    "Revenue totals",
+                    Second,
+                    (Chart("sum", "bar", "name", Measure("sum", "amount")),),
+                ),
+            )
+        },
+    )
 
     async def scenario() -> None:
-        async with runtime(tmp_path, (configs[0], Revenue), plugins=(Analytics(),)) as (_, c, _):
+        async with runtime(tmp_path, (configs[0], revenue), plugins=(Analytics(),)) as (_, c, _):
             for label, total in (("polls", 10), ("revenue", 20)):
                 path = f"/{label}/dashboards/totals"
                 page = await c.get(path)
@@ -384,22 +375,21 @@ def test_invalid_application_configuration_fails_early(
 ) -> None:
     first, second = configs
 
-    class Broken(first):
-        pass
+    broken: type[AppConfig] = type("Broken", (first,), {})
 
-    installed: tuple[Any, ...] = (Broken, second)
+    installed: tuple[Any, ...] = (broken, second)
     if problem == "duplicate":
-        installed = (Broken, first)
+        installed = (broken, first)
     elif problem == "missing":
-        Broken.requires = ("missing",)
+        broken.requires = ("missing",)
     elif problem == "label":
-        Broken.label = "vi"
+        broken.label = "vi"
     elif problem == "api":
-        Broken.ui_prefix = "/api"
+        broken.ui_prefix = "/api"
     elif problem == "invalid":
         installed = ("not_a_real_package.apps.Missing",)
     else:
-        Broken.builders = (FirstBuilder, FirstBuilder)
+        broken.builders = (FirstBuilder, FirstBuilder)
     with pytest.raises(ImproperlyConfigured):
         Obox(
             FastAPI(),

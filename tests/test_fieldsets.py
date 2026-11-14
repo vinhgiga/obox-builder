@@ -15,6 +15,8 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.pool import StaticPool
 
+from tests.helpers import with_builders
+
 
 class Base(DeclarativeBase):
     pass
@@ -67,14 +69,16 @@ async def make_app(
         await connection.run_sync(Base.metadata.create_all)
     app = Obox(
         FastAPI(),
-        settings=Settings(
-            session_factory=async_sessionmaker(engine, expire_on_commit=False),
-            principal_dependency=lambda: principal,
-            default_policy=RBAC(),
-            csrf_secret="x" * 32,
+        settings=with_builders(
+            Settings(
+                session_factory=async_sessionmaker(engine, expire_on_commit=False),
+                principal_dependency=lambda: principal,
+                default_policy=RBAC(),
+                csrf_secret="x" * 32,
+            ),
+            builder,
         ),
     )
-    app.register(builder)
     return app, engine
 
 
@@ -85,19 +89,22 @@ def form_with(fieldsets: Any, fields: Any = None) -> type[Form]:
 def compile_error(form: type[Form], **builder_attrs: Any) -> str:
     async def scenario() -> str:
         engine = create_async_engine("sqlite+aiosqlite://", poolclass=StaticPool)
-        app = Obox(
-            FastAPI(),
-            settings=Settings(
-                session_factory=async_sessionmaker(engine, expire_on_commit=False),
-                principal_dependency=lambda: None,
-                default_policy=RBAC(),
-                csrf_secret="x" * 32,
-            ),
-        )
+
         builder = type("TestBuilder", (WidgetBuilder,), {"Form": form, **builder_attrs})
         try:
             with pytest.raises(ImproperlyConfigured) as error:
-                app.register(builder)
+                Obox(
+                    FastAPI(),
+                    settings=with_builders(
+                        Settings(
+                            session_factory=async_sessionmaker(engine, expire_on_commit=False),
+                            principal_dependency=lambda: None,
+                            default_policy=RBAC(),
+                            csrf_secret="x" * 32,
+                        ),
+                        builder,
+                    ),
+                )
             return str(error.value)
         finally:
             await engine.dispose()
@@ -154,7 +161,7 @@ def test_form_page_renders_fieldsets() -> None:
         try:
             transport = httpx.ASGITransport(app=app.app)
             async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-                response = await client.get("/admin/widgets/new")
+                response = await client.get("/admin/admin/widgets/new")
             assert response.status_code == 200
             html = response.text
             assert html.count('<fieldset class="form-fieldset">') == 2
@@ -176,7 +183,7 @@ def test_form_page_without_fieldsets_stays_flat() -> None:
         try:
             transport = httpx.ASGITransport(app=app.app)
             async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-                response = await client.get("/admin/widgets/new")
+                response = await client.get("/admin/admin/widgets/new")
             assert response.status_code == 200
             assert "<fieldset>" not in response.text
         finally:

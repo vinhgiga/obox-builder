@@ -63,43 +63,30 @@ msgstr "Kiểu nhập không được hỗ trợ."
 msgid "Enter valid JSON."
 msgstr "Nhập JSON hợp lệ."
 
-#: obox_builder/builder/ui.py:577 obox_builder/contrib/auth/admin.py:257
-#: obox_builder/contrib/auth/apps.py:30
-msgid "Users"
-msgstr "Người dùng"
-
-#: obox_builder/builder/ui.py:582 obox_builder/contrib/auth/admin.py:472
-#: obox_builder/contrib/auth/admin.py:507
-#: obox_builder/contrib/auth/admin.py:560 obox_builder/contrib/auth/apps.py:31
-#: obox_builder/contrib/auth/templates/obox/auth/user_form.html:96
-#: obox_builder/contrib/auth/templates/obox/profile.html:34
-msgid "Roles"
-msgstr "Vai trò"
-
-#: obox_builder/builder/ui.py:768 obox_builder/builder/ui.py:771
+#: obox_builder/builder/ui.py:713 obox_builder/builder/ui.py:716
 msgid "Invalid inline count."
 msgstr "Số dòng không hợp lệ."
 
-#: obox_builder/builder/ui.py:783 obox_builder/builder/ui.py:812
+#: obox_builder/builder/ui.py:728 obox_builder/builder/ui.py:757
 msgid "An inline record is unavailable."
 msgstr "Không tìm thấy bản ghi inline."
 
-#: obox_builder/builder/ui.py:854
+#: obox_builder/builder/ui.py:799
 msgid "Unknown inline field."
 msgstr "Trường inline không hợp lệ."
 
-#: obox_builder/builder/ui.py:1087 obox_builder/contrib/auth/admin.py:230
-#: obox_builder/contrib/auth/views.py:255
+#: obox_builder/builder/ui.py:1032 obox_builder/contrib/auth/admin.py:230
+#: obox_builder/contrib/auth/views.py:220
 msgid "Duplicate form fields are not permitted."
 msgstr "Không được gửi trường trùng lặp."
 
 #: obox_builder/builder/templates/obox/_record_activity.html:22
 #: obox_builder/builder/templates/obox/confirm_delete.html:3
-#: obox_builder/builder/ui.py:1216
+#: obox_builder/builder/ui.py:1161
 msgid "Are you sure?"
 msgstr "Bạn có chắc không?"
 
-#: obox_builder/builder/ui.py:1245 obox_builder/builder/ui.py:1263
+#: obox_builder/builder/ui.py:1190 obox_builder/builder/ui.py:1208
 msgid "Choose a valid action and records."
 msgstr ""
 
@@ -542,7 +529,7 @@ msgid "Show password"
 msgstr "Hiện mật khẩu"
 
 #: obox_builder/builder/templates/obox/login.html:47
-#: obox_builder/contrib/auth/views.py:99
+#: obox_builder/contrib/auth/views.py:98
 msgid "Sign in"
 msgstr "Đăng nhập"
 
@@ -654,6 +641,10 @@ msgstr ""
 msgid "User not found."
 msgstr ""
 
+#: obox_builder/contrib/auth/admin.py:257 obox_builder/contrib/auth/apps.py:30
+msgid "Users"
+msgstr "Người dùng"
+
 #: obox_builder/contrib/auth/admin.py:281
 #: obox_builder/contrib/auth/admin.py:384
 msgid "Edit userNew user"
@@ -664,8 +655,8 @@ msgstr ""
 #: obox_builder/contrib/auth/admin.py:486
 #: obox_builder/contrib/auth/admin.py:533
 #: obox_builder/contrib/auth/authorization.py:105
-#: obox_builder/contrib/auth/views.py:262
-#: obox_builder/contrib/auth/views.py:270
+#: obox_builder/contrib/auth/views.py:227
+#: obox_builder/contrib/auth/views.py:235
 msgid "This field is required."
 msgstr "Trường này là bắt buộc."
 
@@ -693,7 +684,7 @@ msgid "Choose valid roles."
 msgstr ""
 
 #: obox_builder/contrib/auth/admin.py:339
-#: obox_builder/contrib/auth/views.py:272
+#: obox_builder/contrib/auth/views.py:237
 msgid "Passwords do not match."
 msgstr "Mật khẩu xác nhận không khớp."
 
@@ -704,6 +695,14 @@ msgstr ""
 #: obox_builder/contrib/auth/admin.py:366
 msgid "At least one superuser must remain active."
 msgstr ""
+
+#: obox_builder/contrib/auth/admin.py:472
+#: obox_builder/contrib/auth/admin.py:507
+#: obox_builder/contrib/auth/admin.py:560 obox_builder/contrib/auth/apps.py:31
+#: obox_builder/contrib/auth/templates/obox/auth/user_form.html:96
+#: obox_builder/contrib/auth/templates/obox/profile.html:34
+msgid "Roles"
+msgstr "Vai trò"
 
 #: obox_builder/contrib/auth/admin.py:492
 #: obox_builder/contrib/auth/admin.py:541
@@ -740,25 +739,24 @@ msgstr ""
 msgid "This password is entirely numeric."
 msgstr ""
 
-#: obox_builder/contrib/auth/views.py:93
+#: obox_builder/contrib/auth/views.py:92
 msgid "Invalid username or password."
 msgstr "Tên đăng nhập hoặc mật khẩu không đúng."
 
-#: obox_builder/contrib/auth/views.py:155
-#: obox_builder/contrib/auth/views.py:201
+#: obox_builder/contrib/auth/views.py:166
 msgid "Account"
 msgstr "Tài khoản"
 
-#: obox_builder/contrib/auth/views.py:250
-#: obox_builder/contrib/auth/views.py:282
+#: obox_builder/contrib/auth/views.py:215
+#: obox_builder/contrib/auth/views.py:247
 msgid "Password changes are not supported by this backend."
 msgstr "Backend này không hỗ trợ đổi mật khẩu."
 
-#: obox_builder/contrib/auth/views.py:264
+#: obox_builder/contrib/auth/views.py:229
 msgid "Use at most 1024 characters."
 msgstr "Chỉ được dùng tối đa 1024 ký tự."
 
-#: obox_builder/contrib/auth/views.py:268
+#: obox_builder/contrib/auth/views.py:233
 msgid "Current password is incorrect."
 msgstr "Mật khẩu hiện tại không đúng."
 

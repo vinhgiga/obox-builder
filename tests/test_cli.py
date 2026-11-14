@@ -9,10 +9,10 @@ import httpx
 import pytest
 import sqlalchemy as sa
 from fastapi import FastAPI
-from obox_builder import cli
+from obox_builder import AppConfig, ModelBuilder, Principal, cli
 from obox_builder.cli import main, startproject
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-from sqlalchemy.orm import mapped_column
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.orm.exc import StaleDataError
 
 PROJECT_FILES = {
@@ -23,7 +23,6 @@ PROJECT_FILES = {
     "migrations",
     "models.py",
     "setting.py",
-    "templates",
 }
 
 
@@ -103,12 +102,19 @@ def test_startproject_command_defaults_to_named_directory(
     assert {path.name for path in (tmp_path / "demo").iterdir()} == PROJECT_FILES
 
 
+@pytest.mark.parametrize("frontend", [False, True])
+@pytest.mark.parametrize("root_path", ["", "/prefix"])
 def test_generated_project_runs_with_plain_fastapi(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, frontend: bool, root_path: str
 ) -> None:
     import sys
 
     project = startproject("generated", tmp_path / "generated")
+    if frontend:
+        output = project / "frontend" / "dist"
+        output.mkdir(parents=True)
+        (output / "index.html").write_text("<html>Frontend application</html>")
+        (output / "app.js").write_text("export const ready = true;")
     monkeypatch.delenv("OBOX_DATABASE_URL", raising=False)
     spec = importlib.util.spec_from_file_location("setting", project / "setting.py")
     assert spec is not None
@@ -116,6 +122,27 @@ def test_generated_project_runs_with_plain_fastapi(
     setting = importlib.util.module_from_spec(spec)
     monkeypatch.setitem(sys.modules, "setting", setting)
     spec.loader.exec_module(setting)
+
+    class Base(DeclarativeBase):
+        pass
+
+    class Record(Base):
+        __tablename__ = "scaffold_records"
+        id: Mapped[int] = mapped_column(primary_key=True)
+        name: Mapped[str]
+
+    class Records(ModelBuilder[Record]):
+        fields = ("id", "name")
+
+    class Sample(AppConfig):
+        name = "obox_builder"
+        label = "sample"
+        builders = (Records,)
+
+    vars(setting)["INSTALLED_APPS"] = (Sample,)
+    vars(setting)["PRINCIPAL_DEPENDENCY"] = lambda: Principal(
+        id=1, is_authenticated=True, is_superuser=True
+    )
     main_spec = importlib.util.spec_from_file_location("generated_main", project / "main.py")
     assert main_spec is not None
     assert main_spec.loader is not None
@@ -123,6 +150,7 @@ def test_generated_project_runs_with_plain_fastapi(
     main_spec.loader.exec_module(module)
     assert type(module.app) is FastAPI
     assert module.app.state.obox is module.obox
+    assert module.obox.settings.ui_prefix == "/admin"
     assert module.obox.settings.api_default_limit == 100
     assert module.obox.settings.api_max_limit == 1000
     assert module.obox.settings.api_max_batch == 100
@@ -131,20 +159,41 @@ def test_generated_project_runs_with_plain_fastapi(
         async with (
             module.app.router.lifespan_context(module.app),
             httpx.AsyncClient(
-                transport=httpx.ASGITransport(app=module.app), base_url="http://test"
+                transport=httpx.ASGITransport(app=module.app, root_path=root_path),
+                base_url="http://test",
             ) as client,
         ):
-            response = await client.get("/")
-            assert response.status_code == 200
-            assert response.headers["content-type"].startswith("text/html")
-            assert "<title>generated</title>" in response.text
-            assert 'href="http://test/docs"' in response.text
-            assert 'href="http://test/auth/login"' in response.text
-            login_redirect = await client.get("/auth/login")
-            assert login_redirect.status_code == 303
-            assert login_redirect.headers["location"].endswith("/auth/login")
-            login_form = await client.get(login_redirect.headers["location"])
-            assert login_form.status_code == 200
+            response = await client.get(root_path + "/")
+            if frontend:
+                assert response.status_code == 200
+                assert "Frontend application" in response.text
+                navigation = await client.get(
+                    root_path + "/dashboard/settings", headers={"Accept": "text/html"}
+                )
+                assert navigation.status_code == 200
+                assert navigation.text == response.text
+                assert (await client.get(root_path + "/app.js")).status_code == 200
+                assert (await client.get(root_path + "/missing.js")).status_code == 404
+            else:
+                assert response.status_code == 307
+                assert response.headers["location"] == f"http://test{root_path}/admin"
+            catalog = await client.get(root_path + "/admin")
+            assert catalog.status_code == 200
+            assert "Applications" in catalog.text
+            form = await client.get(root_path + "/admin/sample/records/new")
+            assert form.status_code == 200
+            assert 'name="name"' in form.text
+            metadata = await client.get(root_path + "/api/sample/records:describe")
+            assert metadata.status_code == 200
+            assert metadata.json()["slug"] == "sample/records"
+            csrf = await client.get(root_path + "/api/auth/csrf")
+            assert csrf.status_code == 200
+            assert "csrfToken" in csrf.json()
+            missing = await client.get(
+                root_path + "/api/missing", headers={"Accept": "application/json"}
+            )
+            assert missing.status_code == 404
+            assert missing.headers["content-type"] == "application/problem+json"
         assert module.obox.database.engine is None
         assert not (project / "db.sqlite3").exists()
 

@@ -24,6 +24,8 @@ from obox_builder.errors import ImproperlyConfigured
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
+from tests.helpers import with_builders
+
 
 class Base(DeclarativeBase):
     pass
@@ -140,14 +142,16 @@ async def application(
         policy = Policy()
         app = Obox(
             FastAPI(),
-            settings=Settings(
-                session_factory=async_sessionmaker(engine, expire_on_commit=False),
-                principal_dependency=lambda: STAFF,
-                default_policy=policy,
-                csrf_secret="a" * 32,
+            settings=with_builders(
+                Settings(
+                    session_factory=async_sessionmaker(engine, expire_on_commit=False),
+                    principal_dependency=lambda: STAFF,
+                    default_policy=policy,
+                    csrf_secret="a" * 32,
+                ),
+                Sales,
             ),
         )
-        app.register(Sales)
         policy = cast(Policy, app.get_builder(Sale).policy)
         app.install(Analytics((Dashboard("sales", "Sales <report>", Sale, widgets),), **limits))
         async with app.app.router.lifespan_context(app.app):
@@ -314,7 +318,7 @@ def test_http_dashboard_data_records_and_permissions(tmp_path: Path) -> None:
             )
             assert rows.status_code == 200, rows.text
             assert "Next" in rows.text
-            assert "/admin/sales/1" in rows.text
+            assert "/admin/admin/sales/1" in rows.text
             null = await client.get("/analytics/sales/pivot/records", params={"row": "null"})
             blank = await client.get("/analytics/sales/pivot/records", params={"row": '""'})
             assert "0.00" in null.text
@@ -322,7 +326,7 @@ def test_http_dashboard_data_records_and_permissions(tmp_path: Path) -> None:
             assert "-5.00" in blank.text
             denied = await client.get("/analytics/sales/pivot/records", params={"row": '"B"'})
             assert denied.status_code == 200
-            assert "/admin/sales/4" not in denied.text
+            assert "/admin/admin/sales/4" not in denied.text
             negative = await client.get("/analytics/sales/pie/data")
             assert negative.status_code == 422
             assert negative.json()["code"] == "negative_chart"
@@ -441,8 +445,8 @@ def test_boundaries_sorting_keys_and_masking(tmp_path: Path) -> None:
             first = await client.get("/analytics/sales/pivot/records?limit=2")
             second = await client.get("/analytics/sales/pivot/records?limit=2&offset=2")
             assert first.status_code == second.status_code == 200
-            assert "/admin/sales/2" in first.text
-            assert "/admin/sales/3" in second.text
+            assert "/admin/admin/sales/2" in first.text
+            assert "/admin/admin/sales/3" in second.text
 
     asyncio.run(scenario())
 

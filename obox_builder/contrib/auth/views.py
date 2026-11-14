@@ -11,7 +11,6 @@ from fastapi import APIRouter, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from obox_builder.builder.http import OboxRoute, _authentication_challenge, read_form
-from obox_builder.builder.service import invoke
 from obox_builder.builder.ui import build_navigation
 from obox_builder.errors import (
     N_,
@@ -127,41 +126,7 @@ def router(app: Obox, auth: Auth) -> APIRouter:
         principal = await auth.principal(request)
         if not principal.is_authenticated:
             return RedirectResponse(auth.login_url(request), status_code=303)
-        if app.catalog_enabled:
-            return RedirectResponse(
-                localize(request, app.settings.ui_prefix or "/"), status_code=303
-            )
-        async with app.uow(principal=principal, request=request, source="ui") as ctx:
-            for registration in app._registrations.values():
-                builder = registration.builder
-                if (
-                    builder.view.enabled
-                    and builder.policy is not None
-                    and await invoke(builder.policy.allow, "list", ctx)
-                ):
-                    return RedirectResponse(
-                        localize(
-                            request,
-                            str(request.url_for(f"obox_ui_{builder.route_key}_list").path),
-                            rooted=True,
-                        ),
-                        status_code=303,
-                    )
-        return app.templates.TemplateResponse(
-            request=request,
-            name=auth.account_template,
-            context={
-                **translation_context(request),
-                "title": translate(request, "Account"),
-                "site_title": app.app.title,
-                "base_template": app.settings.base_template,
-                "navigation": [],
-                "auth": auth,
-                "principal": principal,
-                "csrf": app.csrf.token(request, principal),
-            },
-            headers={"cache-control": "no-store"},
-        )
+        return RedirectResponse(localize(request, app.settings.ui_prefix or "/"), status_code=303)
 
     async def profile(request: Request) -> Response:
         principal = await auth.principal(request)
@@ -299,7 +264,7 @@ def router(app: Obox, auth: Auth) -> APIRouter:
         return response
 
     routes.add_api_route(
-        "/account" if app.catalog_enabled else "/",
+        "/account",
         account,
         methods=["GET"],
         name=auth.account_route,

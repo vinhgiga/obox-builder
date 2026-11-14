@@ -27,6 +27,8 @@ from obox_builder.contrib.webhooks.models import Base as WebhookBase
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
+from tests.helpers import with_builders
+
 
 class Base(DeclarativeBase):
     pass
@@ -114,36 +116,6 @@ async def application(
         slug = "records"
         fields = ("id", "name", "state", "amount", "quantity", "doubled", "moment", "files")
 
-    app = Obox(
-        FastAPI(),
-        settings=Settings(
-            session_factory=async_sessionmaker(engine, expire_on_commit=False),
-            principal_dependency=lambda: STAFF,
-            default_policy=policy,
-            csrf_secret="x" * 32,
-            api_max_batch=max_batch,
-        ),
-        plugins=(
-            [
-                Files(root=path / "media"),
-                Activity(),
-                *(
-                    [
-                        Webhooks(
-                            signing_keys={"v1": b"k" * 32},
-                            active_key="v1",
-                            resolve_principal=lambda *_: STAFF,
-                        )
-                    ]
-                    if webhooks
-                    else []
-                ),
-            ]
-            if plugins
-            else []
-        ),
-    )
-
     class PlainResource(ModelBuilder[Plain]):
         slug = "records"
         fields = ("id", "name")
@@ -154,9 +126,39 @@ async def application(
         policy = RBAC[Document]()
 
     try:
-        app.register(Resource if plugins else PlainResource)
-        if plugins:
-            app.register(DocumentResource)
+        app = Obox(
+            FastAPI(),
+            settings=with_builders(
+                Settings(
+                    session_factory=async_sessionmaker(engine, expire_on_commit=False),
+                    principal_dependency=lambda: STAFF,
+                    default_policy=policy,
+                    csrf_secret="x" * 32,
+                    api_max_batch=max_batch,
+                ),
+                *((Resource, DocumentResource) if plugins else (PlainResource,)),
+            ),
+            plugins=(
+                [
+                    Files(root=path / "media"),
+                    Activity(),
+                    *(
+                        [
+                            Webhooks(
+                                signing_keys={"v1": b"k" * 32},
+                                active_key="v1",
+                                resolve_principal=lambda *_: STAFF,
+                            )
+                        ]
+                        if webhooks
+                        else []
+                    ),
+                ]
+                if plugins
+                else []
+            ),
+        )
+
         policy = cast(Policy, app.get_builder(Record if plugins else Plain).policy)
         async with (
             app.app.router.lifespan_context(app.app),
@@ -175,7 +177,7 @@ async def application(
 def test_describe_field_kinds_preserve_schema_and_policy(tmp_path: Path) -> None:
     async def scenario() -> None:
         async with application(tmp_path) as (_, client, policy, _):
-            response = await client.get("/api/records:describe")
+            response = await client.get("/api/admin/records:describe")
             assert response.status_code == 200, response.text
             body = response.json()
             fields = {item["name"]: item for item in body["fields"]}
@@ -199,7 +201,7 @@ def test_describe_field_kinds_preserve_schema_and_policy(tmp_path: Path) -> None
             }
             assert "$defs" in fields["state"]["schema"]
             policy.hide_files = policy.deny_comments = True
-            body = (await client.get("/api/records:describe")).json()
+            body = (await client.get("/api/admin/records:describe")).json()
             assert body["capabilities"]["attachments"] is False
             assert body["capabilities"]["comments"] is False
 
@@ -210,14 +212,15 @@ def test_plugins_share_routes_and_generate_concrete_metadata_schemas(tmp_path: P
     async def scenario() -> None:
         async with application(tmp_path, webhooks=True) as (app, client, _, _):
             assert not any(item.level == "error" for item in app.check(strict=True))
-            description = (await client.get("/api/records:describe")).json()
+            description = (await client.get("/api/admin/records:describe")).json()
             assert description["capabilities"] == {
                 "attachments": True,
                 "comments": True,
                 "webhooks": True,
             }
             result = await client.post(
-                "/api/webhooks", json={"resource": "records", "url": "https://example.com/events"}
+                "/api/webhooks",
+                json={"resource": "admin/records", "url": "https://example.com/events"},
             )
             assert result.status_code == 201, result.text
             schema = (await client.get("/openapi.json")).json()
@@ -280,7 +283,7 @@ def test_metadata_batches_are_ordered_scoped_and_do_not_change_records(tmp_path:
             for keys in (ids[:1], ids[::-1]):
                 statements.clear()
                 response = await client.post(
-                    "/api/records:queryMetadata",
+                    "/api/admin/records:queryMetadata",
                     json={"recordIds": keys, "include": ["attachments", "commentCount"]},
                 )
                 assert response.status_code == 200, response.text
@@ -305,18 +308,19 @@ def test_metadata_batches_are_ordered_scoped_and_do_not_change_records(tmp_path:
                 assert response.headers["cache-control"] == "private, no-store"
             sa.event.remove(engine.sync_engine, "before_cursor_execute", capture)
             assert counts[0] == counts[1]
-            record = (await client.get(f"/api/records/{ids[0]}")).json()
+            record = (await client.get(f"/api/admin/records/{ids[0]}")).json()
             assert record["files"] == [files[0]["id"]]
             assert "commentCount" not in record
             policy.hide_files = True
             response = await client.post(
-                "/api/records:queryMetadata", json={"recordIds": ids, "include": ["attachments"]}
+                "/api/admin/records:queryMetadata",
+                json={"recordIds": ids, "include": ["attachments"]},
             )
             assert all(row["attachments"] == {} for row in response.json()["items"])
             policy.hide_pk = True
             assert (
                 await client.post(
-                    "/api/records:queryMetadata",
+                    "/api/admin/records:queryMetadata",
                     json={"recordIds": ids, "include": ["attachments"]},
                 )
             ).status_code == 403
@@ -343,11 +347,11 @@ def test_attachment_metadata_uses_database_owner_keys_for_uuid_records(tmp_path:
                 await ctx.session.flush()
                 file_id = str(file.id)
             document = await client.post(
-                "/api/documents", json={"name": "uuid", "files": [file_id]}
+                "/api/admin/documents", json={"name": "uuid", "files": [file_id]}
             )
             assert document.status_code == 201, document.text
             response = await client.post(
-                "/api/documents:queryMetadata",
+                "/api/admin/documents:queryMetadata",
                 json={"recordIds": [document.json()["id"]], "include": ["attachments"]},
             )
             assert response.status_code == 200, response.text
@@ -369,7 +373,8 @@ def test_metadata_rechecks_row_and_comment_permissions(tmp_path: Path, kind: str
                 else:
                     policy.deny_comments = True
             result = await client.post(
-                "/api/records:queryMetadata", json={"recordIds": ids, "include": ["commentCount"]}
+                "/api/admin/records:queryMetadata",
+                json={"recordIds": ids, "include": ["commentCount"]},
             )
             assert result.status_code == (404 if kind == "hidden" else 403)
             assert "items" not in result.json()
@@ -390,24 +395,27 @@ def test_metadata_input_limits_soft_deleted_comments_and_absent_plugins(tmp_path
                 {"record_ids": ids, "include": ["attachments"]},
             ):
                 assert (
-                    await client.post("/api/records:queryMetadata", json=body)
+                    await client.post("/api/admin/records:queryMetadata", json=body)
                 ).status_code == 422
             async with app.uow(principal=STAFF) as ctx:
                 await ctx.session.execute(
                     sa.update(Comment).values(body=None, deleted_at=sa.func.now())
                 )
             result = await client.post(
-                "/api/records:queryMetadata", json={"recordIds": ids, "include": ["commentCount"]}
+                "/api/admin/records:queryMetadata",
+                json={"recordIds": ids, "include": ["commentCount"]},
             )
             assert result.status_code == 200, result.text
             assert result.json()["items"] == [{"id": key, "commentCount": 0} for key in ids]
             assert (
                 await client.post(
-                    "/api/records:queryMetadata?offset=0",
+                    "/api/admin/records:queryMetadata?offset=0",
                     json={"recordIds": ids, "include": ["attachments"]},
                 )
             ).status_code == 422
         async with application(tmp_path, plugins=False) as (_, client, _, _):
-            assert (await client.post("/api/records:queryMetadata", json={})).status_code == 404
+            assert (
+                await client.post("/api/admin/records:queryMetadata", json={})
+            ).status_code == 404
 
     asyncio.run(scenario())

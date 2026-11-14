@@ -546,64 +546,9 @@ async def build_navigation(
     active_builder: Any = None,
     active_admin: str | None = None,
 ) -> list[dict[str, Any]]:
-    if app.catalog_enabled:
-        from obox_builder.builder.catalog import navigation as catalog_navigation
+    from obox_builder.builder.catalog import navigation
 
-        return await catalog_navigation(app, request, ctx)
-    navigation = []
-    for registration in app._registrations.values():
-        target = registration.builder
-        if target.view.enabled and await invoke(target.policy.allow, "list", ctx):
-            navigation.append(
-                {
-                    "label": target.model.__name__,
-                    "url": localize(
-                        request,
-                        str(request.url_for(f"obox_ui_{target.route_key}_list").path),
-                        rooted=True,
-                    ),
-                    "active": target is active_builder,
-                }
-            )
-    auth = getattr(app, "auth", None)
-    if (
-        auth is not None
-        and getattr(auth, "_admin_installed", False)
-        and getattr(ctx.principal, "is_superuser", False)
-    ):
-        navigation.extend(
-            [
-                {
-                    "label": translate(request, "Users"),
-                    "url": auth.users_url(request),
-                    "active": active_admin == "users",
-                },
-                {
-                    "label": translate(request, "Roles"),
-                    "url": auth.roles_url(request),
-                    "active": active_admin == "roles",
-                },
-            ]
-        )
-    analytics = app.get_plugin("analytics")
-    for (label, _), page in app.pages.items():
-        if page.menu and page.permitted(ctx.principal):
-            url = localize(request, str(request.url_for(page.route_name(label)).path), rooted=True)
-            navigation.append(
-                {
-                    "label": translate(request, page.title or page.name),
-                    "url": url,
-                    "active": request.url.path == url,
-                }
-            )
-    if analytics is not None:
-        for dashboard in analytics.dashboards:
-            if await analytics.visible(dashboard, ctx):
-                url = localize(request, analytics.dashboard_path(dashboard))
-                navigation.append(
-                    {"label": dashboard.title, "url": url, "active": request.url.path == url}
-                )
-    return navigation
+    return await navigation(app, request, ctx)
 
 
 def build_ui(app: Any, builder: Any, service: Any) -> APIRouter:

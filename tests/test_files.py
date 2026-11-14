@@ -18,6 +18,8 @@ from obox_builder.contrib.files import IMAGES, File, Files, attachments
 from obox_builder.contrib.files.models import Base as FileBase
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
+from tests.helpers import with_builders
+
 
 class Base(DeclarativeBase):
     pass
@@ -51,15 +53,17 @@ async def application(tmp_path: Path) -> AsyncIterator[tuple[Obox, httpx.AsyncCl
 
     app = Obox(
         FastAPI(),
-        settings=Settings(
-            database_url=f"sqlite+aiosqlite:///{tmp_path / 'files.sqlite3'}",
-            principal_dependency=principal,
-            default_policy=RBAC(),
-            csrf_secret="x" * 32,
+        settings=with_builders(
+            Settings(
+                database_url=f"sqlite+aiosqlite:///{tmp_path / 'files.sqlite3'}",
+                principal_dependency=principal,
+                default_policy=RBAC(),
+                csrf_secret="x" * 32,
+            ),
+            DocumentBuilder,
         ),
         plugins=[Files(root=tmp_path / "media")],
     )
-    app.register(DocumentBuilder)
     async with app.app.router.lifespan_context(app.app):
         assert app.database.engine is not None
         async with app.database.engine.begin() as connection:
@@ -122,7 +126,8 @@ def test_file_json_contract_across_upload_resume_claim_and_widget(tmp_path: Path
             assert renamed.json()["filename"] == "renamed.png"
 
             record = await client.post(
-                "/api/documents", json={"name": "Example", "attachments": [upload["id"]]}
+                "/api/admin/documents",
+                json={"name": "Example", "attachments": [upload["id"]]},
             )
             assert record.status_code == 201, record.text
             record_id = record.json()["id"]
@@ -137,7 +142,7 @@ def test_file_json_contract_across_upload_resume_claim_and_widget(tmp_path: Path
             assert download.content == PNG
             assert download.headers["content-type"] == "image/png"
 
-            page = await client.get(f"/admin/documents/{record_id}")
+            page = await client.get(f"/admin/admin/documents/{record_id}")
             assert page.status_code == 200
             match = re.search(r'data-files-meta="([^"]+)"', page.text)
             assert match is not None

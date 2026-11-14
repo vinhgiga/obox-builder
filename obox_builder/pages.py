@@ -51,9 +51,13 @@ class Page:
         if self.context is not None and not callable(self.context):
             raise ImproperlyConfigured("Page context must be a callable.")
         if self.permission is not None and (
-            not isinstance(self.permission, str) or not _valid_permission(self.permission)
+            not isinstance(self.permission, str)
+            or not (
+                _valid_permission(self.permission)
+                or (self.permission.isidentifier() and not self.permission.startswith("_"))
+            )
         ):
-            raise ImproperlyConfigured("Page permissions require app.resource.action.")
+            raise ImproperlyConfigured("Page permissions require a name or app.resource.action.")
         if type(self.public) is not bool or type(self.menu) is not bool:
             raise ImproperlyConfigured("Page public and menu options must be booleans.")
         if self.public and self.permission is not None:

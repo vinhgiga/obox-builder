@@ -20,6 +20,8 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.pool import StaticPool
 
+from tests.helpers import with_builders
+
 
 class Base(DeclarativeBase):
     pass
@@ -102,14 +104,16 @@ async def application(
             await connection.run_sync(Base.metadata.create_all)
         app = Obox(
             FastAPI(),
-            settings=Settings(
-                session_factory=async_sessionmaker(engine, expire_on_commit=False),
-                principal_dependency=lambda: principal,
-                default_policy=RBAC(),
-                csrf_secret="x" * 32,
+            settings=with_builders(
+                Settings(
+                    session_factory=async_sessionmaker(engine, expire_on_commit=False),
+                    principal_dependency=lambda: principal,
+                    default_policy=RBAC(),
+                    csrf_secret="x" * 32,
+                ),
+                configured,
             ),
         )
-        app.register(configured)
         yield app
     finally:
         if namespace:
@@ -150,15 +154,15 @@ def test_checksheet_lifecycle_and_approved_record_lock() -> None:
             async with httpx.AsyncClient(
                 transport=httpx.ASGITransport(app=app.app), base_url="http://test"
             ) as client:
-                page = await client.get(f"/admin/checksheets/{key}")
+                page = await client.get(f"/admin/admin/checksheets/{key}")
                 assert page.status_code == 200
                 assert "approved" in page.text
                 assert 'name="_save"' not in page.text
                 assert (
-                    await client.patch(f"/api/checksheets/{key}", json={"result": "NG"})
+                    await client.patch(f"/api/admin/checksheets/{key}", json={"result": "NG"})
                 ).status_code == 403
                 assert (
-                    await client.post(f"/admin/checksheets/{key}", data={"result": "NG"})
+                    await client.post(f"/admin/admin/checksheets/{key}", data={"result": "NG"})
                 ).status_code == 403
             assert await statuses(app) == ["approved"]
 
@@ -203,7 +207,7 @@ def test_api_actions_require_the_custom_permission(principal: Principal, code: i
                 transport=httpx.ASGITransport(app=app.app), base_url="http://test"
             ) as client:
                 response = await client.post(
-                    "/api/checksheets:approve", json={"recordIds": list(map(str, ids))}
+                    "/api/admin/checksheets:approve", json={"recordIds": list(map(str, ids))}
                 )
                 assert response.status_code == code
                 if code == 200:
@@ -234,7 +238,9 @@ def test_invalid_action_batches_leave_all_records_unchanged(
             async with httpx.AsyncClient(
                 transport=httpx.ASGITransport(app=app.app), base_url="http://test"
             ) as client:
-                response = await client.post(f"/api/checksheets:{name}", json={"recordIds": ids})
+                response = await client.post(
+                    f"/api/admin/checksheets:{name}", json={"recordIds": ids}
+                )
                 assert response.status_code == code
             assert await statuses(app) == ["performed", "approved"]
 
@@ -251,12 +257,13 @@ def test_actions_apply_row_scope_and_api_csrf() -> None:
                 transport=httpx.ASGITransport(app=app.app), base_url="http://test"
             ) as client:
                 hidden = await client.post(
-                    "/api/checksheets:approve", json={"recordIds": [*map(str, ids), "2"]}
+                    "/api/admin/checksheets:approve",
+                    json={"recordIds": [*map(str, ids), "2"]},
                 )
                 assert hidden.status_code == 404
                 client.cookies.set("session", "cookie")
                 csrf = await client.post(
-                    "/api/checksheets:approve", json={"recordIds": list(map(str, ids))}
+                    "/api/admin/checksheets:approve", json={"recordIds": list(map(str, ids))}
                 )
                 assert csrf.status_code == 403
             assert await statuses(app) == ["performed"]
@@ -308,12 +315,12 @@ def test_admin_actions_work_without_delete_permission_and_respect_filters(across
             async with httpx.AsyncClient(
                 transport=httpx.ASGITransport(app=app.app), base_url="http://test"
             ) as client:
-                page = await client.get("/admin/checksheets")
+                page = await client.get("/admin/admin/checksheets")
                 assert 'value="approve"' in page.text
                 assert 'value="delete"' not in page.text
                 assert 'name="record_ids"' in page.text
                 response = await client.post(
-                    "/admin/checksheets/bulk-actions?filter.status=performed&limit=1",
+                    "/admin/admin/checksheets/bulk-actions?filter.status=performed&limit=1",
                     data={
                         "csrf_token": "",
                         "action": "approve",
@@ -338,10 +345,10 @@ def test_admin_hides_and_rejects_actions_without_permission() -> None:
             async with httpx.AsyncClient(
                 transport=httpx.ASGITransport(app=app.app), base_url="http://test"
             ) as client:
-                page = await client.get("/admin/checksheets")
+                page = await client.get("/admin/admin/checksheets")
                 assert 'value="approve"' not in page.text
                 response = await client.post(
-                    "/admin/checksheets/bulk-actions",
+                    "/admin/admin/checksheets/bulk-actions",
                     data={
                         "csrf_token": "",
                         "action": "approve",

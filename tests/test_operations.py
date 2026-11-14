@@ -15,6 +15,8 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.pool import StaticPool
 
+from tests.helpers import with_builders
+
 
 class Base(DeclarativeBase):
     pass
@@ -63,32 +65,37 @@ async def make_app(
         await connection.run_sync(Base.metadata.create_all)
     app = Obox(
         FastAPI(),
-        settings=Settings(
-            session_factory=async_sessionmaker(engine, expire_on_commit=False),
-            principal_dependency=lambda: principal,
-            default_policy=RBAC(),
-            csrf_secret="x" * 32,
+        settings=with_builders(
+            Settings(
+                session_factory=async_sessionmaker(engine, expire_on_commit=False),
+                principal_dependency=lambda: principal,
+                default_policy=RBAC(),
+                csrf_secret="x" * 32,
+            ),
+            builder,
         ),
     )
-    app.register(builder)
     return app, engine
 
 
 def compile_error(builder: type[ModelBuilder[Widget]]) -> str:
     async def scenario() -> str:
         engine = create_async_engine("sqlite+aiosqlite://", poolclass=StaticPool)
-        app = Obox(
-            FastAPI(),
-            settings=Settings(
-                session_factory=async_sessionmaker(engine, expire_on_commit=False),
-                principal_dependency=lambda: None,
-                default_policy=RBAC(),
-                csrf_secret="x" * 32,
-            ),
-        )
+
         try:
             with pytest.raises(ImproperlyConfigured) as error:
-                app.register(builder)
+                Obox(
+                    FastAPI(),
+                    settings=with_builders(
+                        Settings(
+                            session_factory=async_sessionmaker(engine, expire_on_commit=False),
+                            principal_dependency=lambda: None,
+                            default_policy=RBAC(),
+                            csrf_secret="x" * 32,
+                        ),
+                        builder,
+                    ),
+                )
             return str(error.value)
         finally:
             await engine.dispose()
@@ -107,12 +114,12 @@ def test_view_get_operations_controls_rendered_operations() -> None:
                 widget_id = (await app.service(Widget).create({"name": "alpha"}, ctx=ctx)).id
             transport = httpx.ASGITransport(app=app.app)
             async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-                list_response = await client.get("/admin/widgets")
-                detail_response = await client.get(f"/admin/widgets/{widget_id}")
-            assert "/admin/widgets/new" not in list_response.text
+                list_response = await client.get("/admin/admin/widgets")
+                detail_response = await client.get(f"/admin/admin/widgets/{widget_id}")
+            assert "/admin/admin/widgets/new" not in list_response.text
             for name in ("_save", "_addanother", "_continue"):
                 assert f'name="{name}"' in detail_response.text
-            assert f"/admin/widgets/{widget_id}/delete" in detail_response.text
+            assert f"/admin/admin/widgets/{widget_id}/delete" in detail_response.text
             assert 'class="btn btn-danger"' in detail_response.text
         finally:
             await engine.dispose()
@@ -128,9 +135,9 @@ def test_api_operations_control_registered_routes() -> None:
             assert builder.api.operations == ("list", "retrieve")
             transport = httpx.ASGITransport(app=app.app)
             async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-                listed = await client.get("/api/widgets")
-                created = await client.post("/api/widgets", json={"name": "alpha"})
-                updated = await client.patch("/api/widgets/1", json={"name": "beta"})
+                listed = await client.get("/api/admin/widgets")
+                created = await client.post("/api/admin/widgets", json={"name": "alpha"})
+                updated = await client.patch("/api/admin/widgets/1", json={"name": "beta"})
             assert listed.status_code == 200
             assert created.status_code == 405
             assert updated.status_code == 405

@@ -18,6 +18,8 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, selectinload
 from sqlalchemy.pool import StaticPool
 
+from tests.helpers import with_builders
+
 
 class Base(DeclarativeBase):
     pass
@@ -92,22 +94,26 @@ async def make_app(principal: Principal = SUPERUSER, *, admin: bool = True) -> t
         await connection.run_sync(Base.metadata.create_all)
     app = Obox(
         FastAPI(),
-        settings=Settings(
-            session_factory=async_sessionmaker(engine, expire_on_commit=False),
-            principal_dependency=lambda: principal,
-            default_policy=RBAC(),
-            csrf_secret="x" * 32,
-            auth_password_validators=(
-                {
-                    "NAME": "obox_builder.contrib.auth.password_validation.MinimumLengthValidator",
-                    "OPTIONS": {"min_length": 12},
-                },
+        settings=with_builders(
+            Settings(
+                session_factory=async_sessionmaker(engine, expire_on_commit=False),
+                principal_dependency=lambda: principal,
+                default_policy=RBAC(),
+                csrf_secret="x" * 32,
+                auth_password_validators=(
+                    {
+                        "NAME": (
+                            "obox_builder.contrib.auth.password_validation.MinimumLengthValidator"
+                        ),
+                        "OPTIONS": {"min_length": 12},
+                    },
+                ),
             ),
+            WidgetBuilder,
+            ArticleBuilder,
         ),
+        plugins=(Auth(backend=StubBackend(principal), secure=False, admin=admin),),
     )
-    app.install(Auth(backend=StubBackend(principal), secure=False, admin=admin))
-    app.register(WidgetBuilder)
-    app.register(ArticleBuilder)
     return app, engine
 
 
@@ -223,7 +229,7 @@ def test_admin_routes_static_and_superuser_access() -> None:
         try:
             response = await get(disabled, "/auth/users")
             assert response.status_code == 404
-            builder = await get(disabled, "/admin/widgets")
+            builder = await get(disabled, "/admin/admin/widgets")
             assert "/auth/users" not in builder.text
             assert "/auth/roles" not in builder.text
         finally:
@@ -287,16 +293,19 @@ def test_user_list_navigation_and_non_superuser_navigation() -> None:
             assert "Edit" in page.text
             assert "Delete" in page.text
 
-            builder = await get(app, "/admin/widgets")
+            builder = await get(app, "/admin/admin/widgets")
             assert builder.status_code == 200
-            assert 'href="/auth/users"' in builder.text
-            assert 'href="/auth/roles"' in builder.text
+            catalog = await get(app, "/admin")
+            assert 'href="/auth"' in catalog.text
+            account = await get(app, "/auth")
+            assert 'href="/auth/users"' in account.text
+            assert 'href="/auth/roles"' in account.text
         finally:
             await engine.dispose()
 
         staff, engine = await make_app(STAFF)
         try:
-            page = await get(staff, "/admin/widgets")
+            page = await get(staff, "/admin/admin/widgets")
             assert page.status_code == 200
             assert "/auth/users" not in page.text
             assert "/auth/roles" not in page.text

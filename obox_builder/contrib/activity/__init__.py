@@ -38,5 +38,5 @@ class Activity:
         if hasattr(self, "app"):
             raise ImproperlyConfigured("Activity is already installed.")
         self.app = app
-        for app_label in app.apps if app.catalog_enabled else (None,):
+        for app_label in app.apps:
             app.include_router(build_router(self, app_label))
