@@ -210,23 +210,20 @@ async def page_context(
 ) -> dict[str, Any]:
     rows, config = [], {}
     labels = {
-        key: translate(request, value)
-        for key, value in {
-            "empty": "Empty",
-            "total": "Total",
-            "loading": "Loading…",
-            "noData": "No records found.",
-            "error": "Unable to load data. Try again.",
-            "value": "Value",
-            "series": "Series",
-            "records": "View records",
-            "chartOptions": "Chart options",
-            "viewAsTable": "View as table",
-            "viewAsChart": "View as chart",
-            "expand": "Expand",
-            "close": "Close",
-            "allRecords": "All records",
-        }.items()
+        "empty": translate(request, "Empty"),
+        "total": translate(request, "Total"),
+        "loading": translate(request, "Loading…"),
+        "noData": translate(request, "No records found."),
+        "error": translate(request, "Unable to load data. Try again."),
+        "value": translate(request, "Value"),
+        "series": translate(request, "Series"),
+        "records": translate(request, "View records"),
+        "chartOptions": translate(request, "Chart options"),
+        "viewAsTable": translate(request, "View as table"),
+        "viewAsChart": translate(request, "View as chart"),
+        "expand": translate(request, "Expand"),
+        "close": translate(request, "Close"),
+        "allRecords": translate(request, "All records"),
     }
     for row in obox._page_components[app_label, page.name]:
         visible = []

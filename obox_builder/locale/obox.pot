@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-11-15 16:53+0700\n"
+"POT-Creation-Date: 2026-11-15 17:04+0700\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -524,16 +524,66 @@ msgstr ""
 msgid "Sign in"
 msgstr ""
 
-#: obox_builder/contrib/analytics/templates/obox_analytics/records.html:3
-msgid "Back"
+#: obox_builder/contrib/analytics/routes.py:213
+msgid "Empty"
 msgstr ""
 
+#: obox_builder/contrib/analytics/routes.py:214
+msgid "Total"
+msgstr ""
+
+#: obox_builder/contrib/analytics/routes.py:215
+msgid "Loading…"
+msgstr ""
+
+#: obox_builder/contrib/analytics/routes.py:216
+#: obox_builder/contrib/analytics/templates/obox_analytics/records.html:21
+msgid "No records found."
+msgstr ""
+
+#: obox_builder/contrib/analytics/routes.py:217
+msgid "Unable to load data. Try again."
+msgstr ""
+
+#: obox_builder/contrib/analytics/routes.py:218
+msgid "Value"
+msgstr ""
+
+#: obox_builder/contrib/analytics/routes.py:219
+msgid "Series"
+msgstr ""
+
+#: obox_builder/contrib/analytics/routes.py:220
 #: obox_builder/contrib/analytics/templates/obox_analytics/records.html:10
 msgid "View records"
 msgstr ""
 
-#: obox_builder/contrib/analytics/templates/obox_analytics/records.html:21
-msgid "No records found."
+#: obox_builder/contrib/analytics/routes.py:221
+msgid "Chart options"
+msgstr ""
+
+#: obox_builder/contrib/analytics/routes.py:222
+msgid "View as table"
+msgstr ""
+
+#: obox_builder/contrib/analytics/routes.py:223
+msgid "View as chart"
+msgstr ""
+
+#: obox_builder/contrib/analytics/routes.py:224
+msgid "Expand"
+msgstr ""
+
+#: obox_builder/contrib/analytics/routes.py:225
+msgid "Close"
+msgstr ""
+
+#: obox_builder/contrib/analytics/routes.py:226
+msgid "All records"
+msgstr ""
+
+#: obox_builder/contrib/analytics/templates/obox_analytics/records.html:3
+msgid "Back"
 msgstr ""
 
 #: obox_builder/contrib/analytics/templates/obox_analytics/records.html:27
