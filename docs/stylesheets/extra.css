@@ -1,0 +1,52 @@
+:root {
+  --md-primary-fg-color: #087c72;
+  --md-primary-fg-color--light: #12958a;
+  --md-primary-fg-color--dark: #075b54;
+  --md-accent-fg-color: #e59a2f;
+}
+
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color: #075b54;
+  --md-primary-fg-color--light: #087c72;
+  --md-primary-fg-color--dark: #043e39;
+  --md-accent-fg-color: #f3b252;
+}
+
+.md-typeset .hero {
+  max-width: 48rem;
+  margin: 2.5rem auto 3rem;
+  text-align: center;
+}
+
+.md-typeset .hero h1 {
+  margin-bottom: 0.5rem;
+  font-size: clamp(2.25rem, 6vw, 3.6rem);
+  letter-spacing: -0.045em;
+}
+
+.md-typeset .hero p {
+  color: var(--md-default-fg-color--light);
+  font-size: 1.2rem;
+}
+
+.md-typeset .hero .md-button {
+  margin: 0.6rem 0.25rem 0;
+}
+
+.md-typeset .feature-card {
+  height: 100%;
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 0.75rem;
+  transition: border-color 150ms ease, transform 150ms ease;
+}
+
+.md-typeset .feature-card:hover {
+  border-color: var(--md-accent-fg-color);
+  transform: translateY(-2px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .md-typeset .feature-card {
+    transition: none;
+  }
+}

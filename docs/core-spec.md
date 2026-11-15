@@ -728,4 +728,4 @@ Visual no-code editor, multi-step conditional forms, automatic nested target cre
 
 **Implementation note:** This document describes the proposed v0.4 public
 contract, not every implementation detail. Items explicitly marked **TBD** are
-not frozen API. For setup instructions, use the [quickstart](quickstart.md).
+not frozen API. For setup instructions, use the [quickstart](examples/quickstart.md).

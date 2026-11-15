@@ -7,10 +7,11 @@ Follows [Keep a Changelog](https://keepachangelog.com/), versions follow
 
 ### Added
 
+- A searchable documentation site with product tabs and example sections for
+  common features, views, APIs, forms, pages, and components.
 - HTTP plugin composition through `Obox(app, plugins=[...])` and
   `obox.install(plugin)`, dependency validation, a read-only plugin registry,
   access defaults and optional asynchronous plugin lifespans.
-- `obox.register(Model)` as shorthand for an empty `ModelBuilder[Model]` subclass.
 - Atomic resource batch writes and principal-filtered API descriptions, sharing
   existing validation, permissions, hooks, and version checks.
 - JSON session authentication and opt-in scoped personal tokens with hashed

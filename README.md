@@ -10,8 +10,14 @@ uv add obox-builder
 
 ## Documentation
 
-- [Quickstart](docs/quickstart.md)
-- [Core specification](docs/core-spec.md) for the public contract
+- [Obox Builder documentation](docs/index.md)
+- [Quickstart](docs/examples/quickstart.md)
+- [Examples](docs/examples/index.md)
+- [API reference](docs/reference/api.md)
+- [Release notes](docs/release-notes.md)
+
+Preview the documentation site locally with `uv sync --group docs` and
+`uv run zensical serve`.
 
 ## Requirements
 
@@ -19,4 +25,6 @@ uv add obox-builder
 - FastAPI
 - SQLAlchemy 2
 
-Optional dependency groups provide PostgreSQL drivers, SQLite async support, and authentication.
+The SQLite driver and Auth dependencies are installed by default; enable Auth
+as a plugin in your application. Optional dependency groups add PostgreSQL
+drivers and webhook HTTP delivery support.

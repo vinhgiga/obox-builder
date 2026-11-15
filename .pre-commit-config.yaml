@@ -11,7 +11,9 @@ repos:
       - id: check-json
       - id: check-merge-conflict
       - id: check-toml
+      # Zensical validates its Python-name tags during the documentation build.
       - id: check-yaml
+        exclude: ^mkdocs\.yml$
       - id: detect-private-key
       - id: end-of-file-fixer
       - id: mixed-line-ending

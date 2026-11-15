@@ -63,6 +63,9 @@ dev = [
     "twine>=7.0.0",
     "validate-pyproject>=0.27",
 ]
+docs = [
+    "zensical>=0.1.1,<0.2",
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -74,7 +77,7 @@ packages = ["obox_builder"]
 [tool.hatch.build.targets.wheel.hooks.custom]
 
 [tool.hatch.build.targets.sdist]
-include = ["LICENSE", "README.md", "docs", "obox_builder", "pyproject.toml", "hatch_build.py"]
+include = ["LICENSE", "README.md", "docs", "mkdocs.yml", "obox_builder", "pyproject.toml", "hatch_build.py"]
 
 [tool.ruff]
 line-length = 100

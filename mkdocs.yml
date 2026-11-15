@@ -1,0 +1,107 @@
+site_name: Obox Builder
+site_description: Model-driven CRUD applications for FastAPI and SQLAlchemy.
+repo_name: vinhgiga/obox-builder
+repo_url: https://github.com/vinhgiga/obox-builder
+use_directory_urls: true
+strict: true
+
+theme:
+  variant: classic
+  icon:
+    logo: material/cube-outline
+    repo: fontawesome/brands/github
+  font: false
+  palette:
+    - scheme: default
+      primary: teal
+      accent: amber
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: teal
+      accent: amber
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.expand
+    - navigation.footer
+    - navigation.top
+    - navigation.indexes
+    - content.code.copy
+    - search.suggest
+    - search.highlight
+
+plugins:
+  - search
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - md_in_html
+  - tables
+  - pymdownx.emoji:
+      emoji_generator: !!python/name:zensical.extensions.emoji.to_svg
+      emoji_index: !!python/name:zensical.extensions.emoji.twemoji
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+
+extra_css:
+  - stylesheets/extra.css
+
+nav:
+  - Obox Builder:
+      - Overview: index.md
+      - Installation: installation.md
+  - Features:
+      - Overview: features/index.md
+      - Resource builders: features/resources.md
+      - Access control: features/access-control.md
+      - JSON API: features/api.md
+      - Activity and files: features/activity-files.md
+      - Analytics: features/analytics.md
+      - Background work and extensions: features/extensions.md
+  - Examples:
+      - Overview: examples/index.md
+      - Start a project: examples/quickstart.md
+      - Features:
+          - Common examples: examples/features/index.md
+          - Register a resource: examples/features/register-resource.md
+          - Auth and permissions: examples/features/auth-and-permissions.md
+          - File attachments: examples/features/file-attachments.md
+      - Views:
+          - Overview: examples/views/index.md
+          - Lists and filters: examples/views/list-and-filters.md
+      - APIs:
+          - Overview: examples/apis/index.md
+          - Query a resource: examples/apis/query-resource.md
+          - Add a custom action: examples/apis/custom-action.md
+      - Forms:
+          - Overview: examples/forms/index.md
+          - Customize a form: examples/forms/customize-form.md
+      - Pages:
+          - Overview: examples/pages/index.md
+          - Compose a page: examples/pages/compose-page.md
+      - Components:
+          - Overview: examples/components/index.md
+          - Add an analytics chart: examples/components/analytics-chart.md
+  - Reference:
+      - Overview: reference/index.md
+      - Python API: reference/python-api.md
+      - Settings: reference/settings.md
+      - CLI: reference/cli.md
+      - Resource API overview: reference/api.md
+      - Full Resource API contract: api-spec.md
+      - Record and activity API: record-activity-spec.md
+      - Core design specification: core-spec.md
+      - Analytics design specification: extension-spec.md
+  - Release Notes: release-notes.md
