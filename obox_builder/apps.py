@@ -17,9 +17,9 @@ from obox_builder.pages import Page
 if TYPE_CHECKING:
     from obox_builder.application import Obox
     from obox_builder.builder import ModelBuilder
+    from obox_builder.components import Component
     from obox_builder.conf import Settings
     from obox_builder.context import Context
-    from obox_builder.contrib.analytics import Dashboard
 
 
 class AppConfig:
@@ -29,7 +29,7 @@ class AppConfig:
     tab_bar_color: str = "#f3f4f6"
     requires: tuple[str, ...] = ()
     builders: tuple[type[ModelBuilder[Any]], ...] = ()
-    dashboards: tuple[Dashboard, ...] = ()
+    components: tuple[type[Component] | Component, ...] = ()
     pages: tuple[Page, ...] = ()
     ui_prefix: str | None = None
     routers: tuple[APIRouter, ...] = ()
@@ -47,6 +47,10 @@ class AppConfig:
         if not isinstance(entry, cls):
             raise ImproperlyConfigured("INSTALLED_APPS must contain AppConfig classes or paths.")
         config = copy(entry)
+        if hasattr(config, "dashboards"):
+            raise ImproperlyConfigured(
+                "AppConfig.dashboards was removed; declare components and pages."
+            )
         if any(hasattr(config, name) for name in ("ui_router", "api_router")):
             raise ImproperlyConfigured("Declare API routers with AppConfig.routers.")
         if not isinstance(config.name, str) or not config.name:
@@ -66,7 +70,7 @@ class AppConfig:
             or re.fullmatch(r"#[\da-fA-F]{6}", config.tab_bar_color) is None
         ):
             raise ImproperlyConfigured("AppConfig.tab_bar_color must be a six-digit hex color.")
-        for field in ("requires", "builders", "dashboards", "pages", "routers"):
+        for field in ("requires", "builders", "components", "pages", "routers"):
             if not isinstance(getattr(config, field), tuple):
                 raise ImproperlyConfigured(f"AppConfig.{field} must be a tuple.")
         if any(not isinstance(router, APIRouter) for router in config.routers):

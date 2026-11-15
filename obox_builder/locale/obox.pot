@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-11-14 19:46+0700\n"
+"POT-Creation-Date: 2026-11-15 16:53+0700\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -17,11 +17,11 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 2.18.0\n"
 
-#: obox_builder/builder/catalog.py:114
+#: obox_builder/builder/catalog.py:100
 msgid "Home"
 msgstr ""
 
-#: obox_builder/builder/catalog.py:144
+#: obox_builder/builder/catalog.py:130
 #: obox_builder/builder/templates/obox/app_index.html:4
 msgid "Applications"
 msgstr ""
@@ -163,7 +163,7 @@ msgid "Back to list"
 msgstr ""
 
 #: obox_builder/builder/templates/obox/_record_fields.html:14
-#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:19
+#: obox_builder/builder/templates/obox/components.html:26
 msgid "Search"
 msgstr ""
 
@@ -209,10 +209,6 @@ msgstr ""
 msgid "No resources available."
 msgstr ""
 
-#: obox_builder/builder/templates/obox/app_index.html:35
-msgid "Reports"
-msgstr ""
-
 #: obox_builder/builder/templates/obox/base.html:22
 msgid "Skip to content"
 msgstr ""
@@ -237,6 +233,21 @@ msgstr ""
 
 #: obox_builder/builder/templates/obox/base.html:114
 msgid "No tabs match your search."
+msgstr ""
+
+#: obox_builder/builder/templates/obox/components.html:43
+#: obox_builder/builder/templates/obox/list.html:156
+#: obox_builder/builder/templates/obox/list.html:162
+msgid "Filter"
+msgstr ""
+
+#: obox_builder/builder/templates/obox/components.html:54
+msgid "Apply filters"
+msgstr ""
+
+#: obox_builder/builder/templates/obox/components.html:57
+#: obox_builder/builder/templates/obox/list.html:169
+msgid "Reset"
 msgstr ""
 
 #: obox_builder/builder/templates/obox/confirm_delete.html:4
@@ -358,23 +369,12 @@ msgstr ""
 msgid "Add subgroup"
 msgstr ""
 
-#: obox_builder/builder/templates/obox/list.html:156
-#: obox_builder/builder/templates/obox/list.html:162
-#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:36
-msgid "Filter"
-msgstr ""
-
 #: obox_builder/builder/templates/obox/list.html:163
 msgid "In this view, show records"
 msgstr ""
 
 #: obox_builder/builder/templates/obox/list.html:167
 msgid "Apply"
-msgstr ""
-
-#: obox_builder/builder/templates/obox/list.html:169
-#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:51
-msgid "Reset"
 msgstr ""
 
 #: obox_builder/builder/templates/obox/list.html:191
@@ -524,70 +524,16 @@ msgstr ""
 msgid "Sign in"
 msgstr ""
 
-#: obox_builder/contrib/analytics/routes.py:292
-msgid "Empty"
+#: obox_builder/contrib/analytics/templates/obox_analytics/records.html:3
+msgid "Back"
 msgstr ""
 
-#: obox_builder/contrib/analytics/routes.py:293
-msgid "Total"
-msgstr ""
-
-#: obox_builder/contrib/analytics/routes.py:294
-msgid "Loading…"
-msgstr ""
-
-#: obox_builder/contrib/analytics/routes.py:295
-#: obox_builder/contrib/analytics/templates/obox_analytics/records.html:21
-msgid "No records found."
-msgstr ""
-
-#: obox_builder/contrib/analytics/routes.py:296
-msgid "Unable to load data. Try again."
-msgstr ""
-
-#: obox_builder/contrib/analytics/routes.py:297
-msgid "Value"
-msgstr ""
-
-#: obox_builder/contrib/analytics/routes.py:298
-msgid "Series"
-msgstr ""
-
-#: obox_builder/contrib/analytics/routes.py:299
 #: obox_builder/contrib/analytics/templates/obox_analytics/records.html:10
 msgid "View records"
 msgstr ""
 
-#: obox_builder/contrib/analytics/routes.py:300
-msgid "Chart options"
-msgstr ""
-
-#: obox_builder/contrib/analytics/routes.py:301
-msgid "View as table"
-msgstr ""
-
-#: obox_builder/contrib/analytics/routes.py:302
-msgid "View as chart"
-msgstr ""
-
-#: obox_builder/contrib/analytics/routes.py:303
-msgid "Expand"
-msgstr ""
-
-#: obox_builder/contrib/analytics/routes.py:304
-msgid "Close"
-msgstr ""
-
-#: obox_builder/contrib/analytics/routes.py:305
-msgid "All records"
-msgstr ""
-
-#: obox_builder/contrib/analytics/templates/obox_analytics/dashboard.html:48
-msgid "Apply filters"
-msgstr ""
-
-#: obox_builder/contrib/analytics/templates/obox_analytics/records.html:3
-msgid "Back"
+#: obox_builder/contrib/analytics/templates/obox_analytics/records.html:21
+msgid "No records found."
 msgstr ""
 
 #: obox_builder/contrib/analytics/templates/obox_analytics/records.html:27

@@ -26,7 +26,7 @@
                data-widget
                data-kind="{{ widget.kind }}"
                data-view="{{ 'table' if widget.kind == 'pivot' else 'chart' }}"
-               data-drill="{{ 'true' if widget.kind != 'pivot' and widget.drill else 'false' }}"
+               data-drill="{{ 'true' if widget.drill else 'false' }}"
                data-url="{{ widget.url }}"
                data-records-url="{{ widget.recordsUrl }}"
                data-row-label="{{ widget.rowLabel }}"

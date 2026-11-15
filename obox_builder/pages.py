@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from fastapi import Request
 
@@ -13,12 +13,19 @@ from obox_builder.auth import _valid_permission, has_permission
 from obox_builder.context import Context
 from obox_builder.errors import ImproperlyConfigured
 
+if TYPE_CHECKING:
+    from obox_builder.components import Component, Use
+
+
 PageContext = Callable[[Request, Context], Mapping[str, Any] | Awaitable[Mapping[str, Any]]]
 
 
 @dataclass(frozen=True)
 class Page:
     name: str
+    components: tuple[tuple[type[Component] | Component | Use, ...], ...] = field(
+        default=(), kw_only=True
+    )
     path: str | None = field(default=None, kw_only=True)
     template: str | None = field(default=None, kw_only=True)
     title: str | None = field(default=None, kw_only=True)
@@ -28,6 +35,10 @@ class Page:
     menu: bool = field(default=True, kw_only=True)
 
     def __post_init__(self) -> None:
+        if not isinstance(self.components, tuple) or any(
+            not isinstance(row, tuple) or not row for row in self.components
+        ):
+            raise ImproperlyConfigured("Page components require a tuple of nonempty rows.")
         if not isinstance(self.name, str) or re.fullmatch(r"[a-z][a-z0-9_]*", self.name) is None:
             raise ImproperlyConfigured("Page names must be lowercase identifiers.")
         if self.path is not None and (

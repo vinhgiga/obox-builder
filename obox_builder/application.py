@@ -28,7 +28,9 @@ from starlette.staticfiles import StaticFiles
 from obox_builder.apps import AppConfig
 from obox_builder.auth import Permission, Policy, Principal
 from obox_builder.builder import ModelBuilder
+from obox_builder.builder.components import ComponentService
 from obox_builder.builder.service import ResourceService, invoke
+from obox_builder.components import Use
 from obox_builder.conf import Settings, load_settings
 from obox_builder.context import Context
 from obox_builder.db import Database
@@ -178,6 +180,8 @@ class Obox:
         self._loading_apps = True
         self._apps: dict[str, AppConfig] = {}
         self._pages: dict[tuple[str, str], Page] = {}
+        self._components: dict[tuple[str, str], ComponentService] = {}
+        self._page_components: dict[tuple[str, str], tuple[tuple[ComponentService, ...], ...]] = {}
         self._installation_failed = False
         self.ui_prefixes = [self.settings.ui_prefix] if self.settings.ui_prefix else []
         self._ui_routes: list[BaseRoute | RouteContext] = []
@@ -217,6 +221,7 @@ class Obox:
             for plugin in self._pending_plugins:
                 self._setup_plugin(plugin)
             self._pending_plugins.clear()
+            self._finish_apps()
         except BaseException:
             self._installation_failed = True
             raise
@@ -224,6 +229,18 @@ class Obox:
     @property
     def apps(self) -> Mapping[str, AppConfig]:
         return MappingProxyType(self._apps)
+
+    @property
+    def components(self) -> Mapping[tuple[str, str], ComponentService]:
+        return MappingProxyType(self._components)
+
+    def component(self, name: str, *, app_label: str) -> ComponentService:
+        from obox_builder.errors import NotFound
+
+        try:
+            return self._components[app_label, name]
+        except KeyError as exc:
+            raise NotFound("Unknown component.") from exc
 
     @property
     def pages(self) -> Mapping[tuple[str, str], Page]:
@@ -243,6 +260,22 @@ class Obox:
                     page.permission,
                     Permission(page.permission, page.title or page.name, "page"),
                 )
+        bindings = [
+            *self._components.values(),
+            *(
+                service
+                for rows in self._page_components.values()
+                for row in rows
+                for service in row
+            ),
+        ]
+        for service in bindings:
+            declaration = service.definition
+            for permission in (declaration.permission, declaration.records_permission):
+                if permission is not None:
+                    result.setdefault(
+                        permission, Permission(permission, declaration.title, "component")
+                    )
         for dependency in _api_contexts(self.app.routes):
             if dependency.permission is not None:
                 name = dependency.permission
@@ -265,12 +298,46 @@ class Obox:
         bound = replace(
             page,
             path=config.ui_path(self.settings) + (page.path or f"/{page.name}"),
-            template=page.template or f"{app_label}/{page.name}.html",
+            template=page.template
+            or ("obox/components.html" if page.components else f"{app_label}/{page.name}.html"),
             title=page.title or page.name.replace("_", " ").title(),
             permission=f"{app_label}.pages.{page.permission}"
             if page.permission is not None and "." not in page.permission
             else page.permission,
         )
+        rows = []
+        keys: set[str] = set()
+        for row in bound.components:
+            bindings = []
+            for item in row:
+                placement = item if isinstance(item, Use) else None
+                declaration = item.component if isinstance(item, Use) else item
+                key = (
+                    placement.key
+                    if placement
+                    else getattr(declaration, "name", None) or f"component{len(keys) + 1}"
+                )
+                if key in keys:
+                    raise ImproperlyConfigured(
+                        "Page component keys must be unique; use explicit Use keys."
+                    )
+                keys.add(key)
+                service = ComponentService.bind(
+                    self,
+                    declaration,
+                    app_label=app_label,
+                    name=key,
+                    page=bound,
+                    title=placement.title if placement else None,
+                    filters=placement.filters if placement else None,
+                )
+                if not service.definition.template and service.definition.plugin != "analytics":
+                    raise ImproperlyConfigured(
+                        "Page components require a template or a supported renderer."
+                    )
+                bindings.append(service)
+            rows.append(tuple(bindings))
+        self._page_components[app_label, bound.name] = tuple(rows)
         router = build_page(self, bound, app_label)
         for candidate in iter_route_contexts(router.routes):
             if any(
@@ -292,8 +359,6 @@ class Obox:
         self._apps[config.label] = config
 
     def _load_apps(self) -> None:
-        from obox_builder.builder.catalog import build_catalog
-        from obox_builder.builder.ui import create_templates
 
         for entry in self.settings.installed_apps:
             self.add_app(AppConfig.load(entry))
@@ -316,6 +381,28 @@ class Obox:
         for config in self._apps.values():
             for builder in config.builders:
                 self._compile_builder(builder, app_label=config.label)
+
+    def _finish_apps(self) -> None:
+        from obox_builder.builder.catalog import build_catalog
+        from obox_builder.builder.component_api import build_component_api
+        from obox_builder.builder.ui import create_templates
+
+        if self.settings.templates is None:
+            self.templates.env.loader = create_templates(
+                self.settings, tuple(self._apps.values())
+            ).env.loader
+        for config in self._apps.values():
+            for declaration in config.components:
+                service = ComponentService.bind(self, declaration, app_label=config.label)
+                key = config.label, service.name
+                if key in self._components:
+                    raise ImproperlyConfigured(
+                        "Component names must be unique within an application."
+                    )
+                self._components[key] = service
+        for config in self._apps.values():
+            if config.components:
+                self.include_router(build_component_api(self, config.label))
             for page in config.pages:
                 self.add_page(page, app_label=config.label)
             for router in config.routers:
@@ -330,10 +417,6 @@ class Obox:
                 self._owned_routes.add(id(route))
                 self._ui_routes.append(route)
             self.add_ui_prefix(config.ui_path(self.settings))
-        if self.settings.templates is None:
-            self.templates.env.loader = create_templates(
-                self.settings, tuple(self._apps.values())
-            ).env.loader
         self.add_ui_prefix(self.settings.ui_prefix or "/")
         self.include_router(build_catalog(self), ui=True)
 
@@ -494,6 +577,8 @@ class Obox:
         if model in self._registrations:
             raise ImproperlyConfigured("This model is already registered.")
         definition._compile(model, self.settings.default_policy, self)
+        if definition.slug == "components" or definition.api.prefix == "components":
+            raise ImproperlyConfigured("The components collection is reserved.")
         if definition.slug is None:
             raise ImproperlyConfigured("The compiled builder has no slug.")
         if any(
@@ -584,15 +669,7 @@ class Obox:
 
         if self._installation_failed:
             raise ImproperlyConfigured("Plugin setup failed; create a new application.")
-        diagnostics = [
-            Diagnostic(
-                "error",
-                "app.analytics_missing",
-                f"{config.label}: install Analytics to enable its dashboards.",
-            )
-            for config in self._apps.values()
-            if config.dashboards and self.get_plugin("analytics") is None
-        ]
+        diagnostics: list[Diagnostic] = []
         if any(_api_contexts(self.app.routes)):
             self.app.dependency_overrides.setdefault(_api_context, self.context_dependency("api"))
             if self.settings.principal_dependency is None:
@@ -610,6 +687,23 @@ class Obox:
                 self.templates.env.get_template(cast(str, page.template))
             except TemplateError as exc:
                 diagnostics.append(Diagnostic("error", "page.template", f"{label}.{name}: {exc}"))
+        bindings = [
+            *self._components.values(),
+            *(
+                service
+                for rows in self._page_components.values()
+                for row in rows
+                for service in row
+            ),
+        ]
+        for service in bindings:
+            if service.definition.template:
+                try:
+                    self.templates.env.get_template(service.definition.template)
+                except TemplateError as exc:
+                    diagnostics.append(
+                        Diagnostic("error", "component.template", f"{service.identity}: {exc}")
+                    )
         routes = list(iter_route_contexts(self.app.routes))
         for i, route in enumerate(routes):
             for other in routes[:i]:

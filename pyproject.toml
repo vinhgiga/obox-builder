@@ -142,3 +142,10 @@ name = "Shared identity, context and errors do not depend on builders"
 type = "forbidden"
 source_modules = ["obox_builder.auth", "obox_builder.context", "obox_builder.errors"]
 forbidden_modules = ["obox_builder.builder", "obox_builder.application"]
+
+[[tool.importlinter.contracts]]
+name = "Component services do not depend on HTTP or rendering"
+type = "forbidden"
+source_modules = ["obox_builder.builder.components", "obox_builder.contrib.analytics.service"]
+forbidden_modules = ["obox_builder.builder.component_api", "obox_builder.contrib.analytics.routes", "obox_builder.application", "fastapi", "jinja2"]
+allow_indirect_imports = true

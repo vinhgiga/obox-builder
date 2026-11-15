@@ -27,7 +27,44 @@ export async function pooled(items, run, signal, concurrency = 2) {
   );
 }
 
-export class DashboardLoader {
+const pendingRequests = [];
+let activeRequests = 0;
+
+function drainRequests() {
+  while (activeRequests < 2 && pendingRequests.length) pendingRequests.shift()();
+}
+
+function withRequestSlot(run, signal) {
+  return new Promise((resolve, reject) => {
+    const cancel = () => {
+      const index = pendingRequests.indexOf(start);
+      if (index >= 0) {
+        pendingRequests.splice(index, 1);
+        reject(signal.reason);
+      }
+    };
+    const start = () => {
+      signal.removeEventListener("abort", cancel);
+      if (signal.aborted) {
+        reject(signal.reason);
+        return;
+      }
+      activeRequests++;
+      Promise.resolve()
+        .then(run)
+        .then(resolve, reject)
+        .finally(() => {
+          activeRequests--;
+          drainRequests();
+        });
+    };
+    signal.addEventListener("abort", cancel, { once: true });
+    pendingRequests.push(start);
+    drainRequests();
+  });
+}
+
+export class ComponentLoader {
   constructor() {
     this.controller = null;
   }
@@ -40,7 +77,10 @@ export class DashboardLoader {
       items,
       async (item) => {
         try {
-          const value = await receive(item, controller.signal);
+          const value = await withRequestSlot(
+            () => receive(item, controller.signal),
+            controller.signal,
+          );
           if (!controller.signal.aborted) apply(item, value, null);
         } catch (error) {
           if (!controller.signal.aborted) apply(item, null, error);
@@ -82,6 +122,10 @@ function renderTable(widget, data, filters, labels) {
   function cell(parentRow, value, row, column, header = false) {
     const td = node(header ? "th" : "td", undefined, parentRow);
     if (header) td.scope = "row";
+    if (widget.dataset.drill === "false") {
+      td.textContent = value === null ? "—" : String(value);
+      return;
+    }
     const link = node("a", value === null ? "—" : String(value), td);
     link.href = recordURL(widget.dataset.recordsUrl, filters, row, column);
     link.setAttribute("aria-label", `${labels.records}: ${link.textContent}`);
@@ -412,7 +456,7 @@ export function mount(root, { filters, Chart = globalThis.Chart } = {}) {
   );
   const charts = new Map();
   const widgetData = new Map();
-  const loader = new DashboardLoader();
+  const loader = new ComponentLoader();
   const events = new AbortController();
   const ownerDocument = root.ownerDocument;
   const dialog = node("dialog", undefined, root);
@@ -422,8 +466,6 @@ export function mount(root, { filters, Chart = globalThis.Chart } = {}) {
   const dialogHeader = node("header", undefined, dialogContent);
   dialogHeader.className = "analytics-expanded-header";
   const dialogTitle = node("h2", undefined, dialogHeader);
-  dialogTitle.id = "obox-analytics-expanded-title";
-  dialog.setAttribute("aria-labelledby", dialogTitle.id);
   const close = node("button", "×", dialogHeader);
   close.type = "button";
   close.className = "btn btn-icon btn-sm";
@@ -488,6 +530,7 @@ export function mount(root, { filters, Chart = globalThis.Chart } = {}) {
     activeElement = element;
     activePosition = { parent: element.parentNode, next: element.nextSibling };
     dialogTitle.textContent = widget.querySelector("h2").textContent;
+    dialog.setAttribute("aria-label", dialogTitle.textContent);
     dialogChart.replaceChildren(element);
     element.hidden = false;
     recordTabs.replaceChildren();

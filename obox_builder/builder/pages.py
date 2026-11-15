@@ -39,6 +39,10 @@ def build_page(obox: Obox, page: Page, app_label: str) -> APIRouter:
     router = APIRouter(route_class=PageRoute, include_in_schema=False)
     dependency = Depends(obox.context_dependency("ui"), scope="function")
 
+    from obox_builder.contrib.analytics.routes import build_page_components, page_context
+
+    router.include_router(build_page_components(obox, page, app_label))
+
     async def render(request: Request, ctx: Context = dependency) -> HTMLResponse:
         if not page.permitted(ctx.principal):
             if not getattr(ctx.principal, "is_authenticated", False) or not getattr(
@@ -56,6 +60,11 @@ def build_page(obox: Obox, page: Page, app_label: str) -> APIRouter:
                 name=cast(str, page.template),
                 context={
                     **values,
+                    **(
+                        await page_context(obox, page, app_label, request, ctx)
+                        if page.components
+                        else {}
+                    ),
                     **translation_context(request),
                     "request": request,
                     "title": translate(request, cast(str, page.title)),

@@ -24,7 +24,6 @@ async def app_list(obox: Obox, request: Request, ctx: Context) -> list[dict[str,
         ctx.principal, "is_active", False
     ):
         return result
-    analytics: Any = obox.get_plugin("analytics")
     for config in obox.apps.values():
         entries = []
         for registration in obox._registrations.values():
@@ -65,19 +64,6 @@ async def app_list(obox: Obox, request: Request, ctx: Context) -> list[dict[str,
             if label == config.label and page.menu and page.permitted(ctx.principal)
         )
         entries.extend(await config.get_navigation(obox, request, ctx))
-        if analytics is not None:
-            entries.extend(
-                [
-                    {
-                        "label": translate(request, dashboard.title),
-                        "url": localize(request, analytics.dashboard_path(dashboard)),
-                        "kind": "dashboard",
-                    }
-                    for dashboard in analytics.dashboards
-                    if dashboard.app_label == config.label
-                    and await analytics.visible(dashboard, ctx)
-                ]
-            )
         if entries:
             result.append(
                 {

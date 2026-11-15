@@ -1,85 +1,59 @@
-"""Code-defined dashboards over registered resource models."""
+"""Typed analytical components over registered resource builders."""
 
 from __future__ import annotations
 
-import re
-from collections.abc import Sequence
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, cast
 
-from sqlalchemy.exc import DBAPIError
-
 from obox_builder.builder.aggregates import Aggregation, Measure
-from obox_builder.builder.filters import FilterGroup, parse_filter
+from obox_builder.builder.filters import FilterGroup
+from obox_builder.components import Component, ComponentQuery
 from obox_builder.contrib.analytics.charts import (
     Avg,
     Axis,
-    Chart,
-    ChartBuilder,
+    ChartSpec,
     Count,
     Dim,
     Field,
+    Kind,
     Max,
     Min,
     Series,
     Sum,
-    _terms,
-    bar,
-    donut,
-    line,
-    pie,
-    scatter,
+    chart_spec,
 )
-from obox_builder.errors import ImproperlyConfigured, NotFound, OboxError
+from obox_builder.contrib.analytics.schemas import ChartData, PivotData
+from obox_builder.errors import ImproperlyConfigured, OboxError
 
 if TYPE_CHECKING:
     from obox_builder.application import Obox
+    from obox_builder.builder.components import ComponentService
     from obox_builder.context import Context
 
 __all__ = [
     "Analytics",
     "Avg",
     "Axis",
+    "Bar",
     "Chart",
-    "ChartBuilder",
     "Count",
-    "Dashboard",
     "Dim",
+    "Donut",
     "Field",
-    "Group",
+    "Line",
     "Max",
     "Measure",
     "Min",
+    "Pie",
     "Pivot",
+    "Scatter",
     "Series",
     "Sum",
-    "bar",
-    "donut",
-    "line",
-    "pie",
-    "scatter",
 ]
 
 
-def _slug(value: str, *, widget: bool = False) -> None:
-    pattern = r"[a-z][a-z0-9_-]*(?:\.[a-z][a-z0-9_-]*)*" if widget else r"[a-z][a-z0-9_-]*"
-    if not isinstance(value, str) or re.fullmatch(pattern, value) is None:
-        raise ImproperlyConfigured("Use a lowercase slug beginning with a letter.")
-
-
-def _filters(value: FilterGroup) -> None:
-    import json
-
-    if not isinstance(value, FilterGroup):
-        raise ImproperlyConfigured("Widget filters require a FilterGroup.")
-    try:
-        parse_filter(json.dumps(value.to_dict()))
-    except (OboxError, TypeError, ValueError, RecursionError) as exc:
-        raise ImproperlyConfigured("Invalid fixed widget filters.") from exc
-
-
 @dataclass(frozen=True)
-class Pivot:
+class PivotSpec:
     slug: str
     rows: str
     measure: Measure = field(default_factory=Measure)
@@ -106,159 +80,172 @@ class Pivot:
         )
 
 
-_Widget = Pivot | Chart | type[ChartBuilder]
-_Layout = Sequence[_Widget | Sequence[_Widget]]
+class Chart(Component):
+    plugin = "analytics"
+    kind = "bar"
+    query_model = ComponentQuery
+    result_model = ChartData
+    x: str | Dim = ""
+    y: Any = Measure()
+    color: str | Dim | None = None
+    order = "x"
+    orientation = "vertical"
+    height = "md"
+    stack = "none"
+    legend = "auto"
+    labels = False
+    percent = False
+    drill = False
+    primary_axis: Axis | None = None
+    secondary_axis: Axis | None = None
 
+    def get_statement(self, ctx: Context) -> Any:
+        """Narrow the authorized source; never replace its policy selection."""
+        return None
 
-@dataclass(frozen=True, init=False)
-class Dashboard:
-    """Use charts for explicit rows, or flat widgets for an automatic grid."""
+    def _build(self, builder: Any, name: str) -> ChartSpec:
+        spec = chart_spec(
+            cast(Kind, self.kind),
+            x=self.x,
+            y=self.y,
+            color=self.color,
+            slug=name,
+            title=self.title,
+            description=self.description,
+            where=self.filters,
+            order=self.order,
+            orientation=self.orientation,
+            height=self.height,
+            stack=self.stack,
+            legend=self.legend,
+            labels=self.labels,
+            percent=self.percent,
+            drill=self.drill,
+            primary_axis=self.primary_axis,
+            secondary_axis=self.secondary_axis,
+        )
+        spec.validate(builder)
+        return spec
 
-    slug: str
-    title: str
-    source: type[Any] | None
-    widgets: tuple[Pivot | Chart, ...]
-    groups: tuple[Group, ...]
-    template: str
-    app_label: str | None
-    _row_sizes: tuple[int, ...] = field(repr=False)
+    async def _execute(self, service: ComponentService, query: Any, ctx: Context) -> Any:
+        from obox_builder.contrib.analytics.service import execute
 
-    def __init__(
-        self,
-        slug: str,
-        title: str,
-        source: type[Any] | None = None,
-        widgets: _Layout = (),
-        *,
-        groups: Sequence[Group] = (),
-        charts: _Layout | None = None,
-        template: str = "obox_analytics/dashboard.html",
-        app_label: str | None = None,
-        _row_sizes: tuple[int, ...] = (),
-    ) -> None:
-        _slug(slug)
-        explicit_rows = charts is not None
-        if charts is not None:
-            if widgets:
-                raise ImproperlyConfigured("Declare either charts or widgets, not both.")
-            widgets = charts
-        if not isinstance(widgets, (list, tuple)):
-            raise ImproperlyConfigured("Use a list or tuple of widgets or widget rows.")
-        normalized: list[Pivot | Chart] = []
-        row_sizes = []
-        for item in widgets:
-            if isinstance(item, (list, tuple)):
-                explicit_rows = True
-                row = item
-            else:
-                row = (item,)
-            if not row:
-                raise ImproperlyConfigured("Widget rows must not be empty.")
-            row_sizes.append(len(row))
-            for widget in row:
-                if isinstance(widget, type) and issubclass(widget, ChartBuilder):
-                    widget = widget.as_chart()
-                if not isinstance(widget, (Pivot, Chart)):
-                    raise ImproperlyConfigured("Use Pivot, Chart or ChartBuilder declarations.")
-                normalized.append(widget)
-        if explicit_rows:
-            _row_sizes = tuple(row_sizes)
-        if _row_sizes and (
-            any(type(size) is not int or size < 1 for size in _row_sizes)
-            or sum(_row_sizes) != len(normalized)
-        ):
-            raise ImproperlyConfigured("Widget row sizes must match the declared widgets.")
-        for name, value in (
-            ("slug", slug),
-            ("title", title),
-            ("source", source),
-            ("widgets", tuple(normalized)),
-            ("groups", tuple(groups)),
-            ("template", template),
-            ("app_label", app_label),
-            ("_row_sizes", _row_sizes),
-        ):
-            object.__setattr__(self, name, value)
-        if (
-            not isinstance(self.title, str)
-            or not self.title.strip()
-            or not (self.widgets or self.groups)
-        ):
-            raise ImproperlyConfigured("Dashboards require a title and at least one widget.")
-        if not isinstance(self.template, str) or not self.template.strip():
-            raise ImproperlyConfigured("Dashboard templates require a nonempty template name.")
-        if self.groups:
-            if self.widgets or self.source is not None:
-                raise ImproperlyConfigured(
-                    "Declare grouped dashboard sources and widgets on groups."
+        return await execute(service, query, ctx, self)
+
+    async def _records(self, service: ComponentService, query: Any, ctx: Context) -> Any:
+        from obox_builder.contrib.analytics.service import records
+
+        return await records(service, query, ctx, self)
+
+    def _presentation(self, spec: Any) -> dict[str, Any]:
+        from dataclasses import asdict
+
+        return {
+            **{
+                name: getattr(spec, name)
+                for name in (
+                    "kind",
+                    "orientation",
+                    "stack",
+                    "legend",
+                    "labels",
+                    "percent",
+                    "drill",
                 )
-            if any(not isinstance(group, Group) or group.groups for group in self.groups) or len(
-                {group.slug for group in self.groups}
-            ) != len(self.groups):
-                raise ImproperlyConfigured("Use unique source groups without nesting.")
-        elif self.source is None and any(
-            not isinstance(widget, Chart) or widget.source is None for widget in self.widgets
-        ):
-            raise ImproperlyConfigured("A dashboard or group requires a source.")
-        seen = set()
-        for widget in self.widgets:
-            _slug(widget.slug, widget=True)
-            key = (
-                widget.source if self.source is None and isinstance(widget, Chart) else None,
-                widget.slug,
+            },
+            "primaryAxis": asdict(spec.primary_axis) if spec.primary_axis else {},
+            "secondaryAxis": asdict(spec.secondary_axis) if spec.secondary_axis else {},
+            "height": self.height,
+        }
+
+
+class Bar(Chart):
+    kind = "bar"
+
+
+class Line(Chart):
+    kind = "line"
+
+
+class Scatter(Chart):
+    kind = "scatter"
+
+
+class Pie(Chart):
+    kind = "pie"
+
+
+class Donut(Chart):
+    kind = "donut"
+
+
+class Pivot(Component):
+    plugin = "analytics"
+    kind = "pivot"
+    query_model = ComponentQuery
+    result_model = PivotData
+    rows = ""
+    columns: str | None = None
+    measure = Measure()
+    row_sort: Literal["group", "value"] = "group"
+    column_sort: Literal["group", "value"] = "group"
+    row_descending = False
+    column_descending = False
+    show_row_totals = True
+    show_column_totals = True
+    drill = False
+    height = "md"
+
+    def _build(self, builder: Any, name: str) -> PivotSpec:
+        spec = PivotSpec(
+            name,
+            self.rows,
+            self.measure,
+            self.columns,
+            self.title,
+            cast(FilterGroup, self.filters),
+            self.row_sort,
+            self.column_sort,
+            self.row_descending,
+            self.column_descending,
+            self.show_row_totals,
+            self.show_column_totals,
+        )
+        spec.aggregation.validate(builder)
+        if any(
+            type(flag) is not bool
+            for flag in (
+                self.show_row_totals,
+                self.show_column_totals,
+                self.drill,
             )
-            if key in seen:
-                raise ImproperlyConfigured("Widget slugs must be unique within a dashboard.")
-            seen.add(key)
-            _filters(widget.filters)
-            if isinstance(widget, Chart):
-                for series in widget.series:
-                    if series.where is not None:
-                        _filters(series.where)
-            if isinstance(widget, Chart) and widget.kind not in {
-                "bar",
-                "line",
-                "scatter",
-                "pie",
-                "donut",
-            }:
-                raise ImproperlyConfigured("Unsupported chart type.")
+        ) or self.height not in {"sm", "md", "lg"}:
+            raise ImproperlyConfigured("Invalid pivot presentation.")
+        return spec
 
-    @property
-    def sections(self) -> tuple[Dashboard, ...]:
-        return self.groups or (self,)
+    async def _execute(self, service: ComponentService, query: Any, ctx: Context) -> Any:
+        from obox_builder.contrib.analytics.service import execute
 
-    @property
-    def all_widgets(self) -> tuple[Pivot | Chart, ...]:
-        return tuple(widget for section in self.sections for widget in section.widgets)
+        return await execute(service, query, ctx, self)
 
-    @property
-    def rows(self) -> tuple[tuple[Pivot | Chart, ...], ...]:
-        if not self._row_sizes:
-            return (self.widgets,)
-        rows = []
-        offset = 0
-        for size in self._row_sizes:
-            rows.append(self.widgets[offset : offset + size])
-            offset += size
-        return tuple(rows)
+    async def _records(self, service: ComponentService, query: Any, ctx: Context) -> Any:
+        from obox_builder.contrib.analytics.service import records
 
+        return await records(service, query, ctx, self)
 
-class Group(Dashboard):
-    """A source and its widgets within a dashboard page."""
+    def _presentation(self, spec: Any) -> dict[str, Any]:
+        return {
+            "kind": "pivot",
+            "drill": self.drill,
+            "height": self.height,
+            "rowTotals": self.show_row_totals,
+            "columnTotals": self.show_column_totals,
+        }
 
 
 class AggregateTimeout(OboxError):
     status = 503
     code = "aggregate_timeout"
-
-
-def is_timeout(exc: DBAPIError) -> bool:
-    original = exc.orig
-    return any(
-        getattr(error, "sqlstate", getattr(error, "pgcode", None)) == "57014"
-        for error in (original, getattr(original, "__cause__", None))
-    )
 
 
 class Analytics:
@@ -268,9 +255,7 @@ class Analytics:
 
     def __init__(
         self,
-        dashboards: Dashboard | Sequence[Dashboard] = (),
         *,
-        prefix: str = "/analytics",
         max_rows: int = 200,
         max_columns: int = 50,
         max_cells: int = 10_000,
@@ -279,21 +264,17 @@ class Analytics:
         max_points: int = 10_000,
         timeout_ms: int = 3000,
     ) -> None:
-        self.dashboards = (dashboards,) if isinstance(dashboards, Dashboard) else tuple(dashboards)
-        if not isinstance(prefix, str) or re.fullmatch(r"(?:/[a-z][a-z0-9_-]*)+", prefix) is None:
-            raise ImproperlyConfigured("Analytics.prefix must be an absolute URL path.")
-        self.prefix = prefix
-        for _name, value in (
-            ("max_rows", max_rows),
-            ("max_columns", max_columns),
-            ("max_cells", max_cells),
-            ("max_chart_groups", max_chart_groups),
-            ("max_pie_groups", max_pie_groups),
-            ("max_points", max_points),
-            ("timeout_ms", timeout_ms),
-        ):
-            if isinstance(value, bool) or not isinstance(value, int) or value < 1:
-                raise ImproperlyConfigured("Analytics limits must be positive integers.")
+        limits = (
+            max_rows,
+            max_columns,
+            max_cells,
+            max_chart_groups,
+            max_pie_groups,
+            max_points,
+            timeout_ms,
+        )
+        if any(type(value) is not int or value < 1 for value in limits):
+            raise ImproperlyConfigured("Analytics limits must be positive integers.")
         self.max_rows = max_rows
         self.max_columns = max_columns
         self.max_cells = max_cells
@@ -302,181 +283,5 @@ class Analytics:
         self.max_points = max_points
         self.timeout_ms = timeout_ms
 
-    def setup(self, app: Obox) -> None:
-        from obox_builder.contrib.analytics.routes import build_router
-
-        if hasattr(self, "app"):
-            raise ImproperlyConfigured("Analytics is already installed.")
-        seen = set()
-        dashboards = []
-        declarations = list(self.dashboards)
-        for config in app.apps.values():
-            for declaration in config.dashboards:
-                if not isinstance(declaration, Dashboard) or declaration.app_label not in (
-                    None,
-                    config.label,
-                ):
-                    raise ImproperlyConfigured("Declare dashboards in their owning application.")
-                declarations.append(replace(declaration, app_label=config.label))
-        for dashboard in declarations:
-            if (
-                not isinstance(dashboard, Dashboard)
-                or (dashboard.app_label, dashboard.slug) in seen
-            ):
-                raise ImproperlyConfigured("Use dashboards with unique slugs.")
-            if dashboard.app_label is not None and dashboard.app_label not in app.apps:
-                raise ImproperlyConfigured("A dashboard must belong to an installed application.")
-            seen.add((dashboard.app_label, dashboard.slug))
-            if not dashboard.groups and dashboard.source is None:
-                grouped: dict[type[Any], list[Chart | tuple[Chart, ...]]] = {}
-                for row in dashboard.rows:
-                    sources: dict[type[Any], list[Chart]] = {}
-                    for widget in row:
-                        if isinstance(widget, Chart):
-                            sources.setdefault(_source(app, widget.source), []).append(widget)
-                    if dashboard._row_sizes and len(sources) > 1:
-                        raise ImproperlyConfigured(
-                            "Charts in a row must use the same source group."
-                        )
-                    for source, charts in sources.items():
-                        grouped.setdefault(source, []).extend(
-                            [tuple(charts)] if dashboard._row_sizes else charts
-                        )
-                dashboard = replace(
-                    dashboard,
-                    widgets=(),
-                    _row_sizes=(),
-                    groups=tuple(
-                        Group(
-                            cast(str, app.get_builder(source).slug).lower(),
-                            source.__name__,
-                            source,
-                            charts,
-                        )
-                        for source, charts in grouped.items()
-                    ),
-                )
-            sections = []
-            for section in dashboard.sections:
-                source = _source(app, section.source)
-                builder = app.get_builder(source)
-                widgets = []
-                for widget in section.widgets:
-                    if isinstance(widget, Chart):
-                        if widget.source is not None and _source(app, widget.source) is not source:
-                            raise ImproperlyConfigured("A chart must use its group's source.")
-                        widget.validate(builder)
-                    else:
-                        widget.aggregation.validate(builder)
-                    from obox_builder.builder.service import _filter_condition
-
-                    predicates = [widget.filters]
-                    if isinstance(widget, Chart):
-                        predicates.extend(
-                            series.where for series in widget.series if series.where is not None
-                        )
-                    for predicate in predicates:
-                        for term in _terms(predicate):
-                            try:
-                                _filter_condition(
-                                    builder,
-                                    set(builder.fields or ()),
-                                    term.field,
-                                    term.op,
-                                    term.value,
-                                )
-                            except OboxError as exc:
-                                raise ImproperlyConfigured("Invalid fixed widget filter.") from exc
-                    widgets.append(
-                        replace(widget, slug=f"{section.slug}.{widget.slug}")
-                        if dashboard.groups
-                        else widget
-                    )
-                sections.append(replace(section, source=source, widgets=tuple(widgets)))
-            dashboard = (
-                replace(
-                    dashboard,
-                    groups=tuple(
-                        Group(
-                            section.slug,
-                            section.title,
-                            section.source,
-                            section.widgets,
-                            _row_sizes=section._row_sizes,
-                        )
-                        for section in sections
-                    ),
-                )
-                if dashboard.groups
-                else sections[0]
-            )
-            dashboards.append(dashboard)
-        self.dashboards = tuple(dashboards)
-        self.app = app
-        app.mount_static(
-            self.prefix + "/_static",
-            namespace="analytics",
-            name="obox_analytics_static",
-        )
-        for app_label in dict.fromkeys(d.app_label for d in self.dashboards):
-            app.include_router(build_router(self, app_label), ui=True)
-        app.add_ui_prefix(self.prefix)
-
-    def dashboard_path(self, dashboard: Dashboard) -> str:
-        prefix = (
-            self.app.apps[dashboard.app_label].ui_path(self.app.settings) + "/dashboards"
-            if dashboard.app_label
-            else self.prefix
-        )
-        return f"{prefix}/{dashboard.slug}"
-
-    @staticmethod
-    def route_name(endpoint: str, app_label: str | None = None) -> str:
-        return (
-            f"obox_analytics_{app_label}.{endpoint}" if app_label else f"obox_analytics_{endpoint}"
-        )
-
-    def dashboard(self, slug: str, app_label: str | None = None) -> Dashboard:
-        for dashboard in self.dashboards:
-            if dashboard.slug == slug and dashboard.app_label == app_label:
-                return dashboard
-        raise NotFound("Unknown dashboard.")
-
-    async def visible(self, dashboard: Dashboard, ctx: Context) -> bool:
-        for section in dashboard.sections:
-            service = self.app.service(_source(self.app, section.source))
-            if not await service.permitted("list", ctx):
-                continue
-            fields = set(service.builder.readable(ctx)).intersection(
-                service.builder.policy.aggregate_fields(ctx)
-            )
-            if any(
-                set(
-                    widget.fields if isinstance(widget, Chart) else widget.aggregation.fields
-                ).issubset(fields)
-                for widget in section.widgets
-            ):
-                return True
-        return False
-
-
-def _source(app: Obox, source: type[Any] | None) -> type[Any]:
-    from obox_builder.builder import ModelBuilder
-
-    if source is None:
-        raise ImproperlyConfigured("A source group requires a registered resource.")
-
-    model = (
-        source._model_type()
-        if isinstance(source, type) and issubclass(source, ModelBuilder)
-        else source
-    )
-    if model is None:
-        raise ImproperlyConfigured("Sources require a concrete registered model.")
-    try:
-        builder = app.get_builder(model)
-    except (KeyError, TypeError) as exc:
-        raise ImproperlyConfigured("Chart sources must be registered resources.") from exc
-    if model is not source and not isinstance(builder, source):
-        raise ImproperlyConfigured("Use the registered source builder.")
-    return model
+    def setup(self, obox: Obox) -> None:
+        pass

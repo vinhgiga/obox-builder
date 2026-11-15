@@ -15,11 +15,11 @@ import httpx
 import pytest
 import sqlalchemy as sa
 from fastapi import FastAPI
-from obox_builder import Context, ModelBuilder, Obox, Principal, Settings
+from obox_builder import AppConfig, Context, ModelBuilder, Obox, Page, Principal, Settings
 from obox_builder.auth import RBAC, ScopedIdentity
 from obox_builder.builder.aggregates import Aggregation, Measure
 from obox_builder.builder.filters import FilterGroup, FilterTerm
-from obox_builder.contrib.analytics import Analytics, Chart, Dashboard, Pivot
+from obox_builder.contrib.analytics import Analytics, Bar, Chart, Donut, Line, Pie, Pivot
 from obox_builder.errors import ImproperlyConfigured
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -111,16 +111,22 @@ class Sales(ModelBuilder[Sale]):
 
 
 WIDGETS = (
-    Pivot("pivot", "distributor", Measure("sum", "amount"), columns="region", title="Revenue"),
-    Chart("bar", "bar", "distributor", Measure("sum", "amount")),
-    Chart("region", "bar", "region", Measure("sum", "amount")),
-    Chart("pie", "pie", "distributor", Measure("sum", "amount")),
-    Chart("donut", "donut", "distributor", Measure("sum", "amount")),
-    Chart("line", "line", "occurred_on", Measure("avg", "quantity")),
-    Chart("moment", "line", "moment"),
     Pivot(
-        "fixed", "distributor", filters=FilterGroup(children=(FilterTerm("region", "is", "East"),))
+        name="pivot",
+        source=Sales,
+        rows="distributor",
+        measure=Measure("sum", "amount"),
+        columns="region",
+        title="Revenue",
+        drill=True,
     ),
+    Bar(name="bar", source=Sales, x="distributor", y=Measure("sum", "amount"), drill=True),
+    Bar(name="region", source=Sales, x="region", y=Measure("sum", "amount"), drill=True),
+    Pie(name="pie", source=Sales, x="distributor", y=Measure("sum", "amount"), drill=True),
+    Donut(name="donut", source=Sales, x="distributor", y=Measure("sum", "amount"), drill=True),
+    Line(name="line", source=Sales, x="occurred_on", y=Measure("avg", "quantity"), drill=True),
+    Line(name="moment", source=Sales, x="moment", drill=True),
+    Pivot(name="fixed", source=Sales, rows="distributor", filters={"region": "East"}, drill=True),
 )
 
 
@@ -140,20 +146,20 @@ async def application(
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         policy = Policy()
-        app = Obox(
-            FastAPI(),
-            settings=with_builders(
-                Settings(
-                    session_factory=async_sessionmaker(engine, expire_on_commit=False),
-                    principal_dependency=lambda: STAFF,
-                    default_policy=policy,
-                    csrf_secret="a" * 32,
-                ),
-                Sales,
+        settings = with_builders(
+            Settings(
+                session_factory=async_sessionmaker(engine, expire_on_commit=False),
+                principal_dependency=lambda: STAFF,
+                default_policy=policy,
+                csrf_secret="a" * 32,
             ),
+            Sales,
         )
+        config = cast(type[AppConfig], settings.installed_apps[0])
+        config.components = widgets
+        config.pages = (Page("report", title="Sales <report>", components=(widgets,)),)
+        app = Obox(FastAPI(), settings=settings, plugins=(Analytics(**limits),))
         policy = cast(Policy, app.get_builder(Sale).policy)
-        app.install(Analytics((Dashboard("sales", "Sales <report>", Sale, widgets),), **limits))
         async with app.app.router.lifespan_context(app.app):
             async with app.uow(principal=STAFF) as ctx:
                 values = [
@@ -271,20 +277,24 @@ def test_filters_weighted_average_empty_and_null(tmp_path: Path) -> None:
                 assert null.total is None
                 assert null.records == 1
             response = await client.get(
-                "/analytics/sales/fixed/data", params={"filter.distributor": "A"}
+                "/admin/admin/report/_components/fixed/data",
+                params={"fixed.filter.distributor": "A"},
             )
             assert response.json()["total"] == 2
             assert (
-                await client.get("/analytics/sales/fixed/data", params={"filter.region": "West"})
+                await client.get(
+                    "/admin/admin/report/_components/fixed/data",
+                    params={"fixed.filter.region": "West"},
+                )
             ).json()["records"] == 0
 
     asyncio.run(scenario())
 
 
-def test_http_dashboard_data_records_and_permissions(tmp_path: Path) -> None:
+def test_http_page_data_records_and_permissions(tmp_path: Path) -> None:
     async def scenario() -> None:
         async with application(tmp_path) as (app, client, policy):
-            page = await client.get("/analytics/sales")
+            page = await client.get("/admin/admin/report")
             assert page.status_code == 200, page.text
             assert "Sales &lt;report&gt;" in page.text
             assert "data-widget" in page.text
@@ -295,52 +305,66 @@ def test_http_dashboard_data_records_and_permissions(tmp_path: Path) -> None:
             assert page.text.count('data-widget-view="table"') == 6
             assert "View as table" in page.text
             assert "View as chart" in page.text
-            localized = await client.get("/vi/analytics/sales")
+            localized = await client.get("/vi/admin/admin/report")
             assert localized.status_code == 200
-            assert 'data-url="/vi/analytics/sales/pivot/data"' in localized.text
+            assert 'data-url="/vi/admin/admin/report/_components/pivot/data"' in localized.text
             assert "Áp dụng bộ lọc" in localized.text
             assert "Xem dạng bảng" in localized.text
             assert "Xem dạng biểu đồ" in localized.text
             assert "Mở rộng" in localized.text
-            localized_data = await client.get("/vi/analytics/sales/pivot/data")
+            localized_data = await client.get("/vi/admin/admin/report/_components/pivot/data")
             assert localized_data.status_code == 200, localized_data.text
             assert localized_data.headers["content-language"] == "vi"
             for file in ("analytics.js", "analytics.css", "chart.umd.js", "http.js"):
-                assert (await client.get("/analytics/_static/" + file)).status_code == 200
-            response = await client.get("/analytics/sales/pivot/data")
+                assert (await client.get("/admin/_components/static/" + file)).status_code == 200
+            response = await client.get("/admin/admin/report/_components/pivot/data")
             assert response.status_code == 200, response.text
             assert response.headers["cache-control"] == "private, no-store"
             assert response.json()["total"] == "85.00"
             assert "SECRET" not in response.text
             rows = await client.get(
-                "/analytics/sales/pivot/records",
+                "/admin/admin/report/_components/pivot/records",
                 params={"row": '"A"', "column": '"East"', "limit": 1},
             )
             assert rows.status_code == 200, rows.text
             assert "Next" in rows.text
             assert "/admin/admin/sales/1" in rows.text
-            null = await client.get("/analytics/sales/pivot/records", params={"row": "null"})
-            blank = await client.get("/analytics/sales/pivot/records", params={"row": '""'})
+            null = await client.get(
+                "/admin/admin/report/_components/pivot/records", params={"row": "null"}
+            )
+            blank = await client.get(
+                "/admin/admin/report/_components/pivot/records", params={"row": '""'}
+            )
             assert "0.00" in null.text
             assert "-5.00" not in null.text
             assert "-5.00" in blank.text
-            denied = await client.get("/analytics/sales/pivot/records", params={"row": '"B"'})
+            denied = await client.get(
+                "/admin/admin/report/_components/pivot/records", params={"row": '"B"'}
+            )
             assert denied.status_code == 200
             assert "/admin/admin/sales/4" not in denied.text
-            negative = await client.get("/analytics/sales/pie/data")
+            negative = await client.get("/admin/admin/report/_components/pie/data")
             assert negative.status_code == 422
             assert negative.json()["code"] == "negative_chart"
             assert negative.headers["cache-control"] == "private, no-store"
             policy.granted = False
-            assert (await client.get("/analytics/sales/pivot/data")).status_code == 403
-            assert (await client.get("/analytics/sales/pivot/records")).status_code == 403
+            assert (
+                await client.get("/admin/admin/report/_components/pivot/data")
+            ).status_code == 403
+            assert (
+                await client.get("/admin/admin/report/_components/pivot/records")
+            ).status_code == 403
             policy.granted, policy.hidden = True, True
-            assert (await client.get("/analytics/sales/pivot/data")).status_code == 403
+            assert (
+                await client.get("/admin/admin/report/_components/pivot/data")
+            ).status_code == 403
             policy.hidden = False
             dependency = app.settings.principal_dependency
             assert dependency is not None
             app.app.dependency_overrides[dependency] = lambda: Principal()
-            assert (await client.get("/analytics/sales/pivot/data")).status_code == 401
+            assert (
+                await client.get("/admin/admin/report/_components/pivot/data")
+            ).status_code == 401
 
     asyncio.run(scenario())
 
@@ -361,7 +385,13 @@ def test_http_dashboard_data_records_and_permissions(tmp_path: Path) -> None:
 def test_rejects_invalid_queries(tmp_path: Path, params: Any) -> None:
     async def scenario() -> None:
         async with application(tmp_path) as (_, client, _):
-            response = await client.get("/analytics/sales/pivot/data", params=params)
+            response = await client.get(
+                "/admin/admin/report/_components/pivot/data",
+                params={
+                    key if key in {"row", "column", "offset", "limit"} else "pivot." + key: value
+                    for key, value in params.items()
+                },
+            )
             assert response.status_code == 422, response.text
 
     asyncio.run(scenario())
@@ -375,7 +405,7 @@ def test_rejects_invalid_record_queries(tmp_path: Path, params: Any) -> None:
     async def scenario() -> None:
         async with application(tmp_path) as (_, client, _):
             assert (
-                await client.get("/analytics/sales/pivot/records", params=params)
+                await client.get("/admin/admin/report/_components/pivot/records", params=params)
             ).status_code == 422
 
     asyncio.run(scenario())
@@ -401,7 +431,7 @@ def test_group_limits_do_not_return_partial_totals(tmp_path: Path, limits: Any) 
                 if "max_pie_groups" in limits
                 else "pivot"
             )
-            response = await client.get(f"/analytics/sales/{widget}/data")
+            response = await client.get(f"/admin/admin/report/_components/{widget}/data")
             assert response.status_code == 422
             assert response.json()["code"] == "aggregate_limit"
 
@@ -415,9 +445,13 @@ def test_boundaries_sorting_keys_and_masking(tmp_path: Path) -> None:
             client,
             policy,
         ):
-            assert (await client.get("/analytics/sales/pivot/data")).status_code == 200
             assert (
-                await client.get("/analytics/sales/pivot/data?search=A&search=B")
+                await client.get("/admin/admin/report/_components/pivot/data")
+            ).status_code == 200
+            assert (
+                await client.get(
+                    "/admin/admin/report/_components/pivot/data?pivot.search=A&pivot.search=B"
+                )
             ).status_code == 422
             async with app.uow(principal=STAFF) as ctx:
                 result = await app.service(Sale).aggregate(
@@ -435,15 +469,17 @@ def test_boundaries_sorting_keys_and_masking(tmp_path: Path) -> None:
                 obj.quantity = 9
                 obj.distributor = '<img src=x onerror="alert(1)">'
             response = await client.get(
-                "/analytics/sales/pivot/records",
+                "/admin/admin/report/_components/pivot/records",
                 params={"row": json.dumps('<img src=x onerror="alert(1)">')},
             )
             assert "&lt;img" in response.text
             assert "<img src=x" not in response.text
             assert "10.00" not in response.text
             policy.joined = True
-            first = await client.get("/analytics/sales/pivot/records?limit=2")
-            second = await client.get("/analytics/sales/pivot/records?limit=2&offset=2")
+            first = await client.get("/admin/admin/report/_components/pivot/records?limit=2")
+            second = await client.get(
+                "/admin/admin/report/_components/pivot/records?limit=2&offset=2"
+            )
             assert first.status_code == second.status_code == 200
             assert "/admin/admin/sales/2" in first.text
             assert "/admin/admin/sales/3" in second.text
@@ -474,10 +510,8 @@ def test_declarations_and_default_denial() -> None:
     for create in (
         lambda: Measure("sum"),
         lambda: Measure("count", "amount"),
-        lambda: Dashboard("Bad", "Title", Sale, WIDGETS),
-        lambda: Dashboard("test", "Title", Sale, (WIDGETS[0], WIDGETS[0])),
-        lambda: Analytics((), max_cells=0),
-        lambda: Analytics((), prefix="/{user}"),
+        lambda: Analytics(max_cells=0),
+        lambda: Analytics(timeout_ms=False),
     ):
         with pytest.raises(ImproperlyConfigured):
             create()
@@ -486,12 +520,13 @@ def test_declarations_and_default_denial() -> None:
 def test_datetime_keys_account_and_api_field_scope(tmp_path: Path) -> None:
     async def scenario() -> None:
         async with application(tmp_path) as (app, client, _):
-            response = await client.get("/analytics/sales/moment/data")
+            response = await client.get("/admin/admin/report/_components/moment/data")
             assert response.status_code == 200, response.text
-            key = response.json()["rows"][0]
+            key = response.json()["categories"][0]
             assert key.endswith(("Z", "+00:00"))
             records = await client.get(
-                "/analytics/sales/moment/records", params={"row": json.dumps(key)}
+                "/admin/admin/report/_components/moment/records",
+                params={"selector": response.json()["series"][0]["points"][0]["selector"]},
             )
             assert records.status_code == 200, records.text
             assert "SECRET" not in records.text
@@ -500,18 +535,24 @@ def test_datetime_keys_account_and_api_field_scope(tmp_path: Path) -> None:
             app.app.dependency_overrides[dependency] = lambda: Principal(
                 id=2, is_authenticated=True, is_staff=True, is_superuser=True
             )
-            assert (await client.get("/analytics/sales/pivot/data")).json()["total"] == "999.00"
+            assert (await client.get("/admin/admin/report/_components/pivot/data")).json()[
+                "total"
+            ] == "999.00"
             app.get_builder(Sale).api_read = ("id", "distributor", "region")
             app.app.dependency_overrides[dependency] = lambda: ScopedIdentity(
                 STAFF, frozenset({"admin.sales.list"})
             )
-            assert (await client.get("/analytics/sales/pivot/data")).status_code == 403
-            assert (await client.get("/analytics/sales/pivot/records")).status_code == 403
+            assert (
+                await client.get("/admin/admin/report/_components/pivot/data")
+            ).status_code == 403
+            assert (
+                await client.get("/admin/admin/report/_components/pivot/records")
+            ).status_code == 403
 
     asyncio.run(scenario())
 
 
-def test_reference_dashboard_totals_match_all_widgets(tmp_path: Path) -> None:
+def test_reference_component_totals_match_all_widgets(tmp_path: Path) -> None:
     async def scenario() -> None:
         async with application(tmp_path) as (app, client, _):
             amounts = (
@@ -536,12 +577,16 @@ def test_reference_dashboard_totals_match_all_widgets(tmp_path: Path) -> None:
                     ]
                 )
             for widget in ("pivot", "bar", "region", "pie", "donut"):
-                response = await client.get(f"/analytics/sales/{widget}/data")
+                response = await client.get(f"/admin/admin/report/_components/{widget}/data")
                 assert response.status_code == 200, response.text
                 data = response.json()
-                assert Decimal(data["total"]) == Decimal("479341.89")
                 assert data["records"] == 12
-                assert sum(map(Decimal, data["rowTotals"])) == Decimal("479341.89")
+                values = (
+                    data["rowTotals"]
+                    if widget == "pivot"
+                    else [point["y"] for point in data["series"][0]["points"]]
+                )
+                assert sum(map(Decimal, values)) == Decimal("479341.89")
 
     asyncio.run(scenario())
 
@@ -554,15 +599,15 @@ def test_postgres_timeout_rolls_back_and_connection_recovers(tmp_path: Path) -> 
     async def scenario() -> None:
         async with application(tmp_path, timeout_ms=20) as (_, client, policy):
             policy.slow = True
-            response = await client.get("/analytics/sales/pivot/data")
+            response = await client.get("/admin/admin/report/_components/pivot/data")
             assert response.status_code == 503, response.text
             assert response.json()["code"] == "aggregate_timeout"
             assert response.headers["cache-control"] == "private, no-store"
             policy.slow = False
-            response = await client.get("/analytics/sales/pivot/data")
+            response = await client.get("/admin/admin/report/_components/pivot/data")
             assert response.status_code == 200, response.text
             assert response.json()["total"] == "85.00"
-            response = await client.get("/analytics/sales/pivot/records")
+            response = await client.get("/admin/admin/report/_components/pivot/records")
             assert response.status_code == 200
 
     asyncio.run(scenario())
@@ -571,37 +616,28 @@ def test_postgres_timeout_rolls_back_and_connection_recovers(tmp_path: Path) -> 
 def test_json_contract_and_openapi(tmp_path: Path) -> None:
     async def scenario() -> None:
         async with application(tmp_path) as (app, client, policy):
-            root = "/analytics/sales"
-            manifest = await client.get(root + "/manifest")
-            assert manifest.status_code == 200, manifest.text
-            section = manifest.json()["sections"][0]
-            assert "searchEnabled" in section
-            assert "explicitRows" in section
-            assert "search_enabled" not in section
-            assert "explicit_rows" not in section
-            response = await client.get(root + "/pivot/data")
-            assert response.status_code == 200
+            root = "/api/admin/components"
+            description = await client.get(root + "/pivot:describe")
+            assert description.status_code == 200, description.text
+            assert "querySchema" in description.json()
+            response = await client.post(root + "/pivot:query", json={})
+            assert response.status_code == 200, response.text
             assert "rowTotals" in response.json()
             assert "columnTotals" in response.json()
-            head = await client.head(root + "/pivot/data")
-            assert head.status_code == response.status_code
+            head = await client.head(root + "/pivot:describe")
+            assert head.status_code == 200
             assert head.content == b""
-            assert head.headers["content-type"] == response.headers["content-type"]
-            options = await client.options(root + "/pivot/data")
+            options = await client.options(root + "/pivot:query")
             assert options.status_code == 204
-            assert options.content == b""
-            assert set(options.headers["allow"].split(", ")) == {"GET", "HEAD", "OPTIONS"}
+            assert set(options.headers["allow"].split(", ")) == {"POST", "OPTIONS"}
             paths = app.app.openapi()["paths"]
-            assert root.replace("sales", "{dashboard}") + "/manifest" in paths
-            data_path = "/analytics/{dashboard}/{widget}/data"
-            assert paths[data_path]["get"]["responses"]["200"]["content"]["application/json"][
-                "schema"
-            ]
-            assert "/analytics/{dashboard}" not in paths
-            assert "/analytics/{dashboard}/{widget}/records" not in paths
+            assert paths[root + "/pivot:query"]["post"]["responses"]["200"]["content"][
+                "application/json"
+            ]["schema"]
+            assert not any(path.startswith("/admin/") for path in paths)
             policy.granted = False
-            assert (await client.get(root + "/pivot/data")).status_code == 403
-            assert (await client.head(root + "/pivot/data")).status_code == 403
+            assert (await client.post(root + "/pivot:query", json={})).status_code == 403
+            assert (await client.head(root + "/pivot:describe")).status_code == 403
 
     asyncio.run(scenario())
 
@@ -610,18 +646,18 @@ def test_chart_json_axes_and_widget_keys(tmp_path: Path) -> None:
     from obox_builder.contrib.analytics.charts import Axis, Series
 
     async def scenario() -> None:
-        chart = Chart(
-            "user_key",
-            "bar",
-            "distributor",
+        chart = Bar(
+            name="userKey",
+            source=Sales,
+            x="distributor",
             y=(Series(Measure("sum", "amount")),),
             primary_axis=Axis(label="Revenue", minimum=-10),
             drill=False,
         )
         async with application(tmp_path, widgets=(chart,)) as (_, client, _):
-            manifest = await client.get("/analytics/sales/manifest")
-            assert "user_key" in manifest.json()["widgets"]
-            response = await client.get("/analytics/sales/user_key/data")
+            manifest = await client.get("/api/admin/components:describe")
+            assert manifest.json()["components"][0]["name"] == "userKey"
+            response = await client.get("/admin/admin/report/_components/userKey/data")
             assert response.status_code == 200, response.text
             data = response.json()
             assert data["config"]["primaryAxis"]["minimum"] == -10

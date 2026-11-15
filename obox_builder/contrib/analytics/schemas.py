@@ -1,53 +1,10 @@
-"""Typed JSON contracts for dashboard discovery and analytical results."""
+"""Typed JSON contracts for analytical results."""
 
 from typing import Literal
 
 from pydantic import JsonValue
 
 from obox_builder.builder.api_schema import ApiResponse
-
-
-class FilterDescription(ApiResponse):
-    name: str
-    label: str
-    kind: str
-    choices: list[JsonValue]
-    operators: list[str]
-
-
-class SectionDescription(ApiResponse):
-    slug: str
-    title: str
-    prefix: str
-    filters: list[FilterDescription]
-    search_enabled: bool
-    explicit_rows: bool
-    rows: list[list[str]]
-
-
-class WidgetDescription(ApiResponse):
-    slug: str
-    title: str
-    description: str
-    kind: str
-    drill: bool
-    height: str
-    filter_prefix: str
-    url: str
-    records_url: str
-    row_label: str
-    column_label: str
-    row_totals: bool
-    column_totals: bool
-
-
-class Manifest(ApiResponse):
-    slug: str
-    title: str
-    widgets: dict[str, WidgetDescription]
-    labels: dict[str, str]
-    sections: list[SectionDescription]
-    assets: dict[str, str]
 
 
 class PivotData(ApiResponse):
@@ -58,25 +15,6 @@ class PivotData(ApiResponse):
     column_totals: list[JsonValue]
     total: JsonValue
     records: int
-
-
-class AxisDescription(ApiResponse):
-    label: str | None = None
-    zero: bool | None = None
-    minimum: float | None = None
-    maximum: float | None = None
-
-
-class ChartConfig(ApiResponse):
-    kind: str
-    orientation: str
-    stack: str
-    legend: str
-    labels: bool
-    percent: bool
-    drill: bool
-    primary_axis: AxisDescription
-    secondary_axis: AxisDescription
 
 
 class Point(ApiResponse):
@@ -108,4 +46,3 @@ class ChartData(ApiResponse):
     x_label: str
     x_type: str
     point_count: int
-    config: ChartConfig

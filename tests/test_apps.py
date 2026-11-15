@@ -15,7 +15,7 @@ import sqlalchemy as sa
 from fastapi import APIRouter, FastAPI, Request
 from obox_builder import AppConfig, Context, ModelBuilder, Obox, Page, Principal, Settings, View
 from obox_builder.auth import RBAC
-from obox_builder.contrib.analytics import Analytics, Chart, Dashboard, Measure
+from obox_builder.contrib.analytics import Analytics, Bar, Measure
 from obox_builder.contrib.auth import Auth
 from obox_builder.errors import ImproperlyConfigured
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -110,12 +110,9 @@ def configs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[type[AppCo
         name = f"{package}.polls"
         label = "polls"
         builders = (FirstBuilder,)
-        dashboards = (
-            Dashboard(
-                "totals", "Totals", First, (Chart("sum", "bar", "name", Measure("sum", "amount")),)
-            ),
-        )
+        components = (Bar(name="sum", source=FirstBuilder, x="name", y=Measure("sum", "amount")),)
         pages = (
+            Page("totals", components=(components,), permission="polls.items.list"),
             Page(
                 "custom",
                 permission="polls.items.list",
@@ -283,8 +280,8 @@ def test_local_templates_assets_custom_routers_and_project_override(
                 await c.get("/api/polls/items", headers={"Accept-Language": "vi"})
             ).status_code == 200
             assert (await c.get("/api/polls/items")).headers["content-language"] == "en"
-            assert (await c.get("/polls/dashboards/totals")).status_code == 200
-            data = await c.get("/polls/dashboards/totals/sum/data")
+            assert (await c.get("/polls/totals")).status_code == 200
+            data = await c.get("/polls/totals/_components/sum/data")
             assert data.status_code == 200, data.text
             assert (await c.get("/analytics/totals")).status_code == 404
 
@@ -301,7 +298,7 @@ def test_app_config_paths_and_runtime_instances_are_independent(
         default_policy=RBAC("polls.items"),
         ui_prefix="",
     )
-    first, second = Obox(FastAPI(), settings=settings), Obox(FastAPI(), settings=settings)
+    first, second = (Obox(FastAPI(), settings=settings, plugins=(Analytics(),)) for _ in range(2))
     assert first.apps["polls"] is not second.apps["polls"]
     assert first.get_builder(First) is not second.get_builder(First)
     assert first.get_builder(First).app is first
@@ -321,52 +318,46 @@ def test_empty_installed_apps_still_provides_a_catalog(tmp_path: Path) -> None:
     asyncio.run(scenario())
 
 
-def test_dashboards_with_the_same_slug_are_scoped_to_their_applications(
+def test_components_with_the_same_name_are_scoped_to_their_applications(
     tmp_path: Path, configs: tuple[type[AppConfig], ...]
 ) -> None:
+    component = Bar(name="sum", source=SecondBuilder, x="name", y=Measure("sum", "amount"))
     revenue: type[AppConfig] = type(
         "Revenue",
         (configs[1],),
         {
-            "dashboards": (
-                Dashboard(
-                    "totals",
-                    "Revenue totals",
-                    Second,
-                    (Chart("sum", "bar", "name", Measure("sum", "amount")),),
-                ),
-            )
+            "components": (component,),
+            "pages": (Page("totals", components=((component,),)),),
         },
     )
 
     async def scenario() -> None:
         async with runtime(tmp_path, (configs[0], revenue), plugins=(Analytics(),)) as (_, c, _):
             for label, total in (("polls", 10), ("revenue", 20)):
-                path = f"/{label}/dashboards/totals"
+                path = f"/{label}/totals"
                 page = await c.get(path)
                 assert page.status_code == 200
-                assert path + "/sum/data" in page.text
-                response = await c.get(path + "/sum/data")
+                assert path + "/_components/sum/data" in page.text
+                response = await c.get(path + "/_components/sum/data")
                 assert response.status_code == 200
-                assert response.json()["total"] == total
+                assert response.json()["series"][0]["points"][0]["y"] == total
             assert (await c.get("/vi/api/polls/items")).status_code == 404
 
     asyncio.run(scenario())
 
 
-def test_missing_dashboard_plugin_fails_startup(configs: tuple[type[AppConfig], ...]) -> None:
-    obox = Obox(
-        FastAPI(),
-        settings=Settings(
-            database_url="sqlite+aiosqlite://",
-            ui_prefix="",
-            installed_apps=configs,
-            principal_dependency=lambda: STAFF,
-            default_policy=RBAC("polls.items"),
-        ),
-    )
-    with pytest.raises(ImproperlyConfigured, match="Analytics"):
-        obox.check(strict=True)
+def test_missing_analytics_plugin_fails_startup(configs: tuple[type[AppConfig], ...]) -> None:
+    with pytest.raises(ImproperlyConfigured, match="analytics"):
+        Obox(
+            FastAPI(),
+            settings=Settings(
+                database_url="sqlite+aiosqlite://",
+                ui_prefix="",
+                installed_apps=configs,
+                principal_dependency=lambda: STAFF,
+                default_policy=RBAC("polls.items"),
+            ),
+        )
 
 
 @pytest.mark.parametrize("problem", ["duplicate", "missing", "label", "api", "invalid", "resource"])

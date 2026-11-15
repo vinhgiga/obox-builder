@@ -52,12 +52,20 @@ async def main() -> None:
                 async def widget(slug: str) -> None:
                     async with semaphore:
                         queried = perf_counter()
-                        response = await client.get(f"/analytics/sales/{slug}/data")
+                        response = await client.post(f"/api/admin/components/{slug}:query", json={})
                         widget_times.append(perf_counter() - queried)
                         if response.status_code != 200:
                             raise AssertionError(response.text)
                         assert response.json()["records"] == 100_000
-                        assert response.json()["total"] == expected
+                        payload = response.json()
+                        total = (
+                            payload["total"]
+                            if slug == "pivot"
+                            else str(
+                                sum(Decimal(point["y"]) for point in payload["series"][0]["points"])
+                            )
+                        )
+                        assert Decimal(total) == Decimal(expected)
 
                 await asyncio.gather(*(widget(slug) for slug in widgets))
                 dashboard_times.append(perf_counter() - started)

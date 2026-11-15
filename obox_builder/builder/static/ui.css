@@ -1551,3 +1551,21 @@ button.sort-add:hover {
 .text-pre-wrap {
   white-space: pre-wrap;
 }
+
+.obox-component-rows {
+  container-type: inline-size;
+  display: grid;
+  gap: 1rem;
+}
+.obox-component-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+}
+@container (min-width: 48rem) {
+  .obox-component-row {
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+  }
+}

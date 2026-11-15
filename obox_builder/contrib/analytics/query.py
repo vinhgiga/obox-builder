@@ -16,7 +16,7 @@ from pydantic import TypeAdapter, ValidationError
 
 from obox_builder.builder.aggregates import State, encode, exceeded
 from obox_builder.builder.service import _filter_tree, invoke
-from obox_builder.contrib.analytics.charts import Chart, Field
+from obox_builder.contrib.analytics.charts import ChartSpec, Field
 from obox_builder.errors import (
     BuilderValidationError,
     ImproperlyConfigured,
@@ -25,7 +25,9 @@ from obox_builder.errors import (
 )
 
 
-async def statement(service: Any, chart: Chart, ctx: Any, **options: Any) -> tuple[Any, set[str]]:
+async def statement(
+    service: Any, chart: ChartSpec, ctx: Any, **options: Any
+) -> tuple[Any, set[str]]:
     await service.authorize("list", ctx)
     selected, readable = await service._list_statement(ctx=ctx, **options)
     if not set(chart.fields).issubset(
@@ -33,8 +35,6 @@ async def statement(service: Any, chart: Chart, ctx: Any, **options: Any) -> tup
     ):
         raise PermissionDenied("These fields are not available for charting.")
     narrow = chart.statement
-    if narrow is None and chart._definition is not None:
-        narrow = chart._definition().get_statement
     if narrow is not None:
         extra = await invoke(narrow, ctx)
         service._context(ctx)
@@ -60,7 +60,7 @@ def identity(value: Any) -> str:
 
 async def execute(
     service: Any,
-    chart: Chart,
+    chart: ChartSpec,
     ctx: Any,
     *,
     max_rows: int,
@@ -372,7 +372,7 @@ def selector(
 
 async def records(
     service: Any,
-    chart: Chart,
+    chart: ChartSpec,
     ctx: Any,
     key: dict[str, Any],
     *,

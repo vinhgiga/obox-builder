@@ -10,7 +10,7 @@ const source = readFileSync(
 const {
   chartData,
   chartConfiguration,
-  DashboardLoader,
+  ComponentLoader,
   pooled,
   recordURL,
   selectWidget,
@@ -142,7 +142,7 @@ test("widget loading caps concurrent requests at two", async () => {
 });
 
 test("new filters cancel old work and stale responses never replace the latest results", async () => {
-  const loader = new DashboardLoader();
+  const loader = new ComponentLoader();
   let resolveOld;
   let oldSignal;
   const applied = [];
@@ -169,7 +169,7 @@ test("new filters cancel old work and stale responses never replace the latest r
 
 test("a widget failure leaves other widgets usable", async () => {
   const results = new Map();
-  await new DashboardLoader().load(
+  await new ComponentLoader().load(
     ["broken", "ok", "also-ok"],
     async (item) => {
       if (item === "broken") throw new Error("Too many groups");
@@ -215,4 +215,51 @@ test("chart configuration reads camelCase axis contracts", () => {
   assert.equal(config.options.scales.primary.min, -10);
   assert.equal(config.options.scales.primary.max, 100);
   assert.equal(config.options.scales.primary.title.text, "Revenue");
+});
+
+test("component scopes share the page request budget", async () => {
+  let active = 0;
+  let maximum = 0;
+  const releases = [];
+  const receive = () =>
+    new Promise((resolve) => {
+      active++;
+      maximum = Math.max(maximum, active);
+      releases.push(() => {
+        active--;
+        resolve({});
+      });
+    });
+  const loading = Array.from({ length: 3 }, (_, index) =>
+    new ComponentLoader().load([index], receive, () => {}),
+  );
+  await new Promise(setImmediate);
+  assert.equal(releases.length, 2);
+  releases.shift()();
+  await new Promise(setImmediate);
+  assert.equal(releases.length, 2);
+  for (const release of releases) release();
+  await Promise.all(loading);
+  assert.equal(maximum, 2);
+});
+
+test("cancelling a queued component does not wait for another scope", async () => {
+  const releases = [];
+  const receive = () => new Promise((resolve) => releases.push(resolve));
+  const active = [1, 2].map((index) => new ComponentLoader().load([index], receive, () => {}));
+  await new Promise(setImmediate);
+  let requests = 0;
+  const queued = new ComponentLoader();
+  const old = queued.load(
+    [3],
+    () => {
+      requests++;
+    },
+    () => {},
+  );
+  await queued.load([], receive, () => {});
+  await old;
+  assert.equal(requests, 0);
+  for (const release of releases) release({});
+  await Promise.all(active);
 });

@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import sqlalchemy as sa
 
-from obox_builder.builder.aggregates import Aggregation, Measure
+from obox_builder.builder.aggregates import Measure
 from obox_builder.builder.filters import FilterGroup, FilterTerm
 from obox_builder.errors import ImproperlyConfigured
 
@@ -148,19 +148,14 @@ class Axis:
 
 
 @dataclass(frozen=True)
-class Chart:
-    # The first eight arguments preserve existing dashboard declarations.
+class ChartSpec:
     slug: str
     kind: Kind
     x: str | Dim
-    measure: Measure = field(default_factory=Measure)
     title: str = ""
     filters: FilterGroup = field(default_factory=FilterGroup)
-    sort: Literal["group", "value"] = "group"
-    descending: bool = False
-    y: tuple[Series, ...] | None = None
+    y: tuple[Series, ...] = ()
     by: str | Dim | None = None
-    source: type[Any] | None = None
     description: str = ""
     order: str = "x"
     orientation: str = "vertical"
@@ -173,28 +168,10 @@ class Chart:
     primary_axis: Axis | None = None
     secondary_axis: Axis | None = None
     statement: Callable[[Context], Any] | None = field(default=None, repr=False)
-    _definition: type[ChartBuilder] | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         if self.statement is not None and not callable(self.statement):
             raise ImproperlyConfigured("Chart statement must be a callable accepting Context.")
-        if self.y is None and (
-            self.kind == "scatter"
-            or self.by is not None
-            or self.description
-            or self.order != "x"
-            or self.orientation != "vertical"
-            or self.height != "md"
-            or self.stack != "none"
-            or self.legend != "auto"
-            or self.labels
-            or self.percent
-            or not self.drill
-            or self.primary_axis
-            or self.secondary_axis
-            or self.statement is not None
-        ):
-            object.__setattr__(self, "y", (Series(self.measure),))
 
     @property
     def dimension(self) -> Dim:
@@ -206,7 +183,7 @@ class Chart:
 
     @property
     def series(self) -> tuple[Series, ...]:
-        return self.y if self.y is not None else (Series(self.measure),)
+        return self.y
 
     @property
     def raw(self) -> bool:
@@ -225,20 +202,7 @@ class Chart:
                 names.extend(term.field for term in _terms(series.where))
         return tuple(dict.fromkeys(names))
 
-    @property
-    def aggregation(self) -> Aggregation:
-        return Aggregation(
-            self.dimension.field,
-            self.measure,
-            self.group.field if self.group else None,
-            row_sort="group" if self.kind == "line" else self.sort,
-            row_descending=False if self.kind == "line" else self.descending,
-        )
-
     def validate(self, builder: Any) -> None:
-        if self.y is None:
-            self.aggregation.validate(builder)
-            return
         if (
             self.kind not in KINDS
             or not self.series
@@ -330,90 +294,8 @@ class Chart:
             )
 
 
-class ChartBuilder:
-    slug: str | None = None
-    title = ""
-    description = ""
-    type: Kind = "bar"
-
-    def get_statement(self, ctx: Context) -> sa.Select[Any] | None:
-        """Optionally narrow the source selection; resource policies still apply."""
-        return None
-
-    class Data:
-        source: type[Any] | None = None
-        x: str | Dim = ""
-        y: Any = Measure()
-        color: str | Dim | None = None
-        where: FilterGroup | Mapping[str, Any] | None = None
-        order = "x"
-
-    class Appearance:
-        orientation = "vertical"
-        height = "md"
-        stack = "none"
-        legend = "auto"
-        labels = False
-        percent = False
-        primary_axis: Axis | None = None
-        secondary_axis: Axis | None = None
-
-    class Action:
-        drill = False
-
-    @classmethod
-    def as_chart(cls) -> Chart:
-        sections: dict[str, dict[str, Any]] = {}
-        for section in ("Data", "Appearance", "Action"):
-            values: dict[str, Any] = {}
-            allowed = {
-                key for key in vars(getattr(ChartBuilder, section)) if not key.startswith("_")
-            }
-            for base in reversed(cls.__mro__):
-                configuration = vars(base).get(section)
-                if configuration is None:
-                    continue
-                if not isinstance(configuration, type):
-                    raise ImproperlyConfigured(f"{section} must be a configuration class.")
-                for config_base in reversed(configuration.__mro__):
-                    if base is not ChartBuilder and config_base is getattr(ChartBuilder, section):
-                        continue
-                    for key, value in vars(config_base).items():
-                        if not key.startswith("_"):
-                            if key not in allowed:
-                                raise ImproperlyConfigured(f"Unknown {section} option: {key}.")
-                            values[key] = value
-            sections[section] = values
-        data = sections["Data"]
-        slug = (
-            cls.slug
-            if cls.slug is not None
-            else re.sub(
-                r"(?<!^)(?=[A-Z])",
-                "_",
-                cls.__name__.removesuffix("Chart"),
-            ).lower()
-        )
-        return chart(
-            cls.type,
-            data["source"],
-            x=data["x"],
-            y=data["y"],
-            color=data["color"],
-            slug=slug,
-            title=cls.title or slug.replace("_", " ").title(),
-            description=cls.description,
-            where=data["where"],
-            order=data["order"],
-            _definition=cls,
-            **sections["Appearance"],
-            **sections["Action"],
-        )
-
-
-def chart(
+def chart_spec(
     kind: Kind,
-    source: type[Any] | None = None,
     *,
     x: str | Dim,
     y: Measure
@@ -426,7 +308,7 @@ def chart(
     slug: str | None = None,
     where: FilterGroup | Mapping[str, Any] | None = None,
     **options: Any,
-) -> Chart:
+) -> ChartSpec:
     """Declare a chart; mapping y keys label series identified by their position."""
     labels = tuple(y) if isinstance(y, Mapping) else None
     values = (
@@ -448,36 +330,15 @@ def chart(
         "title",
         slug.replace("_", " ").title(),
     )
-    return Chart(
+    return ChartSpec(
         slug,
         kind,
         x,
         y=series,
         by=color,
-        source=source,
         filters=_where(where) or FilterGroup(),
         **options,
     )
-
-
-def bar(source: type[Any] | None = None, **options: Any) -> Chart:
-    return chart("bar", source, **options)
-
-
-def line(source: type[Any] | None = None, **options: Any) -> Chart:
-    return chart("line", source, **options)
-
-
-def scatter(source: type[Any] | None = None, **options: Any) -> Chart:
-    return chart("scatter", source, **options)
-
-
-def pie(source: type[Any] | None = None, **options: Any) -> Chart:
-    return chart("pie", source, **options)
-
-
-def donut(source: type[Any] | None = None, **options: Any) -> Chart:
-    return chart("donut", source, **options)
 
 
 def _terms(group: FilterGroup) -> Iterator[FilterTerm]:
