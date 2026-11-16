@@ -14,24 +14,19 @@ import httpx
 import pytest
 import sqlalchemy as sa
 from fastapi import FastAPI
-from obox_builder import (
-    API,
-    AppConfig,
-    Component,
-    ComponentQuery,
-    Context,
-    ModelBuilder,
-    Obox,
-    Page,
-    Principal,
-    Settings,
-    Use,
-)
-from obox_builder.auth import RBAC, ScopedIdentity
-from obox_builder.builder.api_schema import ApiRequest, ApiResponse
-from obox_builder.builder.filters import FilterGroup, FilterTerm
-from obox_builder.contrib.analytics import Analytics, Bar, Pivot, Sum
-from obox_builder.errors import ImproperlyConfigured
+from obox._auth import RBAC, Principal, ScopedIdentity
+from obox._catalog import CatalogConfig
+from obox._components import Component, ComponentQuery, Use
+from obox._config import RuntimeConfig
+from obox._context import Context
+from obox._pages import Page
+from obox._runtime import _Runtime
+from obox.contrib.analytics import Analytics, Bar, Pivot, Sum
+from obox.contrib.resources import Resource as ResourceDefinition
+from obox.contrib.resources.api_schema import ApiRequest, ApiResponse
+from obox.contrib.resources.apis import ApiOptions
+from obox.contrib.resources.filters import FilterGroup, FilterTerm
+from obox.core.exceptions import ImproperlyConfigured
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -61,14 +56,17 @@ class Policy(RBAC[Record]):
         return frozenset({"id", "region_name"}) if self.hidden else None
 
 
-class Records(ModelBuilder[Record]):
+class Records(ResourceDefinition[Record]):
+    model = Record
     fields = ("id", "region_name", "amount")
     filter_fields = ("region_name", "amount")
     ordering = ("id",)
     policy = Policy()
 
-    class API(API):
+    class ApiOptions(ApiOptions):
         enabled = False
+
+    api_options = ApiOptions
 
 
 class Totals(Bar):
@@ -102,13 +100,14 @@ async def runtime(
     components: tuple[Any, ...] = (Totals, Matrix),
     pages: tuple[Page, ...] = (),
     actor: Any = ACTOR,
-    builder: type[ModelBuilder[Any]] = Records,
-) -> AsyncIterator[tuple[Obox, httpx.AsyncClient]]:
-    class Config(AppConfig):
-        name = "obox_builder"
+    builder: type[ResourceDefinition[Any]] = Records,
+) -> AsyncIterator[tuple[_Runtime, httpx.AsyncClient]]:
+
+    class Config(CatalogConfig):
+        name = "obox"
         label = "metrics"
 
-    Config.builders, Config.components, Config.pages = (builder,), components, pages
+    Config.builders, Config.components, Config.pages = ((builder,), components, pages)
     engine = create_async_engine(os.getenv("OBOX_TEST_DATABASE_URL", "sqlite+aiosqlite://"))
     namespace = "component_" + uuid4().hex if engine.dialect.name == "postgresql" else None
     if namespace:
@@ -125,9 +124,9 @@ async def runtime(
                 Record(id=3, tenant_id=2, region_name="SECRET", amount=Decimal("999")),
             ]
         )
-    obox = Obox(
+    obox = _Runtime(
         FastAPI(),
-        settings=Settings(
+        settings=RuntimeConfig(
             session_factory=async_sessionmaker(engine, expire_on_commit=False),
             installed_apps=(Config,),
             principal_dependency=lambda: actor,
@@ -135,7 +134,7 @@ async def runtime(
             csrf_secret="a" * 32,
             template_dirs=(tmp_path,),
         ),
-        plugins=(Analytics(),),
+        features=(Analytics(),),
     )
     try:
         async with (
@@ -144,7 +143,7 @@ async def runtime(
                 transport=httpx.ASGITransport(app=obox.app), base_url="http://test"
             ) as client,
         ):
-            yield obox, client
+            yield (obox, client)
     finally:
         if namespace:
             async with engine.begin() as conn:
@@ -153,6 +152,7 @@ async def runtime(
 
 
 def test_headless_api_and_python_service_with_crud_disabled(tmp_path: Path) -> None:
+
     async def scenario() -> None:
         async with runtime(tmp_path) as (obox, client):
             assert not obox.pages
@@ -210,6 +210,7 @@ def test_headless_api_and_python_service_with_crud_disabled(tmp_path: Path) -> N
     ],
 )
 def test_component_permissions_and_token_scopes(tmp_path: Path, actor: Any, status: int) -> None:
+
     async def scenario() -> None:
         async with runtime(tmp_path, actor=actor) as (_, client):
             response = await client.post(ROOT + "/matrix:query", json={})
@@ -220,6 +221,7 @@ def test_component_permissions_and_token_scopes(tmp_path: Path, actor: Any, stat
 
 
 def test_component_and_records_permissions_and_field_projection(tmp_path: Path) -> None:
+
     async def scenario() -> None:
         protected = Totals(
             permission="metrics.analytics.view", records_permission="metrics.analytics.inspect"
@@ -242,7 +244,7 @@ def test_component_and_records_permissions_and_field_projection(tmp_path: Path) 
             assert (
                 await client.post(ROOT + "/totals:records", json={"selector": token})
             ).status_code == 200
-            obox.get_builder(Record).api_read = ("id", "region_name")
+            obox.get_resource(Record).api_read = ("id", "region_name")
             assert (await client.post(ROOT + "/totals:query", json={})).status_code == 403
             assert "metrics.analytics.inspect" in obox.permissions
 
@@ -292,6 +294,7 @@ def test_page_bindings_are_private_scoped_and_independent(tmp_path: Path) -> Non
 
 
 def test_chart_selections_are_bound_to_identity_filters_and_actor(tmp_path: Path) -> None:
+
     async def scenario() -> None:
         async with runtime(tmp_path, components=(Totals, Totals(name="other"))) as (obox, client):
             response = await client.post(
@@ -345,6 +348,7 @@ class AsyncEcho(Echo):
 
 
 def test_custom_api_schemas_hooks_and_request_isolation(tmp_path: Path) -> None:
+
     async def scenario() -> None:
         async with runtime(tmp_path, components=(Echo, AsyncEcho)) as (obox, client):
             for name in ("echo", "asyncEcho", "echo"):
@@ -411,23 +415,24 @@ def test_template_components_are_local_escaped_and_isolated(tmp_path: Path) -> N
 def test_invalid_components_fail_before_database_startup(
     tmp_path: Path, component: Component
 ) -> None:
-    class Config(AppConfig):
-        name = "obox_builder"
+
+    class Config(CatalogConfig):
+        name = "obox"
         label = "metrics"
         builders = (Records,)
         components = (component,)
 
     def build() -> None:
-        obox = Obox(
+        obox = _Runtime(
             FastAPI(),
-            settings=Settings(
+            settings=RuntimeConfig(
                 database_url="sqlite+aiosqlite://",
                 installed_apps=(Config,),
                 principal_dependency=lambda: ACTOR,
                 default_policy=RBAC(),
                 csrf_secret="a" * 32,
             ),
-            plugins=(Analytics(),),
+            features=(Analytics(),),
         )
         assert obox.database.engine is None
         obox.check(strict=True)
@@ -437,6 +442,7 @@ def test_invalid_components_fail_before_database_startup(
 
 
 def test_constructor_overrides_snapshot_and_narrowing_hooks(tmp_path: Path) -> None:
+
     class Narrow(Totals):
         def get_statement(self, ctx: Context) -> Any:
             return sa.select(Record).where(Record.region_name.in_(("East", "SECRET")))
@@ -465,6 +471,7 @@ def test_constructor_overrides_snapshot_and_narrowing_hooks(tmp_path: Path) -> N
 
 
 def test_sourceful_custom_provider_uses_narrowed_read_service(tmp_path: Path) -> None:
+
     class CountOutput(ApiResponse):
         count: int
 
@@ -490,6 +497,7 @@ def test_sourceful_custom_provider_uses_narrowed_read_service(tmp_path: Path) ->
 
 @pytest.mark.parametrize("control", ["select", "order", "expand", "limit", "offset", "cursor"])
 def test_component_queries_cannot_change_server_shape(tmp_path: Path, control: str) -> None:
+
     async def scenario() -> None:
         async with runtime(tmp_path) as (_, client):
             response = await client.post(
@@ -501,6 +509,7 @@ def test_component_queries_cannot_change_server_shape(tmp_path: Path, control: s
 
 
 def test_invalid_custom_output_is_a_server_error(tmp_path: Path) -> None:
+
     class Invalid(Echo):
         def get_data(self, query: EchoInput, ctx: Context) -> Any:
             return {"displayName": "ok", "count": "invalid"}
@@ -516,13 +525,14 @@ def test_invalid_custom_output_is_a_server_error(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("problem", ["duplicate", "placement", "reserved", "filter", "plugin"])
 def test_registry_conflicts_fail_before_serving(tmp_path: Path, problem: str) -> None:
-    class Config(AppConfig):
-        name = "obox_builder"
+
+    class Config(CatalogConfig):
+        name = "obox"
         label = "metrics"
         builders = (Records,)
         components: tuple[Any, ...] = (Totals,)
 
-    plugins: tuple[Analytics, ...] = (Analytics(),)
+    features: tuple[Analytics, ...] = (Analytics(),)
     if problem == "duplicate":
         Config.components = (Totals, Totals)
     elif problem == "placement":
@@ -536,16 +546,16 @@ def test_registry_conflicts_fail_before_serving(tmp_path: Path, problem: str) ->
     elif problem == "filter":
         Config.components = (Totals(filters={"missing": "value"}),)
     else:
-        plugins = ()
+        features = ()
     with pytest.raises(ImproperlyConfigured):
-        Obox(
+        _Runtime(
             FastAPI(),
-            settings=Settings(
+            settings=RuntimeConfig(
                 database_url="sqlite+aiosqlite://",
                 installed_apps=(Config,),
                 principal_dependency=lambda: ACTOR,
                 default_policy=RBAC(),
                 csrf_secret="a" * 32,
             ),
-            plugins=plugins,
+            features=features,
         )

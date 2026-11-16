@@ -12,10 +12,12 @@ import httpx
 import pytest
 import sqlalchemy as sa
 from fastapi import FastAPI, Request
-from obox_builder import ModelBuilder, Obox, Principal, Settings
-from obox_builder.auth import RBAC
-from obox_builder.contrib.files import IMAGES, File, Files, attachments
-from obox_builder.contrib.files.models import Base as FileBase
+from obox._auth import RBAC, Principal
+from obox._config import RuntimeConfig
+from obox._runtime import _Runtime
+from obox.contrib.files import IMAGES, File, Files, attachments
+from obox.contrib.files.models import Base as FileBase
+from obox.contrib.resources import Resource as ResourceDefinition
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from tests.helpers import with_builders
@@ -27,13 +29,13 @@ class Base(DeclarativeBase):
 
 class Document(Base):
     __tablename__ = "file_documents"
-
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(sa.String(50))
     attachments: Mapped[list[File]] = attachments(types=IMAGES)
 
 
-class DocumentBuilder(ModelBuilder[Document]):
+class DocumentBuilder(ResourceDefinition[Document]):
+    model = Document
     fields = ("id", "name", "attachments")
 
 
@@ -42,7 +44,8 @@ FILE_FIELDS = {"id", "filename", "size", "contentType", "offset", "status"}
 
 
 @asynccontextmanager
-async def application(tmp_path: Path) -> AsyncIterator[tuple[Obox, httpx.AsyncClient]]:
+async def application(tmp_path: Path) -> AsyncIterator[tuple[_Runtime, httpx.AsyncClient]]:
+
     def principal(request: Request) -> Principal:
         return Principal(
             id=request.headers.get("actor", "1"),
@@ -51,10 +54,10 @@ async def application(tmp_path: Path) -> AsyncIterator[tuple[Obox, httpx.AsyncCl
             is_superuser=True,
         )
 
-    app = Obox(
+    app = _Runtime(
         FastAPI(),
         settings=with_builders(
-            Settings(
+            RuntimeConfig(
                 database_url=f"sqlite+aiosqlite:///{tmp_path / 'files.sqlite3'}",
                 principal_dependency=principal,
                 default_policy=RBAC(),
@@ -62,7 +65,7 @@ async def application(tmp_path: Path) -> AsyncIterator[tuple[Obox, httpx.AsyncCl
             ),
             DocumentBuilder,
         ),
-        plugins=[Files(root=tmp_path / "media")],
+        features=[Files(root=tmp_path / "media")],
     )
     async with app.app.router.lifespan_context(app.app):
         assert app.database.engine is not None
@@ -74,10 +77,11 @@ async def application(tmp_path: Path) -> AsyncIterator[tuple[Obox, httpx.AsyncCl
             base_url="http://test",
             follow_redirects=True,
         ) as client:
-            yield app, client
+            yield (app, client)
 
 
 def test_file_json_contract_across_upload_resume_claim_and_widget(tmp_path: Path) -> None:
+
     async def scenario() -> None:
         async with application(tmp_path) as (_, client):
             created = await client.post(
@@ -102,7 +106,6 @@ def test_file_json_contract_across_upload_resume_claim_and_widget(tmp_path: Path
             assert set(partial.json()) == FILE_FIELDS
             assert partial.json()["offset"] == 8
             assert partial.json()["status"] == "pending"
-
             conflict = await client.patch(path, headers=headers, content=PNG[:8])
             assert conflict.status_code == 409
             assert conflict.json()["code"] == "resource_conflict"
@@ -112,7 +115,6 @@ def test_file_json_contract_across_upload_resume_claim_and_widget(tmp_path: Path
             assert state.json() == partial.json()
             assert state.headers["cache-control"] == "private, no-store"
             assert (await client.get(path + "/state", headers={"actor": "2"})).status_code == 404
-
             ready = await client.patch(
                 path, headers={**headers, "upload-offset": "8"}, content=PNG[8:]
             )
@@ -124,10 +126,8 @@ def test_file_json_contract_across_upload_resume_claim_and_widget(tmp_path: Path
             assert renamed.status_code == 200
             assert set(renamed.json()) == FILE_FIELDS
             assert renamed.json()["filename"] == "renamed.png"
-
             record = await client.post(
-                "/api/admin/documents",
-                json={"name": "Example", "attachments": [upload["id"]]},
+                "/api/admin/documents", json={"name": "Example", "attachments": [upload["id"]]}
             )
             assert record.status_code == 201, record.text
             record_id = record.json()["id"]
@@ -141,10 +141,9 @@ def test_file_json_contract_across_upload_resume_claim_and_widget(tmp_path: Path
             assert download.status_code == 200
             assert download.content == PNG
             assert download.headers["content-type"] == "image/png"
-
             page = await client.get(f"/admin/admin/documents/{record_id}")
             assert page.status_code == 200
-            match = re.search(r'data-files-meta="([^"]+)"', page.text)
+            match = re.search('data-files-meta="([^"]+)"', page.text)
             assert match is not None
             assert json.loads(html.unescape(match[1])) == [renamed.json()]
             owned_upload = await client.post(
@@ -173,6 +172,7 @@ def test_file_json_contract_across_upload_resume_claim_and_widget(tmp_path: Path
 
 @pytest.mark.parametrize("field", ["content_type", "owner_id"])
 def test_file_requests_reject_python_field_names(tmp_path: Path, field: str) -> None:
+
     async def scenario() -> None:
         async with application(tmp_path) as (_, client):
             response = await client.post(
@@ -190,6 +190,7 @@ def test_file_requests_reject_python_field_names(tmp_path: Path, field: str) -> 
 
 
 def test_file_openapi_matches_json_properties(tmp_path: Path) -> None:
+
     async def scenario() -> None:
         async with application(tmp_path) as (app, _):
             schema = app.app.openapi()
@@ -218,6 +219,7 @@ def test_file_openapi_matches_json_properties(tmp_path: Path) -> None:
 
 
 def test_failed_upload_returns_problem_and_preserves_state(tmp_path: Path) -> None:
+
     async def scenario() -> None:
         async with application(tmp_path) as (_, client):
             created = await client.post(
@@ -242,6 +244,7 @@ def test_failed_upload_returns_problem_and_preserves_state(tmp_path: Path) -> No
 
 
 def test_file_protocol_headers_and_problems(tmp_path: Path) -> None:
+
     async def scenario() -> None:
         async with application(tmp_path) as (app, client):
             created = await client.post(

@@ -1,12 +1,14 @@
 from dataclasses import replace
 from typing import Any
 
-from obox_builder import AppConfig, Settings
+from obox._catalog import CatalogConfig
+from obox._config import RuntimeConfig
 
 
-def with_builders(settings: Settings, *builders: type[Any]) -> Settings:
-    class Resources(AppConfig):
-        name = "obox_builder"
+def with_builders(settings: RuntimeConfig, *builders: type[Any]) -> RuntimeConfig:
+
+    class Resources(CatalogConfig):
+        name = "obox"
         label = "admin"
 
     Resources.builders = builders

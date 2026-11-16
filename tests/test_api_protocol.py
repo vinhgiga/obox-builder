@@ -8,8 +8,11 @@ import httpx
 import pytest
 import sqlalchemy as sa
 from fastapi.middleware.cors import CORSMiddleware
-from obox_builder import API, BatchOperation, ModelBuilder, Principal
-from obox_builder.errors import BatchOperationError, BuilderValidationError
+from obox._auth import Principal
+from obox._exceptions import BatchOperationError, BuilderValidationError
+from obox.contrib.resources import Resource as ResourceDefinition
+from obox.contrib.resources.apis import ApiOptions
+from obox.contrib.resources.service import BatchOperation
 from sqlalchemy.orm import Mapped, mapped_column
 
 from tests.test_api_contract import STAFF, Base, application, request
@@ -25,12 +28,15 @@ class NumericRecord(Base):
     amount: Mapped[Decimal | None] = mapped_column(sa.Numeric(10, 2))
 
 
-class Numbers(ModelBuilder[NumericRecord]):
+class Numbers(ResourceDefinition[NumericRecord]):
+    model = NumericRecord
     fields = ("id", "name", "value", "number", "amount")
     slug = "numbers"
 
-    class API(API):
+    class ApiOptions(ApiOptions):
         upsert_fields = (("name",),)
+
+    api_options = ApiOptions
 
 
 INVALID = [
@@ -46,6 +52,7 @@ INVALID = [
 @pytest.mark.parametrize(("field", "value"), INVALID)
 @pytest.mark.parametrize("operation", ["create", "update", "batch", "upsert"])
 def test_numeric_http_validation_is_atomic(field: str, value: Any, operation: str) -> None:
+
     async def scenario() -> None:
         async with application(configured=Numbers) as app:
             row = (
@@ -86,6 +93,7 @@ def test_numeric_http_validation_is_atomic(field: str, value: Any, operation: st
 )
 @pytest.mark.parametrize("operation", ["create", "update", "batch", "upsert"])
 def test_numeric_service_validation_is_atomic(field: str, value: Any, operation: str) -> None:
+
     async def scenario() -> None:
         async with application(configured=Numbers) as app:
             service = app.service(NumericRecord)
@@ -126,6 +134,7 @@ def test_numeric_service_validation_is_atomic(field: str, value: Any, operation:
 
 
 def test_numeric_output_and_openapi() -> None:
+
     async def scenario() -> None:
         async with application(configured=Numbers) as app:
             response = await request(
@@ -158,6 +167,7 @@ def test_numeric_output_and_openapi() -> None:
 
 @pytest.mark.parametrize("principal", [STAFF, Principal()])
 def test_head_options_permissions_and_allow(principal: Principal) -> None:
+
     async def scenario() -> None:
         async with application(principal=principal) as app:
             for path in (
@@ -217,6 +227,7 @@ def test_head_options_permissions_and_allow(principal: Principal) -> None:
     ],
 )
 def test_accept_negotiation(accept: str, status: int) -> None:
+
     async def scenario() -> None:
         async with application() as app:
             response = await request(app, "GET", "/api/admin/records", headers={"Accept": accept})
@@ -226,6 +237,7 @@ def test_accept_negotiation(accept: str, status: int) -> None:
 
 
 def test_cors_and_host_routes() -> None:
+
     async def scenario() -> None:
         app, engine = await make_app(WidgetBuilder, principal=STAFF)
         app.app.add_middleware(

@@ -5,10 +5,11 @@ from typing import Any
 import httpx
 import sqlalchemy as sa
 from fastapi import FastAPI
-from obox_builder import ModelBuilder, Obox, Principal
-from obox_builder.auth import RBAC
-from obox_builder.conf import Settings
-from obox_builder.contrib.auth import Auth
+from obox._auth import RBAC, Principal
+from obox._config import RuntimeConfig
+from obox._runtime import _Runtime
+from obox.contrib.auth import Auth
+from obox.contrib.resources import Resource as ResourceDefinition
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.pool import StaticPool
@@ -22,12 +23,12 @@ class Base(DeclarativeBase):
 
 class Widget(Base):
     __tablename__ = "i18n_widgets"
-
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(sa.String(50))
 
 
-class WidgetBuilder(ModelBuilder[Widget]):
+class WidgetBuilder(ResourceDefinition[Widget]):
+    model = Widget
     fields = ("id", "name")
 
 
@@ -53,14 +54,16 @@ class AnonymousBackend:
         return None
 
 
-async def make_app(*, principal: Principal | None = STAFF, auth: bool = False) -> tuple[Obox, Any]:
+async def make_app(
+    *, principal: Principal | None = STAFF, auth: bool = False
+) -> tuple[_Runtime, Any]:
     engine = create_async_engine("sqlite+aiosqlite://", poolclass=StaticPool)
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
-    app = Obox(
+    app = _Runtime(
         FastAPI(),
         settings=with_builders(
-            Settings(
+            RuntimeConfig(
                 session_factory=async_sessionmaker(engine, expire_on_commit=False),
                 principal_dependency=lambda: principal,
                 default_policy=RBAC(),
@@ -70,8 +73,8 @@ async def make_app(*, principal: Principal | None = STAFF, auth: bool = False) -
         ),
     )
     if auth:
-        app.install(Auth(backend=AnonymousBackend(), secure=False))
-    return app, engine
+        app._activate(Auth(backend=AnonymousBackend(), secure=False))
+    return (app, engine)
 
 
 async def get(
@@ -148,8 +151,7 @@ def test_auth_redirect_keeps_language_prefix() -> None:
     assert 'lang="vi"' in response.text
     assert "Đăng nhập" in response.text
     assert re.search(
-        r'<button class="btn btn-primary"\s+type="submit">Đăng nhập</button>',
-        response.text,
+        '<button class="btn btn-primary"\\s+type="submit">Đăng nhập</button>', response.text
     )
 
 

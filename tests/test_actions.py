@@ -11,10 +11,15 @@ import httpx
 import pytest
 import sqlalchemy as sa
 from fastapi import FastAPI
-from obox_builder import Context, DomainEvent, ModelBuilder, Obox, Principal, View, builder
-from obox_builder.auth import RBAC
-from obox_builder.conf import Settings
-from obox_builder.errors import BuilderValidationError, ImproperlyConfigured, PermissionDenied
+from obox._auth import RBAC, Principal
+from obox._config import RuntimeConfig
+from obox._context import Context, DomainEvent
+from obox._exceptions import BuilderValidationError, PermissionDenied
+from obox._runtime import _Runtime
+from obox.contrib import resources as builder
+from obox.contrib.resources import Resource as ResourceDefinition
+from obox.contrib.resources.views import ViewOptions
+from obox.core.exceptions import ImproperlyConfigured
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -29,7 +34,6 @@ class Base(DeclarativeBase):
 
 class Checksheet(Base):
     __tablename__ = "action_checksheets"
-
     id: Mapped[int] = mapped_column(primary_key=True)
     result: Mapped[str] = mapped_column(sa.String(2), default="")
     status: Mapped[str] = mapped_column(sa.String(10), default="planned")
@@ -49,7 +53,8 @@ class ChecksheetPolicy(RBAC[Checksheet]):
         return sa.and_(super().scope(action, ctx), Checksheet.owner_id == ctx.principal.id)
 
 
-class ChecksheetBuilder(ModelBuilder[Checksheet]):
+class ChecksheetBuilder(ResourceDefinition[Checksheet]):
+    model = Checksheet
     fields = ("id", "result", "status", "owner_id")
     read_only_fields = ("status", "owner_id")
     filter_fields = ("status",)
@@ -57,13 +62,15 @@ class ChecksheetBuilder(ModelBuilder[Checksheet]):
     actions = ("approve",)
     policy = ChecksheetPolicy("quality.checksheets")
 
-    class View(View):
+    class ViewOptions(ViewOptions):
         operations = ()
+
+    view_options = ViewOptions
 
     async def before_save(
         self, instance: Checksheet, changes: Mapping[str, Any], ctx: Context, *, created: bool
     ) -> None:
-        if not created and instance.status == "planned" and instance.result in {"OK", "NG"}:
+        if not created and instance.status == "planned" and (instance.result in {"OK", "NG"}):
             instance.status = "performed"
 
     @builder.action(description="Approve selected", permission="approve")
@@ -88,11 +95,11 @@ APPROVER = actor("list", "retrieve", "approve")
 @asynccontextmanager
 async def application(
     principal: Principal = APPROVER,
-    configured: type[ModelBuilder[Checksheet]] = ChecksheetBuilder,
-) -> AsyncIterator[Obox]:
+    configured: type[ResourceDefinition[Checksheet]] = ChecksheetBuilder,
+) -> AsyncIterator[_Runtime]:
     url = os.getenv("OBOX_TEST_DATABASE_URL", "sqlite+aiosqlite://")
     engine = create_async_engine(
-        url, **({"poolclass": StaticPool} if url.startswith("sqlite") else {})
+        url, **{"poolclass": StaticPool} if url.startswith("sqlite") else {}
     )
     namespace = f"test_actions_{uuid.uuid4().hex}" if engine.dialect.name == "postgresql" else None
     if namespace:
@@ -102,10 +109,10 @@ async def application(
     try:
         async with engine.begin() as connection:
             await connection.run_sync(Base.metadata.create_all)
-        app = Obox(
+        app = _Runtime(
             FastAPI(),
             settings=with_builders(
-                Settings(
+                RuntimeConfig(
                     session_factory=async_sessionmaker(engine, expire_on_commit=False),
                     principal_dependency=lambda: principal,
                     default_policy=RBAC(),
@@ -122,7 +129,7 @@ async def application(
         await engine.dispose()
 
 
-async def seed(app: Obox, *statuses: str) -> list[int]:
+async def seed(app: _Runtime, *statuses: str) -> list[int]:
     async with app.uow(principal=EDITOR) as ctx:
         objects = [Checksheet(status=status, result="OK") for status in statuses]
         ctx.session.add_all(objects)
@@ -130,12 +137,13 @@ async def seed(app: Obox, *statuses: str) -> list[int]:
         return [obj.id for obj in objects]
 
 
-async def statuses(app: Obox) -> list[str]:
+async def statuses(app: _Runtime) -> list[str]:
     async with app.uow(principal=READER) as ctx:
         return [obj.status for obj in await app.service(Checksheet).list(ctx=ctx)]
 
 
 def test_checksheet_lifecycle_and_approved_record_lock() -> None:
+
     async def scenario() -> None:
         async with application(EDITOR) as app:
             service = app.service(Checksheet)
@@ -200,6 +208,7 @@ def test_sync_action_uses_update_permission_and_emits_its_own_event() -> None:
     ("principal", "code"), [(APPROVER, 200), (READER, 403), (Principal(), 401)]
 )
 def test_api_actions_require_the_custom_permission(principal: Principal, code: int) -> None:
+
     async def scenario() -> None:
         async with application(principal) as app:
             ids = await seed(app, "performed", "performed")
@@ -232,6 +241,7 @@ def test_api_actions_require_the_custom_permission(principal: Principal, code: i
 def test_invalid_action_batches_leave_all_records_unchanged(
     name: str, ids: list[Any], code: int
 ) -> None:
+
     async def scenario() -> None:
         async with application() as app:
             await seed(app, "performed", "approved")
@@ -248,6 +258,7 @@ def test_invalid_action_batches_leave_all_records_unchanged(
 
 
 def test_actions_apply_row_scope_and_api_csrf() -> None:
+
     async def scenario() -> None:
         async with application() as app:
             ids = await seed(app, "performed")
@@ -257,8 +268,7 @@ def test_actions_apply_row_scope_and_api_csrf() -> None:
                 transport=httpx.ASGITransport(app=app.app), base_url="http://test"
             ) as client:
                 hidden = await client.post(
-                    "/api/admin/checksheets:approve",
-                    json={"recordIds": [*map(str, ids), "2"]},
+                    "/api/admin/checksheets:approve", json={"recordIds": [*map(str, ids), "2"]}
                 )
                 assert hidden.status_code == 404
                 client.cookies.set("session", "cookie")
@@ -273,6 +283,7 @@ def test_actions_apply_row_scope_and_api_csrf() -> None:
 
 @pytest.mark.parametrize("failure", ["handler", "check", "commit"])
 def test_action_failure_rolls_back_and_poisons_the_unit_of_work(failure: str) -> None:
+
     class FailingPolicy(ChecksheetPolicy):
         async def check(self, action: str, instance: Checksheet, ctx: Context) -> bool:
             return failure != "check" and await super().check(action, instance, ctx)
@@ -309,6 +320,7 @@ def test_action_failure_rolls_back_and_poisons_the_unit_of_work(failure: str) ->
 
 @pytest.mark.parametrize("across", ["0", "1"])
 def test_admin_actions_work_without_delete_permission_and_respect_filters(across: str) -> None:
+
     async def scenario() -> None:
         async with application() as app:
             ids = await seed(app, "performed", "performed", "planned")
@@ -339,6 +351,7 @@ def test_admin_actions_work_without_delete_permission_and_respect_filters(across
 
 
 def test_admin_hides_and_rejects_actions_without_permission() -> None:
+
     async def scenario() -> None:
         async with application(READER) as app:
             ids = await seed(app, "performed")
@@ -376,6 +389,7 @@ def test_admin_hides_and_rejects_actions_without_permission() -> None:
     ],
 )
 def test_invalid_action_configuration_fails_at_registration(attributes: dict[str, Any]) -> None:
+
     async def scenario() -> None:
         configured = type("InvalidBuilder", (ChecksheetBuilder,), attributes)
         with pytest.raises(ImproperlyConfigured):
@@ -390,6 +404,7 @@ def test_invalid_action_configuration_fails_at_registration(attributes: dict[str
     reason="Requires an isolated PostgreSQL schema",
 )
 def test_action_locks_records_until_the_approval_commits() -> None:
+
     async def scenario() -> None:
         async with application() as app:
             ids = await seed(app, "performed")

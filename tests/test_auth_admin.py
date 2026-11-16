@@ -7,13 +7,14 @@ from typing import Any
 import httpx
 import sqlalchemy as sa
 from fastapi import FastAPI
-from obox_builder import ModelBuilder, Obox, Principal
-from obox_builder.auth import RBAC
-from obox_builder.conf import Settings
-from obox_builder.contrib.auth import Auth
-from obox_builder.contrib.auth.models import Base as AuthBase
-from obox_builder.contrib.auth.models import Role, Session, User, user_roles
-from obox_builder.contrib.auth.passwords import hash_password, verify_password
+from obox._auth import RBAC, Principal
+from obox._config import RuntimeConfig
+from obox._runtime import _Runtime
+from obox.contrib.auth import Auth
+from obox.contrib.auth.models import Base as AuthBase
+from obox.contrib.auth.models import Role, Session, User, user_roles
+from obox.contrib.auth.passwords import hash_password, verify_password
+from obox.contrib.resources import Resource as ResourceDefinition
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, selectinload
 from sqlalchemy.pool import StaticPool
@@ -27,23 +28,23 @@ class Base(DeclarativeBase):
 
 class Widget(Base):
     __tablename__ = "auth_admin_widgets"
-
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(sa.String(50))
 
 
-class WidgetBuilder(ModelBuilder[Widget]):
+class WidgetBuilder(ResourceDefinition[Widget]):
+    model = Widget
     fields = ("id", "name")
 
 
 class Article(Base):
     __tablename__ = "auth_admin_articles"
-
     id: Mapped[int] = mapped_column(primary_key=True)
     title: Mapped[str] = mapped_column(sa.String(50))
 
 
-class ArticleBuilder(ModelBuilder[Article]):
+class ArticleBuilder(ResourceDefinition[Article]):
+    model = Article
     fields = ("id", "title")
     policy = RBAC("blog.articles")
     permissions = ("approve", "export")
@@ -84,27 +85,25 @@ STAFF = Principal(
         f"admin.widgets.{action}" for action in ("list", "retrieve", "create", "update", "delete")
     ),
 )
-PASSWORD = "correct horse battery staple"  # noqa: S105
+PASSWORD = "correct horse battery staple"  # noqa: S105 - test fixture
 
 
-async def make_app(principal: Principal = SUPERUSER, *, admin: bool = True) -> tuple[Obox, Any]:
+async def make_app(principal: Principal = SUPERUSER, *, admin: bool = True) -> tuple[_Runtime, Any]:
     engine = create_async_engine("sqlite+aiosqlite://", poolclass=StaticPool)
     async with engine.begin() as connection:
         await connection.run_sync(AuthBase.metadata.create_all)
         await connection.run_sync(Base.metadata.create_all)
-    app = Obox(
+    app = _Runtime(
         FastAPI(),
         settings=with_builders(
-            Settings(
+            RuntimeConfig(
                 session_factory=async_sessionmaker(engine, expire_on_commit=False),
                 principal_dependency=lambda: principal,
                 default_policy=RBAC(),
                 csrf_secret="x" * 32,
                 auth_password_validators=(
                     {
-                        "NAME": (
-                            "obox_builder.contrib.auth.password_validation.MinimumLengthValidator"
-                        ),
+                        "NAME": "obox.contrib.auth.password_validation.MinimumLengthValidator",
                         "OPTIONS": {"min_length": 12},
                     },
                 ),
@@ -112,12 +111,12 @@ async def make_app(principal: Principal = SUPERUSER, *, admin: bool = True) -> t
             WidgetBuilder,
             ArticleBuilder,
         ),
-        plugins=(Auth(backend=StubBackend(principal), secure=False, admin=admin),),
+        features=(Auth(backend=StubBackend(principal), secure=False, admin=admin),),
     )
-    return app, engine
+    return (app, engine)
 
 
-async def seed_role(app: Obox, name: str, permissions: Sequence[str] = ()) -> int:
+async def seed_role(app: _Runtime, name: str, permissions: Sequence[str] = ()) -> int:
     async with app.uow(principal=SUPERUSER) as ctx:
         role = Role(name=name, permissions=list(permissions))
         ctx.session.add(role)
@@ -126,7 +125,7 @@ async def seed_role(app: Obox, name: str, permissions: Sequence[str] = ()) -> in
 
 
 async def seed_user(
-    app: Obox,
+    app: _Runtime,
     username: str,
     *,
     password: str = PASSWORD,
@@ -160,25 +159,25 @@ async def seed_user(
         return user.id
 
 
-async def fetch_user(app: Obox, id: int) -> Any:
+async def fetch_user(app: _Runtime, id: int) -> Any:
     async with app.uow(principal=SUPERUSER) as ctx:
         statement = sa.select(User).where(User.id == id).options(selectinload(User.roles))
         return (await ctx.session.scalars(statement)).unique().one_or_none()
 
 
-async def fetch_role(app: Obox, id: int) -> Any:
+async def fetch_role(app: _Runtime, id: int) -> Any:
     async with app.uow(principal=SUPERUSER) as ctx:
         return await ctx.session.get(Role, id)
 
 
-async def get(app: Obox, path: str, **kwargs: Any) -> httpx.Response:
+async def get(app: _Runtime, path: str, **kwargs: Any) -> httpx.Response:
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app.app), base_url="http://test"
     ) as client:
         return await client.get(path, **kwargs)
 
 
-async def post(app: Obox, path: str, data: Any) -> httpx.Response:
+async def post(app: _Runtime, path: str, data: Any) -> httpx.Response:
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app.app), base_url="http://test"
     ) as client:
@@ -186,6 +185,7 @@ async def post(app: Obox, path: str, data: Any) -> httpx.Response:
 
 
 def test_admin_routes_static_and_superuser_access() -> None:
+
     async def scenario() -> None:
         app, engine = await make_app()
         try:
@@ -209,7 +209,6 @@ def test_admin_routes_static_and_superuser_access() -> None:
                 assert "previewRoles" in asset.text
         finally:
             await engine.dispose()
-
         anonymous, engine = await make_app(Principal())
         try:
             response = await get(anonymous, "/auth/users")
@@ -217,14 +216,12 @@ def test_admin_routes_static_and_superuser_access() -> None:
             assert response.headers["location"] == "/auth/login?next=%2Fauth%2Fusers"
         finally:
             await engine.dispose()
-
         staff, engine = await make_app(STAFF)
         try:
             response = await get(staff, "/auth/users")
             assert response.status_code == 403
         finally:
             await engine.dispose()
-
         disabled, engine = await make_app(admin=False)
         try:
             response = await get(disabled, "/auth/users")
@@ -239,6 +236,7 @@ def test_admin_routes_static_and_superuser_access() -> None:
 
 
 def test_user_list_navigation_and_non_superuser_navigation() -> None:
+
     async def scenario() -> None:
         app, engine = await make_app()
         try:
@@ -264,7 +262,7 @@ def test_user_list_navigation_and_non_superuser_navigation() -> None:
             assert page.status_code == 200
             headers = [
                 match.strip()
-                for match in re.findall(r'<th scope="col">(.*?)</th>', page.text, re.DOTALL)
+                for match in re.findall('<th scope="col">(.*?)</th>', page.text, re.DOTALL)
             ]
             assert headers == [
                 "Actions",
@@ -292,7 +290,6 @@ def test_user_list_navigation_and_non_superuser_navigation() -> None:
             assert "inactive" in page.text
             assert "Edit" in page.text
             assert "Delete" in page.text
-
             builder = await get(app, "/admin/admin/widgets")
             assert builder.status_code == 200
             catalog = await get(app, "/admin")
@@ -302,7 +299,6 @@ def test_user_list_navigation_and_non_superuser_navigation() -> None:
             assert 'href="/auth/roles"' in account.text
         finally:
             await engine.dispose()
-
         staff, engine = await make_app(STAFF)
         try:
             page = await get(staff, "/admin/admin/widgets")
@@ -316,6 +312,7 @@ def test_user_list_navigation_and_non_superuser_navigation() -> None:
 
 
 def test_create_user_with_roles_and_defaults() -> None:
+
     async def scenario() -> None:
         app, engine = await make_app()
         try:
@@ -323,28 +320,25 @@ def test_create_user_with_roles_and_defaults() -> None:
             form = await get(app, "/auth/users/new")
             assert form.status_code == 200
             assert 'name="username"' in form.text
-            assert re.search(r'id="username".*?autocomplete="off"', form.text, re.S)
+            assert re.search('id="username".*?autocomplete="off"', form.text, re.S)
             assert 'name="email"' in form.text
             assert 'name="password"' in form.text
             assert 'name="confirm_password"' in form.text
             assert form.text.index('name="password"') < form.text.index('name="confirm_password"')
             assert "field-grid" not in form.text
-            assert len(re.findall(r'<span class="text-danger"[^>]*>\*</span>', form.text)) == 3
+            assert len(re.findall('<span class="text-danger"[^>]*>\\*</span>', form.text)) == 3
             assert 'name="first_name"' in form.text
             assert 'name="last_name"' in form.text
             assert 'name="department"' in form.text
-            assert re.search(r'name="is_active"\s+value="1"\s+checked', form.text)
+            assert re.search('name="is_active"\\s+value="1"\\s+checked', form.text)
             assert "data-role-select" in form.text
             assert "auth-admin.js" in form.text
             assert "Choose roles" in form.text
             assert 'class="role-select-chip"' not in form.text
-            assert re.search(r"data-role-select-placeholder(?!\s+hidden)", form.text)
-            option = re.search(
-                rf'<input[^>]+name="role_ids"[^>]+value="{role_id}"[^>]*>', form.text
-            )
+            assert re.search("data-role-select-placeholder(?!\\s+hidden)", form.text)
+            option = re.search(f'<input[^>]+name="role_ids"[^>]+value="{role_id}"[^>]*>', form.text)
             assert option is not None
             assert "checked" not in option.group(0)
-
             response = await post(
                 app,
                 "/auth/users/new",
@@ -363,7 +357,6 @@ def test_create_user_with_roles_and_defaults() -> None:
             )
             assert response.status_code == 303
             assert response.headers["location"] == "/auth/users?saved=1"
-
             async with app.uow(principal=SUPERUSER) as ctx:
                 user = await ctx.session.scalar(
                     sa.select(User)
@@ -386,6 +379,7 @@ def test_create_user_with_roles_and_defaults() -> None:
 
 
 def test_user_form_permission_preview_is_collapsed_and_tracks_roles() -> None:
+
     async def scenario() -> None:
         app, engine = await make_app()
         try:
@@ -393,45 +387,40 @@ def test_user_form_permission_preview_is_collapsed_and_tracks_roles() -> None:
                 app, "Readers", ["admin.widgets.list", "blog.articles.retrieve"]
             )
             new_form = await get(app, "/auth/users/new")
-            details = re.search(r"<details[^>]*data-permission-preview[^>]*>", new_form.text)
+            details = re.search("<details[^>]*data-permission-preview[^>]*>", new_form.text)
             assert details is not None
             assert "open" not in details.group(0)
             assert "Preview permissions" in new_form.text
-            assert re.search(r"data-preview-empty(?!\s+hidden)", new_form.text)
+            assert re.search("data-preview-empty(?!\\s+hidden)", new_form.text)
             permission = re.search(
-                r'<li[^>]*data-preview-permission="admin\.widgets\.list"[^>]*>',
-                new_form.text,
+                '<li[^>]*data-preview-permission="admin\\.widgets\\.list"[^>]*>', new_form.text
             )
             assert permission is not None
             assert "hidden" in permission.group(0)
             assert f'data-preview-roles="{role_id}"' in permission.group(0)
-            service = re.search(r'<section[^>]*data-preview-service="admin"[^>]*>', new_form.text)
+            service = re.search('<section[^>]*data-preview-service="admin"[^>]*>', new_form.text)
             assert service is not None
             assert "hidden" in service.group(0)
-
             user_id = await seed_user(app, "reader", role_ids=[role_id])
             edit_form = await get(app, f"/auth/users/{user_id}/edit")
-            details = re.search(r"<details[^>]*data-permission-preview[^>]*>", edit_form.text)
+            details = re.search("<details[^>]*data-permission-preview[^>]*>", edit_form.text)
             assert details is not None
             assert "open" not in details.group(0)
             granted = re.search(
-                r'<li[^>]*data-preview-permission="admin\.widgets\.list"[^>]*>',
-                edit_form.text,
+                '<li[^>]*data-preview-permission="admin\\.widgets\\.list"[^>]*>', edit_form.text
             )
             denied = re.search(
-                r'<li[^>]*data-preview-permission="admin\.widgets\.update"[^>]*>',
-                edit_form.text,
+                '<li[^>]*data-preview-permission="admin\\.widgets\\.update"[^>]*>', edit_form.text
             )
             assert granted is not None
             assert "hidden" not in granted.group(0)
             assert f'data-preview-roles="{role_id}"' in granted.group(0)
             assert denied is not None
             assert "hidden" in denied.group(0)
-            assert re.search(r"data-preview-empty\s+hidden", edit_form.text)
+            assert re.search("data-preview-empty\\s+hidden", edit_form.text)
             for name in ("admin", "blog"):
                 service = re.search(
-                    rf'<section[^>]*data-preview-service="{name}"[^>]*>',
-                    edit_form.text,
+                    f'<section[^>]*data-preview-service="{name}"[^>]*>', edit_form.text
                 )
                 assert service is not None
                 assert "hidden" not in service.group(0)
@@ -443,17 +432,14 @@ def test_user_form_permission_preview_is_collapsed_and_tracks_roles() -> None:
 
 
 def test_user_validation_errors() -> None:
+
     async def scenario() -> None:
         app, engine = await make_app()
         try:
             await seed_user(app, "existing")
             cases = [
                 (
-                    {
-                        "username": "new1",
-                        "password": "short",
-                        "confirm_password": "short",
-                    },
+                    {"username": "new1", "password": "short", "confirm_password": "short"},
                     "This password is too short. It must contain at least 12 characters.",
                 ),
                 (
@@ -465,11 +451,7 @@ def test_user_validation_errors() -> None:
                     "Passwords do not match.",
                 ),
                 (
-                    {
-                        "username": "existing",
-                        "password": PASSWORD,
-                        "confirm_password": PASSWORD,
-                    },
+                    {"username": "existing", "password": PASSWORD, "confirm_password": PASSWORD},
                     "This username is already taken.",
                 ),
                 (
@@ -495,7 +477,6 @@ def test_user_validation_errors() -> None:
                 response = await post(app, "/auth/users/new", data)
                 assert response.status_code == 422, (data, message)
                 assert message in response.text
-
             async with app.uow(principal=SUPERUSER) as ctx:
                 count = await ctx.session.scalar(sa.select(sa.func.count()).select_from(User))
                 assert count == 1
@@ -506,6 +487,7 @@ def test_user_validation_errors() -> None:
 
 
 def test_edit_user_preserves_password_and_updates_roles() -> None:
+
     async def scenario() -> None:
         app, engine = await make_app()
         try:
@@ -521,7 +503,6 @@ def test_edit_user_preserves_password_and_updates_roles() -> None:
                 role_ids=[first_role],
             )
             original = await fetch_user(app, user_id)
-
             form = await get(app, f"/auth/users/{user_id}/edit")
             assert form.status_code == 200
             assert 'value="alice"' in form.text
@@ -532,10 +513,10 @@ def test_edit_user_preserves_password_and_updates_roles() -> None:
             assert 'value="Smith"' in form.text
             assert 'value="Research"' in form.text
             first_option = re.search(
-                rf'<input[^>]+name="role_ids"[^>]+value="{first_role}"[^>]*>', form.text
+                f'<input[^>]+name="role_ids"[^>]+value="{first_role}"[^>]*>', form.text
             )
             second_option = re.search(
-                rf'<input[^>]+name="role_ids"[^>]+value="{second_role}"[^>]*>', form.text
+                f'<input[^>]+name="role_ids"[^>]+value="{second_role}"[^>]*>', form.text
             )
             assert first_option is not None
             assert "checked" in first_option.group(0)
@@ -544,8 +525,7 @@ def test_edit_user_preserves_password_and_updates_roles() -> None:
             assert f'data-role-chip="{first_role}"' in form.text
             assert f'data-role-select-remove="{first_role}"' in form.text
             assert f'data-role-chip="{second_role}"' not in form.text
-            assert re.search(r"data-role-select-placeholder\s+hidden", form.text)
-
+            assert re.search("data-role-select-placeholder\\s+hidden", form.text)
             response = await post(
                 app,
                 f"/auth/users/{user_id}/edit",
@@ -563,7 +543,6 @@ def test_edit_user_preserves_password_and_updates_roles() -> None:
                 },
             )
             assert response.status_code == 303
-
             updated = await fetch_user(app, user_id)
             assert updated.email == "alice@platform.example"
             assert updated.first_name == "Alice"
@@ -578,6 +557,7 @@ def test_edit_user_preserves_password_and_updates_roles() -> None:
 
 
 def test_self_and_last_superuser_guards() -> None:
+
     async def scenario() -> None:
         app, engine = await make_app()
         try:
@@ -597,14 +577,12 @@ def test_self_and_last_superuser_guards() -> None:
             )
             assert form.status_code == 422
             assert "You cannot deactivate your own account." in form.text
-
             deleted = await post(app, f"/auth/users/{user_id}/delete", {"csrf_token": ""})
             assert deleted.status_code == 303
             assert deleted.headers["location"] == "/auth/users?error=self"
             assert await fetch_user(app, user_id) is not None
         finally:
             await engine.dispose()
-
         other, engine = await make_app(
             Principal(id=99, is_authenticated=True, is_staff=True, is_superuser=True)
         )
@@ -625,7 +603,6 @@ def test_self_and_last_superuser_guards() -> None:
             )
             assert form.status_code == 422
             assert "At least one superuser must remain active." in form.text
-
             deleted = await post(other, f"/auth/users/{user_id}/delete", {"csrf_token": ""})
             assert deleted.status_code == 303
             assert deleted.headers["location"] == "/auth/users?error=last_superuser"
@@ -637,6 +614,7 @@ def test_self_and_last_superuser_guards() -> None:
 
 
 def test_delete_user_removes_role_links() -> None:
+
     async def scenario() -> None:
         app, engine = await make_app(
             Principal(id=99, is_authenticated=True, is_staff=True, is_superuser=True)
@@ -677,6 +655,7 @@ def test_delete_user_removes_role_links() -> None:
 
 
 def test_roles_page_builds_permission_tree_from_builders() -> None:
+
     async def scenario() -> None:
         app, engine = await make_app()
         try:
@@ -691,9 +670,7 @@ def test_roles_page_builds_permission_tree_from_builders() -> None:
             assert 'data-tree-level="action"' in page.text
             assert page.text.count('class="tree-arrow"') >= 2
             assert re.search(
-                r'<span class="tree-arrow"[^>]*>.*?data-tree-level="service"',
-                page.text,
-                re.S,
+                '<span class="tree-arrow"[^>]*>.*?data-tree-level="service"', page.text, re.S
             )
             for value in (
                 "admin.widgets.list",
@@ -706,7 +683,7 @@ def test_roles_page_builds_permission_tree_from_builders() -> None:
                 "blog.articles.export",
             ):
                 assert f'value="{value}"' in page.text
-            assert re.search(r'value="admin\.widgets\.list"[^>]*checked', page.text)
+            assert re.search('value="admin\\.widgets\\.list"[^>]*checked', page.text)
             assert "legacy.permission.keep" not in page.text
             assert f"role-name-{role_id}" in page.text
         finally:
@@ -716,6 +693,7 @@ def test_roles_page_builds_permission_tree_from_builders() -> None:
 
 
 def test_role_update_preserves_unknown_permissions_and_validates() -> None:
+
     async def scenario() -> None:
         app, engine = await make_app()
         try:
@@ -738,7 +716,6 @@ def test_role_update_preserves_unknown_permissions_and_validates() -> None:
             )
             assert response.status_code == 303
             assert response.headers["location"] == "/auth/roles?saved=1"
-
             role = await fetch_role(app, role_id)
             assert role.name == "Editors"
             assert set(role.permissions) == {
@@ -747,15 +724,10 @@ def test_role_update_preserves_unknown_permissions_and_validates() -> None:
                 "admin.widgets.delete",
                 "blog.articles.approve",
             }
-
             invalid = await post(
                 app,
                 f"/auth/roles/{role_id}",
-                {
-                    "csrf_token": "",
-                    "name": "Editors",
-                    "permissions": "unknown.permission.read",
-                },
+                {"csrf_token": "", "name": "Editors", "permissions": "unknown.permission.read"},
             )
             assert invalid.status_code == 422
             assert "Choose valid permissions." in invalid.text
@@ -765,15 +737,10 @@ def test_role_update_preserves_unknown_permissions_and_validates() -> None:
                 "admin.widgets.delete",
                 "blog.articles.approve",
             }
-
             duplicate = await post(
                 app,
                 f"/auth/roles/{role_id}",
-                {
-                    "csrf_token": "",
-                    "name": "Maintainers",
-                    "permissions": "admin.widgets.update",
-                },
+                {"csrf_token": "", "name": "Maintainers", "permissions": "admin.widgets.update"},
             )
             assert duplicate.status_code == 422
             assert "This role name is already taken." in duplicate.text
@@ -786,6 +753,7 @@ def test_role_update_preserves_unknown_permissions_and_validates() -> None:
 
 
 def test_role_create_and_delete_removes_user_links() -> None:
+
     async def scenario() -> None:
         app, engine = await make_app()
         try:
@@ -802,24 +770,14 @@ def test_role_create_and_delete_removes_user_links() -> None:
             )
             assert response.status_code == 303
             assert response.headers["location"] == "/auth/roles?saved=1"
-
             async with app.uow(principal=SUPERUSER) as ctx:
                 role = await ctx.session.scalar(sa.select(Role).where(Role.name == "Operators"))
                 assert role is not None
-                assert set(role.permissions) == {
-                    "admin.widgets.list",
-                    "admin.widgets.retrieve",
-                }
+                assert set(role.permissions) == {"admin.widgets.list", "admin.widgets.retrieve"}
                 created_id = role.id
-
-            duplicate = await post(
-                app,
-                "/auth/roles",
-                {"csrf_token": "", "name": "Operators"},
-            )
+            duplicate = await post(app, "/auth/roles", {"csrf_token": "", "name": "Operators"})
             assert duplicate.status_code == 422
             assert "This role name is already taken." in duplicate.text
-
             deleted = await post(app, f"/auth/roles/{assigned}/delete", {"csrf_token": ""})
             assert deleted.status_code == 303
             assert deleted.headers["location"] == "/auth/roles?deleted=1"
@@ -834,6 +792,7 @@ def test_role_create_and_delete_removes_user_links() -> None:
 
 
 def test_csrf_token_is_required_and_accepted() -> None:
+
     async def scenario() -> None:
         app, engine = await make_app()
         try:
@@ -843,10 +802,9 @@ def test_csrf_token_is_required_and_accepted() -> None:
                 cookies={"obox_session": "test"},
             ) as client:
                 page = await client.get("/auth/users/new")
-                match = re.search(r'name="csrf_token" value="([^"]+)"', page.text)
+                match = re.search('name="csrf_token" value="([^"]+)"', page.text)
                 assert match is not None
                 token = match.group(1)
-
                 rejected = await client.post(
                     "/auth/users/new",
                     data={
@@ -858,7 +816,6 @@ def test_csrf_token_is_required_and_accepted() -> None:
                     },
                 )
                 assert rejected.status_code == 403
-
                 accepted = await client.post(
                     "/auth/users/new",
                     data={
@@ -871,7 +828,6 @@ def test_csrf_token_is_required_and_accepted() -> None:
                 )
                 assert accepted.status_code == 303
                 assert accepted.headers["location"] == "/auth/users?saved=1"
-
             async with app.uow(principal=SUPERUSER) as ctx:
                 usernames = set((await ctx.session.scalars(sa.select(User.username))).all())
                 assert usernames == {"accepted"}

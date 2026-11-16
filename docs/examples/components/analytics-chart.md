@@ -1,19 +1,15 @@
 # Add an analytics chart
 
-An analytics chart reads from a registered resource builder. Declare a measure
-and category dimension, then add the chart to the app's component list and a
-page:
-
 ```python
-from obox_builder import AppConfig, Page
-from obox_builder.contrib.analytics import Bar, Sum
-
-from app.sales.builders import SaleBuilder
+from obox.apps import AppConfig
+from obox.contrib.analytics import Bar, Sum
+from obox.contrib.resources.presentation import Page
+from app.sales.resources import SaleResource
 
 
 class RevenueByRegion(Bar):
     name = "byRegion"
-    source = SaleBuilder
+    source = SaleResource
     title = "Revenue by region"
     x = "region"
     y = Sum("revenue")
@@ -22,12 +18,14 @@ class RevenueByRegion(Bar):
 
 class SalesConfig(AppConfig):
     name = "app.sales"
-    label = "sales"
-    builders = (SaleBuilder,)
-    components = (RevenueByRegion,)
-    pages = (Page("revenue", components=((RevenueByRegion,),)),)
+
+    def ready(self):
+        self.resources = (SaleResource,)
+        self.components = (RevenueByRegion,)
+        self.pages = (Page("revenue", components=((RevenueByRegion,),)),)
 ```
 
-Install `Analytics()` in the Obox runtime. The source policy must permit
-aggregation of the configured fields; query budgets are applied to the result.
-For a complete example and chart options, see [Analytics](../../features/analytics.md).
+Enable resources and analytics before the application in INSTALLED_APPS. Define
+SaleResource with an explicit model and policy. Source read/aggregate permissions
+apply independently of page access. Product resource queries and chart results
+share the existing contrib transaction/policy engine.

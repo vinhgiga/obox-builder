@@ -13,11 +13,17 @@ import httpx
 import pytest
 import sqlalchemy as sa
 from fastapi import APIRouter, FastAPI, Request
-from obox_builder import AppConfig, Context, ModelBuilder, Obox, Page, Principal, Settings, View
-from obox_builder.auth import RBAC
-from obox_builder.contrib.analytics import Analytics, Bar, Measure
-from obox_builder.contrib.auth import Auth
-from obox_builder.errors import ImproperlyConfigured
+from obox._auth import RBAC, Principal
+from obox._catalog import CatalogConfig
+from obox._config import RuntimeConfig
+from obox._context import Context
+from obox._pages import Page
+from obox._runtime import _Runtime
+from obox.contrib.analytics import Analytics, Bar, Measure
+from obox.contrib.auth import Auth
+from obox.contrib.resources import Resource as ResourceDefinition
+from obox.contrib.resources.views import ViewOptions
+from obox.core.exceptions import ImproperlyConfigured
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -49,7 +55,8 @@ class FirstPolicy(RBAC[First]):
         return frozenset({"name", "amount"})
 
 
-class FirstBuilder(ModelBuilder[First]):
+class FirstBuilder(ResourceDefinition[First]):
+    model = First
     slug = "items"
     fields = ("name", "amount")
     label_field = "name"
@@ -61,16 +68,19 @@ class SecondPolicy(RBAC[Second]):
         return frozenset({"name", "amount"})
 
 
-class SecondBuilder(ModelBuilder[Second]):
+class SecondBuilder(ResourceDefinition[Second]):
+    model = Second
     slug = "items"
     fields = ("name", "amount", "first_id")
     label_field = "name"
     policy = SecondPolicy("revenue.items")
 
-    class View(View):
+    class ViewOptions(ViewOptions):
         list_display = ("name", "first")
         detail_fields = ("name", "amount", "first_id")
         operations = ("create",)
+
+    view_options = ViewOptions
 
 
 STAFF = Principal(
@@ -86,7 +96,7 @@ STAFF = Principal(
 
 
 @pytest.fixture
-def configs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[type[AppConfig], ...]:
+def configs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[type[CatalogConfig], ...]:
     package = f"catalog_{uuid4().hex}"
     root = tmp_path / package
     for name in ("", "polls", "revenue"):
@@ -106,7 +116,7 @@ def configs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[type[AppCo
     async def ping(request: Request) -> dict[str, bool]:
         return {"shared": request.app.state.obox.app is request.app}
 
-    class PollsConfig(AppConfig):
+    class PollsConfig(CatalogConfig):
         name = f"{package}.polls"
         label = "polls"
         builders = (FirstBuilder,)
@@ -121,25 +131,25 @@ def configs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[type[AppCo
         )
         routers = (api,)
 
-    class RevenueConfig(AppConfig):
+    class RevenueConfig(CatalogConfig):
         name = f"{package}.revenue"
         label = "revenue"
         builders = (SecondBuilder,)
 
     vars(importlib.import_module(PollsConfig.name))["Config"] = PollsConfig
-    return PollsConfig, RevenueConfig
+    return (PollsConfig, RevenueConfig)
 
 
 @asynccontextmanager
 async def runtime(
     tmp_path: Path,
-    configs: tuple[type[AppConfig], ...],
+    configs: tuple[type[CatalogConfig], ...],
     *,
     actor: Principal = STAFF,
     root_path: str = "",
-    plugins: tuple[Any, ...] = (),
+    features: tuple[Any, ...] = (),
     template_dirs: tuple[Path, ...] = (),
-) -> AsyncIterator[tuple[Obox, httpx.AsyncClient, dict[str, Principal]]]:
+) -> AsyncIterator[tuple[_Runtime, httpx.AsyncClient, dict[str, Principal]]]:
     actors = {"principal": actor}
 
     @asynccontextmanager
@@ -153,9 +163,9 @@ async def runtime(
         yield
 
     app = FastAPI(lifespan=lifespan)
-    obox = Obox(
+    obox = _Runtime(
         app,
-        settings=Settings(
+        settings=RuntimeConfig(
             database_url=f"sqlite+aiosqlite:///{tmp_path / 'apps.db'}",
             csrf_secret="x" * 32,
             ui_prefix="",
@@ -164,7 +174,7 @@ async def runtime(
             default_policy=RBAC("polls.items"),
             template_dirs=template_dirs,
         ),
-        plugins=plugins,
+        features=features,
     )
     async with (
         app.router.lifespan_context(app),
@@ -172,15 +182,16 @@ async def runtime(
             transport=httpx.ASGITransport(app=app, root_path=root_path), base_url="http://test"
         ) as client,
     ):
-        yield obox, client, actors
+        yield (obox, client, actors)
 
 
 @pytest.mark.parametrize("root_path", ["", "/prefix"])
 def test_shared_runtime_namespaced_routes_and_openapi(
-    tmp_path: Path, configs: tuple[type[AppConfig], ...], root_path: str
+    tmp_path: Path, configs: tuple[type[CatalogConfig], ...], root_path: str
 ) -> None:
+
     async def scenario() -> None:
-        async with runtime(tmp_path, configs, root_path=root_path, plugins=(Analytics(),)) as (
+        async with runtime(tmp_path, configs, root_path=root_path, features=(Analytics(),)) as (
             obox,
             c,
             _,
@@ -190,7 +201,7 @@ def test_shared_runtime_namespaced_routes_and_openapi(
                 assert response.status_code == 200, response.text
             home = await c.get(root_path + "/polls")
             assert re.search(
-                rf'<div class="navbar-brand[^\"]*">\s*<a[^>]*href="{root_path}/"',
+                f'<div class="navbar-brand[^\\"]*">\\s*<a[^>]*href="{root_path}/"',
                 home.text,
                 re.DOTALL,
             )
@@ -221,19 +232,16 @@ def test_shared_runtime_namespaced_routes_and_openapi(
 
 
 def test_catalog_permissions_create_only_and_revocation(
-    tmp_path: Path, configs: tuple[type[AppConfig], ...]
+    tmp_path: Path, configs: tuple[type[CatalogConfig], ...]
 ) -> None:
+
     async def scenario() -> None:
         actor = Principal(
             id=1, is_authenticated=True, permissions=frozenset({"polls.items.create"})
         )
         async with runtime(
-            tmp_path, configs, actor=actor, plugins=(Auth(secure=False), Analytics())
-        ) as (
-            _,
-            c,
-            actors,
-        ):
+            tmp_path, configs, actor=actor, features=(Auth(secure=False), Analytics())
+        ) as (_, c, actors):
             home = await c.get("/")
             assert 'href="/polls"' in home.text
             assert 'href="/revenue"' not in home.text
@@ -256,7 +264,7 @@ def test_catalog_permissions_create_only_and_revocation(
 
 
 def test_local_templates_assets_custom_routers_and_project_override(
-    tmp_path: Path, configs: tuple[type[AppConfig], ...]
+    tmp_path: Path, configs: tuple[type[CatalogConfig], ...]
 ) -> None:
     override = tmp_path / "override/polls"
     override.mkdir(parents=True)
@@ -264,7 +272,7 @@ def test_local_templates_assets_custom_routers_and_project_override(
 
     async def scenario() -> None:
         async with runtime(
-            tmp_path, configs, plugins=(Analytics(),), template_dirs=(override.parent,)
+            tmp_path, configs, features=(Analytics(),), template_dirs=(override.parent,)
         ) as (obox, c, _):
             assert (await c.get("/vi/polls/custom")).text == "project override:vi"
             assert (await c.get("/polls/_static/app.css")).text == ".polls { color: red; }"
@@ -289,26 +297,29 @@ def test_local_templates_assets_custom_routers_and_project_override(
 
 
 def test_app_config_paths_and_runtime_instances_are_independent(
-    configs: tuple[type[AppConfig], ...],
+    configs: tuple[type[CatalogConfig], ...],
 ) -> None:
-    settings = Settings(
+    settings = RuntimeConfig(
         database_url="sqlite+aiosqlite://",
         installed_apps=(configs[0].name + ".Config", configs[1]),
         principal_dependency=lambda: STAFF,
         default_policy=RBAC("polls.items"),
         ui_prefix="",
     )
-    first, second = (Obox(FastAPI(), settings=settings, plugins=(Analytics(),)) for _ in range(2))
+    first, second = (
+        _Runtime(FastAPI(), settings=settings, features=(Analytics(),)) for _ in range(2)
+    )
     assert first.apps["polls"] is not second.apps["polls"]
-    assert first.get_builder(First) is not second.get_builder(First)
-    assert first.get_builder(First).app is first
-    assert second.get_builder(First).app is second
+    assert first.get_resource(First) is not second.get_resource(First)
+    assert first.get_resource(First).app is first
+    assert second.get_resource(First).app is second
     assert first.database.engine is second.database.engine is None
     with pytest.raises(TypeError):
         first.apps["new"] = configs[0]()
 
 
 def test_empty_installed_apps_still_provides_a_catalog(tmp_path: Path) -> None:
+
     async def scenario() -> None:
         async with runtime(tmp_path, (), actor=Principal(id=1, is_authenticated=True)) as (_, c, _):
             response = await c.get("/")
@@ -319,20 +330,17 @@ def test_empty_installed_apps_still_provides_a_catalog(tmp_path: Path) -> None:
 
 
 def test_components_with_the_same_name_are_scoped_to_their_applications(
-    tmp_path: Path, configs: tuple[type[AppConfig], ...]
+    tmp_path: Path, configs: tuple[type[CatalogConfig], ...]
 ) -> None:
     component = Bar(name="sum", source=SecondBuilder, x="name", y=Measure("sum", "amount"))
-    revenue: type[AppConfig] = type(
+    revenue: type[CatalogConfig] = type(
         "Revenue",
         (configs[1],),
-        {
-            "components": (component,),
-            "pages": (Page("totals", components=((component,),)),),
-        },
+        {"components": (component,), "pages": (Page("totals", components=((component,),)),)},
     )
 
     async def scenario() -> None:
-        async with runtime(tmp_path, (configs[0], revenue), plugins=(Analytics(),)) as (_, c, _):
+        async with runtime(tmp_path, (configs[0], revenue), features=(Analytics(),)) as (_, c, _):
             for label, total in (("polls", 10), ("revenue", 20)):
                 path = f"/{label}/totals"
                 page = await c.get(path)
@@ -346,11 +354,11 @@ def test_components_with_the_same_name_are_scoped_to_their_applications(
     asyncio.run(scenario())
 
 
-def test_missing_analytics_plugin_fails_startup(configs: tuple[type[AppConfig], ...]) -> None:
+def test_missing_analytics_plugin_fails_startup(configs: tuple[type[CatalogConfig], ...]) -> None:
     with pytest.raises(ImproperlyConfigured, match="analytics"):
-        Obox(
+        _Runtime(
             FastAPI(),
-            settings=Settings(
+            settings=RuntimeConfig(
                 database_url="sqlite+aiosqlite://",
                 ui_prefix="",
                 installed_apps=configs,
@@ -362,12 +370,10 @@ def test_missing_analytics_plugin_fails_startup(configs: tuple[type[AppConfig], 
 
 @pytest.mark.parametrize("problem", ["duplicate", "missing", "label", "api", "invalid", "resource"])
 def test_invalid_application_configuration_fails_early(
-    configs: tuple[type[AppConfig], ...], problem: str
+    configs: tuple[type[CatalogConfig], ...], problem: str
 ) -> None:
     first, second = configs
-
-    broken: type[AppConfig] = type("Broken", (first,), {})
-
+    broken: type[CatalogConfig] = type("Broken", (first,), {})
     installed: tuple[Any, ...] = (broken, second)
     if problem == "duplicate":
         installed = (broken, first)
@@ -382,9 +388,9 @@ def test_invalid_application_configuration_fails_early(
     else:
         broken.builders = (FirstBuilder, FirstBuilder)
     with pytest.raises(ImproperlyConfigured):
-        Obox(
+        _Runtime(
             FastAPI(),
-            settings=Settings(
+            settings=RuntimeConfig(
                 database_url="sqlite+aiosqlite://",
                 installed_apps=installed,
                 principal_dependency=lambda: STAFF,

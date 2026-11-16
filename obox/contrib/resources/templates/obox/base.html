@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="{% block language %}{{ language|default('en') }}{% endblock %}">
+  <head>
+    {% block head %}
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <title>{% block title %}{{ title }} · {{ site_title }}{% endblock %}</title>
+      <link rel="stylesheet"
+            href="{{ request.url_for('obox_static', path='tabler.min.css') }}">
+      <link rel="stylesheet"
+            href="{{ request.url_for('obox_static', path='ui.css') }}">
+      {% if request.app.state.obox._feature("files") %}
+        <link rel="stylesheet"
+              href="{{ request.url_for('obox_files_static', path='files.css') }}">
+        <script type="module"
+                src="{{ request.url_for('obox_files_static', path='files.js') }}"></script>
+      {% endif %}
+    {% endblock %}
+  </head>
+  <body class="{% block body_class %}page{% endblock %}">
+    <a class="visually-hidden-focusable position-absolute top-0 start-0 z-3 bg-white p-2"
+       href="#main">{% trans %}Skip to content{% endtrans %}</a>
+    <div class="page-wrapper">
+      {% block sidebar %}
+        <header class="navbar navbar-expand-md bg-white shadow-none">
+          <div class="container-fluid">
+            {% set catalog = request.state.obox_catalog|default(none) %}
+            <div class="navbar-brand me-3">
+              {% block branding scoped %}
+                {% if catalog %}
+                  <a class="text-reset text-decoration-none"
+                     href="{{ catalog.home_url }}">{{ site_title }}</a>
+                {% else %}
+                  {{ site_title }}
+                {% endif %}
+              {% endblock %}
+            </div>
+            {% if catalog %}
+              {% if catalog.current %}<span class="navbar-text ms-2">{{ catalog.current.title }}</span>{% endif %}
+            {% endif %}
+            {% if auth and principal.is_authenticated %}
+              <form class="navbar-nav flex-row align-items-center gap-3 ms-auto m-0"
+                    method="post"
+                    action="{{ auth.logout_url(request) }}">
+                {% set profile_url = auth.profile_url(request) %}
+                {% if profile_url %}
+                  <a class="nav-link p-0" href="{{ profile_url }}">{{ principal.username }}</a>
+                {% else %}
+                  <span>{{ principal.username }}</span>
+                {% endif %}
+                <input type="hidden" name="csrf_token" value="{{ csrf }}">
+                <button class="btn btn-outline-secondary btn-sm"
+                        type="submit">{% trans %}Sign out{% endtrans %}</button>
+              </form>
+            {% endif %}
+            {% if languages %}
+              <nav class="navbar-nav flex-row gap-2 ms-3 my-0"
+                   aria-label="{{ _('Language') }}">
+                {% for code, label in languages.items() %}
+                  <a class="nav-link{% if code == language %} active{% endif %}"
+                     href="{{ language_url(code) }}"
+                     lang="{{ code }}"
+                     hreflang="{{ code }}"
+                     {% if code == language %}aria-current="true"{% endif %}>{{ label }}</a>
+                {% endfor %}
+              </nav>
+            {% endif %}
+          </div>
+        </header>
+        {% if navigation %}
+          <div class="obox-app-tab-bar"
+               {% if catalog and catalog.current %}data-tab-bar-color="{{ catalog.current.tab_bar_color }}"{% endif %}>
+            <details class="obox-app-tab-menu" data-app-tab-menu>
+              <summary class="obox-app-tab-menu-toggle"
+                       aria-label="{{ _('Browse tabs') }}"
+                       title="{{ _('Browse tabs') }}">
+                <svg aria-hidden="true"
+                     width="18"
+                     height="18"
+                     viewBox="0 0 24 24"
+                     fill="none">
+                  <path d="m7 10 5 5 5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  </path>
+                </svg>
+              </summary>
+              <div class="obox-app-tab-menu-panel">
+                <div class="obox-app-tab-search">
+                  <svg aria-hidden="true"
+                       width="18"
+                       height="18"
+                       viewBox="0 0 24 24"
+                       fill="none">
+                    <circle cx="10.8" cy="10.8" r="6.8" stroke="currentColor" stroke-width="1.8"></circle>
+                    <path d="m16 16 4.2 4.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+                  </svg>
+                  <input class="form-control"
+                         type="search"
+                         placeholder="{{ _('Search tabs') }}"
+                         aria-label="{{ _('Search tabs') }}"
+                         autocomplete="off"
+                         data-app-tab-search>
+                </div>
+                <nav class="obox-app-tab-menu-list" aria-label="{{ _('Resources') }}">
+                  {% for item in navigation %}
+                    <a class="obox-app-tab-menu-item"
+                       href="{{ item.url }}"
+                       data-app-tab-item
+                       {% if item.active %}aria-current="page"{% endif %}>{{ item.label }}</a>
+                  {% endfor %}
+                </nav>
+                <p class="obox-app-tab-menu-empty text-secondary small mb-0"
+                   aria-live="polite"
+                   data-app-tab-empty
+                   hidden>{% trans %}No tabs match your search.{% endtrans %}</p>
+              </div>
+            </details>
+            <nav class="nav nav-tabs obox-app-tabs flex-nowrap overflow-x-auto overflow-y-hidden"
+                 aria-label="{{ _('Resources') }}">
+              {% for item in navigation %}
+                <a class="nav-link{% if item.active %} active{% endif %}"
+                   href="{{ item.url }}"
+                   {% if item.active %} aria-current="page"{% endif %}>{{ item.label }}</a>
+              {% endfor %}
+            </nav>
+          </div>
+          <script type="module"
+                  src="{{ request.url_for('obox_static', path='app-tabs.js') }}"></script>
+        {% endif %}
+      {% endblock %}
+      <main class="page-body {% block main_class %}record-page{% endblock %}"
+            id="main"
+            tabindex="-1">
+        <div class="{% block page_container_class %}container-xl{% endblock %}">
+          {% block page_heading %}
+            <h1 class="{% block heading_class %}page-title mb-3{% endblock %}">{% block heading %}{{ title }}{% endblock %}</h1>
+          {% endblock %}
+          <div class="{% block content_class %}record-content card card-body{% endblock %}">
+            {% block content %}{% endblock %}
+          </div>
+        </div>
+      </main>
+    </div>
+    {% block scripts %}{% endblock %}
+  </body>
+</html>

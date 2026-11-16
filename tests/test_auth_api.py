@@ -14,11 +14,13 @@ import httpx
 import pytest
 import sqlalchemy as sa
 from fastapi import FastAPI
-from obox_builder import API, Context, ModelBuilder, Obox, Principal, Settings
-from obox_builder.auth import RBAC, Policy
-from obox_builder.contrib.activity import Activity
-from obox_builder.contrib.activity.models import Base as ActivityBase
-from obox_builder.contrib.auth import (
+from obox._auth import RBAC, Policy, Principal
+from obox._config import RuntimeConfig
+from obox._context import Context
+from obox._runtime import _Runtime
+from obox.contrib.activity import Activity
+from obox.contrib.activity.models import Base as ActivityBase
+from obox.contrib.auth import (
     APIToken,
     APITokenMixin,
     Auth,
@@ -28,16 +30,18 @@ from obox_builder.contrib.auth import (
     User,
     UserMixin,
 )
-from obox_builder.contrib.auth import Base as AuthBase
-from obox_builder.contrib.auth.passwords import hash_password
-from obox_builder.contrib.files import IMAGES, File, Files, attachments
-from obox_builder.contrib.files.models import Base as FileBase
+from obox.contrib.auth import Base as AuthBase
+from obox.contrib.auth.passwords import hash_password
+from obox.contrib.files import IMAGES, File, Files, attachments
+from obox.contrib.files.models import Base as FileBase
+from obox.contrib.resources import Resource as ResourceDefinition
+from obox.contrib.resources.apis import ApiOptions
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from tests.helpers import with_builders
 
-PASSWORD = "correct horse battery staple"  # noqa: S105
+PASSWORD = "correct horse battery staple"  # noqa: S105 - test fixture
 
 
 class Base(DeclarativeBase):
@@ -46,7 +50,6 @@ class Base(DeclarativeBase):
 
 class Note(Base):
     __tablename__ = "token_notes"
-
     id: Mapped[int] = mapped_column(primary_key=True)
     title_text: Mapped[str] = mapped_column(sa.String(40))
     owner_id: Mapped[int] = mapped_column(default=1)
@@ -61,7 +64,8 @@ class NotePolicy(RBAC[Note]):
         return {"owner_id": ctx.principal.id}
 
 
-class NoteBuilder(ModelBuilder[Note]):
+class NoteBuilder(ResourceDefinition[Note]):
+    model = Note
     slug = "notes"
     fields = ("id", "title_text", "owner_id")
     filter_fields = ("title_text",)
@@ -73,13 +77,13 @@ class NoteBuilder(ModelBuilder[Note]):
 
 class Upload(Base):
     __tablename__ = "token_uploads"
-
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(sa.String(40))
     attachments: Mapped[list[File]] = attachments(types=IMAGES)
 
 
-class UploadBuilder(ModelBuilder[Upload]):
+class UploadBuilder(ResourceDefinition[Upload]):
+    model = Upload
     fields = ("id", "name", "attachments")
     slug = "uploads"
     policy = RBAC[Upload]()
@@ -111,10 +115,10 @@ async def application(
     tmp_path: Path,
     *,
     tokens: bool = True,
-    configured: type[ModelBuilder[Any]] = NoteBuilder,
+    configured: type[ResourceDefinition[Any]] = NoteBuilder,
     files: bool = False,
     host_identity: bool = False,
-) -> AsyncIterator[tuple[Obox, httpx.AsyncClient]]:
+) -> AsyncIterator[tuple[_Runtime, httpx.AsyncClient]]:
     url = os.getenv("OBOX_TEST_DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'auth.sqlite3'}")
     engine = create_async_engine(url)
     namespace = f"test_auth_api_{uuid4().hex}" if engine.dialect.name == "postgresql" else None
@@ -123,10 +127,10 @@ async def application(
             await connection.execute(sa.schema.CreateSchema(namespace))
         engine = engine.execution_options(schema_translate_map={None: namespace})
     try:
-        app = Obox(
+        app = _Runtime(
             FastAPI(),
             settings=with_builders(
-                Settings(
+                RuntimeConfig(
                     session_factory=async_sessionmaker(engine, expire_on_commit=False),
                     csrf_secret="x" * 32,
                     principal_dependency=(
@@ -137,7 +141,7 @@ async def application(
                 ),
                 configured,
             ),
-            plugins=[
+            features=[
                 Auth(secure=False, api_tokens=tokens),
                 Activity(),
                 *([Files(root=tmp_path / "media")] if files else []),
@@ -189,7 +193,7 @@ async def application(
             async with httpx.AsyncClient(
                 transport=httpx.ASGITransport(app=app.app), base_url="http://test"
             ) as client:
-                yield app, client
+                yield (app, client)
     finally:
         if namespace:
             async with engine.begin() as connection:
@@ -230,6 +234,7 @@ async def issue(client: httpx.AsyncClient, scopes: list[str]) -> dict[str, Any]:
 
 
 def test_json_session_login_csrf_rotation_and_logout(tmp_path: Path) -> None:
+
     async def scenario() -> None:
         async with application(tmp_path) as (app, client):
             assert (await client.get("/api/auth/me")).status_code == 401
@@ -250,9 +255,7 @@ def test_json_session_login_csrf_rotation_and_logout(tmp_path: Path) -> None:
             assert (await client.get("/api/auth/me")).json() == signed_in.json()
             assert "httponly" in signed_in.headers["set-cookie"].lower()
             stale = await client.post(
-                "/api/admin/notes",
-                json={"titleText": "New"},
-                headers={"x-csrf-token": before},
+                "/api/admin/notes", json={"titleText": "New"}, headers={"x-csrf-token": before}
             )
             assert stale.status_code == 403
             headers = {"x-csrf-token": await csrf(client)}
@@ -272,6 +275,7 @@ def test_json_session_login_csrf_rotation_and_logout(tmp_path: Path) -> None:
 
 
 def test_api_token_scopes_hashing_row_scope_and_cookie_isolation(tmp_path: Path) -> None:
+
     async def scenario() -> None:
         async with application(tmp_path) as (app, client):
             await login(client)
@@ -328,6 +332,7 @@ def test_api_token_scopes_hashing_row_scope_and_cookie_isolation(tmp_path: Path)
 def test_api_tokens_recheck_expiry_revocation_password_and_user(
     tmp_path: Path, reason: str
 ) -> None:
+
     async def scenario() -> None:
         async with application(tmp_path) as (app, client):
             await login(client)
@@ -361,6 +366,7 @@ def test_api_tokens_recheck_expiry_revocation_password_and_user(
 
 
 def test_token_ownership_validation_and_staff_only_scope_enforcement(tmp_path: Path) -> None:
+
     class StaffBuilder(NoteBuilder):
         policy = RBAC[Note]()
 
@@ -396,6 +402,7 @@ def test_token_ownership_validation_and_staff_only_scope_enforcement(tmp_path: P
 
 
 def test_api_tokens_are_opt_in(tmp_path: Path) -> None:
+
     async def scenario() -> None:
         async with application(tmp_path, tokens=False) as (_, client):
             await login(client)
@@ -405,6 +412,7 @@ def test_api_tokens_are_opt_in(tmp_path: Path) -> None:
 
 
 def test_file_bearer_tokens_enforce_scopes_and_api_field_projection(tmp_path: Path) -> None:
+
     async def scenario() -> None:
         async with application(tmp_path, configured=UploadBuilder, files=True) as (app, client):
             await login(client)
@@ -443,10 +451,7 @@ def test_file_bearer_tokens_enforce_scopes_and_api_field_projection(tmp_path: Pa
                 record = await bearer.post(
                     "/api/admin/uploads",
                     headers=auth,
-                    json={
-                        "name": "Image",
-                        "attachments": [created.json()["id"]],
-                    },
+                    json={"name": "Image", "attachments": [created.json()["id"]]},
                 )
                 assert record.status_code == 201, record.text
                 download = await bearer.get(path, headers=auth)
@@ -460,9 +465,12 @@ def test_file_bearer_tokens_enforce_scopes_and_api_field_projection(tmp_path: Pa
 
 
 def test_file_bearer_upload_cannot_bypass_api_write_fields(tmp_path: Path) -> None:
+
     class Restricted(UploadBuilder):
-        class API(API):
+        class ApiOptions(ApiOptions):
             write_fields = ("name",)
+
+        api_options = ApiOptions
 
     async def scenario() -> None:
         async with application(tmp_path, configured=Restricted, files=True) as (app, client):
@@ -482,6 +490,7 @@ def test_file_bearer_upload_cannot_bypass_api_write_fields(tmp_path: Path) -> No
 
 
 def test_token_management_uses_its_own_authenticated_backend(tmp_path: Path) -> None:
+
     class StaffBuilder(NoteBuilder):
         policy = RBAC[Note]()
 
@@ -504,6 +513,7 @@ def test_token_management_uses_its_own_authenticated_backend(tmp_path: Path) -> 
 
 
 def test_describe_narrows_fields_and_reports_effective_defaults(tmp_path: Path) -> None:
+
     class NarrowPolicy(NotePolicy):
         def read_fields(self, ctx: Context, *, obj: Note | None = None) -> frozenset[str]:
             return frozenset({"id", "title_text"})
@@ -551,6 +561,7 @@ def test_describe_narrows_fields_and_reports_effective_defaults(tmp_path: Path) 
 def test_token_expiry_is_required_to_be_future_and_timezone_aware(
     tmp_path: Path, expiry: str
 ) -> None:
+
     async def scenario() -> None:
         async with application(tmp_path) as (_, client):
             await login(client)
@@ -567,6 +578,7 @@ def test_token_expiry_is_required_to_be_future_and_timezone_aware(
 
 
 def test_custom_uuid_users_and_token_models_preserve_identity_and_expiry(tmp_path: Path) -> None:
+
     class StaffBuilder(NoteBuilder):
         policy = RBAC[Note]()
 
@@ -591,12 +603,12 @@ def test_custom_uuid_users_and_token_models_preserve_identity_and_expiry(tmp_pat
             token_model=PersonalToken,
             username_field="login",
         )
-        app = Obox(
+        app = _Runtime(
             FastAPI(),
             settings=with_builders(
-                Settings(session_factory=factory, csrf_secret="x" * 32), StaffBuilder
+                RuntimeConfig(session_factory=factory, csrf_secret="x" * 32), StaffBuilder
             ),
-            plugins=[Auth(backend=backend, secure=False, api_tokens=True)],
+            features=[Auth(backend=backend, secure=False, api_tokens=True)],
         )
         try:
             async with app.app.router.lifespan_context(app.app):

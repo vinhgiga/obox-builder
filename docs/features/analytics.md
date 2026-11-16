@@ -1,44 +1,15 @@
 # Analytics
 
-The optional Analytics plugin adds chart and pivot components over registered
-resources. It uses the source resource's policy scope and field permissions;
-an analytics component cannot broaden the records a caller may read.
+Enable `obox.contrib.resources` and `obox.contrib.analytics` in INSTALLED_APPS.
+Analytics reads registered Resource declarations and applies their source policy,
+field access and query budgets. Page/component registration happens through the
+owning application's ready hook. See [the chart example](../examples/components/analytics-chart.md).
 
-Available chart kinds are bar, line, scatter, pie, and donut. Charts can group
-and aggregate configured fields. Pivot components support row and optional
-column dimensions with a configured measure. Query budgets bound rows, columns,
-cells, groups, points, and execution time.
+The existing product API includes Bar, Line, Pie, Donut and Scatter charts,
+Pivot and CustomChart, with measure/axis declarations exported from
+`obox.contrib.analytics`. Supported aggregates and limits are checked against
+source model metadata. HTML and query routes share policy-scoped services.
 
-```python
-from obox_builder import AppConfig, Component, Page
-from obox_builder.contrib.analytics import Analytics, Bar, Sum
-
-
-class RevenueByRegion(Bar):
-    name = "byRegion"
-    source = SaleBuilder
-    x = "region"
-    y = Sum("revenue")
-    order = "-y"
-
-
-class SalesConfig(AppConfig):
-    name = "app.sales"
-    label = "sales"
-    builders = (SaleBuilder,)
-    components: tuple[type[Component] | Component, ...] = (RevenueByRegion,)
-    pages = (Page("revenue", components=((RevenueByRegion,),)),)
-```
-
-Install the plugin when composing the host app:
-
-```python
-from obox_builder.contrib.analytics import Analytics
-
-obox = Obox(app, settings="setting", plugins=(Auth(), Analytics()))
-```
-
-The source builder must grant aggregate access to the fields used by the chart.
-See the [analytics design specification](../extension-spec.md) for the detailed
-component and aggregation contract; items marked proposed are not implemented
-features.
+Analytics is optional contrib functionality. It does not add chart or pivot
+concepts to ModelBuilder or the standardized REST core. The
+[analytics integration contract](../extension-spec.md) describes the current boundary.

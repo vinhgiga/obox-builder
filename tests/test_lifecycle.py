@@ -5,11 +5,13 @@ from typing import Any, Literal
 import pytest
 import sqlalchemy as sa
 from fastapi import FastAPI
-from obox_builder import Form, ModelBuilder, Obox, Principal
-from obox_builder.auth import RBAC
-from obox_builder.builder.ui import form_fields
-from obox_builder.conf import Settings
-from obox_builder.context import Context
+from obox._auth import RBAC, Principal
+from obox._config import RuntimeConfig
+from obox._context import Context
+from obox._runtime import _Runtime
+from obox.contrib.resources import Resource as ResourceDefinition
+from obox.contrib.resources.forms import FormOptions
+from obox.contrib.resources.ui import form_fields
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.pool import StaticPool
@@ -23,13 +25,13 @@ class Base(DeclarativeBase):
 
 class Widget(Base):
     __tablename__ = "widgets"
-
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(sa.String(50))
     status: Mapped[str] = mapped_column(sa.String(20), default="draft")
 
 
-class RecordingBuilder(ModelBuilder[Widget]):
+class RecordingBuilder(ResourceDefinition[Widget]):
+    model = Widget
     fields = ("id", "name", "status")
 
     def __init__(self) -> None:
@@ -38,12 +40,7 @@ class RecordingBuilder(ModelBuilder[Widget]):
         self.committed: list[tuple[str, int]] = []
 
     async def before_save(
-        self,
-        instance: Widget,
-        changes: Mapping[str, Any],
-        ctx: Context,
-        *,
-        created: bool,
+        self, instance: Widget, changes: Mapping[str, Any], ctx: Context, *, created: bool
     ) -> None:
         self.saved.append((created, dict(changes), instance.name))
         instance.name = instance.name.strip()
@@ -55,27 +52,24 @@ class RecordingBuilder(ModelBuilder[Widget]):
         self.committed.append((event.action, event.id))
 
 
-class FailingBuilder(ModelBuilder[Widget]):
+class FailingBuilder(ResourceDefinition[Widget]):
+    model = Widget
     fields = ("id", "name", "status")
 
     async def before_save(
-        self,
-        instance: Widget,
-        changes: Mapping[str, Any],
-        ctx: Context,
-        *,
-        created: bool,
+        self, instance: Widget, changes: Mapping[str, Any], ctx: Context, *, created: bool
     ) -> None:
         raise RuntimeError("before_save failed")
 
 
-class OrderedForm(Form):
+class OrderedForm(FormOptions):
     fields = ("status", "name")
 
 
-class OrderedBuilder(ModelBuilder[Widget]):
+class OrderedBuilder(ResourceDefinition[Widget]):
+    model = Widget
     fields = ("id", "name", "status")
-    Form = OrderedForm
+    form_options = OrderedForm
 
 
 class ReorderedForm(OrderedForm):
@@ -85,9 +79,10 @@ class ReorderedForm(OrderedForm):
         return tuple(reversed(super().get_fields(ctx, action=action, instance=instance)))
 
 
-class ReorderedBuilder(ModelBuilder[Widget]):
+class ReorderedBuilder(ResourceDefinition[Widget]):
+    model = Widget
     fields = ("id", "name", "status")
-    Form = ReorderedForm
+    form_options = ReorderedForm
 
 
 class DuplicateForm(OrderedForm):
@@ -95,22 +90,20 @@ class DuplicateForm(OrderedForm):
         return ("name", "name", "status")
 
 
-class DuplicateBuilder(ModelBuilder[Widget]):
+class DuplicateBuilder(ResourceDefinition[Widget]):
+    model = Widget
     fields = ("id", "name", "status")
-    Form = DuplicateForm
+    form_options = DuplicateForm
 
 
-async def make_app(builder: type[ModelBuilder[Widget]]) -> tuple[Obox, Any]:
-    engine = create_async_engine(
-        "sqlite+aiosqlite://",
-        poolclass=StaticPool,
-    )
+async def make_app(builder: type[ResourceDefinition[Widget]]) -> tuple[_Runtime, Any]:
+    engine = create_async_engine("sqlite+aiosqlite://", poolclass=StaticPool)
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
-    app = Obox(
+    app = _Runtime(
         FastAPI(),
         settings=with_builders(
-            Settings(
+            RuntimeConfig(
                 session_factory=async_sessionmaker(engine, expire_on_commit=False),
                 principal_dependency=lambda: None,
                 default_policy=RBAC(),
@@ -119,13 +112,14 @@ async def make_app(builder: type[ModelBuilder[Widget]]) -> tuple[Obox, Any]:
             builder,
         ),
     )
-    return app, engine
+    return (app, engine)
 
 
 def test_before_save_receives_created_and_changes() -> None:
+
     async def scenario() -> None:
         app, engine = await make_app(RecordingBuilder)
-        builder = app.get_builder(Widget)
+        builder = app.get_resource(Widget)
         assert isinstance(builder, RecordingBuilder)
         principal = Principal(id=1, is_authenticated=True, is_staff=True, is_superuser=True)
         try:
@@ -138,7 +132,6 @@ def test_before_save_receives_created_and_changes() -> None:
                 assert updated.name == "beta"
             async with app.uow(principal=principal) as ctx:
                 await app.service(Widget).delete(widget_id, ctx=ctx)
-
             assert builder.saved == [
                 (True, {"name": "  alpha  "}, "  alpha  "),
                 (False, {"name": "  beta  "}, "  beta  "),
@@ -156,6 +149,7 @@ def test_before_save_receives_created_and_changes() -> None:
 
 
 def test_before_save_failure_rolls_back() -> None:
+
     async def scenario() -> None:
         app, engine = await make_app(FailingBuilder)
         principal = Principal(id=1, is_authenticated=True, is_staff=True, is_superuser=True)
@@ -172,9 +166,10 @@ def test_before_save_failure_rolls_back() -> None:
 
 
 def test_form_fields_order_comes_from_form_fields() -> None:
+
     async def scenario() -> None:
         app, engine = await make_app(OrderedBuilder)
-        builder = app.get_builder(Widget)
+        builder = app.get_resource(Widget)
         principal = Principal(id=1, is_authenticated=True, is_staff=True, is_superuser=True)
         try:
             assert builder.form_fields == ("status", "name")
@@ -188,9 +183,10 @@ def test_form_fields_order_comes_from_form_fields() -> None:
 
 
 def test_form_get_fields_order_overrides_static_order() -> None:
+
     async def scenario() -> None:
         app, engine = await make_app(ReorderedBuilder)
-        builder = app.get_builder(Widget)
+        builder = app.get_resource(Widget)
         principal = Principal(id=1, is_authenticated=True, is_staff=True, is_superuser=True)
         try:
             async with app.uow(principal=principal, source="ui") as ctx:
@@ -203,9 +199,10 @@ def test_form_get_fields_order_overrides_static_order() -> None:
 
 
 def test_form_get_fields_deduplicates() -> None:
+
     async def scenario() -> None:
         app, engine = await make_app(DuplicateBuilder)
-        builder = app.get_builder(Widget)
+        builder = app.get_resource(Widget)
         principal = Principal(id=1, is_authenticated=True, is_staff=True, is_superuser=True)
         try:
             async with app.uow(principal=principal, source="ui") as ctx:
@@ -218,5 +215,5 @@ def test_form_get_fields_deduplicates() -> None:
 
 
 def test_form_has_no_layout_api() -> None:
-    assert not hasattr(Form, "layout")
-    assert not hasattr(Form, "get_layout")
+    assert not hasattr(FormOptions, "layout")
+    assert not hasattr(FormOptions, "get_layout")

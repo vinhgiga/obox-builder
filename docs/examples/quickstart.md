@@ -1,118 +1,62 @@
-# Quickstart
+# Start a project
 
-Create a project scaffold, register a SQLAlchemy model, and open its generated
-admin and JSON API.
-
-## Requirements
-
-- Python 3.11 or later
-- [uv](https://docs.astral.sh/uv/)
-- A SQLAlchemy 2 model and a database URL
-
-## 1. Create a project and scaffold
-
-```shell
-uv init obox-demo --bare
-cd obox-demo
-uv add obox-builder
-uv run obox startproject app
-cd app
+```sh
+uv add obox-builder uvicorn
+uv run obox startproject example
+cd example
+uv run alembic upgrade head
 ```
 
-The scaffold includes `main.py`, `models.py`, `setting.py`, Alembic migration
-files, and a small `justfile`. It uses SQLite and a development secret by
-default. The parent `uv` project provides the environment for this generated
-directory.
-
-## 2. Define a model
-
-Add this mapped class below `Base` in the generated `models.py`:
+Put a native SQLAlchemy model under `app/products/models.py`, using the scaffold's
+Base. For example:
 
 ```python
-class Question(Base):
-    __tablename__ = "questions"
+from sqlalchemy import Numeric, String
+from sqlalchemy.orm import Mapped, mapped_column
+from decimal import Decimal
+from models import Base
 
+
+class Product(Base):
+    __tablename__ = "product"
     id: Mapped[int] = mapped_column(primary_key=True)
-    question_text: Mapped[str] = mapped_column()
+    name: Mapped[str] = mapped_column(String(100), unique=True)
+    price: Mapped[Decimal] = mapped_column(Numeric(10, 2))
 ```
 
-The generated `models.py` already imports `Mapped`, `mapped_column`, and defines
-`Base` with SQLAlchemy optimistic versioning.
-
-## 3. Register the resource
-
-Create the `app` package and add these files:
-
-```text
-app/
-├── __init__.py
-├── apps.py
-└── builders.py
-```
-
-In `app/builders.py`, define the fields and view for this resource:
+Declare `app/products/apps.py`:
 
 ```python
-from obox_builder import ModelBuilder, builder
-from models import Question
+from obox.apps import AppConfig
 
 
-class QuestionBuilder(ModelBuilder[Question]):
-    fields = ("question_text",)
-    search_fields = ("question_text",)
-
-    class View(builder.View):
-        list_display = ("question_text",)
+class ProductsConfig(AppConfig):
+    name = "app.products"
 ```
 
-In `app/apps.py`, declare the builder:
+Add `app.products` to INSTALLED_APPS. In `app/products/admin.py`:
 
 ```python
-from obox_builder import AppConfig
-from app.builders import QuestionBuilder
+from obox.builder import ModelBuilder, register
+from .models import Product
 
 
-class PollsConfig(AppConfig):
-    name = "app"
-    label = "polls"
-    builders = (QuestionBuilder,)
+@register(Product)
+class ProductBuilder(ModelBuilder):
+    fields = ("name", "price")
+    list_display = ("id", "name", "price")
+    search_fields = ("name",)
 ```
 
-Set `INSTALLED_APPS` in `setting.py`:
+The generated URLs already mount `path('admin/', site.urls)`. Generate a model
+migration, review it, apply it, create an administrator and start the app:
 
-```python
-INSTALLED_APPS = ("app.apps.PollsConfig",)
-```
-
-Apps are loaded at startup. Their registered collections use the app label in
-the API path, so this resource is available at `/api/polls/questions`.
-
-## 4. Create the database and administrator
-
-```shell
-uv run alembic revision --autogenerate -m "add questions"
+```sh
+uv run alembic revision --autogenerate -m 'add product'
 uv run alembic upgrade head
 uv run obox createsuperuser
-```
-
-The generated migration environment includes both the project model metadata
-and Auth's model metadata.
-
-## 5. Run the application
-
-```shell
 uv run uvicorn main:app --reload
 ```
 
-Open <http://127.0.0.1:8000/admin> and sign in. The generated superuser can
-manage the registered resource.
-
-Before deploying, set `OBOX_DEBUG=false` and provide a private
-`OBOX_SECRET_KEY` of at least 32 bytes. For role-based access and custom row
-scopes, continue with [Access control](../features/access-control.md).
-
-## Next steps
-
-- [Register a resource](features/register-resource.md) with more form and API options.
-- [Query the JSON API](apis/query-resource.md) from a client.
-- Browse [all implemented features](../features/index.md).
+For JSON endpoints follow the [independent REST example](apis/query-resource.md).
+For custom input follow the [ModelForm example](forms/customize-form.md).

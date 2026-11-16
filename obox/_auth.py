@@ -1,0 +1,172 @@
+"""Fail-closed authorization; identity resolution belongs to the host application."""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+from copy import copy
+from dataclasses import dataclass
+from inspect import iscoroutinefunction
+from typing import Any, Generic, Protocol, TypeVar
+
+import sqlalchemy as sa
+from sqlalchemy.sql.elements import ColumnElement
+
+from obox._context import Context
+from obox.core.exceptions import ImproperlyConfigured
+
+T = TypeVar("T")
+
+
+def _valid_permission(name: str) -> bool:
+    parts = name.split(".")
+    return len(parts) in (2, 3) and all(part.isidentifier() for part in parts)
+
+
+def has_permission(actor: Any, permission: str) -> bool:
+    check = getattr(actor, "has_perm", None)
+    return bool(
+        getattr(actor, "is_authenticated", False) is True
+        and getattr(actor, "is_active", False) is True
+        and _valid_permission(permission)
+        and callable(check)
+        and not iscoroutinefunction(check)
+        and check(permission) is True
+    )
+
+
+@dataclass(frozen=True)
+class Permission:
+    name: str
+    label: str
+    kind: str
+
+
+class Identity(Protocol):
+    """Minimal identity returned by authentication; has_perm is synchronous."""
+
+    @property
+    def id(self) -> Any: ...
+
+    @property
+    def username(self) -> str: ...
+
+    @property
+    def is_authenticated(self) -> bool: ...
+
+    @property
+    def is_active(self) -> bool: ...
+
+    def has_perm(self, permission: str) -> bool: ...
+
+
+@dataclass(frozen=True)
+class Principal:
+    id: Any = None
+    is_authenticated: bool = False
+    is_staff: bool = False
+    is_active: bool = True
+    username: str = ""
+    is_superuser: bool = False
+    roles: frozenset[str] = frozenset()
+    permissions: frozenset[str] = frozenset()
+
+    def has_perm(self, permission: str) -> bool:
+        return (
+            self.is_authenticated
+            and self.is_active
+            and _valid_permission(permission)
+            and (self.is_superuser or permission in self.permissions)
+        )
+
+
+@dataclass(frozen=True)
+class ScopedIdentity:
+    owner: Identity
+    api_scopes: frozenset[str]
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.owner, name)
+
+    @property
+    def id(self) -> Any:
+        return self.owner.id
+
+    @property
+    def username(self) -> str:
+        return self.owner.username
+
+    @property
+    def is_authenticated(self) -> bool:
+        return self.owner.is_authenticated
+
+    @property
+    def is_active(self) -> bool:
+        return self.owner.is_active
+
+    def has_perm(self, permission: str) -> bool:
+        return permission in self.api_scopes and self.owner.has_perm(permission)
+
+
+class Policy(Generic[T]):
+    async def allow(self, action: str, ctx: Context, *, obj: T | None = None) -> bool:
+        return False
+
+    def scope(self, action: str, ctx: Context) -> ColumnElement[bool]:
+        return sa.false()
+
+    def read_fields(self, ctx: Context, *, obj: T | None = None) -> frozenset[str] | None:
+        return None
+
+    def aggregate_fields(self, ctx: Context) -> frozenset[str]:
+        """Fields safe to aggregate across every row admitted by the list scope."""
+        return frozenset()
+
+    def write_fields(
+        self, action: str, ctx: Context, *, obj: T | None = None
+    ) -> frozenset[str] | None:
+        return None
+
+    def presets(self, action: str, ctx: Context) -> Mapping[str, Any]:
+        return {}
+
+    async def check(self, action: str, instance: T, ctx: Context) -> bool:
+        return False
+
+
+class PublicReadOnly(Policy[T]):
+    async def allow(self, action: str, ctx: Context, *, obj: T | None = None) -> bool:
+        return action in {"list", "retrieve"}
+
+    def scope(self, action: str, ctx: Context) -> ColumnElement[bool]:
+        return sa.true() if action in {"list", "retrieve"} else sa.false()
+
+
+class RBAC(Policy[T]):
+    """Exact service.resource.action grants, e.g. RBAC('blog.questions')."""
+
+    def __init__(self, resource: str | None = None) -> None:
+        if resource is not None and not _valid_permission(f"{resource}.list"):
+            raise ImproperlyConfigured("RBAC requires service.resource, e.g. blog.questions.")
+        self.resource = resource
+
+    def bind(self, resource: str) -> RBAC[T]:
+        bound = copy(self)
+        if bound.resource is None:
+            if not _valid_permission(f"{resource}.list"):
+                raise ImproperlyConfigured("RBAC requires a valid application and resource name.")
+            bound.resource = resource
+        return bound
+
+    async def allow(self, action: str, ctx: Context, *, obj: T | None = None) -> bool:
+        return self._allowed(action, ctx)
+
+    def _allowed(self, action: str, ctx: Context) -> bool:
+        if self.resource is None:
+            raise ImproperlyConfigured("Bind RBAC to a registered resource before using it.")
+        return has_permission(ctx.principal, f"{self.resource}.{action}")
+
+    def scope(self, action: str, ctx: Context) -> ColumnElement[bool]:
+        return sa.true() if self._allowed(action, ctx) else sa.false()
+
+    async def check(self, action: str, instance: T, ctx: Context) -> bool:
+        return self._allowed(action, ctx)

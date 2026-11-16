@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { runInNewContext } from "node:vm";
-import { request } from "../../obox_builder/builder/static/http.js";
+import { request } from "../../obox/contrib/resources/static/http.js";
 
 const source = readFileSync(
-  new URL("../../obox_builder/builder/static/record.js", import.meta.url),
+  new URL("../../obox/contrib/resources/static/record.js", import.meta.url),
   "utf8",
 ).replace(/^import .*;\n/, "");
 

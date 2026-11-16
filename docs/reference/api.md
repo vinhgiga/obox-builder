@@ -1,10 +1,10 @@
-# Resource API reference
+# HTTP APIs
 
-The detailed HTTP contract lives in [API Specification](../api-spec.md). It
-documents resource CRUD, list and structured queries, selectors, relationships,
-batch writes, Auth, Files, idempotency, webhooks, and errors.
+The standardized REST API is declared through serializers, viewsets and routers.
+Read [the REST contract](../api-spec.md) for defaults, errors, statuses and URLs.
+It uses serializer field names, native IDs, trailing slashes and optional DRF
+page-number pagination.
 
-The specification labels implemented and planned routes separately. Its
-current status line takes precedence over examples from older design documents.
-For overview and usage examples, start with [JSON API](../features/api.md) and
-[Query a resource](../examples/apis/query-resource.md).
+The optional [contrib resource protocol](../contrib-resource-api.md) owns custom
+queries, batch/upsert, metadata and record concurrency. Its camelCase envelopes
+and custom method URLs remain product-specific. Installing it is explicit.

@@ -1,0 +1,15 @@
+import os
+
+from fastapi import FastAPI
+from fastapi.responses import RedirectResponse
+from obox import Obox
+from obox.conf import settings
+
+os.environ.setdefault("OBOX_SETTINGS_MODULE", "settings")
+app = FastAPI(title=settings.PROJECT_NAME, debug=settings.DEBUG)
+Obox(app)
+
+
+@app.get("/", include_in_schema=False)
+def index() -> RedirectResponse:
+    return RedirectResponse("/admin/", status_code=302)

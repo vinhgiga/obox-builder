@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { request, uploadRequest } from "../../obox_builder/builder/static/http.js";
+import { request, uploadRequest } from "../../obox/contrib/resources/static/http.js";
 
 test("request preserves options, JSON errors, and cancellation", async (t) => {
   const signal = new AbortController().signal;

@@ -1,42 +1,49 @@
-# Release Notes
+# Release notes — 0.1.0
 
-This page summarizes the repository's [`CHANGELOG.md`](https://github.com/vinhgiga/obox-builder/blob/main/CHANGELOG.md).
-Items under **Unreleased** are development changes and are not a tagged release.
+Obox v0.1 establishes a small Django 5.2 LTS / DRF 3.16.1-shaped core on FastAPI,
+SQLAlchemy, Pydantic and Jinja2. Less code is better: core concepts have an explicit
+reference mapping; product features stay optional contrib.
 
-## Unreleased
+## Breaking changes
 
-### Added
+The distribution stays `obox-builder`, version0.1.0, with Python namespace `obox`.
+Settings are lazy uppercase settings loaded from OBOX_SETTINGS_MODULE or configured
+once. DATABASES, TEMPLATES, ROOT_URLCONF, INSTALLED_APPS and REST_FRAMEWORK replace
+custom constructor configuration. Application startup is configs → models → ready.
 
-- A searchable documentation site with product tabs and example sections for
-  common features, views, APIs, forms, pages, and components.
-- Plugin composition through `Obox(..., plugins=...)`, dependency checks, and
-  optional plugin lifespans.
-- Atomic batch writes, filtered API descriptions, JSON sessions, and scoped
-  personal API tokens.
-- Resource ETags and conditional writes for SQLAlchemy-versioned models.
-- Activity history and comments, plus resumable uploads and owned attachments.
+Form and ModelForm are real independent classes. Generic View/TemplateView/list/
+detail/editing classes replace the combined ModelView. REST is declared with
+Serializer/ModelSerializer, ModelViewSet and SimpleRouter, replacing ModelApi.
+ModelBuilder uses explicit model registration and owns only admin HTML.
 
-### Changed
+All compatibility aliases and old plugin installation hooks are removed.
+Database-aware hooks use async/await. get_queryset returns a Select without
+executing it. Core HTTP behavior follows Django/DRF: invalid form200, editing
+redirect302, serializer errors400 and successful REST DELETE204.
 
-- Versioned update and delete authorization uses the matching operation policy.
-- File API metadata and the attachment widget use camelCase JSON properties.
+## Migration
 
-### Removed
+1. Replace application imports with `obox` modules shown in the
+   [Python reference](reference/python-api.md).
+2. Rename the project settings module to settings.py, configure standard
+   DATABASES/TEMPLATES and set OBOX_SETTINGS_MODULE before constructing Obox(app).
+3. Define AppConfig.name and register the app in INSTALLED_APPS. Import model
+   declarations before ready; register admin classes through app/admin.py.
+4. Move form fields/validation into Form or ModelForm.Meta and clean hooks.
+   Await validation and save; move fieldsets to ModelBuilder.
+5. Replace combined views with generic views and explicit path/include patterns.
+6. Define serializers/viewsets/router independently. Update clients for native ID
+   types, declared field names, trailing slashes, DRF errors and PUT/PATCH semantics.
+7. Register `(Model, BuilderClass)` or use @register(Model); remove generic model
+   inference and form/view/API surface declarations from the builder.
+8. Enable product features through contrib AppConfigs. Rich resource declarations
+   use Resource plus explicit model and form_options/view_options/api_options.
+   Product batch/metadata/concurrency clients retain their contrib protocol.
 
-- `Auth.install(obox)`. Install Auth through the constructor's `plugins` option
-  or with `obox.install(Auth(...))` before startup.
+Application data is preserved by this refactor; review host migrations for the
+contrib tables you enable. No database reset is part of the migration. Git history
+and existing release tags are unchanged.
 
-## 0.2.0 — 2026-10-17
-
-- Added the initial admin CRUD surface, model field configuration, generated
-  forms, list search and filters, CSRF protection, and error pages.
-- Added `ModelAdmin.base_path` for custom admin routes.
-
-## 0.1.0 — 2026-10-17
-
-- Added project scaffolding, settings, application loading, CLI, database and
-  migration helpers, and initial Auth and admin UI features.
-- Added the initial test tooling and documentation site.
-
-See the [full changelog](https://github.com/vinhgiga/obox-builder/blob/main/CHANGELOG.md)
-for complete entries and future updates.
+The [mapping table](mapping.md) lists the supported subset and tests. This release
+does not promise complete Django/DRF compatibility. Runtime does not depend on
+Django/DRF; their pinned reference environment is used only for contract tests.

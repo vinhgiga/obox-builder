@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta name="description" content="Obox administration">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta charset="utf-8">
+    <title>{{ title | default("Records") }}</title>
+  </head>
+  <body>
+    {% if add_url %}<a href="{{ add_url }}">Add</a>{% endif %}
+    <table>
+      <thead><tr>{% for field in list_display %}<th>{{ field }}</th>{% endfor %}</tr></thead>
+      <tbody>{% for row in rows %}<tr>{% for value in row %}<td>{{ value }}</td>{% endfor %}</tr>{% endfor %}</tbody>
+    </table>
+  </body>
+</html>

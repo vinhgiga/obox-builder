@@ -1,29 +1,26 @@
-# Compose a page
-
-Create a page with two components on the first row and one on the second:
+# Compose a contrib page
 
 ```python
-from obox_builder import AppConfig, Page
-
-from app.sales.builders import SaleBuilder
+from obox.apps import AppConfig
+from obox.contrib.resources.presentation import Page
 from app.sales.components import RevenueByRegion, RevenueByDistributor
 
 
 class SalesConfig(AppConfig):
     name = "app.sales"
-    label = "sales"
-    builders = (SaleBuilder,)
-    components = (RevenueByRegion, RevenueByDistributor)
-    pages = (
-        Page(
-            "revenue",
-            title="Revenue",
-            components=((RevenueByRegion, RevenueByDistributor),),
-            permission="sales.sales.list",
-        ),
-    )
+
+    def ready(self):
+        self.components = (RevenueByRegion, RevenueByDistributor)
+        self.pages = (
+            Page(
+                "revenue",
+                title="Revenue",
+                components=((RevenueByRegion, RevenueByDistributor),),
+                permission="sales.sales.list",
+            ),
+        )
 ```
 
-Each component remains subject to its own source policy and permissions. A page
-permission can further restrict who may open the page; it does not grant access
-to the component's data.
+Enable `obox.contrib.resources`. A page permission does not grant access to its
+component data; each component retains source policy checks. Pages are product
+presentation declarations. For ordinary template pages use core TemplateView.

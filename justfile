@@ -26,12 +26,12 @@ ci:
 
 # Extract messages and refresh locale catalogs.
 messages:
-    uv run pybabel extract -F babel.cfg -k translate:2 -o obox_builder/locale/obox.pot obox_builder
-    uv run pybabel update -i obox_builder/locale/obox.pot -d obox_builder/locale -D obox
+    uv run pybabel extract -F babel.cfg -k translate:2 -o obox/locale/obox.pot obox
+    uv run pybabel update -i obox/locale/obox.pot -d obox/locale -D obox
 
 # Compile gettext catalogs for runtime use.
 compile-messages:
-    uv run pybabel compile -d obox_builder/locale -D obox
+    uv run pybabel compile -d obox/locale -D obox
 
 check: ci
 

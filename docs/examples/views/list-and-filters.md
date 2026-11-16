@@ -1,26 +1,52 @@
-# Configure a list and filters
-
-Add search and filter fields to the builder. Choose columns and a page size for
-the admin list:
+# Generic views
 
 ```python
-from obox_builder import ModelBuilder, builder
+from sqlalchemy import select
+from obox.views.generic import ListView, CreateView, UpdateView, DeleteView
+from obox.urls import path
+from app.products.models import Product
+from app.products.forms import ProductForm
 
 
-class QuestionBuilder(ModelBuilder[Question]):
-    fields = ("question_text", "pub_date")
-    search_fields = ("question_text",)
-    filter_fields = ("pub_date",)
-    sort_fields = ("question_text", "pub_date")
-    ordering = ("-pub_date", "-id")
+class ProductListView(ListView):
+    model = Product
+    template_name = "products/list.html"
+    paginate_by = 20
+    ordering = ("name",)
 
-    class View(builder.View):
-        list_display = ("question_text", "pub_date")
-        page_size = 50
+    def get_queryset(self):
+        query = super().get_queryset()
+        term = self.request.query_params.get("q")
+        return query.where(Product.name.icontains(term)) if term else query
+
+
+class ProductCreateView(CreateView):
+    model = Product
+    form_class = ProductForm
+    success_url = "/products/"
+
+
+class ProductUpdateView(UpdateView):
+    model = Product
+    form_class = ProductForm
+    success_url = "/products/"
+
+
+class ProductDeleteView(DeleteView):
+    model = Product
+    success_url = "/products/"
+
+
+urlpatterns = [
+    path("products/", ProductListView.as_view(), name="product-list"),
+    path("products/add/", ProductCreateView.as_view()),
+    path("products/<int:pk>/change/", ProductUpdateView.as_view()),
+    path("products/<int:pk>/delete/", ProductDeleteView.as_view()),
+]
 ```
 
-The filter and sort declarations are allowlists. The policy still controls which
-records and fields the current user may see. Set `View.related` to display
-configured relationship cards on record pages.
-
-See [Resource builders](../../features/resources.md) for API surface options.
+get_queryset returns a Select without executing SQL. Each request receives its
+own view/form. Invalid forms render status200, successful submissions redirect302.
+A custom form template must render `csrf_token` in `csrfmiddlewaretoken`.
+Authentication and row visibility are application choices; override dispatch or
+querysets as appropriate. Builder routes add staff/model permission checks.

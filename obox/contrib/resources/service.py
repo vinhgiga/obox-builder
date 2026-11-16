@@ -1,0 +1,1124 @@
+"""Authorized CRUD shared by HTTP, HTML and direct callers."""
+
+from __future__ import annotations
+
+import inspect
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Mapping, Sequence
+from contextlib import asynccontextmanager
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from types import MappingProxyType
+from typing import Any, Generic, Literal, TypeVar, cast
+
+import sqlalchemy as sa
+from sqlalchemy.exc import DataError, IntegrityError, StatementError
+from sqlalchemy.orm import with_parent
+from sqlalchemy.orm.exc import StaleDataError
+
+from obox._context import Context, DomainEvent
+from obox._exceptions import (
+    N_,
+    BatchOperationError,
+    BuilderValidationError,
+    NotAuthenticated,
+    NotFound,
+    OboxError,
+    PermissionDenied,
+    PreconditionFailed,
+    ResourceConflict,
+)
+from obox.contrib.resources.aggregates import AggregateResult, Aggregation
+from obox.contrib.resources.filters import FilterGroup, FilterTerm
+from obox.contrib.resources.query import ListQuery, condition, invalid
+from obox.core.exceptions import ImproperlyConfigured
+from obox.db._fields import (
+    FILTER_EMPTY_OPERATORS,
+    FILTER_OPERATORS,
+    check_fields,
+    schema,
+    validate,
+)
+
+T = TypeVar("T")
+
+
+@dataclass(frozen=True)
+class BatchOperation:
+    op: Literal["create", "update", "delete", "upsert"]
+    id: Any = None
+    data: Mapping[str, Any] = field(default_factory=dict)
+    precondition: Callable[[Any], Awaitable[None]] | None = None
+    merge_on: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class UpsertResult(Generic[T]):
+    record: T
+    created: bool
+
+
+async def invoke(method: Any, *args: Any, **kwargs: Any) -> Any:
+    result = method(*args, **kwargs)
+    return await result if inspect.isawaitable(result) else result
+
+
+def _filter_condition(
+    builder: Any, readable: set[str], field: str, op: str, value: Any, dialect: str = ""
+) -> Any:
+    if op.startswith("pg."):
+        return condition(builder, readable, FilterTerm(field, op, value), dialect)
+    if field not in builder.filter_fields or field not in readable:
+        raise BuilderValidationError({field: ["Filtering this field is not permitted."]})
+    column = getattr(builder.model, field)
+    spec = builder.specs[field]
+    if op not in FILTER_OPERATORS:
+        raise BuilderValidationError({f"filter_op.{field}": ["Unknown filter operator."]})
+    if "obox_files" in spec.column.info:
+        if op in FILTER_EMPTY_OPERATORS:
+            return ~column.any() if op == "is_empty" else column.any()
+        raise BuilderValidationError({field: ["Attachments support empty/not-empty filters."]})
+    if op in FILTER_EMPTY_OPERATORS:
+        empty = column.is_(None)
+        if isinstance(spec.column.type, sa.String):
+            empty = sa.or_(empty, column == "")
+        return empty if op == "is_empty" else sa.not_(empty)
+    parsed = validate(schema("Filter", builder.specs, (field,), partial=True), {field: value})
+    if op in {"contains", "does_not_contain"}:
+        if not isinstance(spec.column.type, sa.String):
+            raise BuilderValidationError(
+                {f"filter_op.{field}": ["This operator requires a text field."]}
+            )
+        match = column.icontains(parsed[field], autoescape=True)
+        if op == "does_not_contain":
+            match = sa.not_(match)
+            if spec.column.nullable:
+                match = sa.or_(column.is_(None), match)
+    else:
+        match = column == parsed[field]
+        if op == "is_not":
+            match = column != parsed[field]
+            if spec.column.nullable:
+                match = sa.or_(column.is_(None), match)
+    return match
+
+
+def _filter_tree(
+    builder: Any, readable: set[str], node: FilterGroup | FilterTerm, dialect: str
+) -> Any | None:
+    if isinstance(node, FilterTerm):
+        return _filter_condition(builder, readable, node.field, node.op, node.value, dialect)
+    children = [
+        condition
+        for child in node.children
+        if (condition := _filter_tree(builder, readable, child, dialect)) is not None
+    ]
+    if not children:
+        return None
+    result = (sa.and_ if node.conjunction.removeprefix("not.") == "and" else sa.or_)(*children)
+    return sa.not_(result) if node.conjunction.startswith("not.") else result
+
+
+class ResourceService(Generic[T]):
+    def __init__(self, builder: Any, app: Any) -> None:
+        self.builder, self.app = builder, app
+
+    def _context(self, ctx: Context) -> None:
+        if ctx._owner is not self.app or not ctx._active or ctx._failed:
+            raise ImproperlyConfigured("Use an active, successful unit of work from this app.")
+        if ctx.session.sync_session.get_transaction() is not ctx._transaction:
+            ctx._failed = True
+            raise ImproperlyConfigured("Hooks and services must not end the shared transaction.")
+
+    async def authorize(self, action: str, ctx: Context, obj: Any = None) -> None:
+        self._context(ctx)
+        if not await self.permitted(action, ctx, obj):
+            if not getattr(ctx.principal, "is_authenticated", False):
+                raise NotAuthenticated("Authentication is required.")
+            raise PermissionDenied("This operation is not permitted.")
+
+    async def permitted(self, action: str, ctx: Context, obj: Any = None) -> bool:
+        self._context(ctx)
+        scopes = getattr(ctx.principal, "api_scopes", None)
+        if scopes is not None and (
+            not self.builder.api.enabled
+            or action not in (*self.builder.api.operations, *self.builder.permissions)
+            or self.builder.permission_name(action) not in scopes
+        ):
+            return False
+        return bool(await invoke(self.builder.policy.allow, action, ctx, obj=obj))
+
+    def _statement(self, action: str, ctx: Context) -> Any:
+        self._context(ctx)
+        return self.builder.get_statement(ctx).where(self.builder.policy.scope(action, ctx))
+
+    async def _list_statement(
+        self,
+        *,
+        ctx: Context,
+        filters: Mapping[str, Any] | None = None,
+        filter_ops: Mapping[str, str] | None = None,
+        filter_group: FilterGroup | None = None,
+        search: str | None = None,
+    ) -> tuple[Any, set[str]]:
+        b = self.builder
+        readable = set(b.readable(ctx))
+        if ctx.source == "api":
+            readable.intersection_update(b.api_read)
+        stmt = self._statement("list", ctx)
+        ops = filter_ops or {}
+        for key in ops:
+            if key not in (filters or {}):
+                raise BuilderValidationError(
+                    {f"filter_op.{key}": ["Filter operator has no value."]}
+                )
+        conditions = [
+            _filter_condition(b, readable, key, ops.get(key) or "is", value)
+            for key, value in (filters or {}).items()
+        ]
+        if filter_group is not None:
+            tree = _filter_tree(b, readable, filter_group, ctx.session.get_bind().dialect.name)
+            if tree is not None:
+                conditions.append(tree)
+        if conditions:
+            stmt = stmt.where(sa.and_(*conditions))
+        if search:
+            names = tuple(key for key in b.search_fields if key in readable)
+            if not names:
+                raise BuilderValidationError({"search": ["Search is not permitted."]})
+            stmt = stmt.where(
+                sa.or_(*(getattr(b.model, key).icontains(search, autoescape=True) for key in names))
+            )
+        return stmt, readable
+
+    def _grouping(
+        self, readable: set[str], grouping: Sequence[str]
+    ) -> tuple[tuple[str, ...], list[str]]:
+        b = self.builder
+        groups = tuple(grouping)
+        if len(groups) > 3:
+            raise BuilderValidationError({"group": ["Group by at most 3 fields."]})
+        names = [order.removeprefix("-") for order in groups]
+        for name in names:
+            if name not in b.sort_fields or name not in readable:
+                raise BuilderValidationError({"group": [f"Grouping {name!r} is not permitted."]})
+        if len(set(names)) != len(names):
+            raise BuilderValidationError({"group": ["Duplicate group field."]})
+        return groups, names
+
+    async def list(
+        self,
+        *,
+        ctx: Context,
+        filters: Mapping[str, Any] | None = None,
+        filter_ops: Mapping[str, str] | None = None,
+        filter_group: FilterGroup | None = None,
+        search: str | None = None,
+        ordering: Sequence[str] | None = None,
+        grouping: Sequence[str] | None = None,
+        offset: int = 0,
+        limit: int | None = None,
+    ) -> Sequence[T]:
+        await self.authorize("list", ctx)
+        if (
+            isinstance(offset, bool)
+            or offset < 0
+            or (limit is not None and (isinstance(limit, bool) or limit < 0))
+        ):
+            raise BuilderValidationError({"pagination": ["Use nonnegative offset and limit."]})
+        stmt, readable = await self._list_statement(
+            ctx=ctx,
+            filters=filters,
+            filter_ops=filter_ops,
+            filter_group=filter_group,
+            search=search,
+        )
+        b = self.builder
+        groups, names = self._grouping(readable, grouping or ())
+        orders = (
+            tuple(
+                key
+                for key in b.ordering
+                if key.removeprefix("-") in readable or key.removeprefix("-") == b.pk_name
+            )
+            if ordering is None
+            else tuple(ordering)
+        )
+        for order in orders:
+            name = order.removeprefix("-")
+            if ordering is not None and (name not in b.sort_fields or name not in readable):
+                raise BuilderValidationError({"ordering": [f"Sorting {name!r} is not permitted."]})
+        orders = (*groups, *(order for order in orders if order.removeprefix("-") not in names))
+        if b.pk_name not in {key.removeprefix("-") for key in orders}:
+            orders = (*orders, b.pk_name)
+
+        def order_expression(key: str) -> Any:
+            column = getattr(b.model, key.removeprefix("-"))
+            expression = column.desc() if key.startswith("-") else column.asc()
+            return expression.nulls_last() if key in groups else expression
+
+        stmt = stmt.order_by(None).order_by(*(order_expression(key) for key in orders))
+        stmt = stmt.offset(offset)
+        if limit is not None:
+            stmt = stmt.limit(limit)
+        return list((await ctx.session.scalars(stmt)).unique())
+
+    async def page(
+        self, query: ListQuery, *, ctx: Context, retrieve: bool = False
+    ) -> tuple[Sequence[T], dict[str, Any]]:
+        await self.authorize("list", ctx)
+        if retrieve:
+            await self.authorize("retrieve", ctx)
+        b, params = self.builder, query.params
+        stmt, readable = await self._list_statement(
+            ctx=ctx, filter_group=query.filters, search=params.get("search")
+        )
+        if retrieve:
+            stmt = stmt.where(b.policy.scope("retrieve", ctx))
+        ordering = query.ordering(b, readable)
+        limit = query.integer("limit", b.api.default_limit)
+        offset = query.integer("offset", 0) or 0
+        if b.api.max_limit is not None and limit is not None and limit > b.api.max_limit:
+            raise invalid("limit", "Limit exceeds the configured maximum.")
+        if b.api.max_limit is not None and limit is None:
+            limit = b.api.max_limit
+        if "count" in params and params["count"] != "exact":
+            raise invalid("count", "Only count=exact is supported.")
+        if "cursor" in params and ("offset" in params or "limit" not in params):
+            raise invalid("cursor", "Cursor requires limit and cannot be combined with offset.")
+        total = await self._count(stmt, ctx) if "count" in params else None
+        if "cursor" in params:
+            stmt = stmt.where(query.cursor(b, self.app.csrf.secret))
+        if limit == 0 and total is not None and "cursor" not in params:
+            return [], {
+                "limit": 0,
+                "offset": offset,
+                "has_more": total > offset,
+                "next_cursor": None,
+                "total": total,
+            }
+        stmt = stmt.order_by(None).order_by(*ordering).offset(min(offset, 2**63 - 1))
+        if limit is not None and limit < 2**63 - 1:
+            stmt = stmt.limit(limit + 1)
+        objects = list((await ctx.session.scalars(stmt)).unique())
+        more = limit is not None and len(objects) > limit
+        objects = objects if limit is None else objects[:limit]
+        cursor = None
+        if more and objects:
+            # Do not expose ordering values hidden by a per-record projection in a token.
+            visible = set(b.readable(ctx, obj=objects[-1])).intersection(b.api_read)
+            if all(name in visible for name, _, _ in query.order):
+                values = await self.serialize(
+                    objects[-1], ctx=ctx, fields=[name for name, _, _ in query.order]
+                )
+                cursor_values = [
+                    value.replace(tzinfo=value.tzinfo or UTC).astimezone(UTC)
+                    if isinstance(value, datetime)
+                    else value
+                    for name, _, _ in query.order
+                    for value in (values[name],)
+                ]
+                cursor = query.cursor(
+                    b,
+                    self.app.csrf.secret,
+                    cursor_values,
+                )
+        return objects, {
+            "limit": limit,
+            "offset": offset,
+            "has_more": more,
+            "next_cursor": cursor,
+            "total": total,
+        }
+
+    async def expand(
+        self,
+        objects: Sequence[T],
+        rows: Sequence[dict[str, Any]],
+        names: Sequence[str],
+        *,
+        ctx: Context,
+    ) -> None:
+        b = self.builder
+        for name in names:
+            if "." in name:
+                raise invalid("expand", "Only one-level expansion is supported.", "expand_depth")
+            relation = b.list_relations.get(name)
+            fk_name = b.list_relation_fields.get(name)
+            target = self.app._for_table(relation.target) if relation is not None else None
+            if relation is None or target is None or fk_name is None:
+                raise invalid("expand", "Relationship target is unavailable.", "expand_unavailable")
+            if fk_name not in b.api_read:
+                raise invalid("expand", "Relationship field is unavailable.", "expand_unavailable")
+            values = [
+                getattr(obj, fk_name) if fk_name in b.readable(ctx, obj=obj) else None
+                for obj in objects
+            ]
+            visible: dict[Any, Any] = {}
+            service = self.app.service(target.model)
+            if await service.permitted("retrieve", ctx):
+                remote = (
+                    sa.inspect(target.model)
+                    .get_property_by_column(next(iter(relation.remote_side)))
+                    .key
+                )
+                stmt = service._statement("retrieve", ctx).where(
+                    getattr(target.model, remote).in_(
+                        {value for value in values if value is not None}
+                    )
+                )
+                for obj in (await ctx.session.scalars(stmt)).unique():
+                    if not await service.permitted("retrieve", ctx, obj):
+                        continue
+                    fields = set(target.readable(ctx, obj=obj)).intersection(target.api_read)
+                    if target.pk_name not in fields or (
+                        remote != target.pk_name and remote not in fields
+                    ):
+                        continue
+                    label = target.label_field if target.label_field in fields else target.pk_name
+                    data = await service.serialize(obj, ctx=ctx, fields=(target.pk_name, label))
+                    label_value = data.get(label)
+                    visible[getattr(obj, remote)] = {
+                        "id": str(data[target.pk_name]),
+                        "label": str(
+                            data[target.pk_name]
+                            if label_value is None or label_value == ""
+                            else label_value
+                        ),
+                    }
+            for row, value in zip(rows, values, strict=True):
+                row.setdefault("expanded", {})[name] = visible.get(value)
+
+    async def count(
+        self,
+        *,
+        ctx: Context,
+        filters: Mapping[str, Any] | None = None,
+        filter_ops: Mapping[str, str] | None = None,
+        filter_group: FilterGroup | None = None,
+        search: str | None = None,
+    ) -> int:
+        await self.authorize("list", ctx)
+        stmt, _ = await self._list_statement(
+            ctx=ctx,
+            filters=filters,
+            filter_ops=filter_ops,
+            filter_group=filter_group,
+            search=search,
+        )
+        return await self._count(stmt, ctx)
+
+    async def _count(self, stmt: Any, ctx: Context) -> int:
+        selected = (
+            stmt.order_by(None)
+            .with_only_columns(self.builder.pk, maintain_column_froms=True)
+            .distinct()
+            .subquery()
+        )
+        return int(await ctx.session.scalar(sa.select(sa.func.count()).select_from(selected)) or 0)
+
+    async def _aggregate_statement(
+        self,
+        query: Aggregation,
+        ctx: Context,
+        filter_group: FilterGroup | None,
+        search: str | None,
+    ) -> Any:
+        await self.authorize("list", ctx)
+        query.validate(self.builder)
+        statement, readable = await self._list_statement(
+            ctx=ctx, filter_group=filter_group, search=search
+        )
+        allowed = readable.intersection(self.builder.policy.aggregate_fields(ctx))
+        if not set(query.fields).issubset(allowed):
+            raise PermissionDenied("These fields are not available for aggregation.")
+        return statement
+
+    async def aggregate(
+        self,
+        query: Aggregation,
+        *,
+        ctx: Context,
+        filter_group: FilterGroup | None = None,
+        search: str | None = None,
+        max_rows: int = 200,
+        max_columns: int = 50,
+        max_cells: int = 10_000,
+    ) -> AggregateResult:
+        from obox.contrib.resources.aggregates import execute
+
+        statement = await self._aggregate_statement(query, ctx, filter_group, search)
+        return await execute(
+            statement,
+            self.builder,
+            ctx.session,
+            query,
+            max_rows=max_rows,
+            max_columns=max_columns,
+            max_cells=max_cells,
+        )
+
+    async def aggregate_records(
+        self,
+        query: Aggregation,
+        *,
+        ctx: Context,
+        keys: Mapping[str, Any],
+        filter_group: FilterGroup | None = None,
+        search: str | None = None,
+        offset: int = 0,
+        limit: int = 50,
+    ) -> Sequence[T]:
+        """Page source records by primary key, retaining the aggregate's scope."""
+        statement = await self._aggregate_statement(query, ctx, filter_group, search)
+        if (
+            isinstance(offset, bool)
+            or not isinstance(offset, int)
+            or offset < 0
+            or isinstance(limit, bool)
+            or not isinstance(limit, int)
+            or not 1 <= limit <= 200
+        ):
+            raise BuilderValidationError(
+                {"pagination": ["Use offset >= 0 and limit from 1 to 200."]}
+            )
+        if not set(keys).issubset({query.rows, query.columns}):
+            raise BuilderValidationError({"keys": ["Unknown grouping field."]})
+        from pydantic import TypeAdapter, ValidationError
+
+        for name, value in keys.items():
+            spec = self.builder.specs[name]
+            try:
+                parsed = (
+                    TypeAdapter(spec.annotation).validate_python(value)
+                    if value is not None
+                    else None
+                )
+            except ValidationError as exc:
+                raise BuilderValidationError({name: ["Invalid group key."]}) from exc
+            statement = statement.where(getattr(self.builder.model, name) == spec.normalize(parsed))
+        b = self.builder
+        ids = (
+            statement.order_by(None)
+            .with_only_columns(b.pk, maintain_column_froms=True)
+            .distinct()
+            .order_by(b.pk)
+            .offset(offset)
+            .limit(limit)
+        )
+        selected = self._statement("list", ctx).where(b.pk.in_(ids)).order_by(None).order_by(b.pk)
+        return list((await ctx.session.scalars(selected)).unique())
+
+    async def group_counts(
+        self,
+        *,
+        ctx: Context,
+        grouping: Sequence[str],
+        prefixes: Iterable[tuple[Any, ...]],
+        filters: Mapping[str, Any] | None = None,
+        filter_ops: Mapping[str, str] | None = None,
+        filter_group: FilterGroup | None = None,
+        search: str | None = None,
+    ) -> dict[tuple[Any, ...], int]:
+        await self.authorize("list", ctx)
+        stmt, readable = await self._list_statement(
+            ctx=ctx,
+            filters=filters,
+            filter_ops=filter_ops,
+            filter_group=filter_group,
+            search=search,
+        )
+        _, names = self._grouping(readable, grouping)
+        depths: dict[int, set[tuple[Any, ...]]] = {}
+        for prefix in prefixes:
+            depths.setdefault(len(prefix), set()).add(prefix)
+        if not depths:
+            return {}
+        b = self.builder
+        columns = [
+            getattr(b.model, name).label(f"group_{index}") for index, name in enumerate(names)
+        ]
+        scope = (
+            stmt.order_by(None)
+            .with_only_columns(b.pk, *columns, maintain_column_froms=True)
+            .distinct()
+            .subquery()
+        )
+        counts: dict[tuple[Any, ...], int] = {}
+        for depth, values in depths.items():
+            selected = [scope.c[f"group_{index}"] for index in range(depth)]
+            conditions = [
+                sa.and_(
+                    *((column == value) for column, value in zip(selected, prefix, strict=True))
+                )
+                for prefix in values
+            ]
+            result = await ctx.session.execute(
+                sa.select(*selected, sa.func.count()).where(sa.or_(*conditions)).group_by(*selected)
+            )
+            counts.update({tuple(row[:-1]): row[-1] for row in result})
+        return counts
+
+    async def _get(self, id: Any, ctx: Context, action: str, *, lock: bool = False) -> T:
+        await self.authorize(action, ctx)
+        b = self.builder
+        try:
+            key = validate(schema("Identity", b.specs, (b.pk_name,)), {b.pk_name: id})[b.pk_name]
+        except BuilderValidationError as exc:
+            raise NotFound("Record is unavailable.") from exc
+        stmt = self._statement(action, ctx).where(getattr(b.model, b.pk_name) == key)
+        if lock or action in {"update", "delete"}:
+            stmt = stmt.with_for_update(of=b.model).execution_options(populate_existing=True)
+        obj = (await ctx.session.scalars(stmt)).unique().one_or_none()
+        if obj is None:
+            raise NotFound("Record is unavailable.")
+        await self.authorize(action, ctx, obj)
+        return cast(T, obj)
+
+    async def get(self, id: Any, *, ctx: Context) -> T:
+        return await self._get(id, ctx, "retrieve")
+
+    async def run_action(self, name: str, ids: Sequence[Any], *, ctx: Context) -> int:
+        self._context(ctx)
+        method = self.builder.action_methods.get(name)
+        if method is None:
+            raise BuilderValidationError({"action": ["Unknown action."]})
+        permission = method.obox_action[1]
+        async with self._mutation(ctx):
+            await self.authorize(permission, ctx)
+            identity = schema("Identity", self.builder.specs, (self.builder.pk_name,))
+            keys = [
+                validate(identity, {self.builder.pk_name: key})[self.builder.pk_name] for key in ids
+            ]
+            if not keys or len(set(keys)) != len(keys):
+                raise BuilderValidationError({"record_ids": ["Choose unique records."]})
+            objects = []
+            for key in sorted(keys, key=str):
+                try:
+                    objects.append(await self._get(key, ctx, permission, lock=True))
+                except NotFound as exc:
+                    raise NotFound(f"Record {key!r} is unavailable.") from exc
+            activity = self.app._feature("activity")
+            before = [
+                await activity.snapshot(self.builder, obj, ctx) if activity else None
+                for obj in objects
+            ]
+            await invoke(method, objects, ctx)
+            for obj, snapshot in zip(objects, before, strict=True):
+                await self._finish(permission, obj, {}, ctx, event_action=name, before=snapshot)
+            return len(objects)
+
+    async def related(self, id: Any, name: str, *, ctx: Context) -> Sequence[Any]:
+        obj = await self.get(id, ctx=ctx)
+        b = self.builder
+        if name not in b.view_related:
+            raise PermissionDenied("This collection has no declared read projection.")
+        allowed = b.policy.read_fields(ctx, obj=obj)
+        if allowed is not None and name not in allowed:
+            raise PermissionDenied("This collection is not readable.")
+        relation = sa.inspect(b.model).relationships[name]
+        target = self.app.get_resource(relation.mapper.class_)
+        target_service = self.app.service(target.model)
+        await target_service.authorize("list", ctx)
+        stmt = (
+            target_service._statement("list", ctx)
+            .where(with_parent(obj, getattr(b.model, name)))
+            .order_by(target.pk)
+        )
+        return list((await ctx.session.scalars(stmt)).unique())
+
+    def write_fields(
+        self, action: str, ctx: Context, obj: Any = None, *, surface: str | None = None
+    ) -> tuple[str, ...]:
+        if surface is None:
+            surface = "form" if ctx.source == "ui" else "api" if ctx.source == "api" else "service"
+        allowed = self.builder.writable(ctx, action, obj=obj, surface=surface)
+        if surface == "form":
+            requested = self.builder.form.get_fields(ctx, action=action, instance=obj)
+            allowed = tuple(dict.fromkeys(key for key in requested if key in allowed))
+        return cast(tuple[str, ...], allowed)
+
+    def _check_fields(self, data: Mapping[str, Any], allowed: Sequence[str]) -> None:
+        check_fields(data, allowed, self.builder.specs)
+
+    async def _input(
+        self,
+        action: str,
+        data: Mapping[str, Any],
+        ctx: Context,
+        obj: Any = None,
+        *,
+        allowed: Sequence[str] | None = None,
+        surface: str | None = None,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        b = self.builder
+        allowed = (
+            self.write_fields(action, ctx, obj, surface=surface) if allowed is None else allowed
+        )
+        self._check_fields(data, allowed)
+        if surface == "form" or (surface is None and ctx.source == "ui"):
+            data = await invoke(
+                b.form.clean, dict(data), ctx, instance=obj, fields=allowed, partial=True
+            )
+            self._check_fields(data, allowed)
+        parsed = validate(schema("Input", b.specs, allowed, partial=True), data)
+        normalized = await (
+            invoke(b.validate_create, parsed, ctx)
+            if obj is None
+            else invoke(b.validate_update, obj, parsed, ctx)
+        )
+        self._check_fields(normalized, allowed)
+        parsed = validate(schema("Input", b.specs, allowed, partial=True), normalized)
+        parsed = {key: b.specs[key].normalize(value) for key, value in parsed.items()}
+        nulls = {
+            key: [N_("Field cannot be null.")]
+            for key, value in parsed.items()
+            if value is None and not b.specs[key].column.nullable
+        }
+        if nulls:
+            raise BuilderValidationError(nulls, field_code="invalid_type")
+        presets = dict(b.policy.presets(action, ctx))
+        for key in presets:
+            if key not in b.specs or b.specs[key].readonly:
+                raise ImproperlyConfigured(f"Invalid server preset field: {key!r}.")
+        presets = validate(schema("Presets", b.specs, presets, partial=True), presets)
+        presets = {key: b.specs[key].normalize(value) for key, value in presets.items()}
+        if action == "create":
+            missing = {
+                key: [N_("Field is required.")]
+                for key, spec in b.specs.items()
+                if spec.required
+                and not spec.readonly
+                and key in allowed
+                and key not in parsed
+                and key not in presets
+            }
+            if missing:
+                raise BuilderValidationError(missing, field_code="required")
+        await self._relations(parsed, ctx)
+        return {**parsed, **presets}, presets
+
+    async def _relations(self, data: Mapping[str, Any], ctx: Context) -> None:
+        for key, value in data.items():
+            if value is None:
+                continue
+            for fk in self.builder.specs[key].column.foreign_keys:
+                target = self.app._for_table(fk.column.table)
+                if target is None:
+                    raise PermissionDenied(f"Relationship {key!r} has no registered target policy.")
+                service = self.app.service(target.model)
+                await service.authorize("retrieve", ctx)
+                remote = sa.inspect(target.model).get_property_by_column(fk.column).key
+                stmt = service._statement("retrieve", ctx).where(
+                    getattr(target.model, remote) == value
+                )
+                obj = (await ctx.session.scalars(stmt)).unique().one_or_none()
+                if obj is None:
+                    raise BuilderValidationError(
+                        {key: [N_("Related record is unavailable.")]},
+                        code="invalid_reference",
+                    )
+                await service.authorize("retrieve", ctx, obj)
+                if remote != target.pk_name and remote not in target.readable(ctx, obj=obj):
+                    raise PermissionDenied("The relationship's reference field is not readable.")
+
+    @asynccontextmanager
+    async def _mutation(self, ctx: Context, *, conditional: bool = False) -> AsyncIterator[None]:
+        self._context(ctx)
+        try:
+            yield
+            self._context(ctx)
+        except StaleDataError as exc:
+            ctx._failed = True
+            error = PreconditionFailed if conditional else ResourceConflict
+            raise error("The record has changed.") from exc
+        except IntegrityError as exc:
+            ctx._failed = True
+            raise ResourceConflict("The write conflicts with current database state.") from exc
+        except (DataError, OverflowError) as exc:
+            ctx._failed = True
+            raise BuilderValidationError(
+                {"__all__": [N_("A value is outside the database column limits.")]},
+                field_code="invalid_type",
+            ) from exc
+        except StatementError as exc:
+            if not isinstance(exc.orig, (DataError, OverflowError)):
+                ctx._failed = True
+                raise
+            ctx._failed = True
+            raise BuilderValidationError(
+                {"__all__": [N_("A value is outside the database column limits.")]},
+                field_code="invalid_type",
+            ) from exc
+        except BaseException:
+            ctx._failed = True
+            raise
+
+    async def _finish(
+        self,
+        action: str,
+        obj: T,
+        presets: Mapping[str, Any],
+        ctx: Context,
+        *,
+        event_action: str | None = None,
+        before: dict[str, Any] | None = None,
+    ) -> None:
+        self._context(ctx)
+        if action == "create":
+            missing = {
+                key: [N_("Field is required.")]
+                for key, spec in self.builder.specs.items()
+                if spec.required and not spec.readonly and getattr(obj, key, None) is None
+            }
+            if missing:
+                raise BuilderValidationError(missing, field_code="required")
+        await ctx.session.flush()
+        await ctx.session.refresh(obj)
+        if not await invoke(self.builder.policy.check, action, obj, ctx):
+            raise PermissionDenied("The resulting record is not permitted.")
+        if any(
+            self.builder.specs[key].serialize(getattr(obj, key)) != value
+            for key, value in presets.items()
+        ):
+            raise PermissionDenied("A server-controlled field was changed.")
+        self._context(ctx)
+        activity = self.app._feature("activity")
+        if activity is not None:
+            await activity.record(
+                self.builder, "create" if action == "create" else "update", obj, before, ctx
+            )
+        webhooks = self.app._feature("webhooks")
+        if webhooks is not None:
+            await webhooks.record(
+                self.builder, "create" if action == "create" else "update", obj, ctx
+            )
+        ctx._events.append(
+            DomainEvent(
+                event_action or action, self.builder.model, getattr(obj, self.builder.pk_name)
+            )
+        )
+
+    async def validate_inline(
+        self,
+        data: Mapping[str, Any],
+        *,
+        action: str,
+        relation: str,
+        ctx: Context,
+        obj: Any = None,
+    ) -> None:
+        allowed = tuple(key for key in self.write_fields(action, ctx, obj) if key != relation)
+        await self._input(action, data, ctx, obj, allowed=allowed)
+
+    async def create_inline(
+        self, data: Mapping[str, Any], *, relation: str, parent: Any, ctx: Context
+    ) -> T:
+        parent_builder = self.app.get_resource(type(parent))
+        parent_id = getattr(parent, parent_builder.pk_name)
+        allowed = tuple(key for key in self.write_fields("create", ctx) if key != relation)
+        return await self._create(data, ctx=ctx, allowed=allowed, extra={relation: parent_id})
+
+    async def create(
+        self, data: Mapping[str, Any], *, ctx: Context, surface: str | None = None
+    ) -> T:
+        return await self._create(data, ctx=ctx, surface=surface)
+
+    async def _create(
+        self,
+        data: Mapping[str, Any],
+        *,
+        ctx: Context,
+        allowed: Sequence[str] | None = None,
+        extra: Mapping[str, Any] | None = None,
+        surface: str | None = None,
+    ) -> T:
+        await self.authorize("create", ctx)
+        values, presets = await self._input("create", data, ctx, allowed=allowed, surface=surface)
+        values = {**values, **(extra or {})}
+        files = self.app._feature("files")
+        if files is not None:
+            values = await files.resolve(self.builder, values, ctx)
+        async with self._mutation(ctx):
+            obj = self.builder.model(**values)
+            ctx.session.add(obj)
+            await invoke(
+                self.builder.before_save,
+                obj,
+                MappingProxyType(values),
+                ctx,
+                created=True,
+            )
+            for key, value in values.items():
+                if value is None and getattr(obj, key) is None:
+                    setattr(obj, key, sa.null())
+            await self._finish("create", obj, presets, ctx)
+            return cast(T, obj)
+
+    async def update(
+        self,
+        id: Any,
+        changes: Mapping[str, Any],
+        *,
+        ctx: Context,
+        version: Any = None,
+        precondition: Callable[[T], Awaitable[None]] | None = None,
+        touch: bool = False,
+        surface: str | None = None,
+    ) -> T:
+        obj = await self._get(id, ctx, "update")
+        self._version(obj, version)
+        if precondition is not None:
+            await precondition(obj)
+        activity = self.app._feature("activity")
+        before = await activity.snapshot(self.builder, obj, ctx) if activity else None
+        values, presets = await self._input("update", changes, ctx, obj, surface=surface)
+        files = self.app._feature("files")
+        if files is not None:
+            values = await files.resolve(self.builder, values, ctx, obj)
+        async with self._mutation(ctx, conditional=precondition is not None):
+            for key, value in values.items():
+                setattr(obj, key, value)
+            if touch and self.builder.version_column is not None:
+                mapper = sa.inspect(self.builder.model)
+                name = mapper.get_property_by_column(self.builder.version_column).key
+                generator = mapper.version_id_generator
+                if generator is False:
+                    raise ImproperlyConfigured("Relationship writes require generated versions.")
+                setattr(obj, name, generator(getattr(obj, name)))
+            await invoke(
+                self.builder.before_save,
+                obj,
+                MappingProxyType(values),
+                ctx,
+                created=False,
+            )
+            for key, value in values.items():
+                if value is None and getattr(obj, key) is None:
+                    setattr(obj, key, sa.null())
+            await self._finish("update", obj, presets, ctx, before=before)
+            return obj
+
+    async def batch(
+        self, operations: Sequence[BatchOperation], *, ctx: Context
+    ) -> Sequence[T | UpsertResult[T] | None]:
+        """Apply ordered writes atomically, locking existing records in a stable order."""
+        async with self._mutation(ctx):
+            if not operations:
+                raise BuilderValidationError({"operations": ["Supply at least one operation."]})
+            identity = schema("Identity", self.builder.specs, (self.builder.pk_name,))
+            targets = []
+            merge_keys: set[str] = set()
+            for index, operation in enumerate(operations):
+                try:
+                    if operation.op not in {"create", "update", "delete", "upsert"}:
+                        raise BuilderValidationError({"op": ["Unknown write operation."]})
+                    if operation.op == "upsert":
+                        await self.authorize("create", ctx)
+                        await self.authorize("update", ctx)
+                        values = self._merge_values(operation, ctx)
+                        merge_key = repr(sorted(values.items()))
+                        if merge_key in merge_keys:
+                            raise BuilderValidationError(
+                                {"merge_on": ["Choose unique merge keys."]}
+                            )
+                        merge_keys.add(merge_key)
+                        self._check_fields(operation.data, self.write_fields("create", ctx))
+                        existing = (
+                            (
+                                await ctx.session.scalars(
+                                    self._statement("update", ctx).where(
+                                        *(
+                                            getattr(self.builder.model, name) == value
+                                            for name, value in values.items()
+                                        )
+                                    )
+                                )
+                            )
+                            .unique()
+                            .one_or_none()
+                        )
+                        if existing is not None:
+                            targets.append(
+                                (getattr(existing, self.builder.pk_name), index, "update")
+                            )
+                        continue
+                    await self.authorize(operation.op, ctx)
+                    if operation.op == "create":
+                        continue
+                    try:
+                        key = validate(identity, {self.builder.pk_name: operation.id})[
+                            self.builder.pk_name
+                        ]
+                    except BuilderValidationError as exc:
+                        raise NotFound("Record is unavailable.") from exc
+                    targets.append((key, index, operation.op))
+                except (OboxError, ImproperlyConfigured) as exc:
+                    raise BatchOperationError(index, exc) from exc
+            if len({key for key, _, _ in targets}) != len(targets):
+                raise BuilderValidationError({"operations": ["Choose unique record IDs."]})
+            for key, index, action in sorted(targets, key=lambda target: str(target[0])):
+                try:
+                    await self._get(key, ctx, action)
+                except (OboxError, ImproperlyConfigured) as exc:
+                    raise BatchOperationError(index, exc) from exc
+            results: list[T | UpsertResult[T] | None] = []
+            upsert_ids: set[Any] = set()
+            for index, operation in enumerate(operations):
+                try:
+                    if operation.op == "upsert":
+                        result = await self.upsert(operation, ctx=ctx)
+                        result_id = getattr(result.record, self.builder.pk_name)
+                        if result_id in upsert_ids or any(
+                            result_id == key and other_index != index
+                            for key, other_index, _ in targets
+                        ):
+                            raise BuilderValidationError(
+                                {"operations": ["Choose unique record IDs."]}
+                            )
+                        upsert_ids.add(result_id)
+                        results.append(result)
+                        continue
+                    if operation.op == "create":
+                        obj = await self.create(operation.data, ctx=ctx)
+                    elif operation.op == "update":
+                        obj = await self.update(
+                            operation.id,
+                            operation.data,
+                            ctx=ctx,
+                            precondition=operation.precondition,
+                        )
+                    else:
+                        await self.delete(
+                            operation.id, ctx=ctx, precondition=operation.precondition
+                        )
+                        obj = None
+                    results.append(obj)
+                except (OboxError, ImproperlyConfigured) as exc:
+                    raise BatchOperationError(index, exc) from exc
+            return results
+
+    def _merge_values(self, operation: BatchOperation, ctx: Context) -> dict[str, Any]:
+        b, names = self.builder, operation.merge_on
+        if (
+            not names
+            or len(set(names)) != len(names)
+            or not any(set(names) == set(key) for key in b.api.upsert_fields)
+        ):
+            raise BuilderValidationError({"merge_on": ["Use a configured UNIQUE merge key."]})
+        presets = dict(b.policy.presets("create", ctx))
+        source = {**operation.data, **presets}
+        if any(name not in source for name in names):
+            raise BuilderValidationError({"merge_on": ["Supply every merge key value."]})
+        values = validate(
+            schema("MergeKey", b.specs, names), {name: source[name] for name in names}
+        )
+        return {name: b.specs[name].normalize(value) for name, value in values.items()}
+
+    async def upsert(self, operation: BatchOperation, *, ctx: Context) -> UpsertResult[T]:
+        """Resolve a UNIQUE key without bypassing ordinary ORM authorization and hooks."""
+        async with self._mutation(ctx):
+            return await self._upsert(operation, ctx=ctx)
+
+    async def _upsert(self, operation: BatchOperation, *, ctx: Context) -> UpsertResult[T]:
+        await self.authorize("create", ctx)
+        await self.authorize("update", ctx)
+        b = self.builder
+        values = self._merge_values(operation, ctx)
+        # Validate write permissions before using caller-controlled values in a lookup.
+        self._check_fields(operation.data, self.write_fields("create", ctx))
+        for name, value in b.policy.presets("update", ctx).items():
+            if name in values and b.specs[name].normalize(value) != values[name]:
+                raise PermissionDenied("Merge keys must agree with server presets.")
+
+        async def lookup() -> Any:
+            return (
+                (
+                    await ctx.session.scalars(
+                        self._statement("update", ctx)
+                        .where(*(getattr(b.model, name) == value for name, value in values.items()))
+                        .with_for_update()
+                        .execution_options(populate_existing=True)
+                    )
+                )
+                .unique()
+                .one_or_none()
+            )
+
+        obj = await lookup()
+        if obj is None:
+            # SQLite's legacy driver does not start a transaction for SELECT/SAVEPOINT.
+            connection = await ctx.session.connection()
+            if connection.dialect.name == "sqlite":
+                raw = await connection.get_raw_connection()
+                if not cast(Any, raw.driver_connection).in_transaction:
+                    await connection.exec_driver_sql("BEGIN")
+            event_count = len(ctx._events)
+            try:
+                async with ctx.session.begin_nested():
+                    obj = await self.create(operation.data, ctx=ctx)
+                    if any(getattr(obj, name) != value for name, value in values.items()):
+                        raise PermissionDenied("Hooks must preserve the upsert merge key.")
+                return UpsertResult(obj, True)
+            except ResourceConflict as exc:
+                if not isinstance(exc.__cause__, IntegrityError):
+                    raise
+                ctx._failed = False
+                del ctx._events[event_count:]
+                obj = await lookup()
+                if obj is None:
+                    ctx._failed = True
+                    raise
+        updated = await self.update(
+            getattr(obj, b.pk_name), operation.data, ctx=ctx, precondition=operation.precondition
+        )
+        if any(getattr(updated, name) != value for name, value in values.items()):
+            raise PermissionDenied("Hooks must preserve the upsert merge key.")
+        return UpsertResult(updated, False)
+
+    def _version(self, obj: T, version: Any) -> None:
+        if version is None:
+            return
+        mapper = sa.inspect(self.builder.model)
+        column = mapper.version_id_col
+        if column is None:
+            raise BuilderValidationError({"version": ["This model has no version counter."]})
+        if getattr(obj, mapper.get_property_by_column(column).key) != version:
+            raise ResourceConflict("The record has changed.")
+
+    async def delete(
+        self,
+        id: Any,
+        *,
+        ctx: Context,
+        version: Any = None,
+        precondition: Callable[[T], Awaitable[None]] | None = None,
+    ) -> None:
+        async with self._mutation(ctx, conditional=precondition is not None):
+            obj = await self._get(id, ctx, "delete")
+            self._version(obj, version)
+            if precondition is not None:
+                await precondition(obj)
+            activity = self.app._feature("activity")
+            before = await activity.snapshot(self.builder, obj, ctx) if activity else None
+            await invoke(self.builder.before_delete, obj, ctx)
+            self._context(ctx)
+            await ctx.session.delete(obj)
+            await ctx.session.flush()
+            if activity is not None:
+                await activity.record(self.builder, "delete", obj, before, ctx)
+            ctx._events.append(
+                DomainEvent("delete", self.builder.model, getattr(obj, self.builder.pk_name))
+            )
+
+    async def serialize(
+        self, obj: T, *, ctx: Context, fields: Sequence[str] | None = None
+    ) -> dict[str, Any]:
+        self._context(ctx)
+        names = self.builder.readable(ctx, obj=obj, fields=fields)
+        state = sa.inspect(obj)
+        if state is None:
+            raise ImproperlyConfigured("Serialization requires a mapped instance.")
+        unloaded = state.unloaded.intersection(names)
+        if unloaded:
+            await ctx.session.refresh(obj, attribute_names=sorted(unloaded))
+        return {key: self.builder.specs[key].serialize(getattr(obj, key)) for key in names}

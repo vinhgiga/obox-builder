@@ -11,24 +11,24 @@ import httpx
 import pytest
 import sqlalchemy as sa
 from fastapi import FastAPI
-from obox_builder import Obox
-from obox_builder.conf import Settings
-from obox_builder.contrib.auth import Auth, Base, ModelBackend, Session, User
-from obox_builder.contrib.auth.passwords import hash_password
+from obox._config import RuntimeConfig
+from obox._runtime import _Runtime
+from obox.contrib.auth import Auth, Base, ModelBackend, Session, User
+from obox.contrib.auth.passwords import hash_password
 
-PASSWORD = "correct horse battery staple"  # noqa: S105
+PASSWORD = "correct horse battery staple"  # noqa: S105 - test fixture
 
 
-def make_app(path: Path, max_age: int | None = None) -> Obox:
+def make_app(path: Path, max_age: int | None = None) -> _Runtime:
     auth = Auth(secure=False) if max_age is None else Auth(secure=False, max_age=max_age)
-    return Obox(
+    return _Runtime(
         FastAPI(),
-        settings=Settings(database_url=f"sqlite+aiosqlite:///{path}", csrf_secret="x" * 32),
-        plugins=[auth],
+        settings=RuntimeConfig(database_url=f"sqlite+aiosqlite:///{path}", csrf_secret="x" * 32),
+        features=[auth],
     )
 
 
-async def seed(app: Obox) -> None:
+async def seed(app: _Runtime) -> None:
     assert app.database.engine is not None
     async with app.database.engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
@@ -39,7 +39,7 @@ async def seed(app: Obox) -> None:
 async def login(client: httpx.AsyncClient, password: str = PASSWORD) -> httpx.Response:
     page = await client.get("/vi/auth/login")
     assert page.status_code == 200
-    match = re.search(r'name="csrf_token" value="([^"]+)"', page.text)
+    match = re.search('name="csrf_token" value="([^"]+)"', page.text)
     assert match is not None
     return await client.post(
         "/vi/auth/login",
@@ -49,6 +49,7 @@ async def login(client: httpx.AsyncClient, password: str = PASSWORD) -> httpx.Re
 
 
 def test_failed_login_returns_authentication_challenge(tmp_path: Path) -> None:
+
     async def scenario() -> None:
         app = make_app(tmp_path / "login.sqlite3")
         async with app.app.router.lifespan_context(app.app):
@@ -60,8 +61,9 @@ def test_failed_login_returns_authentication_challenge(tmp_path: Path) -> None:
             ) as client:
                 response = await login(client, "wrong password")
                 assert response.status_code == 401
-                assert response.headers["www-authenticate"] == (
-                    'Cookie realm="obox", cookie-name=obox_session, form-action="/vi/auth/login"'
+                assert (
+                    response.headers["www-authenticate"]
+                    == 'Cookie realm="obox", cookie-name=obox_session, form-action="/vi/auth/login"'
                 )
 
     asyncio.run(scenario())
@@ -69,12 +71,13 @@ def test_failed_login_returns_authentication_challenge(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("max_age", [None, 3600])
 def test_session_lifetime_and_restart(tmp_path: Path, max_age: int | None) -> None:
+
     async def scenario() -> None:
         path = tmp_path / "sessions.sqlite3"
         app = make_app(path, max_age)
         ttl = 14 * 24 * 60 * 60 if max_age is None else max_age
         now = datetime.now(UTC)
-        with patch("obox_builder.contrib.auth.backends.datetime") as clock:
+        with patch("obox.contrib.auth.backends.datetime") as clock:
             clock.now.return_value = now
             async with app.app.router.lifespan_context(app.app):
                 await seed(app)
@@ -97,7 +100,6 @@ def test_session_lifetime_and_restart(tmp_path: Path, max_age: int | None) -> No
                     expiry = await db.scalar(sa.select(Session.expires_at))
                     assert expiry is not None
                     assert expiry.replace(tzinfo=UTC) == now + timedelta(seconds=ttl)
-
             restarted = make_app(path, max_age)
             async with (
                 restarted.app.router.lifespan_context(restarted.app),
@@ -124,6 +126,7 @@ def test_session_lifetime_and_restart(tmp_path: Path, max_age: int | None) -> No
 
 
 def test_clear_browser_data_then_refresh_and_login(tmp_path: Path) -> None:
+
     async def scenario() -> None:
         app = make_app(tmp_path / "clear-data.sqlite3")
         async with app.app.router.lifespan_context(app.app):
@@ -153,13 +156,14 @@ def test_clear_browser_data_then_refresh_and_login(tmp_path: Path) -> None:
 
 
 def test_direct_backend_login_defaults_to_fourteen_days(tmp_path: Path) -> None:
+
     async def scenario() -> None:
         app = make_app(tmp_path / "backend.sqlite3")
         async with app.app.router.lifespan_context(app.app):
             await seed(app)
             backend = ModelBackend(app.session_factory)
             now = datetime.now(UTC)
-            with patch("obox_builder.contrib.auth.backends.datetime") as clock:
+            with patch("obox.contrib.auth.backends.datetime") as clock:
                 clock.now.return_value = now
                 token = await backend.login("alice", PASSWORD)
                 assert token is not None

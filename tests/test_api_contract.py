@@ -7,29 +7,26 @@ from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from datetime import datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, ClassVar
 
 import httpx
 import pytest
 import sqlalchemy as sa
 from fastapi import FastAPI
-from obox_builder import (
-    API,
-    BatchOperation,
-    Context,
-    DomainEvent,
-    ModelBuilder,
-    Obox,
-    Principal,
-    builder,
-)
-from obox_builder.auth import RBAC, Identity, ScopedIdentity
-from obox_builder.builder.api_schema import ApiResponse
-from obox_builder.conf import Settings
-from obox_builder.contrib.activity import Activity
-from obox_builder.contrib.activity.models import Base as ActivityBase
-from obox_builder.contrib.activity.models import Event
-from obox_builder.errors import ImproperlyConfigured, ResourceConflict
+from obox._auth import RBAC, Identity, Principal, ScopedIdentity
+from obox._config import RuntimeConfig
+from obox._context import Context, DomainEvent
+from obox._exceptions import ResourceConflict
+from obox._runtime import _Runtime
+from obox.contrib import resources as builder
+from obox.contrib.activity import Activity
+from obox.contrib.activity.models import Base as ActivityBase
+from obox.contrib.activity.models import Event
+from obox.contrib.resources import Resource as ResourceDefinition
+from obox.contrib.resources.api_schema import ApiResponse
+from obox.contrib.resources.apis import ApiOptions
+from obox.contrib.resources.service import BatchOperation
+from obox.core.exceptions import ImproperlyConfigured
 from pydantic import BaseModel, Field, create_model
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -44,14 +41,12 @@ class Base(DeclarativeBase):
 
 class Category(Base):
     __tablename__ = "contract_categories"
-
     id: Mapped[int] = mapped_column(primary_key=True)
     label: Mapped[str | None] = mapped_column(sa.String(50), nullable=True)
 
 
 class Record(Base):
     __tablename__ = "contract_records"
-
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(sa.String(20))
     amount: Mapped[Decimal] = mapped_column(sa.Numeric(6, 2), default=Decimal("0"))
@@ -63,34 +58,34 @@ class Record(Base):
 
 class Document(Base):
     __tablename__ = "contract_documents"
-
     document_key: Mapped[str] = mapped_column(sa.String(40), primary_key=True)
     title_text: Mapped[str] = mapped_column(sa.String(30), unique=True)
     revision: Mapped[int] = mapped_column(default=1)
-    __mapper_args__ = {"version_id_col": revision}  # noqa: RUF012
+    __mapper_args__: ClassVar[dict[str, Any]] = {"version_id_col": revision}
 
 
 class LargeRecord(Base):
     __tablename__ = "contract_large_records"
-
     record_key: Mapped[int] = mapped_column(sa.BigInteger, primary_key=True)
 
 
 class UUIDRecord(Base):
     __tablename__ = "contract_uuid_records"
-
     record_key: Mapped[uuid.UUID] = mapped_column(primary_key=True)
 
 
-class LargeRecordBuilder(ModelBuilder[LargeRecord]):
+class LargeRecordBuilder(ResourceDefinition[LargeRecord]):
+    model = LargeRecord
     fields = ("record_key",)
 
 
-class UUIDRecordBuilder(ModelBuilder[UUIDRecord]):
+class UUIDRecordBuilder(ResourceDefinition[UUIDRecord]):
+    model = UUIDRecord
     fields = ("record_key",)
 
 
-class DocumentBuilder(ModelBuilder[Document]):
+class DocumentBuilder(ResourceDefinition[Document]):
+    model = Document
     fields = ("title_text",)
     slug = "documents"
 
@@ -101,13 +96,15 @@ class DocumentBuilder(ModelBuilder[Document]):
             instance.document_key = uuid.uuid4().hex
 
 
-class CategoryBuilder(ModelBuilder[Category]):
+class CategoryBuilder(ResourceDefinition[Category]):
+    model = Category
     fields = ("id", "label")
     slug = "categories"
     label_field = "label"
 
 
-class RecordBuilder(ModelBuilder[Record]):
+class RecordBuilder(ResourceDefinition[Record]):
+    model = Record
     fields: tuple[str, ...] = ("id", "name", "amount", "moment", "category_id", "payload")
     slug = "records"
     label_field = "name"
@@ -127,14 +124,14 @@ STAFF = Principal(id=1, is_authenticated=True, is_staff=True, is_superuser=True)
 
 @asynccontextmanager
 async def application(
-    configured: type[ModelBuilder[Any]] = RecordBuilder,
+    configured: type[ResourceDefinition[Any]] = RecordBuilder,
     principal: Identity = STAFF,
-    document_builder: type[ModelBuilder[Document]] = DocumentBuilder,
+    document_builder: type[ResourceDefinition[Document]] = DocumentBuilder,
     with_activity: bool = False,
-) -> AsyncIterator[Obox]:
+) -> AsyncIterator[_Runtime]:
     url = os.getenv("OBOX_TEST_DATABASE_URL", "sqlite+aiosqlite://")
     engine = create_async_engine(
-        url, **({"poolclass": StaticPool} if url.startswith("sqlite") else {})
+        url, **{"poolclass": StaticPool} if url.startswith("sqlite") else {}
     )
     namespace = (
         f"test_api_contract_{uuid.uuid4().hex}" if engine.dialect.name == "postgresql" else None
@@ -148,10 +145,10 @@ async def application(
         if with_activity:
             await connection.run_sync(ActivityBase.metadata.create_all)
     try:
-        app = Obox(
+        app = _Runtime(
             FastAPI(),
             settings=with_builders(
-                Settings(
+                RuntimeConfig(
                     session_factory=async_sessionmaker(engine, expire_on_commit=False),
                     principal_dependency=lambda: principal,
                     default_policy=RBAC(),
@@ -163,7 +160,7 @@ async def application(
                 LargeRecordBuilder,
                 UUIDRecordBuilder,
             ),
-            plugins=[Activity()] if with_activity else [],
+            features=[Activity()] if with_activity else [],
         )
         async with app.app.router.lifespan_context(app.app):
             yield app
@@ -174,7 +171,7 @@ async def application(
         await engine.dispose()
 
 
-async def request(app: Obox, method: str, path: str, **kwargs: Any) -> httpx.Response:
+async def request(app: _Runtime, method: str, path: str, **kwargs: Any) -> httpx.Response:
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app.app), base_url="http://test"
     ) as client:
@@ -182,22 +179,18 @@ async def request(app: Obox, method: str, path: str, **kwargs: Any) -> httpx.Res
 
 
 def test_api_rejects_values_that_database_would_truncate_or_fail() -> None:
+
     async def scenario() -> None:
         async with application() as app:
             decimal_value = await request(
-                app,
-                "POST",
-                "/api/admin/records",
-                json={"name": "decimal", "amount": "12.345"},
+                app, "POST", "/api/admin/records", json={"name": "decimal", "amount": "12.345"}
             )
             assert decimal_value.status_code == 422
             assert decimal_value.json()["errors"][0]["code"] == "invalid_type"
-
             nul_value = await request(
                 app, "POST", "/api/admin/records", json={"name": "bad\x00value"}
             )
             assert nul_value.status_code == 422
-
             huge_filter = await request(
                 app, "GET", "/api/admin/records?id=eq.999999999999999999999999999"
             )
@@ -207,17 +200,14 @@ def test_api_rejects_values_that_database_would_truncate_or_fail() -> None:
 
 
 def test_api_normalizes_datetime_and_returns_database_numeric_value() -> None:
+
     async def scenario() -> None:
         async with application() as app:
             created = await request(
                 app,
                 "POST",
                 "/api/admin/records",
-                json={
-                    "name": "time",
-                    "amount": "12.34",
-                    "moment": "2026-11-05T09:00:00+07:00",
-                },
+                json={"name": "time", "amount": "12.34", "moment": "2026-11-05T09:00:00+07:00"},
             )
             assert created.status_code == 201
             assert created.json()["amount"] == "12.34"
@@ -227,30 +217,26 @@ def test_api_normalizes_datetime_and_returns_database_numeric_value() -> None:
 
 
 def test_api_expansion_and_http_error_contract() -> None:
+
     async def scenario() -> None:
         async with application() as app:
             async with app.uow(principal=STAFF) as ctx:
                 ctx.session.add_all([Category(label=None), Record(name="plain")])
-
             expanded = await request(app, "GET", "/api/admin/records?expand=primaryCategory")
             assert expanded.status_code == 200
             assert expanded.json()["items"][0]["expanded"]["primaryCategory"] is None
-
             not_acceptable = await request(
                 app, "GET", "/api/admin/records", headers={"accept": "text/csv"}
             )
             assert not_acceptable.status_code == 406
             assert not_acceptable.headers["content-type"] == "application/problem+json"
             assert not_acceptable.json()["code"] == "not_acceptable"
-
             missing = await request(app, "GET", "/api/admin/nope")
             assert missing.status_code == 404
             assert missing.headers["content-type"] == "application/problem+json"
-
             method = await request(app, "POST", "/api/admin/records/1", json={})
             assert method.status_code == 405
             assert method.json()["code"] == "method_not_allowed"
-
             action_type = await request(
                 app,
                 "POST",
@@ -265,6 +251,7 @@ def test_api_expansion_and_http_error_contract() -> None:
 
 
 def test_api_openapi_declares_stable_operations_and_query_parameters() -> None:
+
     async def scenario() -> None:
         async with application() as app:
             schema = app.app.openapi()
@@ -288,9 +275,7 @@ def test_api_openapi_declares_stable_operations_and_query_parameters() -> None:
             assert "Problem" in schema["components"]["schemas"]
             assert "RecordListItem" in schema["components"]["schemas"]
             assert "RecordResponse" in schema["components"]["schemas"]
-            assert not any(
-                name.startswith("obox_builder__") for name in schema["components"]["schemas"]
-            )
+            assert not any(name.startswith("obox__") for name in schema["components"]["schemas"])
             assert schema["components"]["schemas"]["RecordResponse"]["properties"]["amount"] == {
                 "title": "Amount",
                 "type": "string",
@@ -301,7 +286,7 @@ def test_api_openapi_declares_stable_operations_and_query_parameters() -> None:
             assert schema["components"]["schemas"]["Page"]["properties"]["offset"]["minimum"] == 0
             assert (
                 schema["components"]["schemas"]["Problem"]["properties"]["traceId"]["pattern"]
-                == r"^[A-Za-z0-9._-]{1,128}$"
+                == "^[A-Za-z0-9._-]{1,128}$"
             )
             assert {parameter["name"] for parameter in list_operation["parameters"]} >= {
                 "and",
@@ -317,6 +302,7 @@ def test_api_openapi_declares_stable_operations_and_query_parameters() -> None:
 
 
 def test_identity_is_required_even_when_omitted_from_presentation_and_selection() -> None:
+
     class ProjectedBuilder(RecordBuilder):
         fields = ("name",)
         filter_fields = ()
@@ -336,7 +322,7 @@ def test_identity_is_required_even_when_omitted_from_presentation_and_selection(
             assert retrieved.json() == row
             updated = await request(app, "PATCH", "/api/admin/records/1", json={"name": "changed"})
             assert updated.json() == {"id": "1", "name": "changed"}
-            assert "id" not in app.get_builder(Record).form_fields
+            assert "id" not in app.get_resource(Record).form_fields
             schemas = app.app.openapi()["components"]["schemas"]
             for name in ("RecordListItem", "RecordResponse"):
                 assert "id" in schemas[name]["required"]
@@ -346,6 +332,7 @@ def test_identity_is_required_even_when_omitted_from_presentation_and_selection(
 
 
 def test_identifier_types_and_relationship_options_are_consistent() -> None:
+
     async def scenario() -> None:
         async with application() as app:
             key = uuid.uuid4()
@@ -384,6 +371,7 @@ def test_identifier_types_and_relationship_options_are_consistent() -> None:
 
 
 def test_invalid_foreign_key_is_a_validation_error() -> None:
+
     async def scenario() -> None:
         async with application() as app:
             for method, path, payload in (
@@ -417,6 +405,7 @@ def test_invalid_foreign_key_is_a_validation_error() -> None:
 
 @pytest.mark.parametrize("method", ["GET", "POST"])
 def test_public_field_names_work_in_all_query_positions(method: str) -> None:
+
     async def scenario() -> None:
         async with application() as app:
             async with app.uow(principal=STAFF) as ctx:
@@ -438,7 +427,7 @@ def test_public_field_names_work_in_all_query_positions(method: str) -> None:
                 app,
                 method,
                 "/api/admin/records" if method == "GET" else "/api/admin/records:query",
-                **({"params": pairs} if method == "GET" else {"json": {"query": pairs}}),
+                **{"params": pairs} if method == "GET" else {"json": {"query": pairs}},
             )
             assert response.status_code == 200, response.text
             assert response.json()["items"] == [
@@ -468,6 +457,7 @@ def test_public_field_names_work_in_all_query_positions(method: str) -> None:
     ],
 )
 def test_python_field_references_are_rejected(pairs: list[tuple[str, str]]) -> None:
+
     async def scenario() -> None:
         async with application() as app:
             for method in ("GET", "POST"):
@@ -475,7 +465,7 @@ def test_python_field_references_are_rejected(pairs: list[tuple[str, str]]) -> N
                     app,
                     method,
                     "/api/admin/records" if method == "GET" else "/api/admin/records:query",
-                    **({"params": pairs} if method == "GET" else {"json": {"query": pairs}}),
+                    **{"params": pairs} if method == "GET" else {"json": {"query": pairs}},
                 )
                 assert response.status_code == 422
 
@@ -483,6 +473,7 @@ def test_python_field_references_are_rejected(pairs: list[tuple[str, str]]) -> N
 
 
 def test_query_validation_errors_use_public_field_names() -> None:
+
     async def scenario() -> None:
         async with application() as app:
             response = await request(app, "GET", "/api/admin/records?categoryId=eq.invalid")
@@ -499,6 +490,7 @@ def test_query_validation_errors_use_public_field_names() -> None:
 
 @pytest.mark.parametrize("per_record", [False, True])
 def test_identity_never_bypasses_field_policy(per_record: bool) -> None:
+
     class HiddenIdentity(RBAC[Record]):
         def read_fields(self, ctx: Context, *, obj: Record | None = None) -> frozenset[str] | None:
             return frozenset({"name"}) if obj is not None or not per_record else None
@@ -529,13 +521,14 @@ def test_identity_never_bypasses_field_policy(per_record: bool) -> None:
 
 
 def test_versioned_records_require_and_refresh_strong_etags() -> None:
+
     async def scenario() -> None:
         async with application() as app:
             created = await request(
                 app, "POST", "/api/admin/documents", json={"titleText": "draft"}
             )
             assert created.status_code == 201, created.text
-            row, token = created.json(), created.headers["etag"]
+            row, token = (created.json(), created.headers["etag"])
             assert set(row) == {"id", "titleText"}
             assert isinstance(row["id"], str)
             path = created.headers["location"]
@@ -547,7 +540,7 @@ def test_versioned_records_require_and_refresh_strong_etags() -> None:
             assert unchanged.headers["etag"] == token
             for method in ("PATCH", "DELETE"):
                 missing = await request(
-                    app, method, path, **({"json": {}} if method == "PATCH" else {})
+                    app, method, path, **{"json": {}} if method == "PATCH" else {}
                 )
                 assert missing.status_code == 428
                 assert missing.json()["code"] == "precondition_required"
@@ -563,7 +556,7 @@ def test_versioned_records_require_and_refresh_strong_etags() -> None:
                     method,
                     path,
                     headers={"If-Match": token},
-                    **({"json": {"titleText": "lost update"}} if method == "PATCH" else {}),
+                    **{"json": {"titleText": "lost update"}} if method == "PATCH" else {},
                 )
                 assert stale.status_code == 412
                 assert stale.json()["code"] == "precondition_failed"
@@ -629,6 +622,7 @@ def test_batch_writes_preserve_results_hooks_and_versions() -> None:
 
 @pytest.mark.parametrize("failure", ["constraint", "missing", "stale", "required", "malformed"])
 def test_batch_failure_rolls_back_every_write(failure: str) -> None:
+
     async def scenario() -> None:
         async with application() as app:
             first = await request(app, "POST", "/api/admin/documents", json={"titleText": "first"})
@@ -652,15 +646,7 @@ def test_batch_failure_rolls_back_every_write(failure: str) -> None:
                 app,
                 "POST",
                 "/api/admin/documents:batchWrite",
-                json={
-                    "operations": [
-                        {
-                            "op": "create",
-                            "data": {"titleText": "new"},
-                        },
-                        operation,
-                    ]
-                },
+                json={"operations": [{"op": "create", "data": {"titleText": "new"}}, operation]},
             )
             assert (
                 response.status_code
@@ -682,10 +668,13 @@ def test_batch_failure_rolls_back_every_write(failure: str) -> None:
 
 
 def test_batch_validates_nested_aliases_limits_duplicates_and_exposure() -> None:
+
     class Limited(RecordBuilder):
-        class API(API):
+        class ApiOptions(ApiOptions):
             max_batch = 2
             operations = ("list", "retrieve", "create")
+
+        api_options = ApiOptions
 
     async def scenario() -> None:
         async with application(configured=Limited) as app:
@@ -695,9 +684,7 @@ def test_batch_validates_nested_aliases_limits_duplicates_and_exposure() -> None
                 "POST",
                 path,
                 json={
-                    "operations": [
-                        {"op": "create", "data": {"name": "test", "category_id": "1"}},
-                    ]
+                    "operations": [{"op": "create", "data": {"name": "test", "category_id": "1"}}]
                 },
             )
             assert invalid_alias.status_code == 422
@@ -721,7 +708,7 @@ def test_batch_validates_nested_aliases_limits_duplicates_and_exposure() -> None
                 path,
                 json={
                     "operations": [
-                        {"op": "update", "id": created.json()["id"], "data": {"name": "changed"}},
+                        {"op": "update", "id": created.json()["id"], "data": {"name": "changed"}}
                     ]
                 },
             )
@@ -760,6 +747,7 @@ def test_batch_validates_nested_aliases_limits_duplicates_and_exposure() -> None
 
 
 def test_batch_internal_errors_keep_private_details_out_of_the_response() -> None:
+
     class BrokenBuilder(DocumentBuilder):
         async def before_save(
             self, instance: Document, changes: Mapping[str, Any], ctx: Context, *, created: bool
@@ -772,11 +760,7 @@ def test_batch_internal_errors_keep_private_details_out_of_the_response() -> Non
                 app,
                 "POST",
                 "/api/admin/documents:batchWrite",
-                json={
-                    "operations": [
-                        {"op": "create", "data": {"titleText": "fail"}},
-                    ]
-                },
+                json={"operations": [{"op": "create", "data": {"titleText": "fail"}}]},
             )
             assert response.status_code == 500
             assert "private database configuration" not in response.text
@@ -788,19 +772,14 @@ def test_batch_internal_errors_keep_private_details_out_of_the_response() -> Non
 
 
 def test_scopes_filter_metadata_expansions_and_history_references() -> None:
+
     class HistoryBuilder(RecordBuilder):
         permissions = ("publish", "history")
 
     async def scenario() -> None:
         actor = ScopedIdentity(
             STAFF,
-            frozenset(
-                {
-                    "admin.records.list",
-                    "admin.records.retrieve",
-                    "admin.records.history",
-                }
-            ),
+            frozenset({"admin.records.list", "admin.records.retrieve", "admin.records.history"}),
         )
         async with application(
             configured=HistoryBuilder, principal=actor, with_activity=True
@@ -840,6 +819,7 @@ def test_scopes_filter_metadata_expansions_and_history_references() -> None:
     reason="Requires an isolated PostgreSQL schema",
 )
 def test_reversed_batches_lock_consistently_and_preserve_versions() -> None:
+
     async def scenario() -> None:
         async with application() as app:
             records = [
@@ -893,6 +873,7 @@ def test_reversed_batches_lock_consistently_and_preserve_versions() -> None:
     ],
 )
 def test_if_match_entity_tag_semantics(header: str, status: int) -> None:
+
     async def scenario() -> None:
         async with application() as app:
             created = await request(
@@ -911,6 +892,7 @@ def test_if_match_entity_tag_semantics(header: str, status: int) -> None:
 
 
 def test_preconditions_do_not_mask_authorization_or_constraint_errors() -> None:
+
     async def scenario() -> None:
         async with application(principal=Principal()) as app:
             response = await request(app, "PATCH", "/api/admin/documents/hidden", json={})
@@ -975,6 +957,7 @@ def test_preconditions_do_not_mask_authorization_or_constraint_errors() -> None:
 
 @pytest.mark.parametrize("hidden_by", ["permission", "scope"])
 def test_versioned_writes_use_mutation_permissions_and_scope(hidden_by: str) -> None:
+
     class MutationPolicy(RBAC[Document]):
         async def allow(self, action: str, ctx: Context, *, obj: Document | None = None) -> bool:
             if action == "retrieve" and hidden_by == "permission":
@@ -995,7 +978,7 @@ def test_versioned_writes_use_mutation_permissions_and_scope(hidden_by: str) -> 
                 app, "POST", "/api/admin/documents", json={"titleText": "draft"}
             )
             assert created.status_code == 201
-            path, tag = created.headers["location"], created.headers["etag"]
+            path, tag = (created.headers["location"], created.headers["etag"])
             hidden = await request(app, "GET", path)
             assert hidden.status_code == (403 if hidden_by == "permission" else 404)
             missing = await request(app, "PATCH", path, json={})
@@ -1016,11 +999,12 @@ def test_versioned_writes_use_mutation_permissions_and_scope(hidden_by: str) -> 
 
 
 def test_service_version_checks_remain_available_without_http() -> None:
+
     async def scenario() -> None:
         async with application() as app:
             async with app.uow(principal=STAFF) as ctx:
                 obj = await app.service(Document).create({"title_text": "draft"}, ctx=ctx)
-                key, version = obj.document_key, obj.revision
+                key, version = (obj.document_key, obj.revision)
             async with app.uow(principal=STAFF) as ctx:
                 changed = await app.service(Document).update(
                     key, {"title_text": "updated"}, version=version, ctx=ctx
@@ -1046,6 +1030,7 @@ def test_service_version_checks_remain_available_without_http() -> None:
     reason="Requires an isolated PostgreSQL schema",
 )
 def test_two_writers_cannot_commit_the_same_record_version() -> None:
+
     async def scenario() -> None:
         async with application() as app:
             created = await request(
@@ -1073,9 +1058,12 @@ def test_two_writers_cannot_commit_the_same_record_version() -> None:
 
 
 def test_activity_uses_public_field_references_after_redaction() -> None:
+
     class ProjectedBuilder(RecordBuilder):
-        class API(builder.API):
+        class ApiOptions(builder.ApiOptions):
             read_fields = ("category_id", "payload")
+
+        api_options = ApiOptions
 
     async def scenario() -> None:
         async with application(ProjectedBuilder, with_activity=True) as app:
@@ -1126,7 +1114,8 @@ def test_activity_uses_public_field_references_after_redaction() -> None:
     ],
 )
 def test_inconsistent_custom_api_schemas_fail_at_registration(kind: str, message: str) -> None:
-    class InvalidAPI(builder.API):
+
+    class InvalidAPI(builder.ApiOptions):
         def get_read_schema(self, *, builder: Any) -> type[BaseModel]:
             if kind == "missing":
                 return create_model("MissingIdentity", __base__=ApiResponse)
@@ -1137,7 +1126,7 @@ def test_inconsistent_custom_api_schemas_fail_at_registration(kind: str, message
             )
 
     class InvalidBuilder(DocumentBuilder):
-        API = InvalidAPI
+        api_options = InvalidAPI
 
     async def start() -> None:
         async with application(document_builder=InvalidBuilder):

@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta name="description" content="Obox administration">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta charset="utf-8">
+    <title>{{ title }}</title>
+  </head>
+  <body>
+    {% for error in form.non_field_errors() %}<p role="alert">{{ error }}</p>{% endfor %}
+    <form method="post">
+      <input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">
+      {% for group in fieldsets %}
+        <fieldset>
+          {% if group.title %}<legend>{{ group.title }}</legend>{% endif %}
+          {% if group.description %}<p>{{ group.description }}</p>{% endif %}
+          {% for name in group.fields %}
+            {% if name in readonly_fields %}<p>{{ name }}: {{ readonly_values[name] }}</p>
+          {% else %}<p><label for="{{ form[name].id_for_label }}">{{ form[name].label }}</label>{{ form[name] }}{% if form[name].field.help_text %}<span class="helptext">{{ form[name].field.help_text }}</span>{% endif %}{% for error in form[name].errors %}<span role="alert">{{ error }}</span>{% endfor %}</p>{% endif %}
+        {% endfor %}
+        </fieldset>
+      {% endfor %}
+      {% if has_change_permission %}<button type="submit">Save</button>{% endif %}
+    </form>
+    {% if delete_url %}<a href="{{ delete_url }}">Delete</a>{% endif %}
+  </body>
+</html>

@@ -10,12 +10,12 @@
       "commitlint.config.mjs",
       "tests/**/*.mjs",
       "scripts/vendor-*.mjs",
-      "obox_builder/contrib/analytics/static/analytics.js",
-      "obox_builder/contrib/analytics/static/analytics.css",
-      "obox_builder/builder/static/**/*.js",
-      "obox_builder/contrib/files/static/**/*.js",
-      "obox_builder/contrib/files/static/**/*.css",
-      "obox_builder/builder/static/ui.css"
+      "obox/contrib/analytics/static/analytics.js",
+      "obox/contrib/analytics/static/analytics.css",
+      "obox/contrib/resources/static/**/*.js",
+      "obox/contrib/files/static/**/*.js",
+      "obox/contrib/files/static/**/*.css",
+      "obox/contrib/resources/static/ui.css"
     ]
   },
   "formatter": {

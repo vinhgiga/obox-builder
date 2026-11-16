@@ -15,15 +15,18 @@ import httpx
 import pytest
 import sqlalchemy as sa
 from fastapi import FastAPI
-from obox_builder import Context, ModelBuilder, Obox, Principal, Settings
-from obox_builder.auth import RBAC
-from obox_builder.contrib.activity import Activity
-from obox_builder.contrib.activity.models import Base as ActivityBase
-from obox_builder.contrib.activity.models import Comment
-from obox_builder.contrib.files import File, Files, attachments
-from obox_builder.contrib.files.models import Base as FileBase
-from obox_builder.contrib.webhooks import Webhooks
-from obox_builder.contrib.webhooks.models import Base as WebhookBase
+from obox._auth import RBAC, Principal
+from obox._config import RuntimeConfig
+from obox._context import Context
+from obox._runtime import _Runtime
+from obox.contrib.activity import Activity
+from obox.contrib.activity.models import Base as ActivityBase
+from obox.contrib.activity.models import Comment
+from obox.contrib.files import File, Files, attachments
+from obox.contrib.files.models import Base as FileBase
+from obox.contrib.resources import Resource as ResourceDefinition
+from obox.contrib.webhooks import Webhooks
+from obox.contrib.webhooks.models import Base as WebhookBase
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -92,8 +95,8 @@ class Policy(RBAC[Any]):
 
 @asynccontextmanager
 async def application(
-    path: Path, *, plugins: bool = True, max_batch: int | None = None, webhooks: bool = False
-) -> AsyncIterator[tuple[Obox, httpx.AsyncClient, Policy, Any]]:
+    path: Path, *, features: bool = True, max_batch: int | None = None, webhooks: bool = False
+) -> AsyncIterator[tuple[_Runtime, httpx.AsyncClient, Policy, Any]]:
     engine = create_async_engine(
         os.getenv("OBOX_TEST_DATABASE_URL", f"sqlite+aiosqlite:///{path / 'metadata.sqlite3'}")
     )
@@ -112,61 +115,61 @@ async def application(
             await conn.run_sync(metadata.create_all)
     policy = Policy()
 
-    class Resource(ModelBuilder[Record]):
+    class Resource(ResourceDefinition[Record]):
+        model = Record
         slug = "records"
         fields = ("id", "name", "state", "amount", "quantity", "doubled", "moment", "files")
 
-    class PlainResource(ModelBuilder[Plain]):
+    class PlainResource(ResourceDefinition[Plain]):
+        model = Plain
         slug = "records"
         fields = ("id", "name")
 
-    class DocumentResource(ModelBuilder[Document]):
+    class DocumentResource(ResourceDefinition[Document]):
+        model = Document
         slug = "documents"
         fields = ("id", "name", "files")
         policy = RBAC[Document]()
 
     try:
-        app = Obox(
+        app = _Runtime(
             FastAPI(),
             settings=with_builders(
-                Settings(
+                RuntimeConfig(
                     session_factory=async_sessionmaker(engine, expire_on_commit=False),
                     principal_dependency=lambda: STAFF,
                     default_policy=policy,
                     csrf_secret="x" * 32,
                     api_max_batch=max_batch,
                 ),
-                *((Resource, DocumentResource) if plugins else (PlainResource,)),
+                *((Resource, DocumentResource) if features else (PlainResource,)),
             ),
-            plugins=(
-                [
-                    Files(root=path / "media"),
-                    Activity(),
-                    *(
-                        [
-                            Webhooks(
-                                signing_keys={"v1": b"k" * 32},
-                                active_key="v1",
-                                resolve_principal=lambda *_: STAFF,
-                            )
-                        ]
-                        if webhooks
-                        else []
-                    ),
-                ]
-                if plugins
-                else []
-            ),
+            features=[
+                Files(root=path / "media"),
+                Activity(),
+                *(
+                    [
+                        Webhooks(
+                            signing_keys={"v1": b"k" * 32},
+                            active_key="v1",
+                            resolve_principal=lambda *_: STAFF,
+                        )
+                    ]
+                    if webhooks
+                    else []
+                ),
+            ]
+            if features
+            else [],
         )
-
-        policy = cast(Policy, app.get_builder(Record if plugins else Plain).policy)
+        policy = cast(Policy, app.get_resource(Record if features else Plain).policy)
         async with (
             app.app.router.lifespan_context(app.app),
             httpx.AsyncClient(
                 transport=httpx.ASGITransport(app=app.app), base_url="http://test"
             ) as client,
         ):
-            yield app, client, policy, engine
+            yield (app, client, policy, engine)
     finally:
         if namespace:
             async with engine.begin() as conn:
@@ -175,6 +178,7 @@ async def application(
 
 
 def test_describe_field_kinds_preserve_schema_and_policy(tmp_path: Path) -> None:
+
     async def scenario() -> None:
         async with application(tmp_path) as (_, client, policy, _):
             response = await client.get("/api/admin/records:describe")
@@ -209,6 +213,7 @@ def test_describe_field_kinds_preserve_schema_and_policy(tmp_path: Path) -> None
 
 
 def test_plugins_share_routes_and_generate_concrete_metadata_schemas(tmp_path: Path) -> None:
+
     async def scenario() -> None:
         async with application(tmp_path, webhooks=True) as (app, client, _, _):
             assert not any(item.level == "error" for item in app.check(strict=True))
@@ -236,7 +241,7 @@ def test_plugins_share_routes_and_generate_concrete_metadata_schemas(tmp_path: P
     asyncio.run(scenario())
 
 
-async def seed(app: Obox, count: int = 2) -> list[str]:
+async def seed(app: _Runtime, count: int = 2) -> list[str]:
     async with app.uow(principal=STAFF) as ctx:
         rows = [Record(name=f"row-{index}") for index in range(count)]
         ctx.session.add_all(rows)
@@ -268,6 +273,7 @@ async def seed(app: Obox, count: int = 2) -> list[str]:
 
 
 def test_metadata_batches_are_ordered_scoped_and_do_not_change_records(tmp_path: Path) -> None:
+
     async def scenario() -> None:
         async with application(tmp_path) as (app, client, policy, engine):
             ids = await seed(app, 10)
@@ -329,6 +335,7 @@ def test_metadata_batches_are_ordered_scoped_and_do_not_change_records(tmp_path:
 
 
 def test_attachment_metadata_uses_database_owner_keys_for_uuid_records(tmp_path: Path) -> None:
+
     async def scenario() -> None:
         async with application(tmp_path) as (app, client, _, _):
             async with app.uow(principal=STAFF) as ctx:
@@ -362,6 +369,7 @@ def test_attachment_metadata_uses_database_owner_keys_for_uuid_records(tmp_path:
 
 @pytest.mark.parametrize("kind", ["hidden", "denied", "comments"])
 def test_metadata_rechecks_row_and_comment_permissions(tmp_path: Path, kind: str) -> None:
+
     async def scenario() -> None:
         async with application(tmp_path) as (app, client, policy, _):
             ids = await seed(app)
@@ -383,6 +391,7 @@ def test_metadata_rechecks_row_and_comment_permissions(tmp_path: Path, kind: str
 
 
 def test_metadata_input_limits_soft_deleted_comments_and_absent_plugins(tmp_path: Path) -> None:
+
     async def scenario() -> None:
         async with application(tmp_path, max_batch=2) as (app, client, _, _):
             ids = await seed(app)
@@ -413,7 +422,7 @@ def test_metadata_input_limits_soft_deleted_comments_and_absent_plugins(tmp_path
                     json={"recordIds": ids, "include": ["attachments"]},
                 )
             ).status_code == 422
-        async with application(tmp_path, plugins=False) as (_, client, _, _):
+        async with application(tmp_path, features=False) as (_, client, _, _):
             assert (
                 await client.post("/api/admin/records:queryMetadata", json={})
             ).status_code == 404

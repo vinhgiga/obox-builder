@@ -1,73 +1,52 @@
 # Settings
 
-Obox accepts a `Settings` instance or the import path of a settings module:
-
 ```python
-from obox_builder import Obox
-from obox_builder.contrib.auth import Auth
-
-obox = Obox(app, settings="setting", plugins=(Auth(),))
+# settings.py
+SECRET_KEY = "load-a-long-random-value-from-your-environment"
+DEBUG = False
+INSTALLED_APPS = ["obox.contrib.auth", "obox.builder", "app.products"]
+DATABASES = {
+    "default": {"ENGINE": "obox.db.backends.sqlite3", "NAME": "db.sqlite3"},
+}
+TEMPLATES = [
+    {
+        "BACKEND": "obox.template.backends.jinja2.Jinja2",
+        "DIRS": ["templates"],
+        "APP_DIRS": True,
+        "OPTIONS": {},
+    }
+]
+ROOT_URLCONF = "urls"
+REST_FRAMEWORK = {
+    "DEFAULT_PERMISSION_CLASSES": ["obox.rest_framework.permissions.IsAuthenticated"],
+}
 ```
 
-When `settings` is omitted, Obox reads `OBOX_SETTINGS_MODULE`; if that variable
-is unset it loads the module named `setting`. Module-level uppercase names map
-to `Settings` fields.
+Set `OBOX_SETTINGS_MODULE=settings` before accessing `obox.conf.settings`.
+Alternatively call `settings.configure(...)` once. Unconfigured access raises
+ImproperlyConfigured; a second configure call raises RuntimeError. Custom settings
+must use uppercase names. Settings are process configuration, not per-request state.
 
-## Common settings
+PostgreSQL uses `ENGINE = 'obox.db.backends.postgresql'`, plus `NAME`, `USER`,
+`PASSWORD`, `HOST`, `PORT`, and optional driver `OPTIONS`. Only the default database
+alias is currently supported. Connections and transactions use async SQLAlchemy.
 
-| Setting | Purpose | Default |
-| --- | --- | --- |
-| `DATABASE_URL` | Async SQLAlchemy database URL | Required unless `SESSION_FACTORY` is provided |
-| `SESSION_FACTORY` | Host `async_sessionmaker[AsyncSession]` | `None` |
-| `PRINCIPAL_DEPENDENCY` | Host identity resolver | `None` |
-| `DEFAULT_POLICY` | Default policy for registered resources | `None` |
-| `UI_PREFIX` | Admin UI prefix | `/admin` |
-| `API_PREFIX` | JSON API prefix | `/api` |
-| `API_DEFAULT_LIMIT` | Default API list limit | `None` |
-| `API_MAX_LIMIT` | Maximum API list limit | `None` |
-| `API_MAX_BATCH` | Maximum records in one batch operation | `None` |
-| `INSTALLED_APPS` | Import paths or config objects to load | `()` |
-| `SECRET_KEY` | CSRF and signed cursor secret | `None` |
+Template OPTIONS are native Jinja2 Environment options; BACKEND may be a dotted
+backend class. DIRS precedes application and packaged templates.
 
-Provide exactly one of `DATABASE_URL` and `SESSION_FACTORY`. `SECRET_KEY`, when
-set, must contain at least 32 bytes. The generated scaffold sets a random
-development value; replace it through `OBOX_SECRET_KEY` for deployment and keep
-it out of source control.
+Supported shared settings include STATIC_URL/STATIC_ROOT, MEDIA_ROOT/MEDIA_URL,
+LANGUAGE_CODE, TIME_ZONE, USE_TZ, LOGIN_URL, LOGIN_REDIRECT_URL,
+AUTH_PASSWORD_VALIDATORS, and CSRF_COOKIE_NAME/SECURE/HTTPONLY/SAMESITE and
+CSRF_TRUSTED_ORIGINS. See `obox/conf/global_settings.py` for defaults.
 
-The generated scaffold overrides the API limit defaults with
-`API_DEFAULT_LIMIT=100`, `API_MAX_LIMIT=1000`, and `API_MAX_BATCH=100`.
+REST_FRAMEWORK accepts DEFAULT_AUTHENTICATION_CLASSES, DEFAULT_PERMISSION_CLASSES,
+DEFAULT_FILTER_BACKENDS, DEFAULT_PAGINATION_CLASS, PAGE_SIZE and
+NON_FIELD_ERRORS_KEY. Values for classes may be dotted paths or class objects.
+Default permission is AllowAny and default pagination is disabled.
 
-## Generated settings and environment
-
-The `obox startproject` scaffold reads these environment variables:
-
-| Variable | Setting | Default behavior |
-| --- | --- | --- |
-| `OBOX_SETTINGS_MODULE` | Settings module | `setting` |
-| `OBOX_DATABASE_URL` | `DATABASE_URL` | SQLite database in the project directory |
-| `OBOX_DEBUG` | Scaffold's `DEBUG` flag | Enabled for local development |
-| `OBOX_SECRET_KEY` | `SECRET_KEY` | Generated development secret |
-
-Set `OBOX_DEBUG=false`, a private secret, and a production database URL in the
-deployment environment. Configure TLS, host validation, and infrastructure
-limits at the host application and deployment layers.
-
-## Explicit Settings object
-
-Applications can bypass module loading and pass an immutable settings instance:
-
-```python
-from obox_builder import Settings
-
-settings = Settings(
-    database_url="sqlite+aiosqlite:///./app.db",
-    ui_prefix="/admin",
-    api_prefix="/api",
-    api_default_limit=100,
-    api_max_limit=1000,
-)
-```
-
-Use a host-managed `session_factory` instead of `database_url` when the host
-owns engine creation and shutdown. See [Python API](python-api.md) for the
-configuration types.
+Optional contrib apps read dictionaries named AUTH, FILES, ACTIVITY, ANALYTICS,
+IDEMPOTENCY, WEBHOOKS and RESOURCES. These configure product services, not core
+Django/DRF APIs. For example `AUTH = {'api_tokens': True}` and
+`FILES = {'root': MEDIA_ROOT}`. Resources accepts its product runtime options,
+including `ui_prefix` and `api_prefix`; choose a different UI prefix when mounting
+the standard builder at `/admin/`.

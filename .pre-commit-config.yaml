@@ -6,7 +6,7 @@ repos:
     rev: v6.0.0
     hooks:
       - id: check-added-large-files
-        exclude: ^obox_builder/builder/static/tabler\.min\.css$
+        exclude: ^obox/contrib/resources/static/tabler\.min\.css$
       - id: check-case-conflict
       - id: check-json
       - id: check-merge-conflict
@@ -33,12 +33,12 @@ repos:
     rev: v2.4.1
     hooks:
       - id: codespell
-        exclude: ^(pnpm-lock\.yaml|obox_builder/contrib/analytics/static/chart\.umd\.js)$
+        exclude: ^(pnpm-lock\.yaml|obox/contrib/analytics/static/chart\.umd\.js)$
   - repo: local
     hooks:
       - id: djlint
         name: djlint
-        entry: uv run djlint --check --lint obox_builder
+        entry: uv run djlint --check --lint obox
         language: system
         types: [html]
         pass_filenames: false
@@ -86,7 +86,7 @@ repos:
         pass_filenames: false
       - id: mypy
         name: mypy
-        entry: uv run mypy obox_builder
+        entry: uv run mypy obox
         language: system
         always_run: true
         pass_filenames: false

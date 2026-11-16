@@ -6,9 +6,11 @@ from typing import Any
 import httpx
 import sqlalchemy as sa
 from fastapi import FastAPI
-from obox_builder import ModelBuilder, Obox, Principal, View
-from obox_builder.auth import RBAC
-from obox_builder.conf import Settings
+from obox._auth import RBAC, Principal
+from obox._config import RuntimeConfig
+from obox._runtime import _Runtime
+from obox.contrib.resources import Resource as ResourceDefinition
+from obox.contrib.resources.views import ViewOptions
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.pool import StaticPool
@@ -22,55 +24,59 @@ class Base(DeclarativeBase):
 
 class Widget(Base):
     __tablename__ = "view_widgets"
-
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(sa.String(50))
     status: Mapped[str] = mapped_column(sa.String(20), default="draft")
 
 
-class OrderedView(View):
+class OrderedView(ViewOptions):
     list_display = ("status", "name")
 
 
-class OrderedBuilder(ModelBuilder[Widget]):
+class OrderedBuilder(ResourceDefinition[Widget]):
+    model = Widget
     fields = ("id", "name", "status")
-    View = OrderedView
+    view_options = OrderedView
 
 
-class DynamicView(View):
+class DynamicView(ViewOptions):
     list_display = ("name", "status")
 
     def get_list_display(self, ctx: Any) -> tuple[str, ...]:
         return ("name",)
 
 
-class DynamicBuilder(ModelBuilder[Widget]):
+class DynamicBuilder(ResourceDefinition[Widget]):
+    model = Widget
     fields = ("id", "name", "status")
-    View = DynamicView
+    view_options = DynamicView
 
 
-class FilterView(View):
+class FilterView(ViewOptions):
     def get_list_filter(self, ctx: Any) -> tuple[str, ...]:
         return ("status",)
 
 
-class FilterBuilder(ModelBuilder[Widget]):
+class FilterBuilder(ResourceDefinition[Widget]):
+    model = Widget
     fields = ("id", "name", "status")
-    View = FilterView
+    view_options = FilterView
     filter_fields = ("status",)
 
 
-class GroupedView(View):
+class GroupedView(ViewOptions):
     list_display = ("status", "name")
     page_size = 2
 
 
-class GroupedBuilder(ModelBuilder[Widget]):
+class GroupedBuilder(ResourceDefinition[Widget]):
+    model = Widget
     fields = ("id", "name", "status")
-    View = GroupedView
+    view_options = GroupedView
 
 
-class SearchBuilder(ModelBuilder[Widget]):
+class SearchBuilder(ResourceDefinition[Widget]):
+    model = Widget
     fields = ("id", "name", "status")
     search_fields = ("name",)
 
@@ -78,14 +84,14 @@ class SearchBuilder(ModelBuilder[Widget]):
 STAFF = Principal(id=1, is_authenticated=True, is_staff=True, is_superuser=True)
 
 
-async def make_app(builder: type[ModelBuilder[Widget]]) -> tuple[Obox, Any]:
+async def make_app(builder: type[ResourceDefinition[Widget]]) -> tuple[_Runtime, Any]:
     engine = create_async_engine("sqlite+aiosqlite://", poolclass=StaticPool)
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
-    app = Obox(
+    app = _Runtime(
         FastAPI(),
         settings=with_builders(
-            Settings(
+            RuntimeConfig(
                 session_factory=async_sessionmaker(engine, expire_on_commit=False),
                 principal_dependency=lambda: STAFF,
                 default_policy=RBAC(),
@@ -94,10 +100,10 @@ async def make_app(builder: type[ModelBuilder[Widget]]) -> tuple[Obox, Any]:
             builder,
         ),
     )
-    return app, engine
+    return (app, engine)
 
 
-async def get_list(builder: type[ModelBuilder[Widget]]) -> tuple[str, Any]:
+async def get_list(builder: type[ResourceDefinition[Widget]]) -> tuple[str, Any]:
     app, engine = await make_app(builder)
     try:
         async with app.uow(principal=STAFF) as ctx:
@@ -105,7 +111,7 @@ async def get_list(builder: type[ModelBuilder[Widget]]) -> tuple[str, Any]:
         transport = httpx.ASGITransport(app=app.app)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.get("/admin/admin/widgets")
-        return response.text, app.get_builder(Widget)
+        return (response.text, app.get_resource(Widget))
     finally:
         await engine.dispose()
 
@@ -124,7 +130,7 @@ def test_list_display_controls_columns_and_order() -> None:
 def test_list_exposes_bulk_delete_controls() -> None:
     html, _ = asyncio.run(get_list(OrderedBuilder))
     assert 'class="page grid-layout"' in html
-    assert re.search(r'action="/admin/admin/widgets/bulk-actions"', html)
+    assert re.search('action="/admin/admin/widgets/bulk-actions"', html)
     assert "data-select-all" in html
     assert 'name="record_ids"' in html
     assert "data-selection-status" in html
@@ -138,7 +144,7 @@ def test_list_exposes_bulk_delete_controls() -> None:
 
 def test_list_renders_create_action_above_footer() -> None:
     html, _ = asyncio.run(get_list(OrderedBuilder))
-    assert re.search(r'<a class="grid-add" href="/admin/admin/widgets/new">', html)
+    assert re.search('<a class="grid-add" href="/admin/admin/widgets/new">', html)
     assert "Add record" in html
     assert (
         html.index('class="grid-scroll"')
@@ -148,6 +154,7 @@ def test_list_renders_create_action_above_footer() -> None:
 
 
 def test_bulk_delete_validates_and_deletes_selected_records() -> None:
+
     async def scenario() -> None:
         app, engine = await make_app(FilterBuilder)
         try:
@@ -157,12 +164,11 @@ def test_bulk_delete_validates_and_deletes_selected_records() -> None:
                 await service.create({"name": "beta", "status": "draft"}, ctx=ctx)
                 third = await service.create({"name": "gamma", "status": "live"}, ctx=ctx)
                 await service.create({"name": "delta", "status": "draft"}, ctx=ctx)
-
             async with httpx.AsyncClient(
                 transport=httpx.ASGITransport(app=app.app), base_url="http://test"
             ) as client:
                 page = await client.get("/admin/admin/widgets?filter.status=live&limit=1&offset=0")
-                token = re.search(r'name="csrf_token" value="([^"]+)"', page.text)
+                token = re.search('name="csrf_token" value="([^"]+)"', page.text)
                 assert token is not None
                 assert 'data-total-count="2"' in page.text
                 data = {
@@ -173,22 +179,20 @@ def test_bulk_delete_validates_and_deletes_selected_records() -> None:
                 }
                 duplicate = await client.post("/admin/admin/widgets/bulk-actions", data=data)
                 assert duplicate.status_code == 422
-
                 data["record_ids"] = [str(first.id)]
                 deleted = await client.post("/admin/admin/widgets/bulk-actions", data=data)
                 assert deleted.status_code == 303
                 assert deleted.headers["location"] == "/admin/admin/widgets"
-
                 data.update(record_ids=[str(third.id)], select_across="1")
                 across = await client.post(
                     "/admin/admin/widgets/bulk-actions?filter.status=live&limit=1&offset=0",
                     data=data,
                 )
                 assert across.status_code == 303
-                assert across.headers["location"] == (
-                    "/admin/admin/widgets?filter.status=live&limit=1&offset=0"
+                assert (
+                    across.headers["location"]
+                    == "/admin/admin/widgets?filter.status=live&limit=1&offset=0"
                 )
-
             async with app.uow(principal=STAFF) as ctx:
                 remaining = list((await ctx.session.scalars(sa.select(Widget))).all())
                 assert {obj.name for obj in remaining} == {"beta", "delta"}
@@ -199,6 +203,7 @@ def test_bulk_delete_validates_and_deletes_selected_records() -> None:
 
 
 def test_form_actions_explicitly_submit() -> None:
+
     async def run() -> None:
         app, engine = await make_app(OrderedBuilder)
         try:
@@ -208,8 +213,7 @@ def test_form_actions_explicitly_submit() -> None:
             assert response.status_code == 200
             for name in ("_save", "_addanother", "_continue"):
                 assert re.search(
-                    rf'<button class="btn [^"]+"\s+type="submit"\s+name="{name}">',
-                    response.text,
+                    f'<button class="btn [^"]+"\\s+type="submit"\\s+name="{name}">', response.text
                 )
         finally:
             await engine.dispose()
@@ -226,7 +230,7 @@ def test_list_exposes_row_height_controls() -> None:
     for label in ("Short", "Medium", "Tall", "Extra Tall", "Wrap headers"):
         assert label in html
     assert re.search(
-        r'<div class="cell-value"><a href="[^"]*/admin/admin/widgets/1">live</a></div>', html
+        '<div class="cell-value"><a href="[^"]*/admin/admin/widgets/1">live</a></div>', html
     )
 
 
@@ -257,6 +261,7 @@ def test_get_list_filter_controls_filter_controls() -> None:
 
 
 def test_list_filter_groups_match_nested_conditions() -> None:
+
     async def run() -> None:
         app, engine = await make_app(FilterBuilder)
         try:
@@ -297,6 +302,7 @@ def test_list_filter_groups_match_nested_conditions() -> None:
 
 
 def test_list_sorts_by_multiple_fields_and_exposes_sort_config() -> None:
+
     async def run() -> None:
         app, engine = await make_app(OrderedBuilder)
         try:
@@ -327,6 +333,7 @@ def test_list_sorts_by_multiple_fields_and_exposes_sort_config() -> None:
 
 
 def test_list_groups_nested_rows_with_cross_page_counts() -> None:
+
     async def run() -> None:
         app, engine = await make_app(GroupedBuilder)
         try:
@@ -340,9 +347,7 @@ def test_list_groups_nested_rows_with_cross_page_counts() -> None:
                 ):
                     await app.service(Widget).create({"name": name, "status": status}, ctx=ctx)
                 counts = await app.service(Widget).group_counts(
-                    ctx=ctx,
-                    grouping=("status", "name"),
-                    prefixes=[("draft",), ("draft", "delta")],
+                    ctx=ctx, grouping=("status", "name"), prefixes=[("draft",), ("draft", "delta")]
                 )
                 assert counts == {("draft",): 2, ("draft", "delta"): 1}
             transport = httpx.ASGITransport(app=app.app)
@@ -373,6 +378,7 @@ def test_list_groups_nested_rows_with_cross_page_counts() -> None:
 
 
 def test_list_filter_rejects_invalid_groups() -> None:
+
     async def run() -> None:
         app, engine = await make_app(FilterBuilder)
         try:
@@ -396,6 +402,6 @@ def test_list_filter_rejects_invalid_groups() -> None:
 
 
 def test_legacy_view_column_api_is_removed() -> None:
-    assert not hasattr(View, "columns")
-    assert not hasattr(View, "get_columns")
-    assert not hasattr(View, "get_filters")
+    assert not hasattr(ViewOptions, "columns")
+    assert not hasattr(ViewOptions, "get_columns")
+    assert not hasattr(ViewOptions, "get_filters")

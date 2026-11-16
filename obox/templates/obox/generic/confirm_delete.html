@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta name="description" content="Obox administration">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta charset="utf-8">
+    <title>Delete</title>
+  </head>
+  <body>
+    <form method="post">
+      <input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">
+      <p>Are you sure you want to delete {{ object }}?</p>
+      <button type="submit">Confirm</button>
+    </form>
+  </body>
+</html>

@@ -25,7 +25,7 @@ async def main() -> None:
             async with app.uow(principal=STAFF) as ctx:
                 await ctx.session.execute(sa.delete(Duplicate))
                 await ctx.session.execute(sa.delete(Sale))
-                for start in range(0, 100_000, 5000):
+                for start in range(0, 100000, 5000):
                     await ctx.session.execute(
                         sa.insert(Sale),
                         [
@@ -34,7 +34,7 @@ async def main() -> None:
                                 "account_id": 1,
                                 "distributor": f"D{i % 4}",
                                 "region": f"R{i % 3}",
-                                "amount": Decimal(i % 10_000) / 100,
+                                "amount": Decimal(i % 10000) / 100,
                             }
                             for i in range(start, start + 5000)
                         ],
@@ -56,7 +56,7 @@ async def main() -> None:
                         widget_times.append(perf_counter() - queried)
                         if response.status_code != 200:
                             raise AssertionError(response.text)
-                        assert response.json()["records"] == 100_000
+                        assert response.json()["records"] == 100000
                         payload = response.json()
                         total = (
                             payload["total"]
@@ -79,7 +79,7 @@ async def main() -> None:
                     {
                         "machine": platform.platform(),
                         "postgres": version,
-                        "records": 100_000,
+                        "records": 100000,
                         "concurrent_viewers": 10,
                         "dashboard_samples": len(dashboard_times),
                         "widget_samples": len(widget_times),

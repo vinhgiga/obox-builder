@@ -6,9 +6,9 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from obox_builder.contrib.auth import cli as auth_cli
-from obox_builder.contrib.auth import passwords as auth_passwords
-from obox_builder.contrib.auth.password_validation import (
+from obox.contrib.auth import cli as auth_cli
+from obox.contrib.auth import passwords as auth_passwords
+from obox.contrib.auth.password_validation import (
     MinimumLengthValidator,
     NumericPasswordValidator,
     PasswordValidator,
@@ -59,12 +59,10 @@ def test_interactive_superuser_password_validation_matches_django(
     monkeypatch.setattr(auth_cli.getpass, "getpass", get_password)
     monkeypatch.setattr(auth_cli, "input", answer_bypass, raising=False)
     monkeypatch.setattr(auth_passwords, "hash_password", fake_hash_password)
-
     validators = (MinimumLengthValidator(), NumericPasswordValidator())
     result = asyncio.run(
         auth_cli._prompt_password_hash(validators, SimpleNamespace(username="admin"))
     )
-
     assert result == "encoded-password"
     assert validation_calls == expected_validation_calls
     assert password_prompts == ["Password: ", "Password (again): "] * (len(passwords) // 2)

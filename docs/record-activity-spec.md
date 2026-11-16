@@ -1,7 +1,7 @@
-# OBOX Record Page and Activity API Specification
+# Contrib record and activity protocol — v0.1
 
-**Status:** Implemented for review. Every endpoint in the overview has an Input,
-Output, and Example section. Record CRUD and `:queryOptions` reuse the core
+**Status:** Implemented optional contrib protocol. Every endpoint in the overview has an Input,
+Output, and Example section. Record CRUD and `:queryOptions` reuse contrib resource
 services. Inline editing requires SQLAlchemy record versioning; activity and
 comments require the Activity plugin. Existing host databases must migrate
 `obox_comment.version` before using versioned comments.
@@ -29,10 +29,10 @@ camelCase; path field identifiers retain their configured snake_case names.
 | DELETE | `/api/{slug}/{id}/comments/{commentId}` | Delete the caller's comment; require its `If-Match`. |
 
 Record CRUD and `:queryOptions` reuse existing routes. ETag/If-Match support is
-an extension to the current [API specification](api-spec.md) for record-page
+an extension to the current [API specification](contrib-resource-api.md) for record-page
 resources. Record-page relationship cards remain read-only. Opt-in collection
 membership write routes are documented separately in the
-[API specification](api-spec.md#collection-relationships).
+[API specification](contrib-resource-api.md#collection-relationships).
 
 ### HTML UI
 
@@ -100,13 +100,13 @@ ownership; no moderator override is proposed here.
 | `X-Request-ID` | Optional; up to 128 characters from `[A-Za-z0-9._-]`. Generated when omitted or invalid; echoed in the response. |
 | `X-CSRF-Token` | Required on unsafe JSON requests carrying cookies, following the current shared API contract. |
 
-CSRF and same-origin checks follow [the API specification](api-spec.md).
+CSRF and same-origin checks follow [the API specification](contrib-resource-api.md).
 GET requests require no CSRF token. A token-authenticated request without
-cookies requires no CSRF token. This draft does not change the existing rule
+cookies requires no CSRF token. This protocol does not change the existing rule
 that unsafe requests carrying cookies undergo CSRF checks.
 
 JSON object properties use camelCase, including record fields. Path `field` uses configured snake_case identifiers.
-Revision `changes[].field` uses the public camelCase alias from the core API;
+Revision `changes[].field` uses the public camelCase alias from the resource API;
 selector query references follow the existing shared query contract. Arbitrary JSON-column dictionary keys retain their
 original casing. Record/FK identifiers follow the shared serialization rules;
 examples use string IDs. Decimal and BigInteger values are strings, and date/
@@ -125,7 +125,7 @@ selector JSON responses use `Cache-Control: private, no-cache`; nested
 relationship, activity, and comment responses use `private, no-store`.
 No endpoint below promises conditional GET/`304` handling. ETags on detail
 responses are write validators; `If-None-Match` and `If-Unmodified-Since` are
-outside this draft's contract.
+outside this protocol's contract.
 
 ### Concurrency and transaction boundaries
 
@@ -429,7 +429,7 @@ Cache-Control: private, no-cache
 ### GET `/api/{targetSlug}:queryOptions`
 
 Retrieve options for a scalar FK editor. This reuses the complete existing
-[:queryOptions contract](api-spec.md#get-apislugqueryoptions); there is no
+[:queryOptions contract](contrib-resource-api.md#get-apislugqueryoptions); there is no
 record-page-specific selector endpoint or implicit source context.
 
 #### Input
@@ -1385,7 +1385,7 @@ Requires current retrieve/comment access and authenticated authorship.
 plain-text body in a textarea, `csrf_token`, and the specific comment
 `if_match`. The form posts to the same `/edit` URL. Cancel reloads the parent
 activity fragment or navigates to the record page's activity anchor; there is
-no separate HTML comment-detail GET in this proposal.
+no separate HTML comment-detail GET in this protocol.
 
 Shared HTML read errors apply. Another author's comment returns `403` even
 when its body is readable; missing/deleted/out-of-parent comments return
@@ -1536,8 +1536,8 @@ These decisions describe the implemented record-page contract:
 | --- | --- |
 | Record concurrency | Require durable versioning for editable record pages; reuse the versioned record ETag/If-Match support documented in `docs/api-spec.md`. |
 | Comment concurrency | Maintain a durable independent comment version; JSON detail/create/update expose its validator. Existing host databases must migrate `obox_comment.version`. |
-| Revision field names | Use the core API public camelCase aliases in `changes[].field`; preserve the existing wire contract and its regression coverage. |
-| Relationship scope | Explicitly configured record-page collection cards remain read-only, with native target-PK ordering, cursor-only pagination, and no exact counts. Opt-in API membership writes use `API.write_relationships`; see the shared API specification. |
+| Revision field names | Use the resource API public camelCase aliases in `changes[].field`; preserve the existing wire contract and its regression coverage. |
+| Relationship scope | Explicitly configured record-page collection cards remain read-only, with native target-PK ordering, cursor-only pagination, and no exact counts. Opt-in API membership writes use `ApiOptions.write_relationships`; see the shared API specification. |
 | Comment access | Parent retrieve plus comment permission; active authors edit/delete only their own comments. No moderator override, threads, mentions, or notifications. |
 | Comment content/deletion | Plain text, normalized line endings, no framework length cap; tombstone deletion removes the live body and hides the entry. No edit-history endpoint. |
 | HTML transport | Introduce `X-Obox-Fragment: true` for POST replacements; ordinary success uses 303. Field saves replace record content; comment mutations replace activity. Error status/body must be handled explicitly by the client. |
@@ -1545,9 +1545,9 @@ These decisions describe the implemented record-page contract:
 
 ## References
 
-- [Shared API specification](api-spec.md): query syntax, field serialization,
+- [Shared API specification](contrib-resource-api.md): query syntax, field serialization,
   RFC 9457 errors, authentication, and existing CRUD/selector behavior.
-- [Core specification](core-spec.md): policies, row/field access, resource
+- [Contrib resource protocol](contrib-resource-api.md): policies, row/field access, resource
   service, transactions, and generated UI routes.
 - [HTTP If-Match](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/If-Match)
   and [428 Precondition Required](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Status/428):

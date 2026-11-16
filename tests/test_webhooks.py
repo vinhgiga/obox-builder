@@ -20,15 +20,19 @@ import httpx
 import pytest
 import sqlalchemy as sa
 from fastapi import FastAPI, Request
-from obox_builder import Context, ModelBuilder, Obox, Principal, Settings
-from obox_builder.auth import RBAC, ScopedIdentity
-from obox_builder.contrib.webhooks import Webhooks
-from obox_builder.contrib.webhooks.cli import run
-from obox_builder.contrib.webhooks.models import Base as WebhookBase
-from obox_builder.contrib.webhooks.models import Delivery, Event, Subscription, now
-from obox_builder.contrib.webhooks.transport import destination, resolve
-from obox_builder.contrib.webhooks.worker import Worker
-from obox_builder.errors import ImproperlyConfigured, PermissionDenied
+from obox._auth import RBAC, Principal, ScopedIdentity
+from obox._config import RuntimeConfig
+from obox._context import Context
+from obox._exceptions import PermissionDenied
+from obox._runtime import _Runtime
+from obox.contrib.resources import Resource as ResourceDefinition
+from obox.contrib.webhooks import Webhooks
+from obox.contrib.webhooks.cli import run
+from obox.contrib.webhooks.models import Base as WebhookBase
+from obox.contrib.webhooks.models import Delivery, Event, Subscription, now
+from obox.contrib.webhooks.transport import destination, resolve
+from obox.contrib.webhooks.worker import Worker
+from obox.core.exceptions import ImproperlyConfigured
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -62,7 +66,8 @@ class Policy(RBAC[Any]):
         return frozenset({"name"}) if self.hide_identity else None
 
 
-class Resource(ModelBuilder[Record]):
+class Resource(ResourceDefinition[Record]):
+    model = Record
     slug = "records"
     fields = ("id", "name")
 
@@ -76,7 +81,7 @@ class Resource(ModelBuilder[Record]):
 @asynccontextmanager
 async def application(
     path: Path, **options: Any
-) -> AsyncIterator[tuple[Obox, httpx.AsyncClient, Webhooks, Policy]]:
+) -> AsyncIterator[tuple[_Runtime, httpx.AsyncClient, Webhooks, Policy]]:
     engine = create_async_engine(
         os.getenv("OBOX_TEST_DATABASE_URL", f"sqlite+aiosqlite:///{path / 'webhooks.sqlite3'}")
     )
@@ -109,10 +114,10 @@ async def application(
     )
     policy = Policy()
     try:
-        app = Obox(
+        app = _Runtime(
             FastAPI(),
             settings=with_builders(
-                Settings(
+                RuntimeConfig(
                     session_factory=async_sessionmaker(engine, expire_on_commit=False),
                     principal_dependency=principal,
                     default_policy=policy,
@@ -120,17 +125,17 @@ async def application(
                 ),
                 Resource,
             ),
-            plugins=[plugin],
+            features=[plugin],
         )
         app.app.state.identities = {"1": STAFF, "2": OTHER}
-        policy = cast(Policy, app.get_builder(Record).policy)
+        policy = cast(Policy, app.get_resource(Record).policy)
         async with (
             app.app.router.lifespan_context(app.app),
             httpx.AsyncClient(
                 transport=httpx.ASGITransport(app=app.app), base_url="http://test"
             ) as client,
         ):
-            yield app, client, plugin, policy
+            yield (app, client, plugin, policy)
     finally:
         if namespace:
             async with engine.begin() as conn:
@@ -157,6 +162,7 @@ def public_dns(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_subscription_ownership_secrets_expiry_filters_and_deletion(tmp_path: Path) -> None:
+
     async def scenario() -> None:
         async with application(tmp_path, max_subscriptions=1) as (app, client, plugin, _):
             result = await subscribe(client, actions=["create"])
@@ -217,7 +223,7 @@ def test_subscription_ownership_secrets_expiry_filters_and_deletion(tmp_path: Pa
     asyncio.run(scenario())
 
 
-async def _subscription(app: Obox, id: str) -> Subscription:
+async def _subscription(app: _Runtime, id: str) -> Subscription:
     async with app.uow(principal=STAFF) as ctx:
         row = await ctx.session.get(Subscription, UUID(id))
         assert row is not None
@@ -225,6 +231,7 @@ async def _subscription(app: Obox, id: str) -> Subscription:
 
 
 def test_atomic_outbox_polling_and_no_delete_events(tmp_path: Path) -> None:
+
     async def scenario() -> None:
         async with application(tmp_path) as (app, client, _, _):
             sub = (await subscribe(client)).json()
@@ -264,7 +271,6 @@ def test_atomic_outbox_polling_and_no_delete_events(tmp_path: Path) -> None:
             assert second["items"][0]["event"]["type"] == "record.updated"
             assert second["nextCursor"] > first["nextCursor"]
             assert (await client.delete(path)).status_code == 204
-            # Deleted records are no longer readable, including their prior events.
             assert (await client.get(url)).json()["items"] == []
             async with app.uow(principal=STAFF) as ctx:
                 assert await ctx.session.scalar(sa.select(sa.func.count()).select_from(Event)) == 2
@@ -286,6 +292,7 @@ def test_atomic_outbox_polling_and_no_delete_events(tmp_path: Path) -> None:
     ],
 )
 def test_subscription_input_validation(tmp_path: Path, body: dict[str, Any]) -> None:
+
     async def scenario() -> None:
         async with application(tmp_path) as (_, client, _, _):
             result = await subscribe(client, **body)
@@ -297,6 +304,7 @@ def test_subscription_input_validation(tmp_path: Path, body: dict[str, Any]) -> 
 
 
 def test_subscription_authentication_csrf_and_no_token_delegation(tmp_path: Path) -> None:
+
     async def scenario() -> None:
         async with application(tmp_path) as (_, client, _, _):
             for actor, status in [("anonymous", 401), ("bearer", 403)]:
@@ -314,6 +322,7 @@ def test_subscription_authentication_csrf_and_no_token_delegation(tmp_path: Path
 
 @pytest.mark.usefixtures("public_dns")
 def test_delivery_signature_retry_and_pinned_destination(tmp_path: Path) -> None:
+
     async def scenario() -> None:
         requests: list[httpx.Request] = []
 
@@ -361,6 +370,7 @@ def test_delivery_signature_retry_and_pinned_destination(tmp_path: Path) -> None
 @pytest.mark.parametrize("revocation", ["identity", "scope", "object", "fields", "disabled"])
 @pytest.mark.usefixtures("public_dns")
 def test_worker_and_polling_recheck_current_access(tmp_path: Path, revocation: str) -> None:
+
     async def scenario() -> None:
         sent: list[httpx.Request] = []
         async with application(tmp_path) as (app, client, plugin, policy):
@@ -397,6 +407,7 @@ def test_worker_and_polling_recheck_current_access(tmp_path: Path, revocation: s
 @pytest.mark.parametrize("code", [301, 400, 408, 429, 500])
 @pytest.mark.usefixtures("public_dns")
 def test_terminal_delivery_errors_and_attempt_limits(tmp_path: Path, code: int) -> None:
+
     async def scenario() -> None:
         async with application(tmp_path, max_attempts=1) as (app, client, plugin, _):
             await subscribe(client)
@@ -420,6 +431,7 @@ def test_terminal_delivery_errors_and_attempt_limits(tmp_path: Path, code: int) 
 
 
 def test_competing_workers_and_expired_lease_recovery(tmp_path: Path) -> None:
+
     async def scenario() -> None:
         async with application(tmp_path) as (app, client, plugin, _):
             await subscribe(client)
@@ -496,6 +508,7 @@ def test_retention_and_signing_key_configuration(tmp_path: Path) -> None:
 
 
 def test_concurrent_subscription_limits_and_fanout_cursors(tmp_path: Path) -> None:
+
     async def scenario() -> None:
         async with application(tmp_path, max_subscriptions=1) as (_, client, _, _):
             responses = await asyncio.gather(subscribe(client), subscribe(client))
@@ -517,21 +530,22 @@ def test_concurrent_subscription_limits_and_fanout_cursors(tmp_path: Path) -> No
 
 
 def test_lost_lease_cannot_overwrite_replacement_completion(tmp_path: Path) -> None:
+
     async def scenario() -> None:
         async with application(tmp_path) as (app, client, plugin, _):
             await subscribe(client)
             await client.post("/api/admin/records", json={"name": "one"})
-            started, finish = asyncio.Event(), asyncio.Event()
+            started, finish = (asyncio.Event(), asyncio.Event())
 
             class Delayed(Worker):
                 async def deliver(self, delivery: Delivery) -> tuple[str, int | None, str | None]:
                     started.set()
                     await finish.wait()
-                    return "failed", 400, "old_attempt"
+                    return ("failed", 400, "old_attempt")
 
             class Replacement(Worker):
                 async def deliver(self, delivery: Delivery) -> tuple[str, int | None, str | None]:
-                    return "delivered", 204, None
+                    return ("delivered", 204, None)
 
             running = asyncio.create_task(Delayed(plugin).run_once())
             await asyncio.wait_for(started.wait(), timeout=5)
@@ -556,6 +570,7 @@ def test_lost_lease_cannot_overwrite_replacement_completion(tmp_path: Path) -> N
 def test_external_failures_are_bounded_and_redacted(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str
 ) -> None:
+
     async def scenario() -> None:
         async with application(tmp_path) as (app, client, plugin, _):
             await subscribe(client)
@@ -588,6 +603,7 @@ def test_external_failures_are_bounded_and_redacted(
 
 
 def test_abandoned_final_attempt_is_terminal_and_stop_is_respected(tmp_path: Path) -> None:
+
     async def scenario() -> None:
         async with application(tmp_path, max_attempts=1) as (app, client, plugin, _):
             await subscribe(client)
@@ -613,6 +629,7 @@ def test_abandoned_final_attempt_is_terminal_and_stop_is_respected(tmp_path: Pat
 def test_worker_cli_loads_factory_and_prunes_with_host_lifecycle(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+
     async def scenario() -> None:
         async with application(tmp_path) as (app, client, _, _):
             await subscribe(client)
@@ -622,7 +639,7 @@ def test_worker_cli_loads_factory_and_prunes_with_host_lifecycle(
                     sa.update(Event).values(occurred_at=now() - timedelta(days=8))
                 )
             module = ModuleType("_obox_webhook_cli_test")
-            created: list[Obox] = []
+            created: list[_Runtime] = []
 
             def factory() -> Any:
                 plugin = Webhooks(
@@ -630,10 +647,10 @@ def test_worker_cli_loads_factory_and_prunes_with_host_lifecycle(
                     active_key="v1",
                     resolve_principal=lambda *_: STAFF,
                 )
-                obox = Obox(
+                obox = _Runtime(
                     FastAPI(),
                     settings=with_builders(
-                        Settings(
+                        RuntimeConfig(
                             session_factory=app.session_factory,
                             csrf_secret="x" * 32,
                             default_policy=Policy(),
@@ -641,7 +658,7 @@ def test_worker_cli_loads_factory_and_prunes_with_host_lifecycle(
                         ),
                         Resource,
                     ),
-                    plugins=[plugin],
+                    features=[plugin],
                 )
                 created.append(obox)
                 return obox.app
@@ -655,7 +672,7 @@ def test_worker_cli_loads_factory_and_prunes_with_host_lifecycle(
                     )
                 )
             assert len(created) == 2
-            assert all(obox._frozen and not obox.database._active for obox in created)
+            assert all(obox._frozen and (not obox.database._active) for obox in created)
             async with app.uow(principal=STAFF) as ctx:
                 assert await ctx.session.scalar(sa.select(sa.func.count()).select_from(Event)) == 0
 

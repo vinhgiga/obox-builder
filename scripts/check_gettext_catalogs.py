@@ -9,7 +9,7 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-LOCALE_DIR = ROOT / "obox_builder" / "locale"
+LOCALE_DIR = ROOT / "obox" / "locale"
 POT_FILE = LOCALE_DIR / "obox.pot"
 
 
@@ -80,7 +80,7 @@ def main() -> None:
             "translate:2",
             "-o",
             str(generated_pot),
-            "obox_builder",
+            "obox",
         )
         check_extracted_catalog(generated_pot)
         run_babel(

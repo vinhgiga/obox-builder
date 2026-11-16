@@ -1,0 +1,281 @@
+import asyncio
+import re
+from typing import Any
+
+import httpx
+import sqlalchemy as sa
+from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse
+from obox import Obox
+from obox.urls import _mount, include, path
+from obox.views.generic import (
+    CreateView,
+    DeleteView,
+    ListView,
+    UpdateView,
+    View,
+)
+
+from tests.test_v01_forms import Item, ItemForm, configured
+
+
+def test_generic_views_create_update_delete_and_queryset_contract() -> None:
+    class Create(CreateView):
+        model = Item
+        form_class = ItemForm
+        template_name = "obox/generic/form.html"
+        success_url = "/items/"
+
+    class Update(UpdateView):
+        model = Item
+        form_class = ItemForm
+        template_name = "obox/generic/form.html"
+        success_url = "/items/"
+
+    class Delete(DeleteView):
+        model = Item
+        template_name = "obox/generic/confirm_delete.html"
+        success_url = "/items/"
+
+    class List(ListView):
+        model = Item
+        template_name = "obox/generic/list.html"
+
+        def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+            context = super().get_context_data(**kwargs)
+            return {
+                **context,
+                "rows": [[obj.name] for obj in self.object_list],
+                "list_display": ["name"],
+            }
+
+    async def scenario() -> None:
+        async with configured():
+            app = FastAPI()
+            Obox(app)
+            _mount(
+                app,
+                [
+                    path("items/", List.as_view()),
+                    path("new/", Create.as_view()),
+                    path("items/<int:pk>/", Update.as_view()),
+                    path("items/<int:pk>/delete/", Delete.as_view()),
+                ],
+            )
+            assert isinstance(List().get_queryset(), sa.Select)
+            async with (
+                app.router.lifespan_context(app),
+                httpx.AsyncClient(
+                    transport=httpx.ASGITransport(app=app), base_url="http://test"
+                ) as client,
+            ):
+                page = await client.get("/new/")
+                assert page.status_code == 200
+                token = re.search(r'name="csrfmiddlewaretoken" value="([^"]+)"', page.text)
+                assert token is not None
+                denied = await client.post("/new/", data={"name": "a", "price": "1"})
+                assert denied.status_code == 403
+                invalid = await client.post("/new/", data={"csrfmiddlewaretoken": token[1]})
+                assert invalid.status_code == 200
+                assert "This field is required." in invalid.text
+                created = await client.post(
+                    "/new/", data={"csrfmiddlewaretoken": token[1], "name": "Alpha", "price": "1"}
+                )
+                assert created.status_code == 302
+                assert created.headers["location"] == "/items/"
+                listing = await client.get("/items/")
+                assert "alpha" in listing.text
+                updated = await client.post(
+                    "/items/1/",
+                    data={"csrfmiddlewaretoken": token[1], "name": "Beta", "price": "2"},
+                )
+                assert updated.status_code == 302
+                assert (await client.get("/items/999/")).status_code == 404
+                unsupported = await client.put(
+                    "/items/1/delete/", headers={"X-CSRFToken": token[1]}
+                )
+                assert unsupported.status_code == 405
+                assert "PUT" not in unsupported.headers["allow"]
+                deleted = await client.post(
+                    "/items/1/delete/", data={"csrfmiddlewaretoken": token[1]}
+                )
+                assert deleted.status_code == 302
+                assert "beta" not in (await client.get("/items/")).text
+
+    asyncio.run(scenario())
+
+
+def test_as_view_uses_new_instances_and_preserves_path_parameters() -> None:
+    class Counter(View):
+        count = 0
+
+        def get(self, request: Request, **kwargs: Any) -> HTMLResponse:
+            self.count += 1
+            return HTMLResponse(f"{self.count}:{kwargs['pk']}")
+
+    async def scenario() -> None:
+        async with configured():
+            app = FastAPI()
+            _mount(app, [path("nested/", include([path("<int:pk>/", Counter.as_view())]))])
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                assert (await client.get("/nested/2/")).text == "1:2"
+                assert (await client.get("/nested/3/")).text == "1:3"
+                assert (await client.options("/nested/2/")).status_code == 200
+                assert (await client.get("/nested/not-int/")).status_code == 404
+
+    asyncio.run(scenario())
+
+
+def test_url_defaults_namespaces_slug_and_csrf_origin_checks() -> None:
+    class Echo(View):
+        def get(self, request: Request, **kwargs: Any) -> HTMLResponse:
+            from obox.middleware.csrf import get_token
+
+            get_token(request)
+            return HTMLResponse(str(kwargs))
+
+        post = get
+
+    async def scenario() -> None:
+        async with configured():
+            app = FastAPI()
+            _mount(
+                app,
+                [
+                    path(
+                        "group/",
+                        include(
+                            (
+                                [path("<slug:key>/", Echo.as_view(), {"value": 7}, name="echo")],
+                                "test",
+                            )
+                        ),
+                        {"inherited": True},
+                    )
+                ],
+            )
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.get("/group/good-slug/")
+                assert "'value': 7" in response.text
+                assert "'inherited': True" in response.text
+                assert str(app.url_path_for("test:echo", key="a")) == "/group/a/"
+                assert (await client.get("/group/bad.slug/")).status_code == 404
+                token = client.cookies["csrftoken"]
+                assert (
+                    await client.post(
+                        "/group/a/", headers={"X-CSRFToken": token, "Origin": "http://hostile"}
+                    )
+                ).status_code == 403
+                assert (
+                    await client.post(
+                        "/group/a/", headers={"X-CSRFToken": token, "Origin": "http://test"}
+                    )
+                ).status_code == 200
+
+    asyncio.run(scenario())
+
+
+def test_jinja_backend_options_errors_and_standalone_template_view(tmp_path: Any) -> None:
+    import pytest
+    from obox.conf import settings
+    from obox.template import TemplateDoesNotExist, TemplateSyntaxError
+    from obox.template.backends.jinja2 import Jinja2
+    from obox.views.generic import TemplateView
+
+    (tmp_path / "hello.html").write_text("{{ value }}:{{ marker }}")
+    config = {"DIRS": [tmp_path], "OPTIONS": {"autoescape": True}}
+    backend = Jinja2(config)
+    assert (
+        backend.get_template("hello.html").render({"value": "<ok>", "marker": "yes"})
+        == "&lt;ok&gt;:yes"
+    )
+    with pytest.raises(TemplateDoesNotExist, match="absent"):
+        backend.get_template("absent.html")
+    with pytest.raises(TemplateSyntaxError):
+        backend.from_string("{% broken %}")
+
+    async def scenario() -> None:
+        async with configured():
+            settings.TEMPLATES = [{**config, "BACKEND": "obox.template.backends.jinja2.Jinja2"}]
+            app = FastAPI()
+            _mount(
+                app,
+                [
+                    path(
+                        "",
+                        TemplateView.as_view(
+                            template_name="hello.html",
+                            extra_context={"value": "<ok>", "marker": "yes"},
+                        ),
+                    )
+                ],
+            )
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                assert (await client.get("/")).text == "&lt;ok&gt;:yes"
+
+    asyncio.run(scenario())
+
+
+def test_native_uuid_lookup_works_in_generic_views_and_rest() -> None:
+    from uuid import UUID, uuid4
+
+    from obox.forms import modelform_factory
+    from obox.rest_framework.routers import SimpleRouter
+    from obox.rest_framework.serializers import ModelSerializer
+    from obox.rest_framework.viewsets import ModelViewSet
+    from obox.views.generic import DetailView
+    from sqlalchemy.orm import Mapped, mapped_column
+
+    from tests.test_v01_forms import Base
+
+    class Record(Base):
+        __tablename__ = "v01_uuid_records"
+        record_key: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+        name: Mapped[str] = mapped_column(sa.String(20))
+
+    class RecordSerializer(ModelSerializer):
+        class Meta:
+            model = Record
+            fields = ("record_key", "name")
+
+    class Records(ModelViewSet):
+        queryset = sa.select(Record)
+        serializer_class = RecordSerializer
+
+    class Detail(DetailView):
+        model = Record
+
+        def render_to_response(self, context: Any, **kwargs: Any) -> HTMLResponse:
+            return HTMLResponse(str(context["object"].record_key))
+
+    async def scenario() -> None:
+        async with configured():
+            form = modelform_factory(Record, fields=("name",))({"name": "first"})
+            assert await form.is_valid()
+            record = await form.save()
+            app = FastAPI()
+            router = SimpleRouter()
+            router.register("records", Records)
+            _mount(
+                app,
+                [path("records/<uuid:pk>/", Detail.as_view()), path("api/", include(router.urls))],
+            )
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                assert (await client.get(f"/records/{record.record_key}/")).text == str(
+                    record.record_key
+                )
+                response = await client.post("/api/records/", json={"name": "second"})
+                assert response.status_code == 201
+                pk = response.json()["record_key"]
+                assert isinstance(UUID(pk), UUID)
+                assert (await client.get(f"/api/records/{pk}/")).json()["name"] == "second"
+
+    asyncio.run(scenario())

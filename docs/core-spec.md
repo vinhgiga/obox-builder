@@ -1,731 +1,89 @@
-# OBOX Builder — Core Specification v0.4
-
-**Status:** Proposed public API and implementation contract; not a description of a released library.
-**Target:** Python 3.11+, FastAPI, SQLAlchemy 2.x, Pydantic v2.
-**Primary use case:** Model-driven internal CRUD applications with generated HTML Forms, Views, and REST APIs.
-**Principles:** Less code is better · Convention over configuration · Native FastAPI · One resource, one service · Secure by default.
-
-> **Scope decision:** OBOX does **not** implement rate limiting, request-size caps, or mandatory result-count/page-size caps. List endpoints may return all matching records when pagination is not requested. Hosts may opt in to `API.default_limit` and `API.max_limit`; both default to `None`. Pagination is a UI convenience or API query option, not a security or quota limit. Deployment infrastructure may impose its own constraints; these are outside the OBOX contract.
-
-## 1. Purpose and concepts
-
-OBOX generates a CRUD UI and REST API from a SQLAlchemy mapped class. Developers register one `ModelBuilder[Model]` per resource, then override only what they need. It extends FastAPI rather than replacing it and does not replace SQLAlchemy or Alembic.
-
-| Concept | Responsibility |
-| --- | --- |
-| `Obox(app)` | Plugin installation, builder registration, route generation, database lifecycle |
-| `ModelBuilder[T]` | Resource metadata, shared field/query configuration, business hooks |
-| `Form` | Create/edit form presentation and form-only validation |
-| `View` | List/detail UI, search/filter controls, visible operations |
-| `API` | REST operations, static schemas, HTTP mapping |
-| `Policy[T]` | Operation/row/field permissions, server-side presets, post-write checks |
-| `Context` | Current principal, SQLAlchemy session, optional HTTP request, execution source |
-| `ResourceService[T]` | Shared authorized CRUD operations and domain events |
-| `Registration` | Immutable result of registering a builder |
-
-**Design constraint:** `ModelBuilder`, `Form`, `View`, and `API` are extensible base classes with usable defaults. No method override is mandatory. Their signatures below define the intended extension API; implementation details marked **TBD** are not frozen contracts.
-
-## 2. Quickstart and registration
-
-### 2.1 Level 1 — Register builders for SQLAlchemy models
-
-```python
-from fastapi import FastAPI
-from obox_builder import ModelBuilder, Obox, Settings
-from obox_builder.contrib.auth import Auth
-from apps.polls.models import Choice, Question
-
-settings = Settings(session_factory=AsyncSessionLocal)
-app = FastAPI()
-obox = Obox(app, settings=settings, plugins=[Auth()])
-
-
-class QuestionBuilder(ModelBuilder[Question]):
-    pass
-
-
-obox.register(QuestionBuilder)
-obox.register(Choice)
-
-
-@app.get("/health")
-async def health():
-    return {"ok": True}
-```
-
-- `AsyncSessionLocal` is an `async_sessionmaker[AsyncSession]` configured by the host application.
-- `Auth()` supplies its principal dependency and a `StaffOnly()` policy unless the host supplies them.
-- `StaffOnly()` permits authenticated staff users; it is not multi-tenant isolation.
-- When authentication or the default policy is missing, registration/build validation fails instead of silently exposing CRUD operations.
-- `obox.register(Builder)` generates Form, View and API with secure, documented defaults.
-- `obox.register(Model)` uses an empty builder subclass with the same defaults. Custom policies require a builder with explicit fields.
-
-### 2.2 Level 2/3 — Customize one model
-
-```python
-from obox_builder import ModelBuilder, builder
-
-
-class QuestionBuilder(ModelBuilder[Question]):
-    fields = ("question_text", "pub_date")
-    search_fields = ("question_text",)
-    filter_fields = ("pub_date",)
-    ordering = ("-pub_date", "-id")
-
-    class Form(builder.Form):
-        labels = {"question_text": "Question"}
-
-    class View(builder.View):
-        list_display = ("question_text", "pub_date")
-
-    class API(builder.API):
-        operations = ("list", "retrieve", "create", "update")
-
-
-obox.register(QuestionBuilder)
-```
-
-**Registration contract:** Register a `ModelBuilder[T]` subclass with `obox.register(Builder)`, or a mapped SQLAlchemy class with `obox.register(Model)`. For builders, the concrete model is inferred from `T`; a separate `model` attribute is not supported. Registration is **not** also a decorator. Import builders at the application composition root to avoid circular imports. Use `app.include_router()` for ordinary FastAPI routers, and `obox.include_router(router, ui=True)` for routers that participate in the admin UI's language handling and conflict checks.
-
-### 2.3 `Obox` methods
-
-The constructor and methods below summarize the repository implementation;
-imports are omitted for brevity.
-
-```python
-class Obox:
-    def __init__(
-        self,
-        app: FastAPI,
-        *,
-        settings: Settings | str | None = None,
-        plugins: Sequence[Plugin] = (),
-    ) -> None: ...
-
-    def install(self, plugin: P) -> P: ...  # P is bound to Plugin
-
-    def get_plugin(self, name: str) -> Plugin | None: ...
-
-    def register(self, builder: type[ModelBuilder[T]] | type[T]) -> Registration[T]: ...
-
-    def get_builder(self, model: type[T]) -> ModelBuilder[T]: ...
-
-    def service(self, model: type[T]) -> ResourceService[T]: ...
-
-    def check(self, *, strict: bool = False) -> Sequence[Diagnostic]: ...
-
-    def uow(
-        self,
-        *,
-        principal: Any,
-        source: str = "job",
-        request: Request | None = None,
-        tenant: Any = None,
-        locale: str | None = None,
-        trace_id: str | None = None,
-    ) -> AsyncIterator[Context]: ...
-```
-
-| Method | Behavior |
-| --- | --- |
-| `install(plugin)` | Wire a plugin immediately and return that instance; dependencies must already be installed |
-| `get_plugin(name)` | Return the installed plugin or `None`; `plugins` exposes a read-only mapping |
-| `register(builder_or_model)` | Resolve a builder or mapped model, validate configuration, compile schemas and include generated routers; return stable `Registration` |
-| `get_builder(model)` | Return the active registered builder |
-| `service(model)` | Return the resource service for non-HTTP use |
-| `check(strict=False)` | Validate registration/routes/security and report exposure diagnostics; strict mode raises on errors |
-| `uow(principal, source="job")` | Open an independent async session and unit of work for a task, job or test |
-
-**Lifecycle:** Register before startup; compile and include routes at registration time; verify conflicts and freeze the registry by startup. Runtime registration is not supported. Duplicate models, conflicting slugs and generated route conflicts fail explicitly. A registered builder must not silently override routes defined by the host FastAPI application.
-
-### 2.4 Plugins and settings
-
-`Plugin` is a structural protocol exported from `obox_builder`. Implement `name`
-(a unique lowercase identifier), `requires` (a tuple of plugin names), and
-`setup(obox)` for synchronous wiring. An empty `requires = ()` declares no
-dependencies. `plugins=[...]` calls `obox.install()` in declaration order;
-dependencies are checked, not reordered. Install authentication before registering
-builders because registration resolves the principal dependency and policy immediately.
-
-Plugins use `obox.provide_defaults(principal_dependency=..., default_policy=...)`
-to fill only unset access defaults. Host values always win. Database, CSRF and
-template configuration is fixed when `Obox` is constructed. Use
-`obox.add_ui_prefix(prefix)` to add a validated, deduplicated admin UI prefix.
-These methods and plugin installation reject changes after startup or the first request.
-
-A plugin may also provide `lifespan(obox)`, returning an asynchronous context
-manager that yields `None`. Database resources start first, followed by plugin
-lifespans in installation order, then the existing host lifespan. Plugin contexts
-exit in reverse order before database cleanup. If a plugin fails to enter, earlier
-contexts are closed and the host is not started. Each plugin must clean up its own
-partially acquired resources. Host lifespan state is preserved.
-
-If `setup()` raises, its registry entry is removed and configuration/startup are
-blocked. Discard both the `Obox` and FastAPI instances: routes or middleware already
-added by the plugin cannot be rolled back.
-
-`Auth.install()` has been removed. Replace `auth.install(obox)` with
-`obox.install(auth)`, or pass `plugins=[Auth(...)]` to `Obox`. Custom routers move
-from `auth.install(obox, router=router)` to `obox.install(Auth(router=router))`;
-overriding `Auth.get_router()` remains supported. `obox.auth` is read-only and
-returns the plugin named `auth`.
-
-Auth provides session JSON endpoints by default (`api=True`); hosts can disable
-them with `api=False`. Personal API tokens are opt-in with `api_tokens=True` and
-require the token table in the host's migrations. Scopes narrow the owner's
-current policy permissions; they cannot add grants. Token management uses Auth's
-own cookie session even when the host overrides resource identity resolution.
-See the [JSON authentication contract](api-spec.md#json-sessions-and-personal-tokens).
-
-Settings precedence is an explicit `Settings` instance, an explicit module name,
-`OBOX_SETTINGS_MODULE`, then the default module `setting`. An entrypoint may use
-`os.environ.setdefault("OBOX_SETTINGS_MODULE", "myproject.settings")` before
-constructing `Obox(app, plugins=[...])`; an existing environment value wins.
-The scaffold explicitly selects `setting`. Workers and CLI commands continue to
-load settings independently; HTTP plugin installation does not configure them.
-
-### 2.5 Frontend serving
-
-Use native FastAPI frontend serving alongside Obox:
-
-```python
-app.frontend("/", directory="web/dist", fallback="index.html")
-```
-
-Normal API routes take priority regardless of registration order. Explicit
-`fallback="index.html"` avoids `fallback="auto"` choosing a build's `404.html`.
-SPA deep links require an HTML Accept header. Configure deployment caching
-separately: the native frontend does not set `Cache-Control`. App/router
-dependencies also apply to frontend responses; protecting the shell requires an
-explicit dependency that rejects unauthenticated users.
-
-## 3. `ModelBuilder[T]`
-
-**Purpose:** The single place for shared resource configuration and domain hooks. All three surfaces—Form, View and API—share this metadata and call `ResourceService`.
-
-### 3.1 Properties
-
-| Property | Type | Default / meaning |
-| --- | --- | --- |
-| `model` | `type[T] \| None` | Inferred from `ModelBuilder[T]` at registration; available on the compiled builder instance |
-| `slug` | `str \| None` | Stable plural camelCase collection name, e.g. `questions` or `questionCategories` |
-| `fields` | `FieldRefs \| None` | `None` = infer safe supported scalar fields for staff-only resources |
-| `read_only_fields` | `FieldRefs` | Includes primary keys and known generated/computed fields |
-| `search_fields` | `FieldRefs` | `()`; shared by View and API |
-| `filter_fields` | `FieldRefs` | `()`; shared by View and API |
-| `sort_fields` | `FieldRefs \| None` | Supported readable scalar fields; can be narrowed |
-| `ordering` | `tuple[str, ...] \| None` | Primary-key order by default; stable tie-breaker |
-| `policy` | `Policy[T] \| None` | `None` inherits `obox.settings.default_policy` |
-| `Form` | `type[Form]` | Default Form configuration |
-| `View` | `type[View]` | Default View configuration |
-| `API` | `type[API]` | Default API configuration |
-
-The model type comes from the builder's generic parameter, including through a specialized generic base class. A builder registered without one concrete mapped model fails configuration. `model` is runtime metadata on the compiled builder, not a class attribute to configure. `FieldRefs` accepts mapped SQLAlchemy attributes and strings, e.g. `("pub_date",)` or `(Question.pub_date,)`. The compiler normalizes and checks them. No `exclude` property is defined in v0.4; use a single allowlist instead.
-
-`Form`, `View`, and `API` configurations must extend their corresponding base surface so defaults and extension hooks remain available.
-
-### 3.2 Methods and hooks
-
-```python
-class ModelBuilder(Generic[T]):
-    def get_statement(
-        self,
-        ctx: Context,
-    ) -> Select[tuple[T]]: ...
-
-    async def validate_create(
-        self,
-        data: dict[str, Any],
-        ctx: Context,
-    ) -> Mapping[str, Any]: ...
-
-    async def validate_update(
-        self,
-        instance: T,
-        changes: dict[str, Any],
-        ctx: Context,
-    ) -> Mapping[str, Any]: ...
-
-    async def before_save(
-        self,
-        instance: T,
-        changes: Mapping[str, Any],
-        ctx: Context,
-        *,
-        created: bool,
-    ) -> None: ...
-    async def before_delete(self, instance: T, ctx: Context) -> None: ...
-    async def after_commit(self, event: DomainEvent, ctx: Context) -> None: ...
-```
-
-| Method | Parameters and intended behavior |
-| --- | --- |
-| `get_statement(ctx)` | Return an additional **base** SQLAlchemy `Select`, before mandatory policy scope is added. It may never bypass the policy. |
-| `validate_create(data, ctx)` | Check/normalize create input; raise `BuilderValidationError` with field errors. |
-| `validate_update(instance, changes, ctx)` | Check/normalize proposed changes, without committing. |
-| `before_save(instance, changes, ctx, *, created)` | Mutate an instance inside the current transaction, before flush. `created` distinguishes a new instance from an update; `changes` contains the validated input plus server presets. |
-| `before_delete(instance, ctx)` | Validate/prepare deletion inside the current transaction. |
-| `after_commit(event, ctx)` | Optional best-effort callback; the just-committed session must not be reused for new DB work. |
-
-**Async-first:** All I/O hooks should be `async def`. The implementation may accept sync hooks for pure CPU-only logic; sync I/O inside an event loop is not supported. Hooks never call `commit()` or `rollback()` on the shared session. Hooks are not authorization hooks.
-
-## 4. `Form`
-
-**Purpose:** Render and validate HTML create/edit forms; do not duplicate persistence or domain-level validation.
-
-### 4.1 Properties
-
-| Property | Type | Default / meaning |
-| --- | --- | --- |
-| `enabled` | `bool` | `True` |
-| `fields` | `FieldRefs \| None` | Inherit eligible builder fields |
-| `fieldsets` | `Sequence[tuple[str \| None, Mapping[str, Any]]] \| None` | `None`; Django-style field groups |
-| `labels` | `Mapping[str, str]` | `{}`; field labels |
-| `help_texts` | `Mapping[str, str]` | `{}` |
-| `widgets` | `Mapping[str, Mapping[str, Any]]` | `{}`; per-field input config |
-
-`fields` order defines the rendered form order; overriding `get_fields()` can reorder fields per action or request. `fieldsets` uses Django's `(title, options)` shape; the current subset supports a flat `fields` list and `description`, and cannot be combined with `fields`. Policy-hidden fields are removed from each group and empty groups are not rendered. Nested field rows and `classes` are not supported yet.
-
-### 4.2 Methods
-
-```python
-class Form:
-    def get_fields(
-        self,
-        ctx: Context,
-        *,
-        action: Literal["create", "update"],
-        instance: Any | None = None,
-    ) -> Sequence[str]: ...
-
-    def get_initial(self, ctx: Context) -> Mapping[str, Any]: ...
-
-    async def validate(
-        self,
-        data: Mapping[str, Any],
-        ctx: Context,
-        *,
-        instance: Any | None = None,
-    ) -> Mapping[str, Any]: ...
-
-    def get_context(
-        self,
-        ctx: Context,
-        *,
-        instance: Any | None = None,
-        action: Literal["create", "update"],
-    ) -> Mapping[str, Any]: ...
-```
-
-**Defaults:** Infer widgets, labels, required fields and `String(200)` length validation from SQLAlchemy metadata; render per-field errors; escape HTML; use CSRF protection for cookie-authenticated write forms. `get_fields()` returns fields **after** policy narrowing, never a way to reintroduce forbidden fields. UI-only checks do not replace `ResourceService` validation.
-
-**Not required in v0.4:** Conditional forms, multi-step forms, file uploads, CAPTCHA, visual form designer.
-
-## 5. `View`
-
-**Purpose:** Render list/detail pages and UI operations while reusing policy-scoped resource queries.
-
-### 5.1 Properties
-
-| Property | Type | Default / meaning |
-| --- | --- | --- |
-| `enabled` | `bool` | `True` |
-| `list_display` | `FieldRefs \| None` | Inherit readable builder fields |
-| `detail_fields` | `FieldRefs \| None` | Inherit readable builder fields |
-| `operations` | `tuple[str, ...]` | `("create", "update", "delete")`; UI visibility only |
-| `page_size` | `int \| None` | `None`; no forced pagination or maximum |
-
-Searchable, filterable and sortable fields come from `ModelBuilder`, not `View`, so the same rules apply to the REST API.
-
-### 5.2 Methods
-
-```python
-class View:
-    def get_list_display(self, ctx: Context) -> Sequence[str]: ...
-
-    def get_list_filter(self, ctx: Context) -> Sequence[FilterDefinition]: ...
-
-    def get_operations(
-        self,
-        ctx: Context,
-        *,
-        instance: Any | None = None,
-    ) -> Sequence[OperationDefinition]: ...
-
-    def get_context(
-        self,
-        ctx: Context,
-        *,
-        instance: Any | None = None,
-    ) -> Mapping[str, Any]: ...
-```
-
-**Defaults:** Table list, detail page, create/edit/delete controls as permitted, optional search/filter/sort and optional pagination. A hidden button never substitutes for a server-side permission check. The UI is mounted under `/admin`, not `/`.
-
-## 6. `API`
-
-**Purpose:** Generate REST CRUD routes and OpenAPI input/output schemas from the same resource configuration.
-
-### 6.1 Properties
-
-| Property | Type | Default / meaning |
-| --- | --- | --- |
-| `enabled` | `bool` | `True` |
-| `operations` | `tuple[str, ...]` | `("list", "retrieve", "create", "update", "delete")` |
-| `read_fields` | `FieldRefs \| None` | Inherit builder read projection |
-| `write_fields` | `FieldRefs \| None` | Inherit builder write projection |
-| `prefix` | `str \| None` | Inherit resource `slug` |
-| `tags` | `tuple[str, ...] \| None` | Generated from model name |
-| `default_limit` | `int \| None` | `None`; optional nonnegative limit used when the request omits `limit` |
-| `max_limit` | `int \| None` | `None`; optional nonnegative limit used when no limit applies; reject larger requested limits with `422` |
-| `max_batch` | `int \| None` | `None`; optional nonnegative maximum operation count for HTTP batch writes |
-| `upsert_fields` | `tuple[tuple[str, ...], ...]` | `()`; allowed non-null writable UNIQUE merge keys, using Python field names |
-| `write_relationships` | `tuple[str, ...]` | `()`; opt-in simple collection relationships writable through nested API routes |
-| `list_envelope` | `bool` | `True`; return `{items, page}`; temporary `False` compatibility mode returns a bare array |
-
-`operations` describes **semantic operations**, not HTTP methods. `GET` applies to both list and retrieve, so `methods=("GET", ...)` is not a suitable contract.
-
-### 6.2 Methods
-
-```python
-class API:
-    def get_read_schema(
-        self,
-        *,
-        builder: ModelBuilder[Any],
-    ) -> type[BaseModel]: ...
-
-    def get_create_schema(
-        self,
-        *,
-        builder: ModelBuilder[Any],
-    ) -> type[BaseModel]: ...
-
-    def get_update_schema(
-        self,
-        *,
-        builder: ModelBuilder[Any],
-    ) -> type[BaseModel]: ...
-```
-
-These schema methods run during registration, not per request. Schemas expose the **static allowed superset**; runtime policy can narrow a response further. Conditional fields must not be unconditionally required by the output schema.
-
-**API naming boundary:** Python, SQLAlchemy, and Pydantic field names remain
-`snake_case`; HTTP JSON request and response properties use `camelCase` through
-shared Pydantic alias generators. Request schemas accept aliases only; response
-schemas serialize aliases, including nested objects. Do not manually rename keys
-in routes, services, or frontend adapters. Query-language field references use
-the public camelCase aliases, including in `:query` pairs. See the
-[API naming convention](api-spec.md#naming-convention) for the target contract.
-
-### 6.3 Generated routes
-
-| Method | Route | Operation |
-| --- | --- | --- |
-| `GET` | `/api/questions` | `list` |
-| `POST` | `/api/questions` | `create` |
-| `GET` | `/api/questions/{id}` | `retrieve` |
-| `PATCH` | `/api/questions/{id}` | `update` |
-| `DELETE` | `/api/questions/{id}` | `delete` |
-
-Canonical routes use `/api` without a version segment and have no trailing slash.
-Resource slugs and customized API prefixes are plural camelCase collection names
-matching `[a-z][a-zA-Z0-9]*`. Custom resource methods use `:verb` with camelCase
-verbs, such as `/api/questions:query` and `/api/questions:sendReminder`.
-The [API specification](api-spec.md#endpoint-overview) distinguishes implemented
-and planned paths. OBOX does not impose a request rate, request-size quota or
-default result maximum. A host may opt in to a per-resource API limit.
-
-**List behavior:** Search, filters and sorting use explicit allowed fields. Without request pagination or host-configured limits, lists return all matching records. Optional `offset`/`limit` and signed cursors are implemented, including nullable ordering with explicit or default null placement and a primary-key tie-breaker. Pagination is not a cross-request snapshot. `default_limit` must not exceed `max_limit` when both are configured.
-
-**Batch writes:** `POST /api/{slug}:batchWrite` applies create/update/delete/upsert
-operations in one unit of work. `ResourceService.batch()` accepts ordered
-`BatchOperation` values and uses the ordinary CRUD paths. Existing target IDs
-must be unique; locks use canonical ID order, while mutations and results retain
-request order. Any failure rolls back the entire batch. Versioned HTTP writes
-require per-operation `ifMatch`. `API.max_batch=None` imposes no operation cap.
-Upsert requires configured `API.upsert_fields` matching a full non-deferrable
-UNIQUE constraint or non-partial unique column index, plus create/update access.
-It preserves normal scopes, validation, hooks, and rollback; `UpsertResult`
-contains `record` and `created`. HTTP merge keys use public aliases in `mergeOn`;
-direct `BatchOperation` values use Python names in `merge_on`.
-
-**Collection writes:** `API.write_relationships` enables add/replace/remove
-routes for existing related records. Parent and target write policies and
-version preconditions apply atomically; unsupported collection joins,
-`delete-orphan` cascades, and association tables with payload columns are
-rejected. These routes change membership, not nested target data. See the
-[API specification](api-spec.md#collection-relationships) for configuration,
-per-target `ifMatches`, and read/write path naming.
-
-**Idempotency:** The optional `Idempotency` plugin provides transactional receipts
-for HTTP create and batch requests with `Idempotency-Key`. Keys are scoped to
-the authenticated identity, tenant/partition, method, and mounted path; the
-default TTL is 24 hours. A matching retry rechecks access before replaying its
-saved response. A reused key with a different validated body returns `409`.
-Hosts migrate the plugin's metadata and provide a partition resolver when using
-tenants. This does not deduplicate single-record PATCH/DELETE or comment writes.
-
-**Discovery:** `/api:describe` and `/api/{slug}:describe` expose principal-filtered
-fields, schemas, operation permissions, scope names, and query capabilities.
-Metadata remains conditional on per-record policy checks and does not grant access.
-
-**HTTP behavior:** `200/201/204` for success; `401/403/404` for access and lookup failures; `409` for conflicts; `422` for invalid input. Optional optimistic concurrency may use `412/428`. Error body shape: `application/problem+json` preferred; exact error code registry TBD.
-
-## 7. `Policy[T]` — Authorization
-
-**Purpose:** Enforce consistent access across UI, REST API, relationship lookups and direct service calls.
-
-### 7.1 Methods
-
-```python
-class Policy(Generic[T]):
-    async def allow(
-        self,
-        action: str,
-        ctx: Context,
-        *,
-        obj: T | None = None,
-    ) -> bool: ...
-
-    def scope(
-        self,
-        action: str,
-        ctx: Context,
-    ) -> ColumnElement[bool]: ...
-
-    def read_fields(
-        self,
-        ctx: Context,
-        *,
-        obj: T | None = None,
-    ) -> frozenset[str] | None: ...
-
-    def write_fields(
-        self,
-        action: str,
-        ctx: Context,
-        *,
-        obj: T | None = None,
-    ) -> frozenset[str] | None: ...
-
-    def presets(
-        self,
-        action: str,
-        ctx: Context,
-    ) -> Mapping[str, Any]: ...
-
-    async def check(
-        self,
-        action: str,
-        instance: T,
-        ctx: Context,
-    ) -> bool: ...
-```
-
-| Method | Contract |
-| --- | --- |
-| `allow(action, ctx, obj=None)` | Operation gate, optionally checking an individual record |
-| `scope(action, ctx)` | SQL predicate added to list and object lookup queries; never filter protected rows in Python after fetching |
-| `read_fields(ctx, obj=None)` | Dynamically narrow readable fields; `None` = no additional narrowing |
-| `write_fields(action, ctx, obj=None)` | Dynamically narrow writable fields; `None` = no additional narrowing |
-| `presets(action, ctx)` | Trusted server values, e.g. `owner_id`/`tenant_id`; client cannot override |
-| `check(action, instance, ctx)` | Validate resulting object after create/update and before commit |
-
-**Default behavior:** A base policy fails closed. `default_policy=StaffOnly()` lets staff use generated resources without writing a policy class for each model. Public resources require explicit opt-in and explicit field projections. A resource policy replaces the app fallback but cannot weaken mandatory global guards, if configured.
-
-**Tenant isolation:** A staff-only policy grants staff rights; it does **not** imply tenant isolation. Tenant-aware apps must implement scoped SQL predicates, server-controlled tenant presets and post-write checks. An object-level gate alone is insufficient for list queries.
-
-## 8. Fields and projections
-
-Field exposure is an **intersection**, never last-write-wins replacement:
-
-```text
-resource_fields = builder.fields or supported AUTO columns (staff-only)
-
-API_READ     = resource_fields ∩ API.read_fields  ∩ policy.read_fields(ctx, obj)
-API_WRITE    = resource_fields ∩ API.write_fields ∩ policy.write_fields(action, ctx, obj)
-               − read_only_fields − server_preset_fields
-FORM_CREATE  = resource_fields ∩ Form.fields ∩ policy.write_fields("create", ctx)
-               − read_only_fields − server_preset_fields
-FORM_UPDATE  = resource_fields ∩ Form.fields ∩ policy.read_fields(ctx, obj)
-               ∩ policy.write_fields("update", ctx, obj)
-               − read_only_fields − server_preset_fields
-VIEW_READ    = resource_fields ∩ View.list_display/detail_fields ∩ policy.read_fields(ctx, obj)
-```
-
-Rules:
-
-1. `None` for a surface projection means **inherit**; an explicit empty tuple means expose nothing for that surface.
-2. `read_only_fields` applies in Forms, API and direct service writes. Primary keys are never client-writable.
-3. Known forbidden writes are rejected; unknown fields produce validation errors; nothing silently assigns arbitrary ORM attributes.
-4. `Column.info["obox"] = {"expose": False}` is supported as an optional way to exclude known sensitive fields. Auto-discovery cannot recognize every business secret; explicit fields are strongly recommended for externally accessible resources.
-5. Search/filter/sort fields must be permitted for the list/query context. Per-record masking still happens before serialization.
-6. `app.check(strict=True)` reports a static exposure manifest. Dynamic permissions are marked conditional rather than treated as a fixed schema.
-
-## 9. Relationships
-
-The minimum supported relationship is a SQLAlchemy `ForeignKey` such as `Choice.question_id` targeting `Question.id`.
-
-- Derive FK widgets from real SQLAlchemy metadata, not column naming heuristics.
-- For a registered target resource, a Form can render a relationship selector using the target's scoped query. Relationship selection is subject to authorization.
-- Read-only links to related records are available where permitted.
-- Collections such as `Question.choices` are **not** automatically included in every payload; enable them explicitly in View configuration.
-- No automatic nested create/update/delete in v0.4.
-- No unrestricted recursive object serialization; expanded data requires an explicitly declared relationship projection. This is a schema/authorization rule, **not** a numeric result limit.
-- Database and ORM cascade rules govern deletion. OBOX does not silently invent cascade behavior.
-- Eager loading avoids accidental async lazy-I/O and N+1 issues, where needed.
-- When a related model is unregistered and no reference policy/resolver exists, block writable relationship selection rather than assuming access.
-
-## 10. `Context`, `ResourceService[T]`, and transactions
-
-### 10.1 `Context`
-
-| Property | Type | Meaning |
-| --- | --- | --- |
-| `principal` | `Principal` | Resolved actor, not a client-provided user ID |
-| `session` | `AsyncSession` | Session owned by the current unit of work |
-| `request` | `Request \| None` | Optional for HTTP; `None` in background jobs/tests |
-| `source` | `str` | `api`, `ui`, `job`, `cli`, etc. |
-| `tenant` | `Any \| None` | Optional verified tenant context |
-| `locale` | `str \| None` | Optional localization |
-| `trace_id` | `str \| None` | Optional diagnostic correlation identifier |
-
-### 10.2 Service interface
-
-```python
-class ResourceService(Generic[T]):
-    async def list(
-        self,
-        *,
-        ctx: Context,
-        filters: Mapping[str, Any] | None = None,
-        search: str | None = None,
-        ordering: Sequence[str] | None = None,
-        offset: int = 0,
-        limit: int | None = None,
-    ) -> Sequence[T]: ...
-
-    async def get(self, id: Any, *, ctx: Context) -> T: ...
-
-    async def create(
-        self,
-        data: Mapping[str, Any],
-        *,
-        ctx: Context,
-    ) -> T: ...
-
-    async def update(
-        self,
-        id: Any,
-        changes: Mapping[str, Any],
-        *,
-        ctx: Context,
-        version: Any | None = None,
-    ) -> T: ...
-
-    async def delete(
-        self,
-        id: Any,
-        *,
-        ctx: Context,
-        version: Any | None = None,
-    ) -> None: ...
-```
-
-- `list(..., limit=None)` returns all matching records, with no OBOX-imposed hard cap. Filters/sort are restricted by configured allowlists for security and correctness, not quotas.
-- `get()` applies both SQL row scope and object-level access checks.
-- `create()` and `update()` validate writable fields, apply server presets, run hooks, flush and perform post-write checks.
-- `delete()` checks row scope and object permission before deletion.
-- Service methods do **not** commit independently; the unit of work owns commit/rollback.
-- All HTTP/UI/job/CLI writes using OBOX must go through this service to share rules and events.
-
-### 10.3 Direct use outside HTTP
-
-```python
-async with app.uow(principal=actor, source="job") as ctx:
-    question = await app.service(Question).create(
-        {"question_text": "Example", "pub_date": published_at},
-        ctx=ctx,
-    )
-```
-
-Each concurrent task owns a separate `AsyncSession`. A privileged system actor must be explicitly constructed and audited; CLI/job source must not automatically bypass policy.
-
-## 11. Request-to-commit lifecycle
-
-```text
-Request / UI / direct service call
-  → resolve Context and principal
-  → check operation permission
-  → apply SQL row scope to lookups
-  → enforce static + runtime field permissions
-  → validate input schema and form/domain rules
-  → apply trusted server presets
-  → run before_save or before_delete hooks
-  → flush within the current transaction
-  → run post-write policy check
-  → commit through unit of work
-  → serialize permitted response fields
-  → optional after_commit callback
-```
-
-- `after_commit` is best-effort; it is not a durable webhook system.
-- Auditing can be attached to the service/UoW layer. The framework cannot automatically capture arbitrary raw SQL executed outside OBOX.
-- Optimistic concurrency via SQLAlchemy `version_id_col`, ETag and `If-Match` is an **optional** capability; if enabled, stale updates must fail explicitly.
-- Database migrations remain the host application's responsibility (typically Alembic).
-
-## 12. Defaults and generated UI paths
-
-| UI method | Canonical path | Behavior |
-| --- | --- | --- |
-| `GET` | `/admin/questions` | List |
-| `GET` | `/admin/questions/new` | Create form |
-| `POST` | `/admin/questions/new` | Submit create |
-| `GET` | `/admin/questions/{id}` | Detail |
-| `GET` | `/admin/questions/{id}/edit` | Edit form |
-| `POST` | `/admin/questions/{id}/edit` | Submit update |
-| `POST` | `/admin/questions/{id}/delete` | Confirmed delete |
-
-Form submissions must use CSRF checks when authenticated with cookies. The API follows the canonical routes in §6.3. All routes are optional per registered capability and remain subject to policy enforcement.
-
-## 13. Diagnostics and acceptance tests
-
-Use `obox --help` to see the available commands. The CLI provides
-`startproject` and commands for the optional jobs integration.
-
-**Production-core acceptance criteria:**
-
-1. `obox.register(QuestionBuilder)` creates the expected Form, View and API without colliding with native FastAPI endpoints.
-2. Unauthenticated users cannot access staff-only endpoints; public access is never implicit.
-3. Row-scoped list, detail, update, delete and relationship lookups prevent broken object-level authorization.
-4. API/Form/Service reject unauthorized field writes, including primary keys, read-only fields and server-controlled presets.
-5. UI/API/Service follow the same validation, hooks, permissions and transaction behavior.
-6. Foreign-key selection respects the target model's policy; async ORM serialization does not rely on unexpected lazy loads.
-7. HTML routes prevent CSRF on cookie-authenticated writes and escape untrusted output; SQL is parameterized.
-8. Startup catches invalid fields, unsupported relationship configurations and route/name collisions.
-9. OpenAPI correctly represents the statically available schema and acknowledges conditional runtime field exposure.
-10. Integration tests cover PostgreSQL, rollback, concurrent writes and application startup.
-
-**Explicit non-requirements:** No OBOX rate limiter; no request-size cap; no mandatory maximum number of returned records or `max_page_size`; no mandatory result-count cap on relationship queries. These are intentionally excluded, not silently deferred as required production gates. Hosts may opt in to API list limits.
-
-## 14. Out of scope for the core release
-
-Visual no-code editor, multi-step conditional forms, automatic nested target creation/updates, offline mobile UI, realtime collaboration, external webhook delivery, rich plugin marketplace, automatic schema/migration generation, and code/stub export. These may be built later without changing the single-builder abstraction. Configured batch upsert, explicit collection membership writes, and the optional Activity/Comments and Idempotency plugins are already implemented.
-
-## 15. Reference documentation
-
-- FastAPI routers: https://fastapi.tiangolo.com/tutorial/bigger-applications/
-- FastAPI behind a proxy: https://fastapi.tiangolo.com/advanced/behind-a-proxy/
-- SQLAlchemy ORM session lifecycle: https://docs.sqlalchemy.org/en/20/orm/session_basics.html
-- SQLAlchemy version counters: https://docs.sqlalchemy.org/en/20/orm/versioning.html
-- SQLAlchemy query criteria: https://docs.sqlalchemy.org/en/20/orm/queryguide/api.html
-- SQLAlchemy relationships/cascade: https://docs.sqlalchemy.org/en/20/orm/cascades.html
-- OWASP API Security Top 10: https://owasp.org/API-Security/
-- RFC 9457 Problem Details: https://www.rfc-editor.org/rfc/rfc9457.html
-
----
-
-**Implementation note:** This document describes the proposed v0.4 public
-contract, not every implementation detail. Items explicitly marked **TBD** are
-not frozen API. For setup instructions, use the [quickstart](examples/quickstart.md).
+# Core contract — v0.1.0
+
+The reference is Django 5.2 LTS and DRF 3.16.1. Obox supports the subset listed in
+[the mapping table](mapping.md). Runtime models are native SQLAlchemy models,
+requests are native Starlette/FastAPI requests, and templates use Jinja2.
+`Obox(app)` is the FastAPI adapter; `ModelBuilder` names the supported ModelAdmin subset.
+
+## Settings and applications
+
+`obox.conf.settings` loads uppercase settings lazily from `OBOX_SETTINGS_MODULE`,
+or accepts a single `settings.configure(...)` call. Access before configuration
+raises `ImproperlyConfigured`; configuring twice raises `RuntimeError`.
+
+AppConfig has the Django constructor `(app_name, app_module)`, `create()`, `name`,
+`label`, `verbose_name`, `path`, `import_models()`, `get_model()` and `ready()`.
+Registry population runs all configs, then all model imports, then all ready hooks.
+Population is idempotent and rejects duplicate names/labels and reentrant loading.
+`obox.setup()` populates the global registry without installing HTTP routes.
+
+`DATABASES['default']` supports SQLite and PostgreSQL. `TEMPLATES` accepts the
+Obox Jinja2 backend, directories, application templates and environment options.
+Database/schema management remains SQLAlchemy/Alembic; no QuerySet emulation exists.
+
+## Forms
+
+`Form` declares fields; `ModelForm` derives scalar fields from `Meta.model` and
+explicit `Meta.fields` or `Meta.exclude`. Meta also supports `labels`, `widgets`
+and `help_texts`. Per-instance input is `data`, `files`, `initial`, `prefix`, and,
+for model forms, `instance`. Fieldsets belong to ModelBuilder.
+
+Unbound forms are invalid and have no errors. Await `is_valid()` or `full_clean()`
+before reading `errors` or `cleaned_data`. Cleaning runs field conversion and
+validators, `clean_<field>()`, `clean()`, then model uniqueness/foreign-key checks.
+`add_error()` removes the affected value from cleaned_data. Validation never saves
+or mutates a persisted SQLAlchemy instance. This differs from Django's in-memory
+model construction to avoid SQLAlchemy's automatic dirty tracking.
+
+`await form.save(commit=False)` applies validated data to an instance without
+inserting/updating it. `await form.save()` flushes within the current transaction
+or owns a short transaction. `async with transaction.atomic()` groups work and
+rolls back on exceptions. Metadata/configuration methods stay synchronous;
+database-aware hooks may be asynchronous. Scalar fields and the documented
+widgets are supported; formsets, uploaded-file fields and many-to-many model
+form persistence are outside this release's subset.
+
+## Generic views and URLs
+
+Supported views are `View`, `TemplateView`, `ListView`, `DetailView`, `FormView`,
+`CreateView`, `UpdateView` and `DeleteView`. Each request gets its own view and form.
+The lifecycle is `as_view()` → `setup()` → `dispatch()` → method handler.
+
+`get_queryset()` returns an unevaluated SQLAlchemy Select. `get_object()` applies
+lookup conversion and executes it. Context includes Django-shaped `object`,
+`object_list`, model context names, `form` and pagination values where applicable.
+The usual context/template/form hooks can be overridden. Invalid forms render
+with status 200; successful editing redirects with 302; delete uses POST after
+confirmation. Unsupported methods return 405 and an Allow header.
+
+`path()` and `include()` mount nested URL patterns, converter values and named
+namespaces on FastAPI. Reverse links use the host request's `url_for()`.
+HTML unsafe methods require the `csrftoken` cookie plus `csrfmiddlewaretoken`
+or `X-CSRFToken`. Origin/referer checks apply. Jinja2 context exposes `csrf_token`.
+
+## ModelBuilder
+
+Register `(model, builder_class)` on an AdminSite or use `@register(Model)`.
+The builder accepts `form`, `fields`, `fieldsets`, `readonly_fields`,
+`list_display`, `list_filter`, `search_fields`, `ordering`, `list_per_page` and
+admin template/action options, including list_display_links. It exposes ModelAdmin-shaped form/queryset,
+save/delete, action and permission hooks.
+
+AdminSite enforces active staff access. Model permissions use
+`app_label.add_model`, `change_model`, `delete_model` and `view_model`.
+Builder querysets are Select objects; save/delete hooks are awaited. It generates
+admin HTML routes only. Changelists expose search/filter controls, actions and
+Django admin page numbering (`p=0` for the first page). See [REST](api-spec.md) for independent endpoint registration.
+
+## Optional product features
+
+`obox.contrib.resources` owns product resource declarations, policy context,
+resource services, batch/upsert, metadata, version checks and inline editing.
+Other contrib apps build on those services. Their custom methods, response
+conventions and product options do not extend the Django/DRF core contract.
+See [the resource protocol](contrib-resource-api.md) and
+[record/activity protocol](record-activity-spec.md).
+
+Tests under `tests/test_v01_*.py` cover the core. Existing product regression tests
+cover contrib. Reference tests run Django/DRF in a separate pinned environment;
+matching the documented subset does not promise full framework compatibility.

@@ -1,6 +1,6 @@
 [project]
 name = "obox-builder"
-version = "0.5.0"
+version = "0.1.0"
 description = "Model-driven forms, views and REST APIs for native FastAPI applications."
 readme = "README.md"
 license = "MIT"
@@ -30,7 +30,7 @@ dependencies = [
 ]
 
 [project.scripts]
-obox = "obox_builder.cli:main"
+obox = "obox.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/vinhgiga/obox-builder"
@@ -72,16 +72,16 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["obox_builder"]
+packages = ["obox"]
 
 [tool.hatch.build.targets.wheel.hooks.custom]
 
 [tool.hatch.build.targets.sdist]
-include = ["LICENSE", "README.md", "docs", "mkdocs.yml", "obox_builder", "pyproject.toml", "hatch_build.py"]
+include = ["LICENSE", "README.md", "docs", "mkdocs.yml", "obox", "pyproject.toml", "hatch_build.py"]
 
 [tool.ruff]
 line-length = 100
-src = ["obox_builder"]
+src = ["obox"]
 target-version = "py311"
 
 [tool.ruff.lint]
@@ -90,9 +90,9 @@ ignore = ["A002", "N818"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "T20"]
-"obox_builder/cli.py" = ["T201"]
-"obox_builder/contrib/auth/cli.py" = ["T201"]
-"obox_builder/contrib/jobs/cli.py" = ["T201"]
+"obox/cli.py" = ["T201"]
+"obox/contrib/auth/cli.py" = ["T201"]
+"obox/contrib/jobs/cli.py" = ["T201"]
 
 [tool.ruff.lint.flake8-bugbear]
 extend-immutable-calls = ["fastapi.Depends"]
@@ -112,43 +112,43 @@ warn_unreachable = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = ["-ra", "--strict-markers", "--strict-config", "--cov=obox_builder", "--cov-branch", "--cov-report=term-missing"]
+addopts = ["-ra", "--strict-markers", "--strict-config", "--cov=obox", "--cov-branch", "--cov-report=term-missing"]
 filterwarnings = ["error"]
 xfail_strict = true
 
 [tool.coverage.run]
 branch = true
-source = ["obox_builder"]
+source = ["obox"]
 
 [tool.coverage.report]
 show_missing = true
 
 [tool.pyright]
-include = ["obox_builder"]
+include = ["obox"]
 pythonVersion = "3.11"
 typeCheckingMode = "standard"
 reportMissingTypeStubs = false
 
 [tool.importlinter]
-root_package = "obox_builder"
+root_package = "obox"
 include_external_packages = true
 
 [[tool.importlinter.contracts]]
 name = "Services do not depend on presentation or application assembly"
 type = "forbidden"
-source_modules = ["obox_builder.builder.service"]
-forbidden_modules = ["obox_builder.builder.api", "obox_builder.builder.ui", "obox_builder.application", "fastapi", "jinja2"]
+source_modules = ["obox.contrib.resources.service"]
+forbidden_modules = ["obox.contrib.resources.api", "obox.contrib.resources.ui", "obox._runtime", "fastapi", "jinja2"]
 allow_indirect_imports = true
 
 [[tool.importlinter.contracts]]
 name = "Shared identity, context and errors do not depend on builders"
 type = "forbidden"
-source_modules = ["obox_builder.auth", "obox_builder.context", "obox_builder.errors"]
-forbidden_modules = ["obox_builder.builder", "obox_builder.application"]
+source_modules = ["obox._auth", "obox._context", "obox._exceptions"]
+forbidden_modules = ["obox.contrib.resources", "obox._runtime"]
 
 [[tool.importlinter.contracts]]
 name = "Component services do not depend on HTTP or rendering"
 type = "forbidden"
-source_modules = ["obox_builder.builder.components", "obox_builder.contrib.analytics.service"]
-forbidden_modules = ["obox_builder.builder.component_api", "obox_builder.contrib.analytics.routes", "obox_builder.application", "fastapi", "jinja2"]
+source_modules = ["obox.contrib.resources.components", "obox.contrib.analytics.service"]
+forbidden_modules = ["obox.contrib.resources.component_api", "obox.contrib.analytics.routes", "obox._runtime", "fastapi", "jinja2"]
 allow_indirect_imports = true

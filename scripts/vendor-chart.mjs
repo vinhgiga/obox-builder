@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 
 const source = new URL("../node_modules/chart.js/", import.meta.url);
-const target = new URL("../obox_builder/contrib/analytics/static/", import.meta.url);
+const target = new URL("../obox/contrib/analytics/static/", import.meta.url);
 copyFileSync(new URL("dist/chart.umd.js", source), new URL("chart.umd.js", target));
 const color = pathToFileURL(
   createRequire(realpathSync(new URL("package.json", source))).resolve("@kurkle/color"),

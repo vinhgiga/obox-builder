@@ -1,53 +1,32 @@
-# Register a resource
+# Register a contrib resource
 
-`ModelBuilder[T]` controls how one SQLAlchemy model appears in the generated
-admin and JSON API. Put builders in an installed application and keep the
-`fields` allowlist explicit.
-
-```python
-from obox_builder import ModelBuilder, builder
-from models import Question
-
-
-class QuestionBuilder(ModelBuilder[Question]):
-    fields = ("question_text", "pub_date")
-    read_only_fields = ("pub_date",)
-    search_fields = ("question_text",)
-    filter_fields = ("pub_date",)
-    ordering = ("-pub_date", "-id")
-
-    class Form(builder.Form):
-        labels = {"question_text": "Question"}
-
-    class View(builder.View):
-        list_display = ("question_text", "pub_date")
-
-    class API(builder.API):
-        operations = ("list", "retrieve", "create")
-```
-
-Add the builder to an app configuration:
+This is the optional product resource editor, independent of ModelBuilder.
+Enable `obox.contrib.resources` in INSTALLED_APPS. Use another UI prefix when
+also mounting the standard builder, for example `RESOURCES = {'ui_prefix': '/workspace'}`.
 
 ```python
-from obox_builder import AppConfig
-from app.polls.builders import QuestionBuilder
+from obox.apps import AppConfig
+from obox.contrib.resources import Resource, RBAC, FormOptions, ViewOptions, ApiOptions
+from app.products.models import Product
 
 
-class PollsConfig(AppConfig):
-    name = "app.polls"
-    label = "polls"
-    builders = (QuestionBuilder,)
+class ProductResource(Resource):
+    model = Product
+    fields = ("name", "price")
+    policy = RBAC("products.products")
+    form_options = FormOptions
+    view_options = ViewOptions
+    api_options = ApiOptions
+
+
+class ProductsConfig(AppConfig):
+    name = "app.products"
+
+    def ready(self):
+        self.resources = (ProductResource,)
 ```
 
-Then list the config's import path in `INSTALLED_APPS`:
-
-```python
-INSTALLED_APPS = ("app.polls.apps.PollsConfig",)
-```
-
-The `fields` allowlist is shared by the form, view, and API; each surface can
-narrow what it reads or writes. `read_only_fields` prevents writes to selected
-fields. The API declaration above exposes list, retrieve, and create operations
-for the resource.
-
-See [Resource builders](../../features/resources.md) for configuration details.
+Declare resources during ready so application models have already loaded.
+These options describe the contrib product protocol. They are not aliases for
+core Form, generic View or DRF viewsets. Product permission names use
+`app.resource.action`; admin permissions use Django-shaped `app.action_model`.

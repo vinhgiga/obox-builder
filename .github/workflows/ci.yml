@@ -86,6 +86,11 @@ jobs:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
       - run: uv sync --all-extras --locked
+      - name: Install isolated Django and DRF references
+        run: |
+          uv venv "$RUNNER_TEMP/reference-env"
+          uv pip install --python "$RUNNER_TEMP/reference-env/bin/python" -r tests/reference/requirements.txt
+          echo "OBOX_REFERENCE_PYTHON=$RUNNER_TEMP/reference-env/bin/python" >> "$GITHUB_ENV"
       - run: uv run pytest -q
 
   wheel:
@@ -114,10 +119,42 @@ jobs:
         working-directory: ${{ runner.temp }}
         run: >-
           "$RUNNER_TEMP/wheel-env/bin/python" -I -c
-          "from obox_builder import Obox, ModelBuilder, ResourceService;
-          from obox_builder.auth import StaffOnly;
+          "import obox;
+          from obox.builder import ModelBuilder;
+          from obox.forms import Form, ModelForm;
+          from obox.rest_framework.viewsets import ModelViewSet;
+          from importlib.util import find_spec;
           from importlib.resources import files;
-          assets = files('obox_builder.builder');
+          assert obox.__version__ == '0.1.0';
+          assert find_spec('obox_builder') is None;
+          assert Form is not ModelForm;
+          assets = files('obox.contrib.resources');
           assert assets.joinpath('templates/obox/form.html').is_file();
           assert assets.joinpath('static/tabler.min.css').read_text().strip();
           assert assets.joinpath('static/ui.css').read_text().strip()"
+
+  postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18.4-alpine
+        env:
+          POSTGRES_DB: obox_test
+          POSTGRES_USER: obox
+          POSTGRES_PASSWORD: test-only
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U obox -d obox_test"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --all-extras --locked
+      - run: uv run pytest -q
+        env:
+          OBOX_TEST_DATABASE_URL: postgresql+asyncpg://obox:test-only@localhost:5432/obox_test

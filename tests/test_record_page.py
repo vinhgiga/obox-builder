@@ -8,10 +8,13 @@ import httpx
 import pytest
 import sqlalchemy as sa
 from fastapi import FastAPI
-from obox_builder import ModelBuilder, Obox, Principal, View, builder
-from obox_builder.auth import RBAC, PublicReadOnly
-from obox_builder.conf import Settings
-from obox_builder.contrib.auth import Auth
+from obox._auth import RBAC, Principal, PublicReadOnly
+from obox._config import RuntimeConfig
+from obox._runtime import _Runtime
+from obox.contrib import resources as builder
+from obox.contrib.auth import Auth
+from obox.contrib.resources import Resource as ResourceDefinition
+from obox.contrib.resources.views import ViewOptions
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.pool import StaticPool
@@ -25,21 +28,16 @@ class Base(DeclarativeBase):
 
 class Parent(Base):
     __tablename__ = "record_page_parents"
-
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(sa.String(50))
     status: Mapped[str] = mapped_column(sa.String(20), default="draft")
     children: Mapped[list[Child]] = relationship(
-        back_populates="parent",
-        cascade="all, delete-orphan",
-        passive_deletes=True,
-        lazy="raise",
+        back_populates="parent", cascade="all, delete-orphan", passive_deletes=True, lazy="raise"
     )
 
 
 class Child(Base):
     __tablename__ = "record_page_children"
-
     id: Mapped[int] = mapped_column(primary_key=True)
     parent_id: Mapped[int] = mapped_column(
         sa.ForeignKey("record_page_parents.id", ondelete="CASCADE")
@@ -53,28 +51,30 @@ class ChildInline(builder.Inline[Child]):
     model = Child
 
 
-class ChildView(View):
+class ChildView(ViewOptions):
     list_display = ("parent", "label", "score")
 
 
-class ChildBuilder(ModelBuilder[Child]):
+class ChildBuilder(ResourceDefinition[Child]):
+    model = Child
     fields = ("parent_id", "label", "score")
     label_field = "label"
     slug = "children"
-    View = ChildView
+    view_options = ChildView
 
 
-class ParentView(View):
+class ParentView(ViewOptions):
     list_display = ("name", "status")
     related = ("children",)
 
 
-class ParentBuilder(ModelBuilder[Parent]):
+class ParentBuilder(ResourceDefinition[Parent]):
+    model = Parent
     fields = ("name", "status")
     label_field = "name"
     slug = "parents"
     inlines: tuple[type[builder.Inline[Any]], ...] = (ChildInline,)
-    View = ParentView
+    view_options = ParentView
 
 
 class RelatedParentBuilder(ParentBuilder):
@@ -96,7 +96,7 @@ class PublicParentBuilder(ParentBuilder):
 
 class HiddenChildPolicy(RBAC[Child]):
     async def allow(self, action: str, ctx: Any, *, obj: Any = None) -> bool:
-        if action == "retrieve" and obj is not None and obj.label == "secret":
+        if action == "retrieve" and obj is not None and (obj.label == "secret"):
             return False
         return await super().allow(action, ctx, obj=obj)
 
@@ -107,7 +107,7 @@ class HiddenChildBuilder(ChildBuilder):
 
 class HiddenParentPolicy(RBAC[Parent]):
     async def allow(self, action: str, ctx: Any, *, obj: Any = None) -> bool:
-        if action == "retrieve" and obj is not None and obj.name == "secret":
+        if action == "retrieve" and obj is not None and (obj.name == "secret"):
             return False
         return await super().allow(action, ctx, obj=obj)
 
@@ -130,26 +130,26 @@ class DisabledView(ParentView):
 
 
 class DisabledParentBuilder(ParentBuilder):
-    View = DisabledView
+    view_options = DisabledView
 
 
 STAFF = Principal(id=1, is_authenticated=True, is_staff=True, is_superuser=True)
 
 
 async def make_app(
-    parent_builder: type[ModelBuilder[Parent]] = ParentBuilder,
-    child_builder: type[ModelBuilder[Child]] = ChildBuilder,
+    parent_builder: type[ResourceDefinition[Parent]] = ParentBuilder,
+    child_builder: type[ResourceDefinition[Child]] = ChildBuilder,
     *,
     principal: Principal | None = STAFF,
     auth: bool = False,
-) -> tuple[Obox, Any]:
+) -> tuple[_Runtime, Any]:
     engine = create_async_engine("sqlite+aiosqlite://", poolclass=StaticPool)
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
-    app = Obox(
+    app = _Runtime(
         FastAPI(),
         settings=with_builders(
-            Settings(
+            RuntimeConfig(
                 session_factory=async_sessionmaker(engine, expire_on_commit=False),
                 principal_dependency=lambda: principal,
                 default_policy=RBAC(),
@@ -158,9 +158,9 @@ async def make_app(
             parent_builder,
             child_builder,
         ),
-        plugins=(Auth(secure=False),) if auth else (),
+        features=(Auth(secure=False),) if auth else (),
     )
-    return app, engine
+    return (app, engine)
 
 
 async def seed(engine: Any, parent: str = "alpha") -> None:
@@ -170,22 +170,19 @@ async def seed(engine: Any, parent: str = "alpha") -> None:
             Parent(
                 name=parent,
                 status="live",
-                children=[
-                    Child(label="first", score=1),
-                    Child(label="second", score=2),
-                ],
+                children=[Child(label="first", score=1), Child(label="second", score=2)],
             )
         )
 
 
-async def get(app: Obox, path: str) -> httpx.Response:
+async def get(app: _Runtime, path: str) -> httpx.Response:
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app.app), base_url="http://test"
     ) as client:
         return await client.get(path)
 
 
-async def post(app: Obox, path: str, data: dict[str, str]) -> httpx.Response:
+async def post(app: _Runtime, path: str, data: dict[str, str]) -> httpx.Response:
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app.app), base_url="http://test"
     ) as client:
@@ -199,6 +196,7 @@ async def post(app: Obox, path: str, data: dict[str, str]) -> httpx.Response:
 def test_record_fragment_authentication_and_permissions(
     principal: Principal | None, auth: bool, status: int
 ) -> None:
+
     async def scenario() -> None:
         app, engine = await make_app(principal=principal, auth=auth)
         try:
@@ -230,6 +228,7 @@ def test_record_fragment_authentication_and_permissions(
 
 
 def test_list_links_first_displayed_column() -> None:
+
     async def scenario() -> None:
         app, engine = await make_app()
         try:
@@ -238,10 +237,9 @@ def test_list_links_first_displayed_column() -> None:
             children = await get(app, "/admin/admin/children")
         finally:
             await engine.dispose()
-
-        assert re.search(r'<a href="[^"]*/admin/admin/parents/1">alpha</a>', parents.text)
+        assert re.search('<a href="[^"]*/admin/admin/parents/1">alpha</a>', parents.text)
         assert ">Record</th>" not in parents.text
-        assert re.search(r'<a href="[^"]*/admin/admin/children/1">alpha</a>', children.text)
+        assert re.search('<a href="[^"]*/admin/admin/children/1">alpha</a>', children.text)
         assert '<div class="cell-value">first</div>' in children.text
         assert ">Record</th>" not in children.text
 
@@ -249,6 +247,7 @@ def test_list_links_first_displayed_column() -> None:
 
 
 def test_editable_detail_renders_form_and_saves() -> None:
+
     async def scenario() -> None:
         app, engine = await make_app()
         try:
@@ -266,9 +265,7 @@ def test_editable_detail_renders_form_and_saves() -> None:
                 {"name": "updated", "status": "paused", "_addanother": ""},
             )
             saved = await post(
-                app,
-                "/admin/admin/parents/1",
-                {"name": "updated", "status": "paused", "_save": ""},
+                app, "/admin/admin/parents/1", {"name": "updated", "status": "paused", "_save": ""}
             )
             async with async_sessionmaker(engine)() as session:
                 parent = await session.get(Parent, 1)
@@ -276,7 +273,6 @@ def test_editable_detail_renders_form_and_saves() -> None:
                 assert (parent.name, parent.status) == ("updated", "paused")
         finally:
             await engine.dispose()
-
         assert detail.status_code == 200
         for name in ("_save", "_addanother", "_continue"):
             assert f'name="{name}"' in detail.text
@@ -293,6 +289,7 @@ def test_editable_detail_renders_form_and_saves() -> None:
 
 
 def test_update_only_user_can_open_editable_detail() -> None:
+
     async def scenario() -> None:
         app, engine = await make_app(UpdateOnlyParentBuilder)
         try:
@@ -301,7 +298,6 @@ def test_update_only_user_can_open_editable_detail() -> None:
             listing = await get(app, "/admin/admin/parents")
         finally:
             await engine.dispose()
-
         assert detail.status_code == 200
         assert 'name="_save"' in detail.text
         assert ">alpha</a>" not in listing.text
@@ -310,6 +306,7 @@ def test_update_only_user_can_open_editable_detail() -> None:
 
 
 def test_public_read_only_detail_for_anonymous_user() -> None:
+
     async def scenario() -> None:
         app, engine = await make_app(PublicParentBuilder, principal=None)
         try:
@@ -318,17 +315,17 @@ def test_public_read_only_detail_for_anonymous_user() -> None:
             listing = await get(app, "/admin/admin/parents")
         finally:
             await engine.dispose()
-
         assert detail.status_code == 200
         assert '<dl class="row">' in detail.text
         assert 'name="_save"' not in detail.text
         assert "data-inline" not in detail.text
-        assert re.search(r'<a href="[^"]*/admin/admin/parents/1">alpha</a>', listing.text)
+        assert re.search('<a href="[^"]*/admin/admin/parents/1">alpha</a>', listing.text)
 
     asyncio.run(scenario())
 
 
 def test_read_only_detail_has_no_edit_form() -> None:
+
     async def scenario() -> None:
         app, engine = await make_app(ReadOnlyParentBuilder)
         try:
@@ -338,13 +335,12 @@ def test_read_only_detail_has_no_edit_form() -> None:
             delete = await get(app, "/admin/admin/parents/1/delete")
         finally:
             await engine.dispose()
-
         assert detail.status_code == 200
         assert '<dl class="row">' in detail.text
         assert 'name="_save"' not in detail.text
         assert "data-inline" not in detail.text
         assert "<h2>Children</h2>" in detail.text
-        assert re.search(r'<a href="[^"]*/admin/admin/children/1">alpha</a>', detail.text)
+        assert re.search('<a href="[^"]*/admin/admin/children/1">alpha</a>', detail.text)
         assert edit.status_code == 403
         assert delete.status_code == 403
 
@@ -352,6 +348,7 @@ def test_read_only_detail_has_no_edit_form() -> None:
 
 
 def test_editable_detail_keeps_related_without_inline() -> None:
+
     async def scenario() -> None:
         app, engine = await make_app(RelatedParentBuilder)
         try:
@@ -359,40 +356,34 @@ def test_editable_detail_keeps_related_without_inline() -> None:
             detail = await get(app, "/admin/admin/parents/1")
         finally:
             await engine.dispose()
-
         assert 'name="_save"' in detail.text
         assert "<h2>Children</h2>" in detail.text
-        assert re.search(r'<a href="[^"]*/admin/admin/children/1">alpha</a>', detail.text)
+        assert re.search('<a href="[^"]*/admin/admin/children/1">alpha</a>', detail.text)
 
     asyncio.run(scenario())
 
 
 def test_related_rows_link_only_when_retrieve_is_permitted() -> None:
+
     async def scenario() -> None:
         app, engine = await make_app(ReadOnlyParentBuilder, HiddenChildBuilder)
         try:
             async with async_sessionmaker(engine).begin() as session:
                 session.add(
-                    Parent(
-                        name="alpha",
-                        children=[
-                            Child(label="visible"),
-                            Child(label="secret"),
-                        ],
-                    )
+                    Parent(name="alpha", children=[Child(label="visible"), Child(label="secret")])
                 )
             detail = await get(app, "/admin/admin/parents/1")
         finally:
             await engine.dispose()
-
-        assert re.search(r'<a href="[^"]*/admin/admin/children/1">alpha</a>', detail.text)
-        assert not re.search(r'<a href="[^"]*/admin/admin/children/2"', detail.text)
+        assert re.search('<a href="[^"]*/admin/admin/children/1">alpha</a>', detail.text)
+        assert not re.search('<a href="[^"]*/admin/admin/children/2"', detail.text)
         assert "secret" in detail.text
 
     asyncio.run(scenario())
 
 
 def test_view_disabled_keeps_edit_form_working() -> None:
+
     async def scenario() -> None:
         app, engine = await make_app(DisabledParentBuilder)
         try:
@@ -406,7 +397,6 @@ def test_view_disabled_keeps_edit_form_working() -> None:
             detail = await get(app, "/admin/admin/parents/1")
         finally:
             await engine.dispose()
-
         assert edit.status_code == 200
         assert 'name="_save"' in edit.text
         assert "/admin/admin/parents/1/delete" not in edit.text
@@ -418,6 +408,7 @@ def test_view_disabled_keeps_edit_form_working() -> None:
 
 
 def test_inline_extra_adds_forms_after_existing_records() -> None:
+
     async def scenario() -> None:
         app, engine = await make_app()
         try:
@@ -425,16 +416,16 @@ def test_inline_extra_adds_forms_after_existing_records() -> None:
             detail = await get(app, "/admin/admin/parents/1")
         finally:
             await engine.dispose()
-
         assert detail.status_code == 200
-        assert re.search(r'name="inline:0:_total"\s+value="5"', detail.text)
-        assert len(re.findall(r'name="inline:0:\d+:_pk"', detail.text)) == 5
-        assert len(re.findall(r'name="inline:0:\d+:_pk"\s+value=""', detail.text)) == 3
+        assert re.search('name="inline:0:_total"\\s+value="5"', detail.text)
+        assert len(re.findall('name="inline:0:\\d+:_pk"', detail.text)) == 5
+        assert len(re.findall('name="inline:0:\\d+:_pk"\\s+value=""', detail.text)) == 3
 
     asyncio.run(scenario())
 
 
 def test_delete_link_opens_confirmation_page() -> None:
+
     async def scenario() -> None:
         app, engine = await make_app()
         try:
@@ -448,7 +439,6 @@ def test_delete_link_opens_confirmation_page() -> None:
                 assert await session.get(Parent, 1) is None
         finally:
             await engine.dispose()
-
         assert 'class="btn btn-danger"' in detail.text
         assert "Confirm deletion" not in detail.text
         assert confirm.status_code == 200
@@ -462,21 +452,16 @@ def test_delete_link_opens_confirmation_page() -> None:
 
 
 def test_list_row_without_retrieve_has_no_link() -> None:
+
     async def scenario() -> None:
         app, engine = await make_app(HiddenParentBuilder)
         try:
             async with async_sessionmaker(engine).begin() as session:
-                session.add_all(
-                    [
-                        Parent(name="visible"),
-                        Parent(name="secret"),
-                    ]
-                )
+                session.add_all([Parent(name="visible"), Parent(name="secret")])
             listing = await get(app, "/admin/admin/parents")
         finally:
             await engine.dispose()
-
-        assert re.search(r'<a href="[^"]*/admin/admin/parents/1">visible</a>', listing.text)
+        assert re.search('<a href="[^"]*/admin/admin/parents/1">visible</a>', listing.text)
         assert '<div class="cell-value">secret</div>' in listing.text
         assert "secret</a>" not in listing.text
 

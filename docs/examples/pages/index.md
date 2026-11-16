@@ -1,6 +1,3 @@
-# Page examples
+# Product pages
 
-An application page can arrange reusable components in rows, set its URL and
-title, and require a permission. Pages are declared in an `AppConfig`.
-
-- [Compose a page](compose-page.md)
+[Compose a contrib page](compose-page.md) from policy-scoped components.

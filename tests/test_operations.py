@@ -5,12 +5,15 @@ import httpx
 import pytest
 import sqlalchemy as sa
 from fastapi import FastAPI
-from obox_builder import API, ModelBuilder, Obox, Principal, View
-from obox_builder.auth import RBAC
-from obox_builder.builder.ui import allowed_operations
-from obox_builder.conf import Settings
-from obox_builder.context import Context
-from obox_builder.errors import ImproperlyConfigured
+from obox._auth import RBAC, Principal
+from obox._config import RuntimeConfig
+from obox._context import Context
+from obox._runtime import _Runtime
+from obox.contrib.resources import Resource as ResourceDefinition
+from obox.contrib.resources.apis import ApiOptions
+from obox.contrib.resources.ui import allowed_operations
+from obox.contrib.resources.views import ViewOptions
+from obox.core.exceptions import ImproperlyConfigured
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.pool import StaticPool
@@ -24,49 +27,51 @@ class Base(DeclarativeBase):
 
 class Widget(Base):
     __tablename__ = "operation_widgets"
-
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(sa.String(50))
 
 
-class WidgetBuilder(ModelBuilder[Widget]):
+class WidgetBuilder(ResourceDefinition[Widget]):
+    model = Widget
     fields = ("id", "name")
 
 
-class NoCreateView(View):
+class NoCreateView(ViewOptions):
     operations = ("create", "update", "delete")
 
     def get_operations(self, ctx: Context, *, instance: Any = None) -> tuple[str, ...]:
         return ("update", "delete") if instance is not None else ()
 
 
-class NoCreateBuilder(ModelBuilder[Widget]):
+class NoCreateBuilder(ResourceDefinition[Widget]):
+    model = Widget
     fields = ("id", "name")
-    View = NoCreateView
+    view_options = NoCreateView
 
 
-class ReadOnlyAPI(API):
+class ReadOnlyAPI(ApiOptions):
     operations = ("list", "retrieve")
 
 
-class ReadOnlyAPIBuilder(ModelBuilder[Widget]):
+class ReadOnlyAPIBuilder(ResourceDefinition[Widget]):
+    model = Widget
     fields = ("id", "name")
-    API = ReadOnlyAPI
+    api_options = ReadOnlyAPI
 
 
 STAFF = Principal(id=1, is_authenticated=True, is_staff=True, is_superuser=True)
 
 
 async def make_app(
-    builder: type[ModelBuilder[Widget]], *, principal: Principal | None = None
-) -> tuple[Obox, Any]:
+    builder: type[ResourceDefinition[Widget]], *, principal: Principal | None = None
+) -> tuple[_Runtime, Any]:
     engine = create_async_engine("sqlite+aiosqlite://", poolclass=StaticPool)
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
-    app = Obox(
+    app = _Runtime(
         FastAPI(),
         settings=with_builders(
-            Settings(
+            RuntimeConfig(
                 session_factory=async_sessionmaker(engine, expire_on_commit=False),
                 principal_dependency=lambda: principal,
                 default_policy=RBAC(),
@@ -75,19 +80,19 @@ async def make_app(
             builder,
         ),
     )
-    return app, engine
+    return (app, engine)
 
 
-def compile_error(builder: type[ModelBuilder[Widget]]) -> str:
+def compile_error(builder: type[ResourceDefinition[Widget]]) -> str:
+
     async def scenario() -> str:
         engine = create_async_engine("sqlite+aiosqlite://", poolclass=StaticPool)
-
         try:
             with pytest.raises(ImproperlyConfigured) as error:
-                Obox(
+                _Runtime(
                     FastAPI(),
                     settings=with_builders(
-                        Settings(
+                        RuntimeConfig(
                             session_factory=async_sessionmaker(engine, expire_on_commit=False),
                             principal_dependency=lambda: None,
                             default_policy=RBAC(),
@@ -104,9 +109,10 @@ def compile_error(builder: type[ModelBuilder[Widget]]) -> str:
 
 
 def test_view_get_operations_controls_rendered_operations() -> None:
+
     async def scenario() -> None:
         app, engine = await make_app(NoCreateBuilder, principal=STAFF)
-        builder = app.get_builder(Widget)
+        builder = app.get_resource(Widget)
         try:
             async with app.uow(principal=STAFF, source="ui") as ctx:
                 assert await allowed_operations(builder, ctx) == ()
@@ -128,9 +134,10 @@ def test_view_get_operations_controls_rendered_operations() -> None:
 
 
 def test_api_operations_control_registered_routes() -> None:
+
     async def scenario() -> None:
         app, engine = await make_app(ReadOnlyAPIBuilder, principal=STAFF)
-        builder = app.get_builder(Widget)
+        builder = app.get_resource(Widget)
         try:
             assert builder.api.operations == ("list", "retrieve")
             transport = httpx.ASGITransport(app=app.app)
@@ -150,24 +157,24 @@ def test_api_operations_control_registered_routes() -> None:
 @pytest.mark.parametrize(
     ("surface", "operations"),
     [
-        (View, ("create", "list")),
-        (API, ("list", "archive")),
-        (API, ("list", "list")),
+        (ViewOptions, ("create", "list")),
+        (ApiOptions, ("list", "archive")),
+        (ApiOptions, ("list", "list")),
     ],
 )
 def test_unknown_or_duplicate_operations_are_rejected(
-    surface: type[View] | type[API], operations: tuple[str, ...]
+    surface: type[ViewOptions] | type[ApiOptions], operations: tuple[str, ...]
 ) -> None:
     configured = type("Surface", (surface,), {"operations": operations})
     builder = type(
         "TestBuilder",
         (WidgetBuilder,),
-        {"View" if surface is View else "API": configured},
+        {"view_options" if surface is ViewOptions else "api_options": configured},
     )
     assert compile_error(builder) == "Unknown or duplicate surface operations."
 
 
 def test_actions_surface_api_is_removed() -> None:
-    assert not hasattr(View, "actions")
-    assert not hasattr(View, "get_actions")
-    assert not hasattr(API, "actions")
+    assert not hasattr(ViewOptions, "actions")
+    assert not hasattr(ViewOptions, "get_actions")
+    assert not hasattr(ApiOptions, "actions")

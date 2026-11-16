@@ -1,63 +1,20 @@
 # Access control
 
-Obox Builder applies authorization in the service layer, so the admin UI, JSON
-API, components, and direct service calls use the same policy rules. Identity
-resolution and business-specific row scopes remain under host application
-control.
+Core generic views leave identity and row visibility to the host application.
+AdminSite requires active staff and checks Django model permission names.
+REST uses DRF permission classes; configure IsAuthenticated explicitly when
+anonymous access is not appropriate. The DRF default remains AllowAny.
 
-## Install Auth
+Enable `obox.contrib.auth` in INSTALLED_APPS for accounts, sessions, roles,
+password validation, admin account pages and optional API tokens. Configure
+`AUTH = {'api_tokens': True}` to expose token routes. Auth tables must be migrated.
+Create an administrator with `obox createsuperuser`.
 
-The Auth plugin supplies browser sessions, user and role management, an
-identity dependency, and a default RBAC policy:
+Contrib resources use RBAC/Policy for action, row and field access. Source policy
+also constrains analytics, relationships, files and activity. Caller identity
+and trusted presets come from server context. Queryset restrictions and object
+permissions remain separate checks; list endpoints must enforce row scope.
 
-```python
-from obox_builder import Obox
-from obox_builder.contrib.auth import Auth
-
-obox = Obox(app, settings="setting", plugins=(Auth(secure=not setting.DEBUG),))
-```
-
-The default policy requires explicit grants. A superuser can administer
-resources, while other accounts need the relevant permissions. In production,
-keep secure cookies enabled, set a private secret key, and use the generated
-password validators or configure your own.
-
-JSON session endpoints are enabled by default. Personal API tokens are opt-in
-with `Auth(api_tokens=True)` and require the Auth token tables in the host's
-migrations. Token scopes can narrow the owner's current permissions; they do
-not create new grants.
-
-## Limit fields and records
-
-Declare only fields a resource should expose:
-
-```python
-class QuestionBuilder(ModelBuilder[Question]):
-    fields = ("question_text", "owner_id")
-```
-
-Policies can further restrict operations, rows, and fields for the current
-principal. A tenant policy must apply its tenant predicate to each relevant
-operation; the default RBAC policy does not provide tenant isolation.
-
-```python
-from obox_builder.auth import RBAC
-
-
-class QuestionPolicy(RBAC[Question]):
-    def scope(self, action: str, ctx: Context):
-        return Question.owner_id == ctx.principal.id
-```
-
-The policy API includes a typed SQLAlchemy predicate and field-level read/write
-methods. See [Python API](../reference/python-api.md#authorization) for the
-public classes and [the core specification](../reference/index.md#design-specifications)
-for the broader contract.
-
-## Host authentication
-
-If the host already has authentication, supply `principal_dependency` and a
-`default_policy` through `Settings`. Host values take precedence over plugin
-defaults. Custom identities must expose the identity properties required by
-the selected policy. See [Settings](../reference/settings.md) and the
-[Auth section of the API contract](../api-spec.md#authentication-auth-plugin).
+HTML forms and authenticated REST sessions require CSRF on unsafe requests.
+See [REST](../api-spec.md) and [contrib protocol](../contrib-resource-api.md)
+for their distinct transport/error contracts.

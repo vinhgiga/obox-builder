@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta name="description" content="Obox administration">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta charset="utf-8">
+    <title>{{ title | default("Form") }}</title>
+  </head>
+  <body>
+    {% for error in form.non_field_errors() %}<p role="alert">{{ error }}</p>{% endfor %}
+    <form method="post">
+      <input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">
+      {{ form.as_p() }}
+      <button type="submit">Save</button>
+    </form>
+  </body>
+</html>

@@ -7,22 +7,27 @@ from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, ClassVar, cast
 
 import httpx
 import pytest
 import sqlalchemy as sa
 from fastapi import FastAPI
-from obox_builder import Context, DomainEvent, ModelBuilder, Obox, Principal, Settings, View
-from obox_builder.auth import RBAC, ScopedIdentity
-from obox_builder.builder import surfaces
-from obox_builder.contrib.activity import Activity
-from obox_builder.contrib.activity.models import Base as ActivityBase
-from obox_builder.contrib.activity.models import Event
-from obox_builder.contrib.idempotency import Idempotency
-from obox_builder.contrib.idempotency.models import Base as ReceiptBase
-from obox_builder.contrib.idempotency.models import Receipt
-from obox_builder.errors import ImproperlyConfigured, PermissionDenied
+from obox._auth import RBAC, Principal, ScopedIdentity
+from obox._config import RuntimeConfig
+from obox._context import Context, DomainEvent
+from obox._exceptions import PermissionDenied
+from obox._runtime import _Runtime
+from obox.contrib.activity import Activity
+from obox.contrib.activity.models import Base as ActivityBase
+from obox.contrib.activity.models import Event
+from obox.contrib.idempotency import Idempotency
+from obox.contrib.idempotency.models import Base as ReceiptBase
+from obox.contrib.idempotency.models import Receipt
+from obox.contrib.resources import Resource as ResourceDefinition
+from obox.contrib.resources import apis as surfaces
+from obox.contrib.resources.views import ViewOptions
+from obox.core.exceptions import ImproperlyConfigured
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -43,7 +48,6 @@ links = sa.Table(
 
 class Parent(Base):
     __tablename__ = "write_parents"
-
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(sa.String(50), unique=True)
     score: Mapped[int | None]
@@ -51,41 +55,44 @@ class Parent(Base):
     version: Mapped[int] = mapped_column(default=1)
     tags: Mapped[list[Tag]] = relationship(secondary=links, back_populates="parents")
     children: Mapped[list[Child]] = relationship(back_populates="parent")
-    __mapper_args__ = {"version_id_col": version}  # noqa: RUF012
+    __mapper_args__: ClassVar[dict[str, Any]] = {"version_id_col": version}
 
 
 class Tag(Base):
     __tablename__ = "write_tags"
-
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(sa.String(50), unique=True)
     version: Mapped[int] = mapped_column(default=1)
     parents: Mapped[list[Parent]] = relationship(secondary=links, back_populates="tags")
-    __mapper_args__ = {"version_id_col": version}  # noqa: RUF012
+    __mapper_args__: ClassVar[dict[str, Any]] = {"version_id_col": version}
 
 
 class Child(Base):
     __tablename__ = "write_children"
-
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(sa.String(50))
     parent_id: Mapped[int | None] = mapped_column(sa.ForeignKey(Parent.id))
     parent: Mapped[Parent | None] = relationship(back_populates="children")
     version: Mapped[int] = mapped_column(default=1)
-    __mapper_args__ = {"version_id_col": version}  # noqa: RUF012
+    __mapper_args__: ClassVar[dict[str, Any]] = {"version_id_col": version}
 
 
-class ParentBuilder(ModelBuilder[Parent]):
+class ParentBuilder(ResourceDefinition[Parent]):
+    model = Parent
     slug = "parents"
     fields = ("id", "name", "score", "active", "version")
     sort_fields = ("name", "score", "active", "id")
 
-    class API(surfaces.API):
+    class ApiOptions(surfaces.ApiOptions):
         upsert_fields: tuple[tuple[str, ...], ...] = (("name",),)
         write_relationships = ("tags", "children")
 
-    class View(View):
+    api_options = ApiOptions
+
+    class ViewOptions(ViewOptions):
         related = ("tags", "children")
+
+    view_options = ViewOptions
 
     async def before_save(
         self, instance: Parent, changes: Mapping[str, Any], ctx: Context, *, created: bool
@@ -100,11 +107,13 @@ class ParentBuilder(ModelBuilder[Parent]):
 STAFF = Principal(id=1, is_authenticated=True, is_staff=True, is_superuser=True)
 
 
-class TagBuilder(ModelBuilder[Tag]):
+class TagBuilder(ResourceDefinition[Tag]):
+    model = Tag
     fields = ("name", "version")
 
 
-class ChildBuilder(ModelBuilder[Child]):
+class ChildBuilder(ResourceDefinition[Child]):
+    model = Child
     slug = "children"
     fields = ("name", "parent_id", "version")
 
@@ -113,11 +122,11 @@ class ChildBuilder(ModelBuilder[Child]):
 async def application(
     path: Path,
     *,
-    configured: type[ModelBuilder[Parent]] = ParentBuilder,
+    configured: type[ResourceDefinition[Parent]] = ParentBuilder,
     policy: RBAC[Any] | None = None,
     idempotency: bool = True,
-    extra_builders: tuple[type[ModelBuilder[Any]], ...] = (),
-) -> AsyncIterator[Obox]:
+    extra_builders: tuple[type[ResourceDefinition[Any]], ...] = (),
+) -> AsyncIterator[_Runtime]:
     engine = create_async_engine(os.getenv("OBOX_TEST_DATABASE_URL", f"sqlite+aiosqlite:///{path}"))
     namespace = f"writes_{uuid.uuid4().hex}" if engine.dialect.name == "postgresql" else None
     if namespace:
@@ -128,10 +137,10 @@ async def application(
         for metadata in (Base.metadata, ReceiptBase.metadata, ActivityBase.metadata):
             await conn.run_sync(metadata.create_all)
     try:
-        app = Obox(
+        app = _Runtime(
             FastAPI(),
             settings=with_builders(
-                Settings(
+                RuntimeConfig(
                     session_factory=async_sessionmaker(engine, expire_on_commit=False),
                     principal_dependency=lambda: STAFF,
                     default_policy=policy or RBAC(),
@@ -142,7 +151,7 @@ async def application(
                 ChildBuilder,
                 *extra_builders,
             ),
-            plugins=[Activity(), *([Idempotency()] if idempotency else [])],
+            features=[Activity(), *([Idempotency()] if idempotency else [])],
         )
         app.app.state.events = []
         async with app.app.router.lifespan_context(app.app):
@@ -154,14 +163,14 @@ async def application(
         await engine.dispose()
 
 
-async def request(app: Obox, method: str, path: str, **kwargs: Any) -> httpx.Response:
+async def request(app: _Runtime, method: str, path: str, **kwargs: Any) -> httpx.Response:
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app.app), base_url="http://test"
     ) as client:
         return await client.request(method, path, **kwargs)
 
 
-async def upsert(app: Obox, name: str, **data: Any) -> httpx.Response:
+async def upsert(app: _Runtime, name: str, **data: Any) -> httpx.Response:
     token = data.pop("ifMatch", None)
     return await request(
         app,
@@ -193,27 +202,30 @@ async def upsert(app: Obox, name: str, **data: Any) -> httpx.Response:
 )
 @pytest.mark.parametrize("limit", [1, 3])
 def test_nullable_cursor_matches_complete_order(path: Path, order: str, limit: int) -> None:
+
     async def scenario() -> None:
         async with application(path) as app:
             async with app.uow(principal=STAFF) as ctx:
                 ctx.session.add_all(
-                    Parent(name=str(i), score=score, active=active)
-                    for i, (score, active) in enumerate(
-                        [
-                            (None, None),
-                            (2, True),
-                            (None, False),
-                            (1, None),
-                            (2, False),
-                            (1, True),
-                            (None, None),
-                        ]
+                    (
+                        Parent(name=str(i), score=score, active=active)
+                        for i, (score, active) in enumerate(
+                            [
+                                (None, None),
+                                (2, True),
+                                (None, False),
+                                (1, None),
+                                (2, False),
+                                (1, True),
+                                (None, None),
+                            ]
+                        )
                     )
                 )
             expected = (
                 await request(app, "GET", "/api/admin/parents", params={"order": order})
             ).json()
-            seen, cursor = [], None
+            seen, cursor = ([], None)
             for _ in range(10):
                 response = await request(
                     app,
@@ -250,16 +262,19 @@ def path(tmp_path: Path) -> Path:
 def test_openapi_exposes_configured_write_contracts(
     path: Path, idempotency: bool, upsert_enabled: bool
 ) -> None:
+
     class Configured(ParentBuilder):
-        class API(ParentBuilder.API):
-            upsert_fields = ParentBuilder.API.upsert_fields if upsert_enabled else ()
+        class ApiOptions(ParentBuilder.api_options):
+            upsert_fields = ParentBuilder.api_options.upsert_fields if upsert_enabled else ()
+
+        api_options = ApiOptions
 
     async def scenario() -> None:
         async with application(path, configured=Configured, idempotency=idempotency) as app:
             response = await request(app, "GET", "/openapi.json")
             assert response.status_code == 200
             document = response.json()
-            paths, schemas = document["paths"], document["components"]["schemas"]
+            paths, schemas = (document["paths"], document["components"]["schemas"])
             for url in ("/api/admin/parents", "/api/admin/parents:batchWrite"):
                 headers = {
                     item["name"]
@@ -303,6 +318,7 @@ def test_openapi_exposes_configured_write_contracts(
 
 
 def test_upsert_preserves_versions_hooks_activity_and_batch_rollback(path: Path) -> None:
+
     async def scenario() -> None:
         async with application(path) as app:
             created = await upsert(app, "one", score=1)
@@ -345,6 +361,7 @@ def test_upsert_preserves_versions_hooks_activity_and_batch_rollback(path: Path)
 
 
 def test_concurrent_upserts_resolve_unique_insert_race_without_duplicate_rows(path: Path) -> None:
+
     async def scenario() -> None:
         barrier = asyncio.Barrier(2)
 
@@ -375,6 +392,7 @@ def test_concurrent_upserts_resolve_unique_insert_race_without_duplicate_rows(pa
 
 
 def test_upsert_does_not_update_hidden_records_or_bypass_policy_check(path: Path) -> None:
+
     class Scoped(RBAC[Any]):
         def scope(self, action: str, ctx: Context) -> Any:
             return Parent.name != "hidden"
@@ -397,9 +415,12 @@ def test_upsert_does_not_update_hidden_records_or_bypass_policy_check(path: Path
 
 
 def test_upsert_rejects_unconfigured_keys_duplicates_and_disabled_operations(path: Path) -> None:
+
     class CreateOnly(ParentBuilder):
-        class API(ParentBuilder.API):
+        class ApiOptions(ParentBuilder.api_options):
             operations = ("list", "retrieve", "create")
+
+        api_options = ApiOptions
 
     async def scenario() -> None:
         async with application(path) as app:
@@ -410,10 +431,7 @@ def test_upsert_rejects_unconfigured_keys_duplicates_and_disabled_operations(pat
                 [{"op": "upsert", "mergeOn": ["name"], "data": {"name": "one"}}] * 2,
             ]:
                 response = await request(
-                    app,
-                    "POST",
-                    "/api/admin/parents:batchWrite",
-                    json={"operations": operations},
+                    app, "POST", "/api/admin/parents:batchWrite", json={"operations": operations}
                 )
                 assert response.status_code == 422, response.text
             assert (await request(app, "GET", "/api/admin/parents")).json()["items"] == []
@@ -424,6 +442,7 @@ def test_upsert_rejects_unconfigured_keys_duplicates_and_disabled_operations(pat
 
 
 def test_idempotency_replays_success_and_rejects_body_mismatch(path: Path) -> None:
+
     async def scenario() -> None:
         async with application(path) as app:
             headers = {"Idempotency-Key": "create-1"}
@@ -455,11 +474,7 @@ def test_idempotency_replays_success_and_rejects_body_mismatch(path: Path) -> No
             ).status_code == 403
             assert (
                 await request(
-                    app,
-                    "POST",
-                    "/api/admin/parents",
-                    json={"name": "good"},
-                    headers=failed_headers,
+                    app, "POST", "/api/admin/parents", json={"name": "good"}, headers=failed_headers
                 )
             ).status_code == 201
             async with app.uow(principal=STAFF) as ctx:
@@ -471,6 +486,7 @@ def test_idempotency_replays_success_and_rejects_body_mismatch(path: Path) -> No
 
 
 def test_idempotency_batch_replays_stale_conditions_and_concurrent_requests(path: Path) -> None:
+
     async def scenario() -> None:
         async with application(path) as app:
             created = await request(app, "POST", "/api/admin/parents", json={"name": "one"})
@@ -518,6 +534,7 @@ def test_idempotency_batch_replays_stale_conditions_and_concurrent_requests(path
 
 
 def test_idempotency_expiry_validation_and_permissions(path: Path) -> None:
+
     class Policy(RBAC[Any]):
         restricted = False
 
@@ -527,7 +544,7 @@ def test_idempotency_expiry_validation_and_permissions(path: Path) -> None:
     async def scenario() -> None:
         policy = Policy()
         async with application(path, policy=policy) as app:
-            policy = cast(Policy, app.get_builder(Parent).policy)
+            policy = cast(Policy, app.get_resource(Parent).policy)
             for key in ("", "contains spaces", "x" * 256):
                 response = await request(
                     app,
@@ -571,13 +588,14 @@ def test_idempotency_expiry_validation_and_permissions(path: Path) -> None:
 
 
 def test_idempotency_identity_endpoint_and_create_only_scope(path: Path) -> None:
+
     async def scenario() -> None:
         async with application(path) as app:
             headers = {"Idempotency-Key": "shared-key"}
             body = {"name": "one"}
             dependency = app.settings.principal_dependency
             assert dependency is not None
-            permission = app.get_builder(Parent).permission_name("create")
+            permission = app.get_resource(Parent).permission_name("create")
             app.app.dependency_overrides[dependency] = lambda: ScopedIdentity(
                 STAFF, frozenset({permission})
             )
@@ -605,10 +623,9 @@ def test_idempotency_identity_endpoint_and_create_only_scope(path: Path) -> None
 
 @pytest.mark.parametrize(("field", "target"), [("tags", "tags"), ("children", "children")])
 def test_relationship_add_replace_remove_preserves_rows_and_versions(
-    path: Path,
-    field: str,
-    target: str,
+    path: Path, field: str, target: str
 ) -> None:
+
     async def scenario() -> None:
         async with application(path) as app:
             parent = await request(app, "POST", "/api/admin/parents", json={"name": "one"})
@@ -691,6 +708,7 @@ def test_relationship_add_replace_remove_preserves_rows_and_versions(
 
 
 def test_relationship_rejects_stale_targets_scope_and_reparenting(path: Path) -> None:
+
     class Policy(RBAC[Any]):
         denied = False
 
@@ -702,7 +720,7 @@ def test_relationship_rejects_stale_targets_scope_and_reparenting(path: Path) ->
     async def scenario() -> None:
         policy = Policy()
         async with application(path, policy=policy) as app:
-            policy = cast(Policy, app.get_builder(Tag).policy)
+            policy = cast(Policy, app.get_resource(Tag).policy)
             parent = await request(app, "POST", "/api/admin/parents", json={"name": "one"})
             tag = await request(app, "POST", "/api/admin/tags", json={"name": "tag"})
             url = f"/api/admin/parents/{parent.json()['id']}/relationships/tags"
@@ -736,10 +754,7 @@ def test_relationship_rejects_stale_targets_scope_and_reparenting(path: Path) ->
                 app,
                 "POST",
                 "/api/admin/children",
-                json={
-                    "name": "child",
-                    "parentId": other.json()["id"],
-                },
+                json={"name": "child", "parentId": other.json()["id"]},
             )
             response = await request(
                 app,
@@ -779,9 +794,12 @@ def test_relationship_rejects_stale_targets_scope_and_reparenting(path: Path) ->
 def test_upsert_configuration_requires_exact_unique_key(
     path: Path, keys: tuple[tuple[str, ...]]
 ) -> None:
+
     class Invalid(ParentBuilder):
-        class API(ParentBuilder.API):
+        class ApiOptions(ParentBuilder.api_options):
             upsert_fields = keys
+
+        api_options = ApiOptions
 
     async def scenario() -> None:
         with pytest.raises(ImproperlyConfigured, match="UNIQUE"):
@@ -792,6 +810,7 @@ def test_upsert_configuration_requires_exact_unique_key(
 
 
 def test_upsert_composite_key_presets_and_column_aliases(path: Path) -> None:
+
     class Compound(Base):
         __tablename__ = "write_compound"
         __table_args__ = (
@@ -814,26 +833,31 @@ def test_upsert_composite_key_presets_and_column_aliases(path: Path) -> None:
         def presets(self, action: str, ctx: Context) -> Mapping[str, Any]:
             return {"account_id": "account-one"}
 
-    class CompoundBuilder(ModelBuilder[Compound]):
+    class CompoundBuilder(ResourceDefinition[Compound]):
+        model = Compound
         slug = "compound"
         fields = ("id", "account_id", "external_key", "title", "optional_key")
         policy = AccountPolicy()
 
-        class API(surfaces.API):
+        class ApiOptions(surfaces.ApiOptions):
             upsert_fields: tuple[tuple[str, ...], ...] = (("account_id", "external_key"),)
+
+        api_options = ApiOptions
 
     async def scenario() -> None:
         for key in ("title", "optional_key"):
 
             class Invalid(CompoundBuilder):
-                class API(CompoundBuilder.API):
+                class ApiOptions(CompoundBuilder.api_options):
                     upsert_fields = ((key,),)
 
+                api_options = ApiOptions
+
             with pytest.raises(ImproperlyConfigured, match="UNIQUE"):
-                Obox(
+                _Runtime(
                     FastAPI(),
                     settings=with_builders(
-                        Settings(
+                        RuntimeConfig(
                             database_url="sqlite+aiosqlite://",
                             default_policy=RBAC(),
                             principal_dependency=lambda: STAFF,

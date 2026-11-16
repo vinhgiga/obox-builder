@@ -15,12 +15,17 @@ import httpx
 import pytest
 import sqlalchemy as sa
 from fastapi import FastAPI
-from obox_builder import AppConfig, Context, ModelBuilder, Obox, Page, Principal, Settings
-from obox_builder.auth import RBAC, ScopedIdentity
-from obox_builder.builder.aggregates import Aggregation, Measure
-from obox_builder.builder.filters import FilterGroup, FilterTerm
-from obox_builder.contrib.analytics import Analytics, Bar, Chart, Donut, Line, Pie, Pivot
-from obox_builder.errors import ImproperlyConfigured
+from obox._auth import RBAC, Principal, ScopedIdentity
+from obox._catalog import CatalogConfig
+from obox._config import RuntimeConfig
+from obox._context import Context
+from obox._pages import Page
+from obox._runtime import _Runtime
+from obox.contrib.analytics import Analytics, Bar, Chart, Donut, Line, Pie, Pivot
+from obox.contrib.resources import Resource as ResourceDefinition
+from obox.contrib.resources.aggregates import Aggregation, Measure
+from obox.contrib.resources.filters import FilterGroup, FilterTerm
+from obox.core.exceptions import ImproperlyConfigured
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -83,11 +88,12 @@ class Policy(RBAC[Sale]):
 
     async def allow(self, action: str, ctx: Context, *, obj: Sale | None = None) -> bool:
         return not (
-            action == "retrieve" and obj is not None and obj.distributor == "B"
+            action == "retrieve" and obj is not None and (obj.distributor == "B")
         ) and await super().allow(action, ctx, obj=obj)
 
 
-class Sales(ModelBuilder[Sale]):
+class Sales(ResourceDefinition[Sale]):
+    model = Sale
     fields = (
         "id",
         "account_id",
@@ -105,9 +111,9 @@ class Sales(ModelBuilder[Sale]):
 
     def get_statement(self, ctx: Context) -> Any:
         statement = super().get_statement(ctx)
-        if self.policy.slow:  # type: ignore[union-attr]
+        if self.policy.slow:
             statement = statement.where(sa.func.pg_sleep(0.1).is_(None))
-        return statement.join(Duplicate) if self.policy.joined else statement  # type: ignore[union-attr]
+        return statement.join(Duplicate) if self.policy.joined else statement
 
 
 WIDGETS = (
@@ -133,7 +139,7 @@ WIDGETS = (
 @asynccontextmanager
 async def application(
     path: Path, *, widgets: tuple[Pivot | Chart, ...] = WIDGETS, **limits: Any
-) -> AsyncIterator[tuple[Obox, httpx.AsyncClient, Policy]]:
+) -> AsyncIterator[tuple[_Runtime, httpx.AsyncClient, Policy]]:
     engine = create_async_engine(
         os.getenv("OBOX_TEST_DATABASE_URL", f"sqlite+aiosqlite:///{path / 'analytics.db'}")
     )
@@ -147,7 +153,7 @@ async def application(
             await conn.run_sync(Base.metadata.create_all)
         policy = Policy()
         settings = with_builders(
-            Settings(
+            RuntimeConfig(
                 session_factory=async_sessionmaker(engine, expire_on_commit=False),
                 principal_dependency=lambda: STAFF,
                 default_policy=policy,
@@ -155,11 +161,11 @@ async def application(
             ),
             Sales,
         )
-        config = cast(type[AppConfig], settings.installed_apps[0])
+        config = cast(type[CatalogConfig], settings.installed_apps[0])
         config.components = widgets
         config.pages = (Page("report", title="Sales <report>", components=(widgets,)),)
-        app = Obox(FastAPI(), settings=settings, plugins=(Analytics(**limits),))
-        policy = cast(Policy, app.get_builder(Sale).policy)
+        app = _Runtime(FastAPI(), settings=settings, features=(Analytics(**limits),))
+        policy = cast(Policy, app.get_resource(Sale).policy)
         async with app.app.router.lifespan_context(app.app):
             async with app.uow(principal=STAFF) as ctx:
                 values = [
@@ -193,7 +199,7 @@ async def application(
             async with httpx.AsyncClient(
                 transport=httpx.ASGITransport(app=app.app), base_url="http://test"
             ) as client:
-                yield app, client, policy
+                yield (app, client, policy)
     finally:
         if namespace:
             async with engine.begin() as conn:
@@ -212,6 +218,7 @@ async def application(
     ],
 )
 def test_aggregates_and_totals(tmp_path: Path, operation: Any, total: Any) -> None:
+
     async def scenario() -> None:
         async with application(tmp_path) as (app, _, policy):
             query = Aggregation(
@@ -238,6 +245,7 @@ def test_aggregates_and_totals(tmp_path: Path, operation: Any, total: Any) -> No
 
 
 def test_filters_weighted_average_empty_and_null(tmp_path: Path) -> None:
+
     async def scenario() -> None:
         async with application(tmp_path) as (app, client, _):
             async with app.uow(principal=STAFF) as ctx:
@@ -292,6 +300,7 @@ def test_filters_weighted_average_empty_and_null(tmp_path: Path) -> None:
 
 
 def test_http_page_data_records_and_permissions(tmp_path: Path) -> None:
+
     async def scenario() -> None:
         async with application(tmp_path) as (app, client, policy):
             page = await client.get("/admin/admin/report")
@@ -354,7 +363,7 @@ def test_http_page_data_records_and_permissions(tmp_path: Path) -> None:
             assert (
                 await client.get("/admin/admin/report/_components/pivot/records")
             ).status_code == 403
-            policy.granted, policy.hidden = True, True
+            policy.granted, policy.hidden = (True, True)
             assert (
                 await client.get("/admin/admin/report/_components/pivot/data")
             ).status_code == 403
@@ -383,6 +392,7 @@ def test_http_page_data_records_and_permissions(tmp_path: Path) -> None:
     ],
 )
 def test_rejects_invalid_queries(tmp_path: Path, params: Any) -> None:
+
     async def scenario() -> None:
         async with application(tmp_path) as (_, client, _):
             response = await client.get(
@@ -402,6 +412,7 @@ def test_rejects_invalid_queries(tmp_path: Path, params: Any) -> None:
     [{"row": "{"}, {"row": "[]"}, {"offset": -1}, {"limit": 0}, {"limit": 201}, {"limit": "bad"}],
 )
 def test_rejects_invalid_record_queries(tmp_path: Path, params: Any) -> None:
+
     async def scenario() -> None:
         async with application(tmp_path) as (_, client, _):
             assert (
@@ -422,6 +433,7 @@ def test_rejects_invalid_record_queries(tmp_path: Path, params: Any) -> None:
     ],
 )
 def test_group_limits_do_not_return_partial_totals(tmp_path: Path, limits: Any) -> None:
+
     async def scenario() -> None:
         async with application(tmp_path, **limits) as (_, client, _):
             widget = (
@@ -439,6 +451,7 @@ def test_group_limits_do_not_return_partial_totals(tmp_path: Path, limits: Any) 
 
 
 def test_boundaries_sorting_keys_and_masking(tmp_path: Path) -> None:
+
     async def scenario() -> None:
         async with application(tmp_path, max_rows=4, max_columns=2, max_cells=8) as (
             app,
@@ -497,16 +510,17 @@ def test_boundaries_sorting_keys_and_masking(tmp_path: Path) -> None:
     ],
 )
 def test_invalid_fields_fail_at_installation(tmp_path: Path, query: Aggregation) -> None:
+
     async def scenario() -> None:
         async with application(tmp_path) as (app, _, _):
             with pytest.raises(ImproperlyConfigured):
-                query.validate(app.get_builder(Sale))
+                query.validate(app.get_resource(Sale))
 
     asyncio.run(scenario())
 
 
 def test_declarations_and_default_denial() -> None:
-    assert RBAC().aggregate_fields(None) == frozenset()  # type: ignore[arg-type]
+    assert RBAC().aggregate_fields(None) == frozenset()
     for create in (
         lambda: Measure("sum"),
         lambda: Measure("count", "amount"),
@@ -518,6 +532,7 @@ def test_declarations_and_default_denial() -> None:
 
 
 def test_datetime_keys_account_and_api_field_scope(tmp_path: Path) -> None:
+
     async def scenario() -> None:
         async with application(tmp_path) as (app, client, _):
             response = await client.get("/admin/admin/report/_components/moment/data")
@@ -538,7 +553,7 @@ def test_datetime_keys_account_and_api_field_scope(tmp_path: Path) -> None:
             assert (await client.get("/admin/admin/report/_components/pivot/data")).json()[
                 "total"
             ] == "999.00"
-            app.get_builder(Sale).api_read = ("id", "distributor", "region")
+            app.get_resource(Sale).api_read = ("id", "distributor", "region")
             app.app.dependency_overrides[dependency] = lambda: ScopedIdentity(
                 STAFF, frozenset({"admin.sales.list"})
             )
@@ -553,6 +568,7 @@ def test_datetime_keys_account_and_api_field_scope(tmp_path: Path) -> None:
 
 
 def test_reference_component_totals_match_all_widgets(tmp_path: Path) -> None:
+
     async def scenario() -> None:
         async with application(tmp_path) as (app, client, _):
             amounts = (
@@ -596,6 +612,7 @@ def test_reference_component_totals_match_all_widgets(tmp_path: Path) -> None:
     reason="PostgreSQL timeout integration",
 )
 def test_postgres_timeout_rolls_back_and_connection_recovers(tmp_path: Path) -> None:
+
     async def scenario() -> None:
         async with application(tmp_path, timeout_ms=20) as (_, client, policy):
             policy.slow = True
@@ -614,6 +631,7 @@ def test_postgres_timeout_rolls_back_and_connection_recovers(tmp_path: Path) -> 
 
 
 def test_json_contract_and_openapi(tmp_path: Path) -> None:
+
     async def scenario() -> None:
         async with application(tmp_path) as (app, client, policy):
             root = "/api/admin/components"
@@ -643,7 +661,7 @@ def test_json_contract_and_openapi(tmp_path: Path) -> None:
 
 
 def test_chart_json_axes_and_widget_keys(tmp_path: Path) -> None:
-    from obox_builder.contrib.analytics.charts import Axis, Series
+    from obox.contrib.analytics.charts import Axis, Series
 
     async def scenario() -> None:
         chart = Bar(
