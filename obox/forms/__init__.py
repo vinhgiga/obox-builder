@@ -18,12 +18,14 @@ from obox.forms.fields import (
 )
 from obox.forms.forms import BoundField, Form
 from obox.forms.models import ModelForm, fields_for_model, modelform_factory
+from obox.forms.relations import ModelChoiceField, ModelMultipleChoiceField
 from obox.forms.widgets import (
     CheckboxInput,
     HiddenInput,
     NumberInput,
     PasswordInput,
     Select,
+    SelectMultiple,
     Textarea,
     TextInput,
     Widget,
@@ -44,10 +46,13 @@ __all__ = [
     "HiddenInput",
     "IntegerField",
     "JSONField",
+    "ModelChoiceField",
     "ModelForm",
+    "ModelMultipleChoiceField",
     "NumberInput",
     "PasswordInput",
     "Select",
+    "SelectMultiple",
     "TextInput",
     "Textarea",
     "TimeField",

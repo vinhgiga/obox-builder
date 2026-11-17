@@ -20,6 +20,7 @@ def _attrs(values: dict[str, Any]) -> str:
 
 class Widget:
     input_type = "text"
+    allow_multiple_selected = False
 
     def __init__(self, attrs: dict[str, Any] | None = None) -> None:
         self.attrs = dict(attrs or {})
@@ -86,8 +87,12 @@ class Select(Widget):
 
     def render(self, name: str, value: Any, attrs: Any = None, renderer: Any = None) -> Markup:
         options = []
+        values = (
+            value if self.allow_multiple_selected and isinstance(value, (list, tuple)) else [value]
+        )
+        selected = {str(item) for item in values}
         for key, label in self.choices:
-            attributes = _attrs({"value": key, "selected": str(key) == str(value)})
+            attributes = _attrs({"value": key, "selected": str(key) in selected})
             options.append(f"<option {attributes}>{escape(str(label))}</option>")
         return Markup(  # noqa: S704 - values and attributes are escaped above.
             "<select "
@@ -96,3 +101,10 @@ class Select(Widget):
             + "".join(options)
             + "</select>"
         )
+
+
+class SelectMultiple(Select):
+    allow_multiple_selected = True
+
+    def __init__(self, attrs: Any = None, choices: Any = ()) -> None:
+        super().__init__({"multiple": True, **(attrs or {})}, choices)

@@ -30,11 +30,15 @@ class BoundField:
         return self.form.errors.get(self.name, [])
 
     def value(self) -> Any:
-        return (
+        value = (
             self.form._initial_value(self.name, self.field)
             if not self.form.is_bound or self.field.disabled
-            else self.form.data.get(self.html_name)
+            else self.form._data_value(self.name, self.field)
         )
+        if value is MISSING:
+            return None
+        prepare = getattr(self.field, "prepare_value", None)
+        return prepare(value) if prepare is not None else value
 
     def __html__(self) -> str:
         attrs: dict[str, Any] = {"id": self.id_for_label}
@@ -125,6 +129,20 @@ class Form:
     def __iter__(self) -> Any:
         return (self[name] for name in self.fields)
 
+    def _data_value(self, name: str, field: Field) -> Any:
+        key = self.add_prefix(name)
+        getlist = getattr(self.data, "getlist", None)
+        if getattr(field.widget, "allow_multiple_selected", False) and getlist is not None:
+            return getlist(key)
+        return self.data.get(key, MISSING if isinstance(field, TypedField) else None)
+
+    async def prepare(self) -> None:
+        """Load asynchronous choices before rendering a form."""
+        for field in self.fields.values():
+            prepare = getattr(field, "prepare", None)
+            if prepare is not None:
+                await invoke(prepare)
+
     async def is_valid(self) -> bool:
         async with self._validation_lock:
             if not self._validated:
@@ -144,9 +162,7 @@ class Form:
             value = (
                 self._initial_value(name, field)
                 if field.disabled
-                else self.data.get(
-                    self.add_prefix(name), MISSING if isinstance(field, TypedField) else None
-                )
+                else self._data_value(name, field)
             )
             try:
                 if value is MISSING and isinstance(field, TypedField):
@@ -180,7 +196,13 @@ class Form:
                     self.add_error(name, exc)
         await self._post_clean()
         if not self.errors:
-            self._values = deepcopy(self.cleaned_data)
+            self._values = deepcopy(
+                {
+                    name: value
+                    for name, value in self.cleaned_data.items()
+                    if isinstance(self.fields.get(name), TypedField)
+                }
+            )
         self._validated = True
 
     async def _post_clean(self) -> None:
