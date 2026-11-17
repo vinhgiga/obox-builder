@@ -11,7 +11,7 @@ from obox._auth import Principal
 from obox.builder import AdminSite, AlreadyRegistered, ModelBuilder
 from obox.urls import _mount, path
 
-from tests.test_v01_forms import Item, ItemForm, configured
+from tests.test_forms_integration import Item, ItemForm, configured
 
 
 class Actors:

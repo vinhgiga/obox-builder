@@ -17,7 +17,7 @@ from obox.rest_framework.routers import SimpleRouter
 from obox.rest_framework.viewsets import ModelViewSet
 from obox.urls import _mount, include, path
 
-from tests.test_v01_forms import Item, configured
+from tests.test_forms_integration import Item, configured
 
 
 class ItemSerializer(serializers.ModelSerializer):
@@ -266,7 +266,7 @@ def test_session_authentication_requires_csrf_and_basic_uses_auth_backend() -> N
         async with configured():
             from obox._auth import Principal
 
-            from tests.test_v01_builder import Actors
+            from tests.test_builder import Actors
 
             app = router_app(Private)
             app.add_middleware(Actors, actor=Principal(id=1, is_authenticated=True))

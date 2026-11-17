@@ -89,13 +89,13 @@ async def configured() -> AsyncIterator[None]:
 
 def test_form_bound_validation_order_errors_and_per_instance_fields() -> None:
     class Contact(forms.Form):
-        name = forms.CharField(max_length=5)
-        age = forms.IntegerField(required=False)
+        name: str = forms.field(max_length=5)
+        age: int | None = None
 
-        def clean_name(self) -> str:
-            if self.cleaned_data["name"] == "bad":
+        def clean_name(self, value: str) -> str:
+            if value == "bad":
                 raise forms.ValidationError("Rejected")
-            return self.cleaned_data["name"].upper()
+            return value.upper()
 
         def clean(self) -> dict[str, Any]:
             values = super().clean()
@@ -158,6 +158,26 @@ def test_model_form_requires_explicit_field_configuration() -> None:
                 model = Item
 
 
+def test_model_form_preserves_legacy_declarations_overrides_and_clean_hooks() -> None:
+    class Custom(ItemForm):
+        name = forms.CharField(max_length=4)
+        extra = forms.CharField(required=False)
+
+    class Removed(Custom):
+        extra = None
+
+    async def scenario() -> None:
+        async with configured():
+            form = Custom({"name": " ABC ", "price": "2.00", "extra": "kept"})
+            assert await form.is_valid()
+            assert form.cleaned_data["name"] == "abc"
+            assert form.cleaned_data["extra"] == "kept"
+            assert "extra" not in Removed.base_fields
+            assert not await Custom({"name": "ABCDE", "price": "2.00"}).is_valid()
+
+    asyncio.run(scenario())
+
+
 def test_atomic_rolls_back_form_writes() -> None:
     async def scenario() -> None:
         async with configured():
@@ -208,11 +228,11 @@ def test_prefix_disabled_fields_error_codes_and_widgets_escape_values() -> None:
     validated = []
 
     class Profile(forms.Form):
-        name = forms.CharField(widget=forms.Textarea)
-        accepted = forms.BooleanField(
-            required=False, disabled=True, initial=True, validators=[validated.append]
+        name: str = forms.field(forms.Textarea)
+        accepted: bool = forms.field(
+            default=False, disabled=True, initial=True, validators=[validated.append]
         )
-        password = forms.CharField(widget=forms.PasswordInput)
+        password: str = forms.field(forms.PasswordInput)
 
     async def scenario() -> None:
         form = Profile({"p-name": "<script>", "p-password": "secret"}, prefix="p")
@@ -221,11 +241,11 @@ def test_prefix_disabled_fields_error_codes_and_widgets_escape_values() -> None:
         assert validated == [True]
 
         class Payload(forms.Form):
-            data = forms.JSONField()
+            payload: dict[str, str]
 
-        rendered = str(Payload(initial={"data": {"key": "value"}})["data"])
+        rendered = str(Payload(initial={"payload": {"key": "value"}})["payload"])
         assert "&quot;key&quot;: &quot;value&quot;" in rendered
-        assert "&quot;value&quot;" in str(Payload(initial={"data": "value"})["data"])
+        assert "&quot;value&quot;" in str(Payload(initial={"payload": "value"})["payload"])
         assert 'name="p-name"' in str(form["name"])
         assert "&lt;script&gt;" in str(form["name"])
         assert "secret" not in str(form["password"])

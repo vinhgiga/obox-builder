@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Mapping
 from copy import deepcopy
+from enum import Enum
 from html import escape
 from typing import Any, ClassVar
 
@@ -12,6 +14,7 @@ from markupsafe import Markup
 
 from obox._async import invoke
 from obox.core.exceptions import NON_FIELD_ERRORS, ValidationError
+from obox.forms.declarative import MISSING, TypedField, collect_fields
 from obox.forms.fields import ChoiceField, Field, JSONField
 
 
@@ -28,7 +31,7 @@ class BoundField:
 
     def value(self) -> Any:
         return (
-            self.form.initial.get(self.name, self.field.initial)
+            self.form._initial_value(self.name, self.field)
             if not self.form.is_bound or self.field.disabled
             else self.form.data.get(self.html_name)
         )
@@ -42,10 +45,12 @@ class BoundField:
         if isinstance(self.field, ChoiceField):
             self.field.widget.choices = self.field.choices
         value = self.value()
-        if isinstance(self.field, JSONField) and (
+        if (isinstance(self.field, JSONField) or getattr(self.field, "is_json", False)) and (
             not self.form.is_bound or self.field.disabled or not isinstance(value, str)
         ):
             value = json.dumps(value, ensure_ascii=False)
+        if isinstance(value, Enum):
+            value = value.value
         return str(self.field.widget.render(self.html_name, value, attrs))
 
     def __str__(self) -> str:
@@ -58,17 +63,23 @@ class Form:
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
-        fields: dict[str, Field] = {}
-        for parent in reversed(cls.__mro__[1:]):
-            fields.update(getattr(parent, "declared_fields", {}))
-        for name, value in list(vars(cls).items()):
-            if isinstance(value, Field):
-                fields[name] = value
-                delattr(cls, name)
-            elif value is None:
-                fields.pop(name, None)
+        fields = cls._collect_fields()
         cls.declared_fields = fields
         cls.base_fields = fields
+
+    @classmethod
+    def _collect_fields(cls) -> dict[str, Field]:
+        reserved = set(vars(Form)) | {
+            "is_bound",
+            "data",
+            "files",
+            "initial",
+            "prefix",
+            "fields",
+            "cleaned_data",
+            "errors",
+        }
+        return collect_fields(cls, Form, reserved)
 
     def __init__(
         self,
@@ -86,6 +97,24 @@ class Form:
         self.errors: dict[str, list[str]] = {}
         self._error_codes: dict[str, list[str | None]] = {}
         self._validated = False
+        self._validation_lock = asyncio.Lock()
+        self._defaults: dict[str, Any] = {}
+        self._values: dict[str, Any] | None = None
+
+    def _default_value(self, name: str, field: TypedField) -> Any:
+        if not field.has_default:
+            return MISSING
+        if name not in self._defaults:
+            self._defaults[name] = field.get_default()
+        return self._defaults[name]
+
+    def _initial_value(self, name: str, field: Field) -> Any:
+        if name in self.initial:
+            return self.initial[name]
+        if isinstance(field, TypedField) and field.initial is MISSING:
+            value = self._default_value(name, field)
+            return None if value is MISSING else value
+        return field.initial
 
     def add_prefix(self, field_name: str) -> str:
         return f"{self.prefix}-{field_name}" if self.prefix else field_name
@@ -97,26 +126,40 @@ class Form:
         return (self[name] for name in self.fields)
 
     async def is_valid(self) -> bool:
-        if not self._validated:
-            await self.full_clean()
+        async with self._validation_lock:
+            if not self._validated:
+                await self.full_clean()
         return self.is_bound and not self.errors
 
     async def full_clean(self) -> None:
-        self._validated = True
+        await self._full_clean()
+
+    async def _full_clean(self) -> None:
+        self._validated, self._values = False, None
         self.errors, self.cleaned_data, self._error_codes = {}, {}, {}
         if not self.is_bound:
+            self._validated = True
             return
         for name, field in self.fields.items():
             value = (
-                self.initial.get(name, field.initial)
+                self._initial_value(name, field)
                 if field.disabled
-                else self.data.get(self.add_prefix(name))
+                else self.data.get(
+                    self.add_prefix(name), MISSING if isinstance(field, TypedField) else None
+                )
             )
             try:
+                if value is MISSING and isinstance(field, TypedField):
+                    value = self._default_value(name, field)
                 self.cleaned_data[name] = await invoke(field.clean, value)
                 method = getattr(self, f"clean_{name}", None)
                 if method is not None:
-                    self.cleaned_data[name] = await invoke(method)
+                    self.cleaned_data[name] = await invoke(
+                        method,
+                        *([self.cleaned_data[name]] if isinstance(field, TypedField) else []),
+                    )
+                if isinstance(field, TypedField):
+                    self.cleaned_data[name] = field.validate(self.cleaned_data[name], strict=True)
             except ValidationError as exc:
                 self.add_error(name, exc)
         try:
@@ -125,7 +168,20 @@ class Form:
                 self.cleaned_data = cleaned
         except ValidationError as exc:
             self.add_error(None, exc)
+        for name, field in self.fields.items():
+            if name in self.errors:
+                self.cleaned_data.pop(name, None)
+            elif isinstance(field, TypedField):
+                try:
+                    self.cleaned_data[name] = field.validate(
+                        self.cleaned_data.get(name, MISSING), strict=True
+                    )
+                except ValidationError as exc:
+                    self.add_error(name, exc)
         await self._post_clean()
+        if not self.errors:
+            self._values = deepcopy(self.cleaned_data)
+        self._validated = True
 
     async def _post_clean(self) -> None:
         pass
@@ -143,6 +199,7 @@ class Form:
         for name, messages in errors.items():
             if name != NON_FIELD_ERRORS and name not in self.fields:
                 raise ValueError(f"{type(self).__name__!r} has no field named {name!r}.")
+            self._values = None
             self.errors.setdefault(name, []).extend(messages)
             self._error_codes.setdefault(name, []).append(error.code)
             self.cleaned_data.pop(name, None)

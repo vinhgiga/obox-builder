@@ -18,8 +18,8 @@ REFERENCE = os.environ.get("OBOX_REFERENCE_PYTHON")
 @pytest.mark.parametrize("kind", ["form", "serializer"])
 def test_supported_validation_contract_matches_django_and_drf(kind: str) -> None:
     class ContactForm(forms.Form):
-        name = forms.CharField(max_length=5)
-        age = forms.IntegerField(required=False)
+        name: str = forms.field(max_length=5)
+        age: int | None = None
 
     class ContactSerializer(serializers.Serializer):
         name = serializers.CharField(max_length=5)

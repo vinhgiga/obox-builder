@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from datetime import date, datetime, time
 from decimal import Decimal, InvalidOperation
+from functools import cache
 from typing import Any
 from uuid import UUID
 from zoneinfo import ZoneInfo
@@ -213,6 +214,11 @@ class JSONField(Field):
             raise ValidationError("Enter a valid JSON.", code="invalid") from exc
 
 
+@cache
+def _type_adapter(python_type: type[Any]) -> TypeAdapter[Any]:
+    return TypeAdapter(python_type)
+
+
 class _TypedField(Field):
     python_type: Any
     invalid = "Enter a valid value."
@@ -221,7 +227,7 @@ class _TypedField(Field):
         if value in self.empty_values:
             return None
         try:
-            return TypeAdapter(self.python_type).validate_python(value)
+            return _type_adapter(self.python_type).validate_python(value)
         except PydanticValidationError as exc:
             raise ValidationError(self.invalid, code="invalid") from exc
 

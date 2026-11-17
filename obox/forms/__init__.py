@@ -1,6 +1,7 @@
-"""The supported Django form API, with awaitable validation and saving."""
+"""Typed forms and model forms with awaitable validation and saving."""
 
 from obox.core.exceptions import ValidationError
+from obox.forms.declarative import field
 from obox.forms.fields import (
     BooleanField,
     CharField,
@@ -53,6 +54,7 @@ __all__ = [
     "UUIDField",
     "ValidationError",
     "Widget",
+    "field",
     "fields_for_model",
     "modelform_factory",
 ]

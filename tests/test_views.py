@@ -6,17 +6,65 @@ import httpx
 import sqlalchemy as sa
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
-from obox import Obox
+from obox import Obox, forms
 from obox.urls import _mount, include, path
 from obox.views.generic import (
     CreateView,
     DeleteView,
+    FormView,
     ListView,
     UpdateView,
     View,
 )
 
-from tests.test_v01_forms import Item, ItemForm, configured
+from tests.test_forms_integration import Item, ItemForm, configured
+
+
+def test_typed_form_view_renders_errors_and_reads_validated_attributes() -> None:
+    class Contact(forms.Form):
+        name: str
+        rate: int = forms.field(ge=1, le=5)
+
+        async def clean_name(self, value: str) -> str:
+            return value.upper()
+
+    class ContactView(FormView):
+        form_class = Contact
+        template_name = "obox/generic/form.html"
+
+        def form_valid(self, form: Contact) -> HTMLResponse:
+            return HTMLResponse(f"{form.name}:{form.rate}")
+
+    async def scenario() -> None:
+        async with configured():
+            app = FastAPI()
+            Obox(app)
+            _mount(app, [path("contact/", ContactView.as_view())])
+            async with (
+                app.router.lifespan_context(app),
+                httpx.AsyncClient(
+                    transport=httpx.ASGITransport(app=app), base_url="http://test"
+                ) as client,
+            ):
+                page = await client.get("/contact/")
+                assert page.status_code == 200
+                token = re.search(r'name="csrfmiddlewaretoken" value="([^"]+)"', page.text)
+                assert token is not None
+                invalid = await client.post(
+                    "/contact/",
+                    data={"csrfmiddlewaretoken": token[1], "name": "<script>", "rate": "9"},
+                )
+                assert invalid.status_code == 200
+                assert "&lt;script&gt;" in invalid.text
+                assert "less than or equal to 5" in invalid.text
+                valid = await client.post(
+                    "/contact/",
+                    data={"csrfmiddlewaretoken": token[1], "name": "Alice", "rate": "4"},
+                )
+                assert valid.status_code == 200
+                assert valid.text == "ALICE:4"
+
+    asyncio.run(scenario())
 
 
 def test_generic_views_create_update_delete_and_queryset_contract() -> None:
@@ -232,7 +280,7 @@ def test_native_uuid_lookup_works_in_generic_views_and_rest() -> None:
     from obox.views.generic import DetailView
     from sqlalchemy.orm import Mapped, mapped_column
 
-    from tests.test_v01_forms import Base
+    from tests.test_forms_integration import Base
 
     class Record(Base):
         __tablename__ = "v01_uuid_records"

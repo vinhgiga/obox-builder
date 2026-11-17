@@ -84,6 +84,6 @@ conventions and product options do not extend the Django/DRF core contract.
 See [the resource protocol](contrib-resource-api.md) and
 [record/activity protocol](record-activity-spec.md).
 
-Tests under `tests/test_v01_*.py` cover the core. Existing product regression tests
+Feature-named tests under `tests/` cover the core. Existing product regression tests
 cover contrib. Reference tests run Django/DRF in a separate pinned environment;
 matching the documented subset does not promise full framework compatibility.

@@ -105,6 +105,19 @@ def fields_for_model(
 
 
 class ModelForm(Form):
+    @classmethod
+    def _collect_fields(cls) -> dict[str, Field]:
+        fields: dict[str, Field] = {}
+        for parent in reversed(cls.__mro__[1:]):
+            fields.update(getattr(parent, "declared_fields", {}))
+        for name, value in list(vars(cls).items()):
+            if isinstance(value, Field):
+                fields[name] = value
+                delattr(cls, name)
+            elif value is None:
+                fields.pop(name, None)
+        return fields
+
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
         meta = getattr(cls, "Meta", None)
