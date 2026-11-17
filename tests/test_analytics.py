@@ -8,28 +8,25 @@ from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 from uuid import uuid4
 
 import httpx
 import pytest
 import sqlalchemy as sa
 from fastapi import FastAPI
-from obox._auth import RBAC, Principal, ScopedIdentity
+from obox._auth import Principal, ScopedIdentity
 from obox._catalog import CatalogConfig
 from obox._config import RuntimeConfig
 from obox._context import Context
+from obox._filters import FilterGroup, FilterTerm
 from obox._pages import Page
 from obox._runtime import _Runtime
 from obox.contrib.analytics import Analytics, Bar, Chart, Donut, Line, Pie, Pivot
-from obox.contrib.resources import Resource as ResourceDefinition
-from obox.contrib.resources.aggregates import Aggregation, Measure
-from obox.contrib.resources.filters import FilterGroup, FilterTerm
+from obox.contrib.analytics.aggregates import Aggregation, Measure
 from obox.core.exceptions import ImproperlyConfigured
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-
-from tests.helpers import with_builders
 
 
 class Base(DeclarativeBase):
@@ -61,7 +58,7 @@ class Duplicate(Base):
 STAFF = Principal(id=1, is_authenticated=True, is_staff=True, is_superuser=True)
 
 
-class Policy(RBAC[Sale]):
+class Policy:
     granted = True
     hidden = False
     joined = False
@@ -89,50 +86,71 @@ class Policy(RBAC[Sale]):
     async def allow(self, action: str, ctx: Context, *, obj: Sale | None = None) -> bool:
         return not (
             action == "retrieve" and obj is not None and (obj.distributor == "B")
-        ) and await super().allow(action, ctx, obj=obj)
+        ) and ctx.principal.has_perm("tests.view_record")
 
 
-class Sales(ResourceDefinition[Sale]):
-    model = Sale
-    fields = (
-        "id",
-        "account_id",
-        "distributor",
-        "region",
-        "amount",
-        "quantity",
-        "active",
-        "occurred_on",
-        "moment",
-        "extra",
-    )
-    filter_fields = ("distributor", "region", "amount", "occurred_on", "active")
-    search_fields = ("distributor",)
-
-    def get_statement(self, ctx: Context) -> Any:
-        statement = super().get_statement(ctx)
-        if self.policy.slow:
-            statement = statement.where(sa.func.pg_sleep(0.1).is_(None))
-        return statement.join(Duplicate) if self.policy.joined else statement
-
+FIELDS = ("id", "distributor", "region", "amount", "quantity", "active", "occurred_on", "moment")
 
 WIDGETS = (
     Pivot(
         name="pivot",
-        source=Sales,
+        source=Sale,
+        fields=FIELDS,
         rows="distributor",
         measure=Measure("sum", "amount"),
         columns="region",
         title="Revenue",
         drill=True,
     ),
-    Bar(name="bar", source=Sales, x="distributor", y=Measure("sum", "amount"), drill=True),
-    Bar(name="region", source=Sales, x="region", y=Measure("sum", "amount"), drill=True),
-    Pie(name="pie", source=Sales, x="distributor", y=Measure("sum", "amount"), drill=True),
-    Donut(name="donut", source=Sales, x="distributor", y=Measure("sum", "amount"), drill=True),
-    Line(name="line", source=Sales, x="occurred_on", y=Measure("avg", "quantity"), drill=True),
-    Line(name="moment", source=Sales, x="moment", drill=True),
-    Pivot(name="fixed", source=Sales, rows="distributor", filters={"region": "East"}, drill=True),
+    Bar(
+        name="bar",
+        source=Sale,
+        fields=FIELDS,
+        x="distributor",
+        y=Measure("sum", "amount"),
+        drill=True,
+    ),
+    Bar(
+        name="region",
+        source=Sale,
+        fields=FIELDS,
+        x="region",
+        y=Measure("sum", "amount"),
+        drill=True,
+    ),
+    Pie(
+        name="pie",
+        source=Sale,
+        fields=FIELDS,
+        x="distributor",
+        y=Measure("sum", "amount"),
+        drill=True,
+    ),
+    Donut(
+        name="donut",
+        source=Sale,
+        fields=FIELDS,
+        x="distributor",
+        y=Measure("sum", "amount"),
+        drill=True,
+    ),
+    Line(
+        name="line",
+        source=Sale,
+        fields=FIELDS,
+        x="occurred_on",
+        y=Measure("avg", "quantity"),
+        drill=True,
+    ),
+    Line(name="moment", source=Sale, fields=FIELDS, x="moment", drill=True),
+    Pivot(
+        name="fixed",
+        source=Sale,
+        fields=FIELDS,
+        rows="distributor",
+        filters={"region": "East"},
+        drill=True,
+    ),
 )
 
 
@@ -152,20 +170,53 @@ async def application(
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         policy = Policy()
-        settings = with_builders(
-            RuntimeConfig(
-                session_factory=async_sessionmaker(engine, expire_on_commit=False),
-                principal_dependency=lambda: STAFF,
-                default_policy=policy,
-                csrf_secret="a" * 32,
-            ),
-            Sales,
+
+        class Config(CatalogConfig):
+            name = "obox"
+            label = "admin"
+
+        def get_queryset(self: Any, ctx: Context) -> Any:
+            stmt = sa.select(Sale).where(Sale.account_id == ctx.principal.id)
+            if policy.slow:
+                stmt = stmt.where(sa.func.pg_sleep(0.1).is_(None))
+            return stmt.join(Duplicate) if policy.joined else stmt
+
+        def get_fields(self: Any, ctx: Context) -> Any:
+            return tuple(
+                name
+                for name in self.fields
+                if not policy.hidden or name in {"id", "distributor", "region"}
+            )
+
+        bound = []
+        for widget in widgets:
+            cls = type(
+                type(widget).__name__,
+                (type(widget),),
+                {
+                    "get_queryset": get_queryset,
+                    "get_fields": get_fields,
+                    "has_permission": lambda self, ctx: policy.granted,
+                    "get_record_fields": lambda self, ctx, obj: tuple(
+                        policy.read_fields(ctx, obj=obj) or self.fields
+                    ),
+                    "has_object_permission": lambda self, ctx, obj: obj.distributor != "B",
+                },
+            )
+            value = cls(**vars(widget))
+            value.filter_fields = ("distributor", "region", "amount", "occurred_on", "active")
+            bound.append(value)
+        widgets = tuple(bound)
+        settings = RuntimeConfig(
+            session_factory=async_sessionmaker(engine, expire_on_commit=False),
+            principal_dependency=lambda: STAFF,
+            csrf_secret="a" * 32,
+            installed_apps=(Config,),
         )
-        config = cast(type[CatalogConfig], settings.installed_apps[0])
+        config = Config
         config.components = widgets
         config.pages = (Page("report", title="Sales <report>", components=(widgets,)),)
         app = _Runtime(FastAPI(), settings=settings, features=(Analytics(**limits),))
-        policy = cast(Policy, app.get_resource(Sale).policy)
         async with app.app.router.lifespan_context(app.app):
             async with app.uow(principal=STAFF) as ctx:
                 values = [
@@ -227,7 +278,9 @@ def test_aggregates_and_totals(tmp_path: Path, operation: Any, total: Any) -> No
                 "region",
             )
             async with app.uow(principal=STAFF) as ctx:
-                result = await app.service(Sale).aggregate(query, ctx=ctx)
+                result = await app.component("pivot", app_label="admin").dataset.aggregate(
+                    query, ctx=ctx
+                )
                 assert result.records == 7
                 assert result.rows == ["", "A", "B", None]
                 assert result.columns == ["East", "West"]
@@ -239,7 +292,11 @@ def test_aggregates_and_totals(tmp_path: Path, operation: Any, total: Any) -> No
                 before = result.to_dict()
             policy.joined = True
             async with app.uow(principal=STAFF) as ctx:
-                assert (await app.service(Sale).aggregate(query, ctx=ctx)).to_dict() == before
+                assert (
+                    await app.component("pivot", app_label="admin").dataset.aggregate(
+                        query, ctx=ctx
+                    )
+                ).to_dict() == before
 
     asyncio.run(scenario())
 
@@ -249,7 +306,7 @@ def test_filters_weighted_average_empty_and_null(tmp_path: Path) -> None:
     async def scenario() -> None:
         async with application(tmp_path) as (app, client, _):
             async with app.uow(principal=STAFF) as ctx:
-                service = app.service(Sale)
+                service = app.component("pivot", app_label="admin").dataset
                 query = Aggregation(
                     "distributor",
                     Measure("avg", "amount"),
@@ -337,7 +394,7 @@ def test_http_page_data_records_and_permissions(tmp_path: Path) -> None:
             )
             assert rows.status_code == 200, rows.text
             assert "Next" in rows.text
-            assert "/admin/admin/sales/1" in rows.text
+            assert "10.00" in rows.text
             null = await client.get(
                 "/admin/admin/report/_components/pivot/records", params={"row": "null"}
             )
@@ -467,7 +524,7 @@ def test_boundaries_sorting_keys_and_masking(tmp_path: Path) -> None:
                 )
             ).status_code == 422
             async with app.uow(principal=STAFF) as ctx:
-                result = await app.service(Sale).aggregate(
+                result = await app.component("pivot", app_label="admin").dataset.aggregate(
                     Aggregation(
                         "distributor",
                         Measure("sum", "amount"),
@@ -494,8 +551,8 @@ def test_boundaries_sorting_keys_and_masking(tmp_path: Path) -> None:
                 "/admin/admin/report/_components/pivot/records?limit=2&offset=2"
             )
             assert first.status_code == second.status_code == 200
-            assert "/admin/admin/sales/2" in first.text
-            assert "/admin/admin/sales/3" in second.text
+            assert "10.00" in first.text
+            assert "40.00" in second.text
 
     asyncio.run(scenario())
 
@@ -514,13 +571,12 @@ def test_invalid_fields_fail_at_installation(tmp_path: Path, query: Aggregation)
     async def scenario() -> None:
         async with application(tmp_path) as (app, _, _):
             with pytest.raises(ImproperlyConfigured):
-                query.validate(app.get_resource(Sale))
+                query.validate(app.component("pivot", app_label="admin").dataset.dataset)
 
     asyncio.run(scenario())
 
 
 def test_declarations_and_default_denial() -> None:
-    assert RBAC().aggregate_fields(None) == frozenset()
     for create in (
         lambda: Measure("sum"),
         lambda: Measure("count", "amount"),
@@ -534,7 +590,7 @@ def test_declarations_and_default_denial() -> None:
 def test_datetime_keys_account_and_api_field_scope(tmp_path: Path) -> None:
 
     async def scenario() -> None:
-        async with application(tmp_path) as (app, client, _):
+        async with application(tmp_path) as (app, client, policy):
             response = await client.get("/admin/admin/report/_components/moment/data")
             assert response.status_code == 200, response.text
             key = response.json()["categories"][0]
@@ -553,7 +609,7 @@ def test_datetime_keys_account_and_api_field_scope(tmp_path: Path) -> None:
             assert (await client.get("/admin/admin/report/_components/pivot/data")).json()[
                 "total"
             ] == "999.00"
-            app.get_resource(Sale).api_read = ("id", "distributor", "region")
+            policy.hidden = True
             app.app.dependency_overrides[dependency] = lambda: ScopedIdentity(
                 STAFF, frozenset({"admin.sales.list"})
             )
@@ -666,7 +722,8 @@ def test_chart_json_axes_and_widget_keys(tmp_path: Path) -> None:
     async def scenario() -> None:
         chart = Bar(
             name="userKey",
-            source=Sales,
+            source=Sale,
+            fields=FIELDS,
             x="distributor",
             y=(Series(Measure("sum", "amount")),),
             primary_axis=Axis(label="Revenue", minimum=-10),

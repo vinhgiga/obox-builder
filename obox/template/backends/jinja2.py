@@ -41,7 +41,6 @@ class Jinja2:
         loaders = [
             FileSystemLoader(directories),
             PackageLoader("obox", "templates"),
-            PackageLoader("obox.contrib.resources", "templates"),
             PackageLoader("obox.contrib.auth", "templates"),
             PackageLoader("obox.contrib.files", "templates"),
             PackageLoader("obox.contrib.analytics", "templates"),

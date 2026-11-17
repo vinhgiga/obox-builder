@@ -4,8 +4,7 @@ from uuid import UUID
 
 from pydantic import Field, StrictStr, field_serializer
 
-from obox.contrib.resources.api import normalize_datetime
-from obox.contrib.resources.api_schema import ApiRequest, ApiResponse
+from obox._schemas import ApiRequest, ApiResponse, normalize_datetime
 
 
 class SubscriptionInput(ApiRequest):

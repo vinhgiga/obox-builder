@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 
 from obox._components import Component, ComponentQuery
 from obox._exceptions import OboxError
+from obox._filters import FilterGroup
+from obox.contrib.analytics.aggregates import Aggregation, Measure
 from obox.contrib.analytics.charts import (
     Avg,
     Axis,
@@ -22,14 +24,12 @@ from obox.contrib.analytics.charts import (
     chart_spec,
 )
 from obox.contrib.analytics.schemas import ChartData, PivotData
-from obox.contrib.resources.aggregates import Aggregation, Measure
-from obox.contrib.resources.filters import FilterGroup
 from obox.core.exceptions import ImproperlyConfigured
 
 if TYPE_CHECKING:
+    from obox._component_service import ComponentService
     from obox._context import Context
     from obox._runtime import _Runtime
-    from obox.contrib.resources.components import ComponentService
 
 __all__ = [
     "Analytics",
@@ -251,7 +251,6 @@ class AggregateTimeout(OboxError):
 
 class Analytics:
     name = "analytics"
-    requires_resources = True
     requires: tuple[str, ...] = ()
 
     def __init__(

@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from typing import Any
 
+import sqlalchemy as sa
 from sqlalchemy.engine import URL
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -16,6 +17,15 @@ from obox.core.exceptions import ImproperlyConfigured
 
 _current: ContextVar[tuple[Any, AsyncSession] | None] = ContextVar("obox.session", default=None)
 _factories: dict[str, async_sessionmaker[AsyncSession]] = {}
+
+
+def _scope(query: Any, model: type[Any]) -> Any:
+    """Preserve a limited selection before applying additional conditions."""
+    if not query._has_row_limiting_clause:
+        return query
+    pk = sa.inspect(model).primary_key[0]
+    identities = query.with_only_columns(pk, maintain_column_froms=True)
+    return sa.select(model).where(pk.in_(identities))
 
 
 def _url() -> str:

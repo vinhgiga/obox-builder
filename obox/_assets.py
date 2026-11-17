@@ -7,9 +7,9 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 SOURCES = {
-    "builder": ("contrib/resources/static", "contrib/auth/static"),
-    "files": ("contrib/files/static", "contrib/resources/static"),
-    "analytics": ("contrib/analytics/static", "contrib/resources/static"),
+    "builder": ("static", "contrib/auth/static"),
+    "files": ("contrib/files/static", "static"),
+    "analytics": ("contrib/analytics/static", "static"),
 }
 
 

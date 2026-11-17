@@ -31,6 +31,10 @@ class Obox:
                 entry.label,
                 entry.verbose_name,
             )
+            catalog.components = tuple(getattr(entry, "components", ()))
+            catalog.pages = tuple(getattr(entry, "pages", ()))
+            catalog.ui_prefix = getattr(entry, "ui_prefix", None)
+            catalog.routers = tuple(getattr(entry, "routers", ()))
             runtime.add_app(catalog)
         for entry in apps.get_app_configs():
             factory = getattr(entry, "_service_factory", None)
@@ -38,10 +42,6 @@ class Obox:
             if feature is not None:
                 runtime._activate(feature)
         runtime._loading_apps = False
-        for feature in runtime._pending_features:
-            runtime._attach_feature(feature)
-        runtime._pending_features.clear()
-        runtime._product_protocol = apps.is_installed("obox.contrib.resources")
         runtime._finish_apps()
         if settings.TEMPLATES:
             from importlib import import_module

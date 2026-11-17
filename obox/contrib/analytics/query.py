@@ -14,10 +14,11 @@ from typing import Any
 import sqlalchemy as sa
 from pydantic import TypeAdapter, ValidationError
 
+from obox._async import invoke
 from obox._exceptions import BuilderValidationError, NotFound, PermissionDenied
+from obox.contrib.analytics.aggregates import State, encode, exceeded
 from obox.contrib.analytics.charts import ChartSpec, Field
-from obox.contrib.resources.aggregates import State, encode, exceeded
-from obox.contrib.resources.service import _filter_tree, invoke
+from obox.contrib.analytics.filters import _filter_tree
 from obox.core.exceptions import ImproperlyConfigured
 
 
@@ -26,9 +27,7 @@ async def statement(
 ) -> tuple[Any, set[str]]:
     await service.authorize("list", ctx)
     selected, readable = await service._list_statement(ctx=ctx, **options)
-    if not set(chart.fields).issubset(
-        readable.intersection(service.builder.policy.aggregate_fields(ctx))
-    ):
+    if not set(chart.fields).issubset(readable):
         raise PermissionDenied("These fields are not available for charting.")
     narrow = chart.statement
     if narrow is not None:
@@ -37,15 +36,15 @@ async def statement(
         if extra is not None:
             if not isinstance(extra, sa.Select):
                 raise ImproperlyConfigured("Chart statement must return a Select or None.")
-            ids = extra.with_only_columns(service.builder.pk, maintain_column_froms=True).order_by(
+            ids = extra.with_only_columns(service.dataset.pk, maintain_column_froms=True).order_by(
                 None
             )
-            selected = selected.where(service.builder.pk.in_(ids))
+            selected = selected.where(service.dataset.pk.in_(ids))
     for dimension in (chart.dimension, chart.group):
         if dimension is not None and not dimension.include_empty:
-            column = getattr(service.builder.model, dimension.field)
+            column = getattr(service.dataset.model, dimension.field)
             selected = selected.where(column.is_not(None))
-            if isinstance(service.builder.specs[dimension.field].column.type, sa.String):
+            if isinstance(service.dataset.specs[dimension.field].column.type, sa.String):
                 selected = selected.where(column != "")
     return selected, readable
 
@@ -66,7 +65,7 @@ async def execute(
     **options: Any,
 ) -> dict[str, Any]:
     selected, readable = await statement(service, chart, ctx, **options)
-    builder = service.builder
+    builder = service.dataset
     orders = tuple(builder.ordering or ())
     if chart.order != "source":
         orders = ()
@@ -381,7 +380,7 @@ async def records(
     if offset < 0 or not 1 <= limit <= 200:
         raise BuilderValidationError({"pagination": ["Use offset >= 0 and limit from 1 to 200."]})
     selected, readable = await statement(service, chart, ctx, **options)
-    builder = service.builder
+    builder = service.dataset
     series = next((series for series in chart.series if series.id == key.get("series")), None)
     if series is None:
         raise BuilderValidationError({"selector": ["Unknown chart series."]})

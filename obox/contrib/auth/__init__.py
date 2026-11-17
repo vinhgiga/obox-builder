@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette._utils import get_route_path
 from starlette.routing import NoMatchFound
 
-from obox._auth import RBAC, Identity, Principal
+from obox._auth import Identity, Principal
 from obox._context import Context
 from obox._exceptions import N_
 from obox._i18n import localize
@@ -280,7 +280,6 @@ class Auth:
         app.include_router(routes, ui=True)
         app.provide_defaults(
             principal_dependency=self.principal,
-            default_policy=RBAC(),
         )
         if self.api:
             from obox.contrib.auth.api import build_router

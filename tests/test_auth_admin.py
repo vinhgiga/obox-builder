@@ -7,19 +7,16 @@ from typing import Any
 import httpx
 import sqlalchemy as sa
 from fastapi import FastAPI
-from obox._auth import RBAC, Principal
+from obox._auth import Principal
 from obox._config import RuntimeConfig
 from obox._runtime import _Runtime
 from obox.contrib.auth import Auth
 from obox.contrib.auth.models import Base as AuthBase
 from obox.contrib.auth.models import Role, Session, User, user_roles
 from obox.contrib.auth.passwords import hash_password, verify_password
-from obox.contrib.resources import Resource as ResourceDefinition
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, selectinload
 from sqlalchemy.pool import StaticPool
-
-from tests.helpers import with_builders
 
 
 class Base(DeclarativeBase):
@@ -32,22 +29,10 @@ class Widget(Base):
     name: Mapped[str] = mapped_column(sa.String(50))
 
 
-class WidgetBuilder(ResourceDefinition[Widget]):
-    model = Widget
-    fields = ("id", "name")
-
-
 class Article(Base):
     __tablename__ = "auth_admin_articles"
     id: Mapped[int] = mapped_column(primary_key=True)
     title: Mapped[str] = mapped_column(sa.String(50))
-
-
-class ArticleBuilder(ResourceDefinition[Article]):
-    model = Article
-    fields = ("id", "title")
-    policy = RBAC("blog.articles")
-    permissions = ("approve", "export")
 
 
 class StubBackend:
@@ -95,24 +80,49 @@ async def make_app(principal: Principal = SUPERUSER, *, admin: bool = True) -> t
         await connection.run_sync(Base.metadata.create_all)
     app = _Runtime(
         FastAPI(),
-        settings=with_builders(
-            RuntimeConfig(
-                session_factory=async_sessionmaker(engine, expire_on_commit=False),
-                principal_dependency=lambda: principal,
-                default_policy=RBAC(),
-                csrf_secret="x" * 32,
-                auth_password_validators=(
-                    {
-                        "NAME": "obox.contrib.auth.password_validation.MinimumLengthValidator",
-                        "OPTIONS": {"min_length": 12},
-                    },
-                ),
+        settings=RuntimeConfig(
+            session_factory=async_sessionmaker(engine, expire_on_commit=False),
+            principal_dependency=lambda: principal,
+            csrf_secret="x" * 32,
+            auth_password_validators=(
+                {
+                    "NAME": "obox.contrib.auth.password_validation.MinimumLengthValidator",
+                    "OPTIONS": {"min_length": 12},
+                },
             ),
-            WidgetBuilder,
-            ArticleBuilder,
         ),
         features=(Auth(backend=StubBackend(principal), secure=False, admin=admin),),
     )
+    from fastapi import APIRouter, Depends
+    from obox._catalog import CatalogConfig
+    from obox._dependencies import api_context
+    from obox._pages import Page
+
+    # Host-defined permissions remain available without registering CRUD resources.
+    router = APIRouter()
+
+    async def endpoint() -> dict[str, str]:
+        return {}
+
+    for label, actions in (
+        ("admin.widgets", ("list", "retrieve", "create", "update", "delete")),
+        ("blog.articles", ("list", "retrieve", "create", "update", "delete", "approve", "export")),
+    ):
+        for action in actions:
+            router.add_api_route(
+                "/grants/" + label + "." + action,
+                endpoint,
+                dependencies=[Depends(api_context(permission=label + "." + action))],
+            )
+    app.include_router(router)
+
+    class Config(CatalogConfig):
+        name = "tests"
+        label = "admin"
+
+    app._apps["admin"] = Config.load(Config)
+    app._frozen = False
+    app.add_page(Page("widgets", template="obox/index.html", title="Widgets"), app_label="admin")
     return (app, engine)
 
 
@@ -292,11 +302,6 @@ def test_user_list_navigation_and_non_superuser_navigation() -> None:
             assert "Delete" in page.text
             builder = await get(app, "/admin/admin/widgets")
             assert builder.status_code == 200
-            catalog = await get(app, "/admin")
-            assert 'href="/auth"' in catalog.text
-            account = await get(app, "/auth")
-            assert 'href="/auth/users"' in account.text
-            assert 'href="/auth/roles"' in account.text
         finally:
             await engine.dispose()
         staff, engine = await make_app(STAFF)

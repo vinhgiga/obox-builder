@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
@@ -9,36 +10,32 @@ from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass, replace
 from inspect import isawaitable, iscoroutinefunction
 from types import MappingProxyType
-from typing import Any, Generic, TypeVar, cast
-from uuid import uuid4
+from typing import Any, TypeVar, cast
 
 from fastapi import APIRouter, Depends, FastAPI, Request, Response
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.routing import RouteContext, iter_route_contexts
-from sqlalchemy import event, inspect
+from sqlalchemy import event
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm.exc import StaleDataError
-from starlette._utils import get_route_path
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.routing import BaseRoute, Mount
 from starlette.staticfiles import StaticFiles
 
-from obox._auth import Permission, Policy, Principal
+from obox._auth import Permission, Principal
 from obox._catalog import CatalogConfig
+from obox._component_service import ComponentService
 from obox._components import Use
 from obox._config import RuntimeConfig
 from obox._context import Context
 from obox._database import Database
 from obox._dependencies import _api_context, _api_contexts
 from obox._exceptions import BuilderValidationError, OboxError, ResourceConflict
-from obox._i18n import LANGUAGES, LanguageMiddleware, negotiate
+from obox._i18n import LANGUAGES, LanguageMiddleware
 from obox._pages import Page
 from obox._staticfiles import AssetMount
-from obox.contrib.resources import Resource
-from obox.contrib.resources.components import ComponentService
-from obox.contrib.resources.service import ResourceService, invoke
 from obox.core.exceptions import ImproperlyConfigured
 
 T = TypeVar("T")
@@ -51,16 +48,6 @@ class Diagnostic:
     code: str
     message: str
     exposure: Mapping[str, Any] | None = None
-
-
-@dataclass(frozen=True)
-class Registration(Generic[T]):
-    model: type[T]
-    builder: Resource[T]
-    service: ResourceService[T]
-    slug: str
-    routes: tuple[str, ...]
-    app_label: str
 
 
 def _overlap(left: str, right: str) -> bool:
@@ -79,24 +66,23 @@ class _Runtime:
         features: Sequence[Any] = (),
         defer: bool = False,
     ) -> None:
-        from obox.contrib.resources.csrf import CSRF
-        from obox.contrib.resources.ui import create_templates
+        from obox._csrf import CSRF
+        from obox._ui import create_templates
 
         if getattr(app.state, "obox", None) is not None:
             raise ImproperlyConfigured("_Runtime is already installed on this application.")
         if app.middleware_stack is not None:
             raise ImproperlyConfigured("Install _Runtime before the application starts.")
         self.app = app
-        self._product_protocol = not defer
         self.settings = settings if settings is not None else RuntimeConfig.from_settings()
 
         original_openapi = app.openapi
 
         def openapi() -> dict[str, Any]:
             schema = original_openapi()
-            if not self._product_protocol and not self._features:
+            if not self._features:
                 return schema
-            from obox.contrib.resources.api_schema import Problem
+            from obox._schemas import Problem
 
             definitions = Problem.model_json_schema(ref_template="#/components/schemas/{model}")
             components = schema.setdefault("components", {})
@@ -119,7 +105,7 @@ class _Runtime:
                         "type": "http",
                         "scheme": "bearer",
                     }
-                from obox.contrib.resources.http import ApiRoute
+                from obox._routes import ApiRoute
 
                 for route in iter_route_contexts(self.app.routes):
                     if not isinstance(route.original_route, ApiRoute) and not any(
@@ -146,24 +132,6 @@ class _Runtime:
         previous_http_handler = app.exception_handlers.get(StarletteHTTPException)
 
         async def http_error(request: Request, exc: Exception) -> Response:
-            path = get_route_path(request.scope)
-            api_prefix = self.settings.api_prefix
-            if self._product_protocol and (
-                path == api_prefix or path.startswith((api_prefix + "/", api_prefix + ":"))
-            ):
-                from obox.contrib.resources.http import api_problem
-
-                provided = request.headers.get("x-request-id", "")
-                request.state.trace_id = (
-                    provided if re.fullmatch(r"[A-Za-z0-9._-]{1,128}", provided) else uuid4().hex
-                )
-                request.state.language = negotiate(request.headers.get("accept-language", ""))
-                response = await api_problem(request, exc)
-                response.headers["X-Request-ID"] = request.state.trace_id
-                response.headers["Cache-Control"] = "private, no-store"
-                response.headers["Vary"] = "Cookie, Authorization, Accept-Language"
-                response.headers["Content-Language"] = request.state.language
-                return response
             if isinstance(exc, OboxError):
                 return await self._problem(request, exc)
             if previous_http_handler is not None:
@@ -176,7 +144,6 @@ class _Runtime:
         self.database = Database(self.settings)
         self.session_factory = self.database.sessions
         self._features: dict[str, Any] = {}
-        self._pending_features: list[Any] = []
         self._loading_apps = True
         self._apps: dict[str, CatalogConfig] = {}
         self._pages: dict[tuple[str, str], Page] = {}
@@ -185,8 +152,6 @@ class _Runtime:
         self._installation_failed = False
         self.ui_prefixes = [self.settings.ui_prefix] if self.settings.ui_prefix else []
         self._ui_routes: list[BaseRoute | RouteContext] = []
-        self._registrations: dict[type[Any], Registration[Any]] = {}
-        self._generated: dict[Callable[..., Any] | None, type[Any]] = {}
         self._owned_routes: set[int] = set()
         self._frozen = False
         self.csrf = CSRF(self.settings.csrf_secret)
@@ -220,9 +185,6 @@ class _Runtime:
         try:
             self._load_apps()
             self._loading_apps = False
-            for plugin in self._pending_features:
-                self._attach_feature(plugin)
-            self._pending_features.clear()
             self._finish_apps()
         except BaseException:
             self._installation_failed = True
@@ -251,11 +213,14 @@ class _Runtime:
     @property
     def permissions(self) -> Mapping[str, Permission]:
         result = {}
-        for registration in self._registrations.values():
-            builder = registration.builder
-            for action in ("list", "retrieve", "create", "update", "delete", *builder.permissions):
-                name = builder.permission_name(action)
-                result[name] = Permission(name, action.replace("_", " ").title(), "model")
+        from obox.contrib._models import installed_models
+        from obox.views.generic.detail import _model_label
+
+        for model in installed_models():
+            label, model_name = _model_label(model)
+            for action in ("add", "change", "delete", "view", "comment"):
+                name = f"{label}.{action}_{model_name}"
+                result[name] = Permission(name, action.title(), "model")
         from obox.builder import site
 
         for admin in site._registry.values():
@@ -291,7 +256,7 @@ class _Runtime:
         return MappingProxyType(result)
 
     def add_page(self, page: Page, *, app_label: str) -> None:
-        from obox.contrib.resources.pages import build_page
+        from obox._page_routes import build_page
 
         self._check_mutable()
         if not isinstance(page, Page):
@@ -388,14 +353,11 @@ class _Runtime:
                 for other in self._apps.values()
             ):
                 raise ImproperlyConfigured("Application UI prefixes must not overlap.")
-        for config in self._apps.values():
-            for builder in config.builders:
-                self._compile_resource(builder, app_label=config.label)
 
     def _finish_apps(self) -> None:
-        from obox.contrib.resources.catalog import build_catalog
-        from obox.contrib.resources.component_api import build_component_api
-        from obox.contrib.resources.ui import create_templates
+        from obox._component_api import build_component_api
+        from obox._navigation import build_catalog
+        from obox._ui import create_templates
 
         if self.settings.templates is None:
             self.templates.env.loader = create_templates(
@@ -428,7 +390,7 @@ class _Runtime:
                 self._ui_routes.append(route)
             self.add_ui_prefix(config.ui_path(self.settings))
         self.add_ui_prefix(self.settings.ui_prefix or "/")
-        if self._product_protocol:
+        if self._pages:
             self.include_router(build_catalog(self), ui=True)
 
     @property
@@ -466,10 +428,7 @@ class _Runtime:
                     f"Any {name!r} requires {dependency!r}; install it first."
                 )
         self._features[name] = plugin
-        if self._loading_apps and getattr(plugin, "requires_resources", False):
-            self._pending_features.append(plugin)
-        else:
-            self._attach_feature(plugin)
+        self._attach_feature(plugin)
         return plugin
 
     def _attach_feature(self, plugin: Any) -> None:
@@ -484,7 +443,6 @@ class _Runtime:
         self,
         *,
         principal_dependency: Callable[..., Any] | None = None,
-        default_policy: Policy[Any] | None = None,
     ) -> None:
         self._check_mutable()
         self.settings = replace(
@@ -492,9 +450,6 @@ class _Runtime:
             principal_dependency=self.settings.principal_dependency
             if self.settings.principal_dependency is not None
             else principal_dependency,
-            default_policy=self.settings.default_policy
-            if self.settings.default_policy is not None
-            else default_policy,
         )
         if _api_context in self.app.dependency_overrides:
             self.app.dependency_overrides[_api_context] = self.context_dependency("api")
@@ -518,7 +473,7 @@ class _Runtime:
 
     @staticmethod
     async def _problem(request: Request, exc: Exception) -> Response:
-        from obox.contrib.resources.http import authentication_response
+        from obox._routes import authentication_response
 
         obox = request.app.state.obox
         path = request.scope.get("obox_path", "")
@@ -553,57 +508,6 @@ class _Runtime:
             status_code=422,
             media_type="application/problem+json",
         )
-
-    def _compile_resource(self, builder: type[Resource[T]], *, app_label: str) -> Registration[T]:
-        self._check_mutable()
-        if not isinstance(builder, type) or not issubclass(builder, Resource):
-            raise ImproperlyConfigured("Register a Resource subclass.")
-        definition = builder()
-        definition.app_label = app_label
-        model = builder._model_type()
-        if model is None:
-            raise ImproperlyConfigured("Resources must declare one mapped model class.")
-        if not callable(self.settings.principal_dependency) or not isinstance(
-            self.settings.default_policy, Policy
-        ):
-            raise ImproperlyConfigured("Registration requires authentication and a default policy.")
-        if model in self._registrations:
-            raise ImproperlyConfigured("This model is already registered.")
-        definition._compile(model, self.settings.default_policy, self)
-        if definition.slug == "components" or definition.api.prefix == "components":
-            raise ImproperlyConfigured("The components collection is reserved.")
-        if definition.slug is None:
-            raise ImproperlyConfigured("The compiled builder has no slug.")
-        if any(
-            item.slug == definition.slug and item.app_label == app_label
-            for item in self._registrations.values()
-        ):
-            raise ImproperlyConfigured(f"Duplicate resource slug: {definition.slug!r}.")
-        service = ResourceService[T](definition, self)
-        for surface in (definition.form, definition.view, definition.api):
-            surface.bind(definition, service)
-        routers = (definition.api.build_router(), definition.view.build_router())
-        candidates = [route for router in routers for route in iter_route_contexts(router.routes)]
-        existing = list(iter_route_contexts(self.app.routes))
-        for i, candidate in enumerate(candidates):
-            for other in (*existing, *candidates[:i]):
-                if self._conflict(candidate, other, internal=other in candidates[:i]):
-                    raise ImproperlyConfigured(f"Generated route conflicts at {candidate.path!r}.")
-        registration = Registration(
-            model,
-            definition,
-            service,
-            definition.slug,
-            tuple(route.path for route in candidates if route.path is not None),
-            app_label,
-        )
-        self._registrations[model] = registration
-        for route in candidates:
-            self._generated[route.endpoint] = model
-        for router in routers:
-            self.include_router(router, ui=router is routers[1])
-        self.app.openapi_schema = None
-        return registration
 
     def include_router(self, router: APIRouter, *, ui: bool = False, prefix: str = "") -> None:
         self._check_mutable()
@@ -641,190 +545,24 @@ class _Runtime:
             return False
         return _overlap(left_path, right.path)
 
-    def get_resource(self, model: type[T]) -> Resource[T]:
-        return self._registrations[model].builder
-
-    def service(self, model: type[T]) -> ResourceService[T]:
-        return self._registrations[model].service
-
-    def _for_table(self, table: Any) -> Any:
-        import sqlalchemy as sa
-
-        matches = [
-            item.builder
-            for item in self._registrations.values()
-            if table in sa.inspect(item.model).tables
-        ]
-        if len(matches) > 1:
-            raise ImproperlyConfigured("A foreign-key target table maps to multiple resources.")
-        return matches[0] if matches else None
-
     def check(self, *, strict: bool = False) -> Sequence[Diagnostic]:
-        from obox._auth import Policy
-
         if self._installation_failed:
-            raise ImproperlyConfigured("Application setup failed; create a new application.")
-        diagnostics: list[Diagnostic] = []
-        if any(_api_contexts(self.app.routes)):
-            self.app.dependency_overrides.setdefault(_api_context, self.context_dependency("api"))
-            if self.settings.principal_dependency is None:
-                diagnostics.append(
-                    Diagnostic(
-                        "error",
-                        "api.identity_resolver",
-                        "Protected APIs require an identity resolver.",
-                    )
-                )
-        from jinja2 import TemplateError
+            raise ImproperlyConfigured("Application setup failed.")
+        from jinja2 import TemplateNotFound
 
-        for (label, name), page in self._pages.items():
+        diagnostics = []
+        definitions = [service.definition for service in self._components.values()]
+        names = [definition.template for definition in definitions if definition.template]
+        names.extend(page.template for page in self._pages.values() if page.template)
+        for name in names:
             try:
-                self.templates.env.get_template(cast(str, page.template))
-            except TemplateError as exc:
-                diagnostics.append(Diagnostic("error", "page.template", f"{label}.{name}: {exc}"))
-        bindings = [
-            *self._components.values(),
-            *(
-                service
-                for rows in self._page_components.values()
-                for row in rows
-                for service in row
-            ),
-        ]
-        for service in bindings:
-            if service.definition.template:
-                try:
-                    self.templates.env.get_template(service.definition.template)
-                except TemplateError as exc:
-                    diagnostics.append(
-                        Diagnostic("error", "component.template", f"{service.identity}: {exc}")
-                    )
-        routes = list(iter_route_contexts(self.app.routes))
-        for i, route in enumerate(routes):
-            for other in routes[:i]:
-                model = self._generated.get(route.endpoint)
-                other_model = self._generated.get(other.endpoint)
-                if not any(id(r.original_route) in self._owned_routes for r in (route, other)):
-                    continue
-                internal = model is not None and model is other_model
-                if self._conflict(route, other, internal=internal):
-                    diagnostics.append(
-                        Diagnostic("error", "route.conflict", f"Route conflict: {route.path}.")
-                    )
-                for owned, host in ((route, other), (other, route)):
-                    if id(owned.original_route) not in self._owned_routes or not owned.path:
-                        continue
-                    if not any(
-                        owned.path == p or owned.path.startswith(p + "/") for p in self.ui_prefixes
-                    ):
-                        continue
-                    if host.path and any(
-                        self._conflict(owned, host, path=f"/{language}{owned.path}")
-                        for language in LANGUAGES
-                    ):
-                        diagnostics.append(
-                            Diagnostic("error", "route.conflict", f"Route conflict: {host.path}.")
-                        )
-        for item in self._registrations.values():
-            b = item.builder
-            if (
-                b.api.enabled
-                and {"update", "delete"}.intersection(b.api.operations)
-                and b.version_column is None
-            ):
+                self.templates.env.get_template(name)
+            except TemplateNotFound:
                 diagnostics.append(
-                    Diagnostic(
-                        "warning",
-                        "api.unversioned_writes",
-                        f"{b.route_key}: configure version_id_col to detect stale writes.",
-                    )
+                    Diagnostic("error", "missing_template", f"Missing template: {name}")
                 )
-            if b.policy is None or b.fields is None:
-                raise ImproperlyConfigured("The compiled builder is missing policy or fields.")
-            diagnostics.append(
-                Diagnostic(
-                    "info",
-                    "resource.exposure",
-                    b.route_key,
-                    {
-                        "fields": b.fields,
-                        "label_field": b.label_field,
-                        "read_only_fields": b.read_only_fields,
-                        "api_read": b.api_read if b.api.enabled else (),
-                        "api_write": b.api_write if b.api.enabled else (),
-                        "form": tuple(key for key in b.form_fields if key not in b.read_only_fields)
-                        if b.form.enabled
-                        else (),
-                        "api_operations": b.api.operations if b.api.enabled else (),
-                        "view": b.view_list_display if b.view.enabled else (),
-                        "related": b.view_related if b.view.enabled else (),
-                        "conditional": type(b.policy).read_fields is not Policy.read_fields
-                        or b.conditional_writes,
-                    },
-                )
-            )
-            for name in b.view_related:
-                import sqlalchemy as sa
-
-                relationship = sa.inspect(item.model).relationships[name]
-                if relationship.mapper.class_ not in self._registrations:
-                    diagnostics.append(
-                        Diagnostic(
-                            "error",
-                            "relationship.unregistered_collection",
-                            f"{item.slug}.{name}: register the collection's target resource.",
-                        )
-                    )
-            for name in b.api.write_relationships:
-                relation = inspect(item.model).relationships[name]
-                registration = self._registrations.get(relation.mapper.class_)
-                if (
-                    registration is None
-                    or not registration.builder.api.enabled
-                    or not {"retrieve", "update"}.issubset(registration.builder.api.operations)
-                ):
-                    diagnostics.append(
-                        Diagnostic(
-                            "error",
-                            "relationship.unwritable_target",
-                            f"{item.slug}.{name}: register a target ApiOptions "
-                            "with retrieve and update.",
-                        )
-                    )
-            if b.view.enabled:
-                for name in b.view_list_relations:
-                    target = self._for_table(b.list_relations[name].target)
-                    if target is None:
-                        diagnostics.append(
-                            Diagnostic(
-                                "error",
-                                "relationship.unregistered_display",
-                                f"{item.slug}.{name}: register the relation's target resource.",
-                            )
-                        )
-                    elif target.label_field is None:
-                        diagnostics.append(
-                            Diagnostic(
-                                "warning",
-                                "relationship.raw_label",
-                                f"{item.slug}.{name}: set label_field on the target; "
-                                "falling back to the raw key.",
-                            )
-                        )
-            diagnostics.extend(
-                Diagnostic(
-                    "warning",
-                    "relationship.unregistered",
-                    f"{item.slug}.{key}: selection is blocked; register its target.",
-                )
-                for key in b.fields
-                for fk in b.specs[key].column.foreign_keys
-                if self._for_table(fk.column.table) is None and key not in b.read_only_fields
-            )
-        if strict and any(d.level == "error" for d in diagnostics):
-            raise ImproperlyConfigured(
-                "; ".join(d.message for d in diagnostics if d.level == "error")
-            )
+        if strict and diagnostics:
+            raise ImproperlyConfigured("; ".join(item.message for item in diagnostics))
         return tuple(diagnostics)
 
     @asynccontextmanager
@@ -864,7 +602,13 @@ class _Runtime:
                 try:
                     async with session.begin():
                         ctx._transaction = session.sync_session.get_transaction()
-                        yield ctx
+                        from obox.db import _current
+
+                        token = _current.set((asyncio.current_task(), session))
+                        try:
+                            yield ctx
+                        finally:
+                            _current.reset(token)
                         if (
                             ctx._failed
                             or session.sync_session.get_transaction() is not ctx._transaction
@@ -879,14 +623,6 @@ class _Runtime:
             raise ResourceConflict(
                 "The transaction conflicts with current database state."
             ) from exc
-        if ctx is not None:
-            for domain_event in ctx._events:
-                try:
-                    await invoke(
-                        self.get_resource(domain_event.model).after_commit, domain_event, ctx
-                    )
-                except Exception:
-                    logger.exception("Best-effort after_commit callback failed.")
 
     def context_dependency(self, source: str) -> Callable[..., Any]:
         resolver = self.settings.principal_dependency or (lambda: Principal())

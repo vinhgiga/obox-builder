@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import JsonValue
 
-from obox.contrib.resources.api_schema import ApiResponse
+from obox._schemas import ApiResponse
 
 
 class PivotData(ApiResponse):

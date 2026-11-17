@@ -13,6 +13,7 @@ from obox.builder.decorators import action
 from obox.builder.options import ModelBuilder, _flatten
 from obox.conf import settings
 from obox.core.exceptions import PermissionDenied
+from obox.db import _session
 from obox.urls import path
 from obox.views.generic import CreateView, DeleteView, ListView, TemplateView, UpdateView
 from obox.views.generic.base import _identify
@@ -168,6 +169,64 @@ class AdminSite:
                 return obj
 
         class AdminFormMixin(AdminMixin):
+            inline_formsets: list[dict[str, Any]]
+
+            async def get_inline_formsets(self, form: Any) -> Any:
+                if hasattr(self, "inline_formsets"):
+                    return self.inline_formsets
+                groups: list[dict[str, Any]] = []
+                prefixes: dict[str, int] = {}
+                declarations = await invoke(
+                    owner.get_formsets_with_inlines, self.request, self.object
+                )
+                for cls, inline in declarations:
+                    permissions = {
+                        action: await invoke(
+                            getattr(inline, f"has_{action}_permission"),
+                            self.request,
+                            *([] if action == "add" else [self.object]),
+                        )
+                        for action in ("view", "add", "change", "delete")
+                    }
+                    if not any(permissions.values()):
+                        continue
+                    prefix = cls.get_default_prefix()
+                    prefixes[prefix] = prefixes.get(prefix, 0) + 1
+                    if prefixes[prefix] > 1:
+                        prefix += f"-{prefixes[prefix]}"
+                    queryset = await invoke(inline.get_queryset, self.request)
+                    if not any(permissions[key] for key in ("view", "change", "delete")):
+                        queryset = queryset.where(sa.false())
+                    formset = cls(
+                        data=form.data if form.is_bound else None,
+                        instance=form.instance,
+                        prefix=prefix,
+                        queryset=queryset,
+                    )
+                    if not permissions["add"]:
+                        formset.extra, formset.max_num = 0, 0
+                    formset.can_delete = inline.can_delete and permissions["delete"]
+                    await formset.prepare()
+                    readonly = inline.get_readonly_fields(self.request, self.object)
+                    for child in formset:
+                        for name, field in child.fields.items():
+                            if name in readonly or (
+                                child in formset.initial_forms
+                                and not permissions["change"]
+                                and name != "DELETE"
+                            ):
+                                field.disabled = True
+                    if form.is_bound:
+                        await formset.is_valid()
+                        if not permissions["add"] and any(
+                            child.has_changed() and not formset._should_delete_form(child)
+                            for child in formset.extra_forms
+                        ):
+                            raise PermissionDenied()
+                    groups.append({"formset": formset, "inline": inline})
+                self.inline_formsets = groups
+                return groups
+
             def get_form_class(self) -> Any:
                 return owner.get_form(self.request, self.object, change=self.object is not None)
 
@@ -175,18 +234,29 @@ class AdminSite:
                 return str(self.request.url_for(f"{site.name}:{basename}_changelist"))
 
             async def form_valid(self, form: Any) -> Response:
-                self.object = await form.save(commit=False)
+                groups = await self.get_inline_formsets(form)
+                if not all([await group["formset"].is_valid() for group in groups]):
+                    return cast(Response, await invoke(cast(Any, self).form_invalid, form))
                 change = self.operation != "add"
                 if change and not await invoke(
                     owner.has_change_permission, self.request, self.object
                 ):
                     raise PermissionDenied()
-                await invoke(owner.save_model, self.request, self.object, form, change)
-                await invoke(owner.save_related, self.request, form, [], change)
+                async with _session():
+                    self.object = await form.save(commit=False)
+                    await invoke(owner.save_model, self.request, self.object, form, change)
+                    await invoke(
+                        owner.save_related,
+                        self.request,
+                        form,
+                        [group["formset"] for group in groups],
+                        change,
+                    )
                 return RedirectResponse(self.get_success_url(), status_code=302)
 
             async def get_context_data(self, **kwargs: Any) -> Any:
                 context = await invoke(cast(Any, super()).get_context_data, **kwargs)
+                context["inline_admin_formsets"] = await self.get_inline_formsets(context["form"])
                 can_change = self.object is None or await invoke(
                     owner.has_change_permission, self.request, self.object
                 )

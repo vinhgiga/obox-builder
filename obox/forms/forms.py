@@ -42,7 +42,7 @@ class BoundField:
 
     def __html__(self) -> str:
         attrs: dict[str, Any] = {"id": self.id_for_label}
-        if self.field.required:
+        if self.field.required and self.form.use_required_attribute:
             attrs["required"] = True
         if self.field.disabled:
             attrs["disabled"] = True
@@ -59,6 +59,10 @@ class BoundField:
 
     def __str__(self) -> str:
         return self.__html__()
+
+    @property
+    def is_hidden(self) -> bool:
+        return bool(self.field.widget.input_type == "hidden")
 
 
 class Form:
@@ -82,6 +86,8 @@ class Form:
             "fields",
             "cleaned_data",
             "errors",
+            "empty_permitted",
+            "use_required_attribute",
         }
         return collect_fields(cls, Form, reserved)
 
@@ -92,10 +98,13 @@ class Form:
         *,
         initial: Mapping[str, Any] | None = None,
         prefix: str | None = None,
+        empty_permitted: bool = False,
     ) -> None:
         self.is_bound = data is not None or files is not None
         self.data, self.files = data if data is not None else {}, files or {}
         self.initial, self.prefix = dict(initial or {}), prefix
+        self.empty_permitted = empty_permitted
+        self.use_required_attribute = True
         self.fields = deepcopy(self.base_fields)
         self.cleaned_data: dict[str, Any] = {}
         self.errors: dict[str, list[str]] = {}
@@ -143,6 +152,41 @@ class Form:
             if prepare is not None:
                 await invoke(prepare)
 
+    @property
+    def changed_data(self) -> list[str]:
+        changed = []
+        for name, field in self.fields.items():
+            if field.disabled:
+                continue
+            initial, value = self._initial_value(name, field), self._data_value(name, field)
+            has_changed = getattr(field, "has_changed", None)
+            if has_changed is not None:
+                if has_changed(initial, value):
+                    changed.append(name)
+                continue
+            prepare = getattr(field, "prepare_value", None)
+            if prepare is not None:
+                initial, value = prepare(initial), prepare(value)
+            try:
+                converter = field.converter if isinstance(field, TypedField) else field
+                if prepare is None:
+                    initial = converter.to_python(None if initial is MISSING else initial)
+                    value = converter.to_python(None if value is MISSING else value)
+                if isinstance(initial, (list, tuple)) and isinstance(value, (list, tuple)):
+                    different = {str(item) for item in initial} != {str(item) for item in value}
+                else:
+                    different = ("" if initial in field.empty_values else str(initial)) != (
+                        "" if value in field.empty_values else str(value)
+                    )
+            except (ValidationError, TypeError, ValueError):
+                different = True
+            if different:
+                changed.append(name)
+        return changed
+
+    def has_changed(self) -> bool:
+        return bool(self.changed_data)
+
     async def is_valid(self) -> bool:
         async with self._validation_lock:
             if not self._validated:
@@ -155,7 +199,7 @@ class Form:
     async def _full_clean(self) -> None:
         self._validated, self._values = False, None
         self.errors, self.cleaned_data, self._error_codes = {}, {}, {}
-        if not self.is_bound:
+        if not self.is_bound or (self.empty_permitted and not self.has_changed()):
             self._validated = True
             return
         for name, field in self.fields.items():
@@ -234,15 +278,19 @@ class Form:
 
     def as_p(self) -> Markup:
         result = "".join(
-            f'<p><label for="{escape(bound.id_for_label)}">{escape(bound.label)}:</label> '
-            f"{bound.__html__()}"
+            (
+                ""
+                if bound.is_hidden
+                else f'<p><label for="{escape(bound.id_for_label)}">{escape(bound.label)}:</label> '
+            )
+            + bound.__html__()
             + "".join(f'<span class="error">{escape(message)}</span>' for message in bound.errors)
             + (
                 f'<span class="helptext">{escape(bound.field.help_text)}</span>'
                 if bound.field.help_text
                 else ""
             )
-            + "</p>"
+            + ("" if bound.is_hidden else "</p>")
             for bound in self
         )
         return Markup(result)  # noqa: S704 -- every value is escaped above.

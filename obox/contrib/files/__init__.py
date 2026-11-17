@@ -14,6 +14,8 @@ import anyio
 import sqlalchemy as sa
 
 from obox._exceptions import BuilderValidationError, NotFound, PermissionDenied
+from obox.contrib._models import authorize as authorize_model
+from obox.contrib._models import get_object, installed_models
 from obox.contrib.files import claim as _claim  # noqa: F401 - register mapper listeners
 from obox.contrib.files.fields import attachments
 from obox.contrib.files.models import File
@@ -33,7 +35,10 @@ class Files:
     name = "files"
     requires: tuple[str, ...] = ()
 
-    def __init__(self, *, root: str | Path, prefix: str = "/files") -> None:
+    def __init__(
+        self, *, root: str | Path, prefix: str = "/files", models: tuple[type[Any], ...] = ()
+    ) -> None:
+        self.models = models
         self.root = Path(root).resolve()
         self.prefix = prefix.rstrip("/")
         if not self.prefix.startswith("/") or any(c in self.prefix for c in "{}?#"):
@@ -45,6 +50,7 @@ class Files:
         if hasattr(self, "app"):
             raise ImproperlyConfigured("Files is already installed.")
         self.app = app
+        self.models = self.models or installed_models()
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
         app.mount_static(
             self.prefix + "/_static",
@@ -71,68 +77,60 @@ class Files:
             finally:
                 tasks.cancel_scope.cancel()
 
-    def builder(self, owner_type: str) -> Any:
-        for registration in self.app._registrations.values():
-            if registration.model.__table__.fullname == owner_type:
-                return registration.builder
+    def model(self, owner_type: str) -> type[Any]:
+        for model in self.models:
+            if model.__table__.fullname == owner_type:
+                return model
         raise NotFound("Unknown file field.")
 
     def rule(self, owner_type: str, field: str) -> Rule:
-        builder = self.builder(owner_type)
-        spec = builder.specs.get(field)
-        rule = spec.column.info.get("obox_files") if spec else None
-        if not isinstance(rule, Rule) or field not in builder.specs:
+        relation = sa.inspect(self.model(owner_type)).relationships.get(field)
+        rule = relation.info.get("obox_files") if relation is not None else None
+        if not isinstance(rule, Rule):
             raise NotFound("Unknown file field.")
         return rule
 
-    async def resolve(
-        self, builder: Any, values: dict[str, Any], ctx: Context, obj: Any = None
-    ) -> dict[str, Any]:
-        for field, value in values.items():
-            if "obox_files" not in builder.specs[field].column.info:
-                continue
-            rule = self.rule(builder.model.__table__.fullname, field)
-            rule.count(field, len(value))
-            try:
-                ids = [UUID(fid) for fid in value]
-            except ValueError as exc:
-                raise BuilderValidationError({field: ["Use valid file IDs."]}) from exc
-            if len(set(ids)) != len(ids):
-                raise BuilderValidationError({field: ["Use unique file IDs."]})
-            actor = getattr(ctx.principal, "id", None)
-            owner = (
-                sa.cast(sa.literal(getattr(obj, builder.pk_name), type_=builder.pk.type), sa.String)
-                if obj is not None
-                else None
-            )
-            records = {
-                file.id: file
-                for file in await ctx.session.scalars(
-                    sa.select(File).where(
-                        File.id.in_(ids),
-                        File.status == "ready",
-                        File.owner_type == builder.model.__table__.fullname,
-                        File.field == field,
-                        sa.or_(
-                            File.owner_id == owner if owner is not None else sa.false(),
-                            sa.and_(
-                                File.owner_id.is_(None),
-                                File.created_by == str(actor) if actor is not None else sa.false(),
-                            ),
-                        ),
-                    )
-                )
-            }
-            if len(records) != len(ids):
-                raise BuilderValidationError({field: ["File unavailable."]})
-            values[field] = [records[fid] for fid in ids]
-        return values
+    def get_queryset(self, model: type[Any], ctx: Context) -> Any:
+        return sa.select(model)
 
-    def form_config(self, builder: Any, field: str, obj: Any, ctx: Context) -> dict[str, Any]:
-        rule = self.rule(builder.model.__table__.fullname, field)
+    def get_fields(
+        self, model: type[Any], ctx: Context, obj: Any = None, *, write: bool = False
+    ) -> tuple[str, ...]:
+        return tuple(
+            relation.key
+            for relation in sa.inspect(model).relationships
+            if "obox_files" in relation.info
+        )
+
+    async def owner(
+        self,
+        owner_type: str,
+        identity: str | None,
+        field: str,
+        ctx: Context,
+        *,
+        write: bool = False,
+    ) -> Any:
+        model = self.model(owner_type)
+        authorize_model(
+            model, ctx.principal, "change" if write and identity else "add" if write else "view"
+        )
+        obj = (
+            await get_object(model, identity, ctx, self.get_queryset(model, ctx), lock=write)
+            if identity
+            else None
+        )
+        if field not in self.get_fields(model, ctx, obj, write=write):
+            raise PermissionDenied("This file field is not available.")
+        return obj
+
+    def form_config(self, model: type[Any], field: str, obj: Any, ctx: Context) -> dict[str, Any]:
+        rule = self.rule(model.__table__.fullname, field)
+        mapper = sa.inspect(model)
+        pk_name = mapper.get_property_by_column(mapper.primary_key[0]).key
         return {
-            "field": f"{builder.model.__table__.fullname}.{field}",
-            "owner_id": str(getattr(obj, builder.pk_name)) if obj is not None else "",
+            "field": f"{model.__table__.fullname}.{field}",
+            "owner_id": str(getattr(obj, pk_name)) if obj is not None else "",
             "accept": ",".join(rule.types or {}),
             "max_count": rule.max_count,
             "files": [self.metadata(file) for file in getattr(obj, field)]
@@ -141,44 +139,72 @@ class Files:
             "url": str(ctx.request.url_for("obox_files_create")) if ctx.request else self.prefix,
         }
 
+    async def resolve(
+        self, model: type[Any], values: dict[str, Any], ctx: Context, obj: Any = None
+    ) -> dict[str, Any]:
+        mapper = sa.inspect(model)
+        for field in values.keys() & mapper.relationships.keys():
+            if "obox_files" not in mapper.relationships[field].info:
+                continue
+            rule = self.rule(model.__table__.fullname, field)
+            raw = values[field]
+            try:
+                if not isinstance(raw, list):
+                    raise ValueError
+                ids = [UUID(str(fid)) for fid in raw]
+                if len(ids) != len(set(ids)):
+                    raise ValueError
+            except (ValueError, TypeError, AttributeError) as exc:
+                raise BuilderValidationError({field: ["Use a list of unique file IDs."]}) from exc
+            rule.count(field, len(ids))
+            pk_name = mapper.get_property_by_column(mapper.primary_key[0]).key
+            owner = str(getattr(obj, pk_name)) if obj is not None else None
+            await self.owner(model.__table__.fullname, owner, field, ctx, write=True)
+            query = sa.select(File).where(
+                File.id.in_(ids),
+                File.owner_type == model.__table__.fullname,
+                File.field == field,
+                File.status == "ready",
+                sa.or_(
+                    sa.and_(File.owner_id.is_(None), File.created_by == str(ctx.principal.id)),
+                    File.owner_id == owner if owner is not None else sa.false(),
+                ),
+            )
+            found = {file.id: file for file in await ctx.session.scalars(query)}
+            if len(found) != len(ids):
+                raise BuilderValidationError({field: ["File unavailable."]})
+            values[field] = [found[fid] for fid in ids]
+        return values
+
     @staticmethod
     def metadata(file: File) -> dict[str, Any]:
         return FileMetadata.model_validate(file).model_dump(mode="json")
 
     async def authorize(self, ctx: Context, file: File) -> None:
         if file.owner_id is None:
+            from obox.contrib._models import permission
+
+            model = self.model(file.owner_type)
             if (
                 not getattr(ctx.principal, "is_authenticated", False)
-                or not getattr(ctx.principal, "is_active", True)
+                or not getattr(ctx.principal, "is_active", False)
                 or file.created_by != str(getattr(ctx.principal, "id", None))
+                or not any(permission(model, ctx.principal, action) for action in ("add", "change"))
+                or file.field not in self.get_fields(model, ctx, write=True)
             ):
                 raise NotFound("Unknown file.")
-            if getattr(ctx.principal, "api_scopes", None) is not None:
-                builder = self.builder(file.owner_type)
-                service = self.app.service(builder.model)
-                for action in ("create", "update"):
-                    if await service.permitted(action, ctx) and file.field in builder.writable(
-                        ctx, action, surface="api"
-                    ):
-                        return
-                raise NotFound("Unknown file.")
             return
-        builder = self.builder(file.owner_type)
-        obj = await self.app.service(builder.model).get(file.owner_id, ctx=ctx)
-        fields = builder.api_read if ctx.source == "api" else builder.fields
-        if file.field not in builder.readable(ctx, obj=obj, fields=fields):
-            raise PermissionDenied("File field is not readable.")
+        await self.owner(file.owner_type, file.owner_id, file.field, ctx)
 
     async def collect(self, *, max_age: timedelta = timedelta(hours=24)) -> int:
         """Remove expired attachments; also called by the hourly cleanup task."""
         cutoff = datetime.now(UTC) - max_age
         async with self.app.uow(principal=None) as ctx:
-            for registration in self.app._registrations.values():
+            for model in self.models:
                 if not any(
-                    "obox_files" in spec.column.info for spec in registration.builder.specs.values()
+                    "obox_files" in relation.info for relation in sa.inspect(model).relationships
                 ):
                     continue
-                model = registration.model
                 pk = sa.inspect(model).primary_key[0]
                 await ctx.session.execute(
                     sa.update(File)

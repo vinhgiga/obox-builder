@@ -23,11 +23,11 @@ from obox._exceptions import (
 from obox._http import read_form
 from obox._i18n import context as translation_context
 from obox._i18n import translate
+from obox._routes import OboxRoute
+from obox._ui import build_navigation
 from obox.contrib.auth.models import Role, User
 from obox.contrib.auth.password_validation import get_password_validators
 from obox.contrib.auth.passwords import hash_password
-from obox.contrib.resources.http import OboxRoute
-from obox.contrib.resources.ui import build_navigation
 
 if TYPE_CHECKING:
     from obox._context import Context
@@ -210,7 +210,7 @@ def router(app: _Runtime, auth: Auth) -> APIRouter:
                     "title": title,
                     "site_title": app.app.title,
                     "base_template": app.settings.base_template,
-                    "navigation": await build_navigation(app, request, ctx, active_admin=active),
+                    "navigation": await build_navigation(app, request, ctx),
                     "principal": ctx.principal,
                     "auth": auth,
                     "csrf": app.csrf.token(request, ctx.principal),

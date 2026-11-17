@@ -20,9 +20,9 @@ from obox._exceptions import (
     BuilderValidationError,
     NotAuthenticated,
     NotFound,
-    PermissionDenied,
     ResourceConflict,
 )
+from obox._routes import ApiRoute
 from obox.contrib.files.models import File
 from obox.contrib.files.rules import IMAGES, VIDEOS, sniff
 from obox.contrib.files.schemas import (
@@ -33,7 +33,6 @@ from obox.contrib.files.schemas import (
     ReorderFiles,
     UploadCreated,
 )
-from obox.contrib.resources.http import ApiRoute
 
 if TYPE_CHECKING:
     from obox._context import Context
@@ -87,9 +86,6 @@ def build_router(files: Files) -> APIRouter:
     def source(who: Any) -> Literal["api", "ui"]:
         return "api" if getattr(who, "api_scopes", None) is not None else "ui"
 
-    def surface(ctx: Context) -> Literal["api", "service"]:
-        return "api" if ctx.source == "api" else "service"
-
     def actor(who: Any) -> str:
         if (
             not getattr(who, "is_authenticated", False)
@@ -116,14 +112,8 @@ def build_router(files: Files) -> APIRouter:
         owner_type, _, field = body.field.rpartition(".")
         rule = files.rule(owner_type, field)
         content_type = rule.check(body.filename, body.size)
-        builder = files.builder(owner_type)
-        service = app.service(builder.model)
         async with app.uow(principal=who, source=source(who), request=request) as ctx:
-            obj = await service._get(body.owner_id, ctx, "update") if body.owner_id else None
-            action = "create" if obj is None else "update"
-            await service.authorize(action, ctx, obj)
-            if field not in builder.writable(ctx, action, obj=obj, surface=surface(ctx)):
-                raise PermissionDenied("File field is not writable.")
+            await files.owner(owner_type, body.owner_id, field, ctx, write=True)
             fid = uuid4()
             file = File(
                 id=fid,
@@ -151,12 +141,8 @@ def build_router(files: Files) -> APIRouter:
         if not owner_type:
             raise NotFound("Unknown file field.")
         files.rule(owner_type, field)
-        builder = files.builder(owner_type)
-        service = app.service(builder.model)
         async with app.uow(principal=who, source=source(who), request=request) as ctx:
-            obj = await service._get(owner_id, ctx, "update")
-            if field not in builder.writable(ctx, "update", obj=obj, surface=surface(ctx)):
-                raise PermissionDenied("File field is not writable.")
+            await files.owner(owner_type, owner_id, field, ctx, write=True)
             if len(set(body.ids)) != len(body.ids):
                 raise BuilderValidationError({field: ["Use unique file IDs."]})
             current = set(
@@ -270,10 +256,7 @@ def build_router(files: Files) -> APIRouter:
                 raise NotFound("Unknown file.")
             await files.authorize(ctx, file)
             if file.owner_id is not None:
-                builder = files.builder(file.owner_type)
-                obj = await app.service(builder.model)._get(file.owner_id, ctx, "update")
-                if file.field not in builder.writable(ctx, "update", obj=obj, surface=surface(ctx)):
-                    raise PermissionDenied("File field is not writable.")
+                await files.owner(file.owner_type, file.owner_id, file.field, ctx, write=True)
             files.rule(file.owner_type, file.field).check_name(body.filename)
             file.filename = body.filename
             return view(file)

@@ -64,7 +64,7 @@ class Page:
         if self.permission is not None and (
             not isinstance(self.permission, str)
             or not (
-                (_valid_permission(self.permission) and len(self.permission.split(".")) == 3)
+                _valid_permission(self.permission)
                 or (self.permission.isidentifier() and not self.permission.startswith("_"))
             )
         ):

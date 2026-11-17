@@ -20,6 +20,9 @@
         {% endfor %}
         </fieldset>
       {% endfor %}
+      {% for group in inline_admin_formsets %}
+        {% include group.inline.template %}
+      {% endfor %}
       {% if has_change_permission %}<button type="submit">Save</button>{% endif %}
     </form>
     {% if delete_url %}<a href="{{ delete_url }}">Delete</a>{% endif %}

@@ -12,7 +12,7 @@
     "commitlint": "commitlint",
     "lint": "biome ci",
     "test:commitlint": "node --test tests/tooling/commitlint.test.mjs",
-    "test:ui": "node --test tests/tooling/http.test.mjs tests/tooling/record.test.mjs tests/tooling/analytics.test.mjs"
+    "test:ui": "node --test tests/tooling/http.test.mjs tests/tooling/analytics.test.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.4",

@@ -12,10 +12,10 @@
       "scripts/vendor-*.mjs",
       "obox/contrib/analytics/static/analytics.js",
       "obox/contrib/analytics/static/analytics.css",
-      "obox/contrib/resources/static/**/*.js",
+      "obox/static/**/*.js",
       "obox/contrib/files/static/**/*.js",
       "obox/contrib/files/static/**/*.css",
-      "obox/contrib/resources/static/ui.css"
+      "obox/static/ui.css"
     ]
   },
   "formatter": {

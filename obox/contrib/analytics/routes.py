@@ -13,19 +13,18 @@ from starlette.types import Receive, Scope, Send
 from obox._components import ComponentQuery, ComponentRecords
 from obox._context import Context
 from obox._exceptions import BuilderValidationError
+from obox._filters import FilterGroup, FilterTerm
 from obox._i18n import context as translation_context
 from obox._i18n import localize, translate
-from obox.contrib.resources.api import query_options
-from obox.contrib.resources.components import ComponentResource
-from obox.contrib.resources.filters import FilterGroup, FilterTerm
-from obox.contrib.resources.http import ApiRoute
-from obox.contrib.resources.pages import PageRoute
-from obox.contrib.resources.ui import build_navigation, filter_columns
+from obox._page_routes import PageRoute
+from obox._routes import ApiRoute
+from obox._ui import build_navigation, filter_columns, query_options
+from obox.contrib.analytics.source import DataSource
 
 if TYPE_CHECKING:
+    from obox._component_service import ComponentService
     from obox._pages import Page
     from obox._runtime import _Runtime
-    from obox.contrib.resources.components import ComponentService
 
 
 class ComponentDataRoute(ApiRoute):
@@ -72,10 +71,10 @@ def _query(request: Request, service: ComponentService, *, records: bool = False
         query = ComponentRecords.model_validate(selection) if records else ComponentQuery()
     except ValidationError as exc:
         raise BuilderValidationError({"records": [error["msg"] for error in exc.errors()]}) from exc
-    if service.resource is not None:
+    if service.dataset is not None:
         values = query_options(
             Request(dict(request.scope, query_string=urlencode(pairs).encode())),
-            service.resource.builder,
+            service.dataset.dataset,
             pagination=False,
         )
         if "ordering" in values:
@@ -149,23 +148,10 @@ def build_page_components(obox: _Runtime, page: Page, app_label: str) -> APIRout
             query = cast(ComponentRecords, _query(request, service, records=True))
             result = await service.records(query, ctx=ctx)
             columns = list(dict.fromkeys(key for record in result.records for key in record))
-            rows = []
-            resource = cast(ComponentResource, service.resource)
-            for record, obj in zip(result.records, result._objects, strict=True):
-                builder = resource.builder
-                link = None
-                if builder.view.enabled and await resource.permitted("retrieve", ctx, obj):
-                    link = localize(
-                        request,
-                        str(
-                            request.url_for(
-                                f"obox_ui_{builder.route_key}_detail",
-                                id=str(getattr(obj, builder.pk_name)),
-                            ).path
-                        ),
-                        rooted=True,
-                    )
-                rows.append({"values": [record.get(key) for key in columns], "url": link})
+            rows = [
+                {"values": [record.get(key) for key in columns], "url": None}
+                for record in result.records
+            ]
             base = request.url.remove_query_params("offset")
             return obox.templates.TemplateResponse(
                 request=request,
@@ -252,8 +238,8 @@ async def page_context(
                 )
             else:
                 description = (await service.describe(ctx=ctx)).presentation
-                builder = cast(ComponentResource, service.resource).builder
-                readable = set(builder.readable(ctx)).intersection(builder.api_read)
+                builder = cast(DataSource, service.dataset).dataset
+                readable = set(builder.readable(ctx))
                 item.update(
                     filters=filter_columns(
                         builder, ctx, [name for name in builder.filter_fields if name in readable]

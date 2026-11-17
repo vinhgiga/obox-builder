@@ -1,0 +1,9 @@
+<fieldset>
+  <legend>{{ group.inline.model.__name__ }}</legend>
+  {{ group.formset.management_form.as_p() }}
+  {% for error in group.formset.non_form_errors() %}<p role="alert">{{ error }}</p>{% endfor %}
+  {% for child in group.formset %}
+    {% for error in child.non_field_errors() %}<p role="alert">{{ error }}</p>{% endfor %}
+    <div>{{ child.as_p() }}</div>
+  {% endfor %}
+</fieldset>

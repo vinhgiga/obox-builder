@@ -12,8 +12,8 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from obox._exceptions import NotAuthenticated, ResourceConflict
+from obox._query import invalid
 from obox.contrib.idempotency.models import Receipt
-from obox.contrib.resources.query import invalid
 from obox.core.exceptions import ImproperlyConfigured
 
 if TYPE_CHECKING:

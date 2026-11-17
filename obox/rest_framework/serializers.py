@@ -247,7 +247,12 @@ class ModelSerializer(Serializer):
             field: Field
             column = spec.column
             kind = column.type
-            if isinstance(kind, sa.Enum):
+            if "obox_files" in column.info:
+                from obox.contrib.files.serializers import AttachmentField
+
+                options["required"] = bool(column.info["obox_files"].min_count) and not readonly
+                field = AttachmentField(**options)
+            elif isinstance(kind, sa.Enum):
                 field = ChoiceField(
                     choices=[(item.value, item.value) for item in kind.enum_class]
                     if kind.enum_class
@@ -296,6 +301,21 @@ class ModelSerializer(Serializer):
         errors = {}
         async with _session() as session:
             with session.no_autoflush:
+                if any("obox_files" in specs[name].column.info for name in values if name in specs):
+                    from obox._exceptions import BuilderValidationError
+
+                    ctx = session.info.get("obox._context")
+                    files = (
+                        ctx._owner._feature("files")
+                        if ctx is not None and ctx._owner is not None
+                        else None
+                    )
+                    if files is None:
+                        raise ValidationError("Install file uploads before editing attachments.")
+                    try:
+                        values = await files.resolve(model, values, ctx, self.instance)
+                    except BuilderValidationError as exc:
+                        raise ValidationError(exc.errors) from exc
                 for names in constraints:
                     combined = {
                         name: values.get(name, getattr(self.instance, name, None)) for name in names
@@ -335,6 +355,7 @@ class ModelSerializer(Serializer):
         async with _session() as session:
             session.add(obj)
             await session.flush()
+            await self._prepare_instance(session, obj)
         return obj
 
     async def update(self, instance: Any, validated_data: dict[str, Any]) -> Any:
@@ -343,7 +364,20 @@ class ModelSerializer(Serializer):
         async with _session() as session:
             session.add(instance)
             await session.flush()
+            await self._prepare_instance(session, instance)
         return instance
+
+    async def _prepare_instance(self, session: Any, instance: Any) -> None:
+        state = sa.inspect(instance)
+        missing = [
+            field.source or name
+            for name, field in self.fields.items()
+            if not field.write_only
+            and (field.source or name) in state.mapper.relationships
+            and (field.source or name) in state.unloaded
+        ]
+        if missing:
+            await session.refresh(instance, missing)
 
 
 __all__ = [

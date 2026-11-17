@@ -11,9 +11,10 @@ import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
+from obox._async import invoke
 from obox._context import Context
 from obox._exceptions import NotAuthenticated, NotFound, PermissionDenied, ResourceConflict
-from obox.contrib.resources.query import invalid
+from obox._query import invalid
 from obox.contrib.webhooks.models import Delivery, Event, Subscription, now
 from obox.contrib.webhooks.schemas import ChangeNotification
 from obox.contrib.webhooks.transport import destination
@@ -41,11 +42,12 @@ def actor(ctx: Context) -> str:
 
 
 def resource(plugin: Any, slug: str) -> Any:
-    for item in plugin.app._registrations.values():
-        b = item.builder
-        if b.api_key == slug and b.api.enabled and "retrieve" in b.api.operations:
-            return b
-    raise NotFound("The webhook resource is unavailable.")
+    from obox.views.generic.detail import _model_label
+
+    for model in plugin.models:
+        if ".".join(_model_label(model)) == slug:
+            return model
+    raise NotFound("The webhook model is unavailable.")
 
 
 async def owned(plugin: Any, id: UUID, ctx: Context) -> Subscription:
@@ -67,7 +69,11 @@ async def owned(plugin: Any, id: UUID, ctx: Context) -> Subscription:
 async def create(plugin: Any, data: Any, ctx: Context) -> Subscription:
     owner = actor(ctx)
     b = resource(plugin, data.resource)
-    await plugin.app.service(b.model).authorize("retrieve", ctx)
+    from obox.contrib._models import authorize
+
+    authorize(b, ctx.principal, "view")
+    if not await invoke(plugin.has_permission, b, ctx):
+        raise PermissionDenied("This subscription is not permitted.")
     try:
         destination(data.url, plugin.allowed_hosts)
     except ValueError as exc:
@@ -106,14 +112,15 @@ async def create(plugin: Any, data: Any, ctx: Context) -> Subscription:
     raise ResourceConflict("The webhook subscription maximum has been reached.")
 
 
-async def record(plugin: Any, builder: Any, action: str, obj: Any, ctx: Context) -> None:
-    if (
-        action not in {"create", "update"}
-        or not builder.api.enabled
-        or "retrieve" not in builder.api.operations
-    ):
+async def record(plugin: Any, action: str, obj: Any, ctx: Context) -> None:
+    from obox.views.generic.detail import _model_label
+
+    if action not in {"create", "update"}:
         return
-    slug = builder.api_key
+    model = type(obj)
+    mapper = sa.inspect(model)
+    pk_name = mapper.get_property_by_column(mapper.primary_key[0]).key
+    slug = ".".join(_model_label(model))
     timestamp = now()
     # Serialize allocation on each subscription. A polling cursor must never skip
     # a lower sequence that commits after a higher sequence.
@@ -140,7 +147,7 @@ async def record(plugin: Any, builder: Any, action: str, obj: Any, ctx: Context)
             "type": f"record.{action}d",
             "resource": slug,
             "action": action,
-            "record_id": str(getattr(obj, builder.pk_name)),
+            "record_id": str(getattr(obj, pk_name)),
             "occurred_at": timestamp,
         }
     ).model_dump(mode="json", by_alias=False)

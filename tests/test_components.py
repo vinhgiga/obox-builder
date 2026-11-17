@@ -14,18 +14,16 @@ import httpx
 import pytest
 import sqlalchemy as sa
 from fastapi import FastAPI
-from obox._auth import RBAC, Principal, ScopedIdentity
+from obox._auth import Principal, ScopedIdentity
 from obox._catalog import CatalogConfig
-from obox._components import Component, ComponentQuery, Use
+from obox._components import Component, Use
 from obox._config import RuntimeConfig
 from obox._context import Context
+from obox._filters import FilterGroup
 from obox._pages import Page
 from obox._runtime import _Runtime
+from obox._schemas import ApiRequest, ApiResponse
 from obox.contrib.analytics import Analytics, Bar, Pivot, Sum
-from obox.contrib.resources import Resource as ResourceDefinition
-from obox.contrib.resources.api_schema import ApiRequest, ApiResponse
-from obox.contrib.resources.apis import ApiOptions
-from obox.contrib.resources.filters import FilterGroup, FilterTerm
 from obox.core.exceptions import ImproperlyConfigured
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -43,53 +41,32 @@ class Record(Base):
     amount: Mapped[Decimal] = mapped_column(sa.Numeric(20, 2))
 
 
-class Policy(RBAC[Record]):
-    hidden = False
-
-    def scope(self, action: str, ctx: Context) -> Any:
-        return Record.tenant_id == ctx.principal.id
-
-    def aggregate_fields(self, ctx: Context) -> frozenset[str]:
-        return frozenset({"region_name", "amount"})
-
-    def read_fields(self, ctx: Context, *, obj: Record | None = None) -> frozenset[str] | None:
-        return frozenset({"id", "region_name"}) if self.hidden else None
+FIELDS = ("id", "region_name", "amount")
 
 
-class Records(ResourceDefinition[Record]):
-    model = Record
-    fields = ("id", "region_name", "amount")
-    filter_fields = ("region_name", "amount")
-    ordering = ("id",)
-    policy = Policy()
+class Selection:
+    source = Record
+    fields = FIELDS
 
-    class ApiOptions(ApiOptions):
-        enabled = False
-
-    api_options = ApiOptions
+    def get_queryset(self, ctx: Context) -> Any:
+        return sa.select(Record).where(Record.tenant_id == ctx.principal.id)
 
 
-class Totals(Bar):
+class Totals(Selection, Bar):
     name = "totals"
-    source = Records
     x = "region_name"
     y = Sum("amount")
     drill = True
 
 
-class Matrix(Pivot):
+class Matrix(Selection, Pivot):
     name = "matrix"
-    source = Records
     rows = "region_name"
     measure = Sum("amount")
     drill = True
 
 
-ACTOR = Principal(
-    id=1,
-    is_authenticated=True,
-    permissions=frozenset({"metrics.records.list", "metrics.records.retrieve"}),
-)
+ACTOR = Principal(id=1, is_authenticated=True, permissions=frozenset({"tests.view_record"}))
 ROOT = "/api/metrics/components"
 
 
@@ -100,14 +77,13 @@ async def runtime(
     components: tuple[Any, ...] = (Totals, Matrix),
     pages: tuple[Page, ...] = (),
     actor: Any = ACTOR,
-    builder: type[ResourceDefinition[Any]] = Records,
 ) -> AsyncIterator[tuple[_Runtime, httpx.AsyncClient]]:
 
     class Config(CatalogConfig):
         name = "obox"
         label = "metrics"
 
-    Config.builders, Config.components, Config.pages = ((builder,), components, pages)
+    Config.components, Config.pages = (components, pages)
     engine = create_async_engine(os.getenv("OBOX_TEST_DATABASE_URL", "sqlite+aiosqlite://"))
     namespace = "component_" + uuid4().hex if engine.dialect.name == "postgresql" else None
     if namespace:
@@ -130,7 +106,6 @@ async def runtime(
             session_factory=async_sessionmaker(engine, expire_on_commit=False),
             installed_apps=(Config,),
             principal_dependency=lambda: actor,
-            default_policy=RBAC(),
             csrf_secret="a" * 32,
             template_dirs=(tmp_path,),
         ),
@@ -206,7 +181,7 @@ def test_headless_api_and_python_service_with_crud_disabled(tmp_path: Path) -> N
         (replace(ACTOR, is_active=False), 401),
         (replace(ACTOR, permissions=frozenset()), 403),
         (ScopedIdentity(ACTOR, frozenset()), 403),
-        (ScopedIdentity(ACTOR, frozenset({"metrics.records.list"})), 200),
+        (ScopedIdentity(ACTOR, frozenset({"tests.view_record"})), 200),
     ],
 )
 def test_component_permissions_and_token_scopes(tmp_path: Path, actor: Any, status: int) -> None:
@@ -244,8 +219,6 @@ def test_component_and_records_permissions_and_field_projection(tmp_path: Path) 
             assert (
                 await client.post(ROOT + "/totals:records", json={"selector": token})
             ).status_code == 200
-            obox.get_resource(Record).api_read = ("id", "region_name")
-            assert (await client.post(ROOT + "/totals:query", json={})).status_code == 403
             assert "metrics.analytics.inspect" in obox.permissions
 
     asyncio.run(scenario())
@@ -259,7 +232,7 @@ def test_page_bindings_are_private_scoped_and_independent(tmp_path: Path) -> Non
             (
                 Use(Matrix, key="all"),
                 Use(Matrix, key="east", filters={"region_name": "East"}),
-                Bar(source=Records, x="region_name", y=Sum("amount")),
+                Bar(source=Record, fields=FIELDS, x="region_name", y=Sum("amount")),
             ),
         ),
     )
@@ -403,10 +376,10 @@ def test_template_components_are_local_escaped_and_isolated(tmp_path: Path) -> N
 @pytest.mark.parametrize(
     "component",
     [
-        Bar(source=Records, x="region_name"),
-        Bar(name="invalid_name", source=Records, x="region_name"),
+        Bar(source=Record, fields=FIELDS, x="region_name"),
+        Bar(name="invalid_name", source=Record, fields=FIELDS, x="region_name"),
         Bar(name="missingSource", x="region_name"),
-        Bar(name="missingField", source=Records, x="missing"),
+        Bar(name="missingField", source=Record, fields=FIELDS, x="missing"),
         Component(name="empty"),
         Component(name="missingTemplate", template="missing.html"),
         Component(name="incomplete", query_model=EchoInput),
@@ -419,7 +392,6 @@ def test_invalid_components_fail_before_database_startup(
     class Config(CatalogConfig):
         name = "obox"
         label = "metrics"
-        builders = (Records,)
         components = (component,)
 
     def build() -> None:
@@ -429,7 +401,6 @@ def test_invalid_components_fail_before_database_startup(
                 database_url="sqlite+aiosqlite://",
                 installed_apps=(Config,),
                 principal_dependency=lambda: ACTOR,
-                default_policy=RBAC(),
                 csrf_secret="a" * 32,
             ),
             features=(Analytics(),),
@@ -470,31 +441,6 @@ def test_constructor_overrides_snapshot_and_narrowing_hooks(tmp_path: Path) -> N
     asyncio.run(scenario())
 
 
-def test_sourceful_custom_provider_uses_narrowed_read_service(tmp_path: Path) -> None:
-
-    class CountOutput(ApiResponse):
-        count: int
-
-    class Count(Component):
-        name = "count"
-        source = Records
-        filters = FilterGroup(children=(FilterTerm("region_name", "is", "East"),))
-        query_model = ComponentQuery
-        result_model = CountOutput
-
-        async def get_data(self, query: ComponentQuery, ctx: Context) -> CountOutput:
-            records = await self.resource.list(ctx=ctx)
-            return CountOutput(count=len(records))
-
-    async def scenario() -> None:
-        async with runtime(tmp_path, components=(Count,)) as (_, client):
-            response = await client.post(ROOT + "/count:query", json={})
-            assert response.status_code == 200, response.text
-            assert response.json() == {"count": 1}
-
-    asyncio.run(scenario())
-
-
 @pytest.mark.parametrize("control", ["select", "order", "expand", "limit", "offset", "cursor"])
 def test_component_queries_cannot_change_server_shape(tmp_path: Path, control: str) -> None:
 
@@ -523,39 +469,17 @@ def test_invalid_custom_output_is_a_server_error(tmp_path: Path) -> None:
     asyncio.run(scenario())
 
 
-@pytest.mark.parametrize("problem", ["duplicate", "placement", "reserved", "filter", "plugin"])
-def test_registry_conflicts_fail_before_serving(tmp_path: Path, problem: str) -> None:
+def test_filtered_chart_cannot_escape_a_limited_source(tmp_path: Path) -> None:
+    class Limited(Matrix):
+        def get_queryset(self, ctx: Context) -> Any:
+            return super().get_queryset(ctx).order_by(Record.id).limit(1)
 
-    class Config(CatalogConfig):
-        name = "obox"
-        label = "metrics"
-        builders = (Records,)
-        components: tuple[Any, ...] = (Totals,)
+    async def scenario() -> None:
+        async with runtime(tmp_path, components=(Limited,)) as (_, client):
+            result = await client.post(
+                ROOT + "/matrix:query", json={"query": [["regionName", "eq.West"]]}
+            )
+            assert result.status_code == 200, result.text
+            assert result.json()["records"] == 0
 
-    features: tuple[Analytics, ...] = (Analytics(),)
-    if problem == "duplicate":
-        Config.components = (Totals, Totals)
-    elif problem == "placement":
-        Config.pages = (Page("report", components=((Totals, Totals),)),)
-    elif problem == "reserved":
-
-        class Reserved(Records):
-            slug = "components"
-
-        Config.builders = (Reserved,)
-    elif problem == "filter":
-        Config.components = (Totals(filters={"missing": "value"}),)
-    else:
-        features = ()
-    with pytest.raises(ImproperlyConfigured):
-        _Runtime(
-            FastAPI(),
-            settings=RuntimeConfig(
-                database_url="sqlite+aiosqlite://",
-                installed_apps=(Config,),
-                principal_dependency=lambda: ACTOR,
-                default_policy=RBAC(),
-                csrf_secret="a" * 32,
-            ),
-            features=features,
-        )
+    asyncio.run(scenario())

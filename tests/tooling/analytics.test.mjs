@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
-const client = new URL("../../obox/contrib/resources/static/http.js", import.meta.url).href;
+const client = new URL("../../obox/static/http.js", import.meta.url).href;
 const source = readFileSync(
   new URL("../../obox/contrib/analytics/static/analytics.js", import.meta.url),
   "utf8",

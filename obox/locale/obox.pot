@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-11-16 21:31+0700\n"
+"POT-Creation-Date: 2026-11-17 23:00+0700\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -17,61 +17,81 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 2.18.0\n"
 
-#: obox/contrib/analytics/routes.py:213
+#: obox/_navigation.py:74
+msgid "Home"
+msgstr ""
+
+#: obox/_navigation.py:106 obox/templates/obox/app_index.html:4
+msgid "Applications"
+msgstr ""
+
+#: obox/_routes.py:264
+msgid "msg"
+msgstr ""
+
+#: obox/_routes.py:273
+msgid "Internal server error."
+msgstr ""
+
+#: obox/_routes.py:285
+msgid "Internal server error.Invalid input."
+msgstr ""
+
+#: obox/contrib/analytics/routes.py:199
 msgid "Empty"
 msgstr ""
 
-#: obox/contrib/analytics/routes.py:214
+#: obox/contrib/analytics/routes.py:200
 msgid "Total"
 msgstr ""
 
-#: obox/contrib/analytics/routes.py:215
+#: obox/contrib/analytics/routes.py:201
 msgid "Loading…"
 msgstr ""
 
-#: obox/contrib/analytics/routes.py:216
+#: obox/contrib/analytics/routes.py:202
 #: obox/contrib/analytics/templates/obox_analytics/records.html:21
 msgid "No records found."
 msgstr ""
 
-#: obox/contrib/analytics/routes.py:217
+#: obox/contrib/analytics/routes.py:203
 msgid "Unable to load data. Try again."
 msgstr ""
 
-#: obox/contrib/analytics/routes.py:218
+#: obox/contrib/analytics/routes.py:204
 msgid "Value"
 msgstr ""
 
-#: obox/contrib/analytics/routes.py:219
+#: obox/contrib/analytics/routes.py:205
 msgid "Series"
 msgstr ""
 
-#: obox/contrib/analytics/routes.py:220
+#: obox/contrib/analytics/routes.py:206
 #: obox/contrib/analytics/templates/obox_analytics/records.html:10
 msgid "View records"
 msgstr ""
 
-#: obox/contrib/analytics/routes.py:221
+#: obox/contrib/analytics/routes.py:207
 msgid "Chart options"
 msgstr ""
 
-#: obox/contrib/analytics/routes.py:222
+#: obox/contrib/analytics/routes.py:208
 msgid "View as table"
 msgstr ""
 
-#: obox/contrib/analytics/routes.py:223
+#: obox/contrib/analytics/routes.py:209
 msgid "View as chart"
 msgstr ""
 
-#: obox/contrib/analytics/routes.py:224
+#: obox/contrib/analytics/routes.py:210
 msgid "Expand"
 msgstr ""
 
-#: obox/contrib/analytics/routes.py:225
+#: obox/contrib/analytics/routes.py:211
 msgid "Close"
 msgstr ""
 
-#: obox/contrib/analytics/routes.py:226
+#: obox/contrib/analytics/routes.py:212
 msgid "All records"
 msgstr ""
 
@@ -80,7 +100,7 @@ msgid "Back"
 msgstr ""
 
 #: obox/contrib/analytics/templates/obox_analytics/records.html:17
-#: obox/contrib/resources/templates/obox/app_index.html:21
+#: obox/templates/obox/app_index.html:21
 msgid "Open"
 msgstr ""
 
@@ -124,7 +144,6 @@ msgid "Superuser access is required."
 msgstr ""
 
 #: obox/contrib/auth/admin.py:236 obox/contrib/auth/views.py:217
-#: obox/contrib/resources/ui.py:1008
 msgid "Duplicate form fields are not permitted."
 msgstr ""
 
@@ -217,8 +236,7 @@ msgstr ""
 msgid "Invalid username or password."
 msgstr ""
 
-#: obox/contrib/auth/views.py:95
-#: obox/contrib/resources/templates/obox/login.html:47
+#: obox/contrib/auth/views.py:95 obox/templates/obox/login.html:47
 msgid "Sign in"
 msgstr ""
 
@@ -321,9 +339,6 @@ msgstr ""
 
 #: obox/contrib/auth/templates/obox/auth/roles.html:86
 #: obox/contrib/auth/templates/obox/auth/user_form.html:192
-#: obox/contrib/resources/templates/obox/_record_comment.html:11
-#: obox/contrib/resources/templates/obox/_record_fields.html:30
-#: obox/contrib/resources/templates/obox/form.html:117
 msgid "Save"
 msgstr ""
 
@@ -348,7 +363,7 @@ msgid "Back to users"
 msgstr ""
 
 #: obox/contrib/auth/templates/obox/auth/user_form.html:45
-#: obox/contrib/resources/templates/obox/login.html:33
+#: obox/templates/obox/login.html:33
 msgid "Password"
 msgstr ""
 
@@ -358,8 +373,6 @@ msgstr ""
 
 #: obox/contrib/auth/templates/obox/auth/user_form.html:99
 #: obox/contrib/auth/templates/obox/auth/user_form.html:108
-#: obox/contrib/resources/templates/obox/form.html:83
-#: obox/contrib/resources/templates/obox/form.html:104
 msgid "Remove"
 msgstr ""
 
@@ -380,9 +393,6 @@ msgid "No permissions are granted by the selected roles."
 msgstr ""
 
 #: obox/contrib/auth/templates/obox/auth/user_form.html:194
-#: obox/contrib/resources/templates/obox/_record_comment.html:12
-#: obox/contrib/resources/templates/obox/_record_fields.html:33
-#: obox/contrib/resources/templates/obox/list.html:80
 msgid "Cancel"
 msgstr ""
 
@@ -399,15 +409,11 @@ msgid "User deleted."
 msgstr ""
 
 #: obox/contrib/auth/templates/obox/auth/users.html:17
-#: obox/contrib/resources/templates/obox/app_index.html:12
+#: obox/templates/obox/app_index.html:12
 msgid "Actions"
 msgstr ""
 
 #: obox/contrib/auth/templates/obox/auth/users.html:33
-#: obox/contrib/resources/templates/obox/_record_activity.html:17
-#: obox/contrib/resources/templates/obox/_record_content.html:5
-#: obox/contrib/resources/templates/obox/_record_fields.html:49
-#: obox/contrib/resources/templates/obox/detail.html:3
 msgid "Edit"
 msgstr ""
 
@@ -416,11 +422,6 @@ msgid "Delete this user?"
 msgstr ""
 
 #: obox/contrib/auth/templates/obox/auth/users.html:40
-#: obox/contrib/resources/templates/obox/_record_activity.html:25
-#: obox/contrib/resources/templates/obox/_record_content.html:7
-#: obox/contrib/resources/templates/obox/detail.html:9
-#: obox/contrib/resources/templates/obox/form.html:77
-#: obox/contrib/resources/templates/obox/form.html:126
 msgid "Delete"
 msgstr ""
 
@@ -436,445 +437,71 @@ msgstr ""
 msgid "No users found."
 msgstr ""
 
-#: obox/contrib/resources/catalog.py:100
-msgid "Home"
-msgstr ""
-
-#: obox/contrib/resources/catalog.py:132
-#: obox/contrib/resources/templates/obox/app_index.html:4
-msgid "Applications"
-msgstr ""
-
-#: obox/contrib/resources/forms.py:74
-msgid "Enter valid JSON."
-msgstr ""
-
-#: obox/contrib/resources/http.py:264
-msgid "msg"
-msgstr ""
-
-#: obox/contrib/resources/http.py:273
-msgid "Internal server error."
-msgstr ""
-
-#: obox/contrib/resources/http.py:285
-msgid "Internal server error.Invalid input."
-msgstr ""
-
-#: obox/contrib/resources/service.py:673
-msgid "Field cannot be null."
-msgstr ""
-
-#: obox/contrib/resources/service.py:687 obox/contrib/resources/service.py:769
-msgid "Field is required."
-msgstr ""
-
-#: obox/contrib/resources/service.py:717
-msgid "Related record is unavailable."
-msgstr ""
-
-#: obox/contrib/resources/service.py:740 obox/contrib/resources/service.py:749
-msgid "A value is outside the database column limits."
-msgstr ""
-
-#: obox/contrib/resources/ui.py:445
-msgid "Unsupported form widget."
-msgstr ""
-
-#: obox/contrib/resources/ui.py:690 obox/contrib/resources/ui.py:693
-msgid "Invalid inline count."
-msgstr ""
-
-#: obox/contrib/resources/ui.py:705 obox/contrib/resources/ui.py:734
-msgid "An inline record is unavailable."
-msgstr ""
-
-#: obox/contrib/resources/ui.py:775
-msgid "Unknown inline field."
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/_record_activity.html:22
-#: obox/contrib/resources/templates/obox/confirm_delete.html:3
-#: obox/contrib/resources/ui.py:1136
-msgid "Are you sure?"
-msgstr ""
-
-#: obox/contrib/resources/ui.py:1165 obox/contrib/resources/ui.py:1183
-msgid "Choose a valid action and records."
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/_form_controls.html:12
-msgid "Choose…"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/_record_activity.html:2
-#: obox/contrib/resources/templates/obox/_record_sidebar.html:2
-msgid "Activity"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/_record_activity.html:15
-msgid "Edited"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/_record_activity.html:31
-msgid "No activity yet."
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/_record_activity.html:33
-#: obox/contrib/resources/templates/obox/_record_fields.html:21
-#: obox/contrib/resources/templates/obox/_record_relationship.html:13
-msgid "Load more"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/_record_activity.html:42
-#: obox/contrib/resources/templates/obox/_record_activity.html:45
-#: obox/contrib/resources/templates/obox/_record_comment.html:8
-msgid "Comment"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/_record_comment.html:15
-#: obox/contrib/resources/templates/obox/_record_fields.html:35
-#: obox/contrib/resources/templates/obox/form.html:27
-msgid "Reload"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/_record_content.html:4
-#: obox/contrib/resources/templates/obox/detail.html:3
-#: obox/contrib/resources/templates/obox/form.html:13
-msgid "Back to list"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/_record_fields.html:14
-#: obox/contrib/resources/templates/obox/components.html:26
-msgid "Search"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/_record_fields.html:28
-msgid "Clear value"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/_record_relationship.html:9
-#: obox/contrib/resources/templates/obox/_related.html:22
-#: obox/contrib/resources/templates/obox/list.html:464
-msgid "No records."
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/account.html:3
+#: obox/templates/obox/account.html:3
 msgid "No resources are available for your account."
 msgstr ""
 
-#: obox/contrib/resources/templates/obox/app_index.html:5
+#: obox/templates/obox/app_index.html:5
 msgid "Data"
 msgstr ""
 
-#: obox/contrib/resources/templates/obox/app_index.html:11
-#: obox/contrib/resources/templates/obox/base.html:103
-#: obox/contrib/resources/templates/obox/base.html:118
+#: obox/templates/obox/app_index.html:11 obox/templates/obox/base.html:103
+#: obox/templates/obox/base.html:118
 msgid "Resources"
 msgstr ""
 
-#: obox/contrib/resources/templates/obox/app_index.html:23
+#: obox/templates/obox/app_index.html:23
 msgid "Create"
 msgstr ""
 
-#: obox/contrib/resources/templates/obox/app_index.html:28
+#: obox/templates/obox/app_index.html:28
 msgid "No resources available."
 msgstr ""
 
-#: obox/contrib/resources/templates/obox/base.html:22
+#: obox/templates/obox/base.html:22
 msgid "Skip to content"
 msgstr ""
 
-#: obox/contrib/resources/templates/obox/base.html:53
+#: obox/templates/obox/base.html:53
 msgid "Sign out"
 msgstr ""
 
-#: obox/contrib/resources/templates/obox/base.html:58
+#: obox/templates/obox/base.html:58
 msgid "Language"
 msgstr ""
 
-#: obox/contrib/resources/templates/obox/base.html:75
-#: obox/contrib/resources/templates/obox/base.html:76
+#: obox/templates/obox/base.html:75 obox/templates/obox/base.html:76
 msgid "Browse tabs"
 msgstr ""
 
-#: obox/contrib/resources/templates/obox/base.html:98
-#: obox/contrib/resources/templates/obox/base.html:99
+#: obox/templates/obox/base.html:98 obox/templates/obox/base.html:99
 msgid "Search tabs"
 msgstr ""
 
-#: obox/contrib/resources/templates/obox/base.html:114
+#: obox/templates/obox/base.html:114
 msgid "No tabs match your search."
 msgstr ""
 
-#: obox/contrib/resources/templates/obox/components.html:43
-#: obox/contrib/resources/templates/obox/list.html:156
-#: obox/contrib/resources/templates/obox/list.html:162
+#: obox/templates/obox/components.html:26
+msgid "Search"
+msgstr ""
+
+#: obox/templates/obox/components.html:43
 msgid "Filter"
 msgstr ""
 
-#: obox/contrib/resources/templates/obox/components.html:54
+#: obox/templates/obox/components.html:54
 msgid "Apply filters"
 msgstr ""
 
-#: obox/contrib/resources/templates/obox/components.html:57
-#: obox/contrib/resources/templates/obox/list.html:169
+#: obox/templates/obox/components.html:57
 msgid "Reset"
 msgstr ""
 
-#: obox/contrib/resources/templates/obox/confirm_delete.html:4
-#, python-format
-msgid "Are you sure you want to delete “%(label)s”?"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/confirm_delete.html:8
-msgid "Yes, I'm sure"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/confirm_delete.html:10
-msgid "No, take me back"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/form.html:18
-#: obox/contrib/resources/templates/obox/form.html:19
-msgid "Previous record"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/form.html:22
-#: obox/contrib/resources/templates/obox/form.html:23
-msgid "Next record"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/form.html:55
-msgid "Delete?"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/form.html:110
-#, python-format
-msgid "Add another %(name)s"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/form.html:120
-msgid "Save and add another"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/form.html:123
-msgid "Save and continue"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/index.html:11
+#: obox/templates/obox/index.html:11
 msgid "No applications available."
 msgstr ""
 
-#: obox/contrib/resources/templates/obox/list.html:10
-msgid "Grid view"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/list.html:14
-msgid "Choose a bulk action"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/list.html:20
-msgid "Choose an action"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/list.html:21
-msgid "Delete selected"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/list.html:28
-msgid "Run"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/list.html:44
-#: obox/contrib/resources/templates/obox/list.html:82
-msgid "Sort"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/list.html:48
-msgid "Sort by"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/list.html:51
-#: obox/contrib/resources/templates/obox/list.html:52
-msgid ""
-"Sort records by one or more fields. Fields higher in the list take "
-"priority."
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/list.html:67
-#: obox/contrib/resources/templates/obox/list.html:68
-#: obox/contrib/resources/templates/obox/list.html:128
-#: obox/contrib/resources/templates/obox/list.html:129
-#: obox/contrib/resources/templates/obox/list.html:195
-#: obox/contrib/resources/templates/obox/list.html:199
-msgid "Find a field"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/list.html:75
-msgid "Add another sort"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/list.html:102
-msgid "Group"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/list.html:109
-msgid "Group by"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/list.html:112
-#: obox/contrib/resources/templates/obox/list.html:113
-msgid ""
-"Group records by one or more fields. Fields higher in the list take "
-"priority."
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/list.html:136
-msgid "Add subgroup"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/list.html:163
-msgid "In this view, show records"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/list.html:167
-msgid "Apply"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/list.html:191
-msgid "Hide fields"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/list.html:204
-msgid "Fields"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/list.html:236
-msgid "No fields found."
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/list.html:241
-msgid "Hide all"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/list.html:244
-msgid "Show all"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/list.html:259
-#: obox/contrib/resources/templates/obox/list.html:264
-msgid "Row height"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/list.html:305
-msgid "Wrap headers"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/list.html:315
-#: obox/contrib/resources/templates/obox/list.html:316
-#: obox/contrib/resources/templates/obox/list.html:333
-#: obox/contrib/resources/templates/obox/list.html:338
-#: obox/contrib/resources/templates/obox/list.html:339
-msgid "Search records"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/list.html:330
-msgid "No matches"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/list.html:331
-msgid "of"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/list.html:346
-#: obox/contrib/resources/templates/obox/list.html:347
-msgid "Previous match"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/list.html:360
-#: obox/contrib/resources/templates/obox/list.html:361
-msgid "Next match"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/list.html:374
-#: obox/contrib/resources/templates/obox/list.html:375
-msgid "Close search"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/list.html:389
-msgid "records"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/list.html:396
-msgid "Delete this selected record?"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/list.html:397
-msgid "Delete these selected records?"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/list.html:413
-msgid "Select all records on this page"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/list.html:415
-msgid "Row"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/list.html:452
-msgid "Select record"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/list.html:481
-msgid "Add record"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/list.html:490
-msgid "record on this page"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/list.html:491
-msgid "records on this page"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/list.html:492
-msgid "record selected"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/list.html:493
-msgid "records selected"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/list.html:494
-#, python-format
-msgid "All %(count)s record selected"
-msgid_plural "All %(count)s records selected"
-msgstr[0] ""
-msgstr[1] ""
-
-#: obox/contrib/resources/templates/obox/list.html:494
-#, python-format
-msgid "%(count)s record on this page"
-msgid_plural "%(count)s records on this page"
-msgstr[0] ""
-msgstr[1] ""
-
-#: obox/contrib/resources/templates/obox/list.html:496
-#, python-format
-msgid "Select all %(count)s record"
-msgid_plural "Select all %(count)s records"
-msgstr[0] ""
-msgstr[1] ""
-
-#: obox/contrib/resources/templates/obox/list.html:500
-msgid "Clear selection"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/list.html:503
-msgid "Next page →"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/login.html:43
+#: obox/templates/obox/login.html:43
 msgid "Show password"
 msgstr ""

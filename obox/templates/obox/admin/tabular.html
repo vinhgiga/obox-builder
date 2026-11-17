@@ -1,0 +1,14 @@
+<fieldset>
+  <legend>{{ group.inline.model.__name__ }}</legend>
+  {{ group.formset.management_form.as_p() }}
+  {% for error in group.formset.non_form_errors() %}<p role="alert">{{ error }}</p>{% endfor %}
+  <table>
+    {% if group.formset.forms %}<thead><tr>{% for bound in group.formset.forms[0] if not bound.is_hidden %}<th>{{ bound.label }}</th>{% endfor %}</tr></thead>{% endif %}
+    <tbody>
+      {% for child in group.formset %}
+        <tr>{% for bound in child %}<td {% if bound.is_hidden and not bound.errors %}hidden{% endif %}>{{ bound }}{% for error in bound.errors %}<span role="alert">{{ error }}</span>{% endfor %}</td>{% endfor %}</tr>
+        {% for error in child.non_field_errors() %}<tr><td role="alert">{{ error }}</td></tr>{% endfor %}
+      {% endfor %}
+    </tbody>
+  </table>
+</fieldset>

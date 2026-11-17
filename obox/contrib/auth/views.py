@@ -14,8 +14,8 @@ from obox._exceptions import N_, BuilderValidationError, PermissionDenied
 from obox._http import read_form
 from obox._i18n import context as translation_context
 from obox._i18n import localize, translate
-from obox.contrib.resources.http import OboxRoute, _authentication_challenge
-from obox.contrib.resources.ui import build_navigation
+from obox._routes import OboxRoute, _authentication_challenge
+from obox._ui import build_navigation
 from obox.core.exceptions import ImproperlyConfigured
 
 if TYPE_CHECKING:

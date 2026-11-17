@@ -162,7 +162,7 @@ def test_public_and_authenticated_pages(configs: tuple[type[CatalogConfig], ...]
 
 
 @pytest.mark.parametrize(
-    "permission", ["", "_private", "two.parts", "a.b.c.d", " leading", "a-b", 42]
+    "permission", ["", "_private", "two..parts", "a.b.c.d", " leading", "a-b", 42]
 )
 def test_invalid_permission_declarations_fail(permission: Any) -> None:
     with pytest.raises(ImproperlyConfigured, match="permission"):

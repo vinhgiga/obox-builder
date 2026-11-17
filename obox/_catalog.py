@@ -19,7 +19,6 @@ if TYPE_CHECKING:
     from obox._config import RuntimeConfig
     from obox._context import Context
     from obox._runtime import _Runtime
-    from obox.contrib.resources import Resource
 
 
 class CatalogConfig:
@@ -28,7 +27,6 @@ class CatalogConfig:
     verbose_name: str = ""
     tab_bar_color: str = "#f3f4f6"
     requires: tuple[str, ...] = ()
-    builders: tuple[type[Resource[Any]], ...] = ()
     components: tuple[type[Component] | Component, ...] = ()
     pages: tuple[Page, ...] = ()
     ui_prefix: str | None = None
@@ -67,7 +65,7 @@ class CatalogConfig:
             or re.fullmatch(r"#[\da-fA-F]{6}", config.tab_bar_color) is None
         ):
             raise ImproperlyConfigured("CatalogConfig.tab_bar_color must be a six-digit hex color.")
-        for field in ("requires", "builders", "components", "pages", "routers"):
+        for field in ("requires", "components", "pages", "routers"):
             if not isinstance(getattr(config, field), tuple):
                 raise ImproperlyConfigured(f"CatalogConfig.{field} must be a tuple.")
         if any(not isinstance(router, APIRouter) for router in config.routers):

@@ -13,19 +13,18 @@ from contextlib import asynccontextmanager
 from datetime import timedelta
 from pathlib import Path
 from types import ModuleType
-from typing import Any, cast
+from typing import Any
 from uuid import UUID, uuid4
 
 import httpx
 import pytest
 import sqlalchemy as sa
 from fastapi import FastAPI, Request
-from obox._auth import RBAC, Principal, ScopedIdentity
+from obox._auth import Principal, ScopedIdentity
 from obox._config import RuntimeConfig
 from obox._context import Context
 from obox._exceptions import PermissionDenied
 from obox._runtime import _Runtime
-from obox.contrib.resources import Resource as ResourceDefinition
 from obox.contrib.webhooks import Webhooks
 from obox.contrib.webhooks.cli import run
 from obox.contrib.webhooks.models import Base as WebhookBase
@@ -35,8 +34,6 @@ from obox.contrib.webhooks.worker import Worker
 from obox.core.exceptions import ImproperlyConfigured
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-
-from tests.helpers import with_builders
 
 
 class Base(DeclarativeBase):
@@ -53,29 +50,17 @@ STAFF = Principal(id=1, is_authenticated=True, is_staff=True, is_superuser=True)
 OTHER = Principal(id=2, is_authenticated=True, is_staff=True, is_superuser=True)
 
 
-class Policy(RBAC[Any]):
+class Policy:
     hide_identity = False
 
     def scope(self, action: str, ctx: Context) -> Any:
         return Record.name != "hidden" if action == "retrieve" else sa.true()
 
     async def allow(self, action: str, ctx: Context, *, obj: Any = None) -> bool:
-        return (obj is None or obj.name != "denied") and await super().allow(action, ctx, obj=obj)
+        return (obj is None or obj.name != "denied") and ctx.principal.has_perm("tests.view_record")
 
     def read_fields(self, ctx: Context, *, obj: Any = None) -> frozenset[str] | None:
         return frozenset({"name"}) if self.hide_identity else None
-
-
-class Resource(ResourceDefinition[Record]):
-    model = Record
-    slug = "records"
-    fields = ("id", "name")
-
-    async def before_save(
-        self, instance: Record, changes: Any, ctx: Context, *, created: bool
-    ) -> None:
-        if instance.name == "reject":
-            raise PermissionDenied("Rejected by hook.")
 
 
 @asynccontextmanager
@@ -106,6 +91,7 @@ async def application(
         return app.app.state.identities.get(owner)
 
     plugin = Webhooks(
+        models=(Record,),
         signing_keys={"primary": b"k" * 32},
         active_key="primary",
         resolve_principal=current,
@@ -116,19 +102,64 @@ async def application(
     try:
         app = _Runtime(
             FastAPI(),
-            settings=with_builders(
-                RuntimeConfig(
-                    session_factory=async_sessionmaker(engine, expire_on_commit=False),
-                    principal_dependency=principal,
-                    default_policy=policy,
-                    csrf_secret="x" * 32,
-                ),
-                Resource,
+            settings=RuntimeConfig(
+                session_factory=async_sessionmaker(engine, expire_on_commit=False),
+                principal_dependency=principal,
+                csrf_secret="x" * 32,
             ),
             features=[plugin],
         )
         app.app.state.identities = {"1": STAFF, "2": OTHER}
-        policy = cast(Policy, app.get_resource(Record).policy)
+        plugin.get_queryset = lambda model, ctx: sa.select(model).where(
+            policy.scope("retrieve", ctx)
+        )
+
+        async def allowed(model: Any, ctx: Context, obj: Any = None) -> bool:
+            return not policy.hide_identity and await policy.allow("retrieve", ctx, obj=obj)
+
+        plugin.has_permission = allowed
+        from fastapi import APIRouter, Depends
+        from obox._routes import ApiRoute
+
+        router = APIRouter(prefix="/api/admin/records", route_class=ApiRoute)
+        dependency = Depends(app.context_dependency("api"))
+
+        async def create_record(data: Any, ctx: Context) -> Record:
+            if data["name"] == "reject":
+                raise PermissionDenied("Rejected by host validation.")
+            obj = Record(name=data["name"])
+            ctx.session.add(obj)
+            await ctx.session.flush()
+            await plugin.record("create", obj, ctx)
+            return obj
+
+        @router.post("", status_code=201)
+        async def create(data: dict[str, Any], ctx: Context = dependency) -> Any:
+            obj = await create_record(data, ctx)
+            return {"id": str(obj.id), "name": obj.name}
+
+        @router.patch("/{id}")
+        async def update(id: int, data: dict[str, Any], ctx: Context = dependency) -> Any:
+            obj = await ctx.session.get(Record, id)
+            obj.name = data["name"]
+            await ctx.session.flush()
+            await plugin.record("update", obj, ctx)
+            return {"id": str(obj.id), "name": obj.name}
+
+        @router.delete("/{id}", status_code=204, response_model=None)
+        async def delete(id: int, ctx: Context = dependency) -> Any:
+            from fastapi import Response
+
+            await ctx.session.delete(await ctx.session.get(Record, id))
+            return Response(status_code=204)
+
+        @router.post(":batchWrite")
+        async def batch(data: dict[str, Any], ctx: Context = dependency) -> Any:
+            for operation in data["operations"]:
+                await create_record(operation["data"], ctx)
+            return {}
+
+        app.include_router(router)
         async with (
             app.app.router.lifespan_context(app.app),
             httpx.AsyncClient(
@@ -146,7 +177,7 @@ async def application(
 async def subscribe(client: httpx.AsyncClient, **kwargs: Any) -> httpx.Response:
     return await client.post(
         "/api/webhooks",
-        json={"resource": "admin/records", "url": "https://receiver.example/events", **kwargs},
+        json={"resource": "tests.record", "url": "https://receiver.example/events", **kwargs},
     )
 
 
@@ -311,7 +342,7 @@ def test_subscription_authentication_csrf_and_no_token_delegation(tmp_path: Path
                 result = await client.post(
                     "/api/webhooks",
                     headers={"actor": actor},
-                    json={"resource": "admin/records", "url": "https://receiver.example/events"},
+                    json={"resource": "tests.record", "url": "https://receiver.example/events"},
                 )
                 assert result.status_code == status, result.text
             client.cookies.set("session", "invalid")
@@ -649,14 +680,10 @@ def test_worker_cli_loads_factory_and_prunes_with_host_lifecycle(
                 )
                 obox = _Runtime(
                     FastAPI(),
-                    settings=with_builders(
-                        RuntimeConfig(
-                            session_factory=app.session_factory,
-                            csrf_secret="x" * 32,
-                            default_policy=Policy(),
-                            principal_dependency=lambda: STAFF,
-                        ),
-                        Resource,
+                    settings=RuntimeConfig(
+                        session_factory=app.session_factory,
+                        csrf_secret="x" * 32,
+                        principal_dependency=lambda: STAFF,
                     ),
                     features=[plugin],
                 )

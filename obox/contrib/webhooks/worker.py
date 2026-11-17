@@ -16,9 +16,9 @@ from uuid import uuid4
 
 import sqlalchemy as sa
 
+from obox._async import invoke
 from obox._context import Context
 from obox._exceptions import OboxError
-from obox.contrib.resources.service import invoke
 from obox.contrib.webhooks.models import Delivery, Event, Subscription, now
 from obox.contrib.webhooks.schemas import ChangeNotification
 from obox.contrib.webhooks.services import aware, resource
@@ -39,8 +39,11 @@ async def authorized(plugin: Any, sub: Subscription, event: Event, ctx: Context)
         return False
     try:
         b = resource(plugin, sub.resource)
-        obj = await plugin.app.service(b.model).get(event.record_id, ctx=ctx)
-        return b.pk_name in b.readable(ctx, obj=obj, fields=b.api_read)
+        from obox.contrib._models import authorize, get_object
+
+        authorize(b, ctx.principal, "view")
+        obj = await get_object(b, event.record_id, ctx, plugin.get_queryset(b, ctx))
+        return bool(await invoke(plugin.has_permission, b, ctx, obj))
     except OboxError:
         return False
 

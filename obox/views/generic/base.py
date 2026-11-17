@@ -37,9 +37,21 @@ async def _identify(request: Request) -> Any:
 
 @asynccontextmanager
 async def _request_session(request: Request) -> AsyncIterator[None]:
-    await _identify(request)
+    actor = await _identify(request)
     if settings.DATABASES:
-        async with _session():
+        async with _session() as session:
+            from obox._context import Context
+
+            runtime = getattr(request.app.state, "obox", None)
+            session.info["obox._context"] = Context(
+                principal=actor,
+                session=session,
+                request=request,
+                source="ui",
+                _owner=runtime,
+                _active=True,
+                _transaction=session.sync_session.get_transaction(),
+            )
             yield
     else:
         yield

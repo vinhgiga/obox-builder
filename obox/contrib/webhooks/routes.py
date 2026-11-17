@@ -7,10 +7,10 @@ import sqlalchemy as sa
 from fastapi import APIRouter, Depends, Request, Response
 
 from obox._context import Context
-from obox.contrib.resources.api_schema import FieldError, Problem
-from obox.contrib.resources.filters import FilterGroup
-from obox.contrib.resources.http import ApiRoute
-from obox.contrib.resources.query import ListQuery, invalid, parameters
+from obox._filters import FilterGroup
+from obox._query import ListQuery, invalid, parameters
+from obox._routes import ApiRoute
+from obox._schemas import FieldError, Problem
 from obox.contrib.webhooks.models import Delivery, Event, Subscription, now
 from obox.contrib.webhooks.schemas import (
     Deliveries,

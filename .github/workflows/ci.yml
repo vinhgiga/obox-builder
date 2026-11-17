@@ -128,8 +128,8 @@ jobs:
           assert obox.__version__ == '0.1.0';
           assert find_spec('obox_builder') is None;
           assert Form is not ModelForm;
-          assets = files('obox.contrib.resources');
-          assert assets.joinpath('templates/obox/form.html').is_file();
+          assets = files('obox');
+          assert assets.joinpath('templates/obox/admin/form.html').is_file();
           assert assets.joinpath('static/tabler.min.css').read_text().strip();
           assert assets.joinpath('static/ui.css').read_text().strip()"
 

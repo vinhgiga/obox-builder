@@ -7,6 +7,8 @@ from typing import Any
 
 import sqlalchemy as sa
 
+from obox._async import invoke
+from obox.core.exceptions import PermissionDenied
 from obox.db import _session
 from obox.forms import ModelForm, modelform_factory
 from obox.views.generic.detail import _model_label
@@ -37,6 +39,7 @@ class ModelBuilder:
     add_form_template: str | None = None
     change_form_template: str | None = None
     delete_confirmation_template: str | None = None
+    inlines: Sequence[type[InlineModelAdmin]] = ()
 
     def __init__(self, model: type[Any], admin_site: Any) -> None:
         self.model, self.admin_site = model, admin_site
@@ -157,7 +160,24 @@ class ModelBuilder:
     async def save_related(
         self, request: Any, form: ModelForm, formsets: Any, change: bool
     ) -> None:
-        pass
+        await form.save_m2m()
+        for formset in formsets:
+            await self.save_formset(request, form, formset, change)
+
+    async def save_formset(self, request: Any, form: ModelForm, formset: Any, change: bool) -> None:
+        await formset.save()
+
+    def get_inlines(self, request: Any, obj: Any = None) -> Any:
+        return self.inlines
+
+    def get_inline_instances(self, request: Any, obj: Any = None) -> Any:
+        return [inline(self.model, self.admin_site) for inline in self.get_inlines(request, obj)]
+
+    def get_formsets_with_inlines(self, request: Any, obj: Any = None) -> Any:
+        return (
+            (inline.get_formset(request, obj), inline)
+            for inline in self.get_inline_instances(request, obj)
+        )
 
     async def delete_model(self, request: Any, obj: Any) -> None:
         async with _session() as session:
@@ -210,3 +230,72 @@ class ModelBuilder:
                     getattr(method, "short_description", name.replace("_", " ").capitalize()),
                 )
         return allowed
+
+
+class InlineModelAdmin(ModelBuilder):
+    model: type[Any]
+    fk_name: str | None = None
+    formset: Any = None
+    extra = 3
+    min_num = 0
+    max_num: int | None = None
+    can_delete = True
+    template = "obox/admin/stacked.html"
+
+    def __init__(self, parent_model: type[Any], admin_site: Any) -> None:
+        super().__init__(self.model, admin_site)
+        self.parent_model = parent_model
+
+    def get_extra(self, request: Any, obj: Any = None, **kwargs: Any) -> int:
+        return self.extra
+
+    def get_min_num(self, request: Any, obj: Any = None, **kwargs: Any) -> int:
+        return self.min_num
+
+    def get_max_num(self, request: Any, obj: Any = None, **kwargs: Any) -> int | None:
+        return self.max_num
+
+    def get_formset(self, request: Any, obj: Any = None, **kwargs: Any) -> Any:
+        from obox.forms import BaseInlineFormSet, inlineformset_factory
+
+        inline = self
+        base = self.formset or BaseInlineFormSet
+
+        class PermissionFormSet(base):  # type: ignore[misc, valid-type]
+            async def save_new(self, form: Any, commit: bool = True) -> Any:
+                if not await invoke(inline.has_add_permission, request):
+                    raise PermissionDenied()
+                return await super().save_new(form, commit)
+
+            async def save_existing(self, form: Any, instance: Any, commit: bool = True) -> Any:
+                if not await invoke(inline.has_change_permission, request, instance):
+                    raise PermissionDenied()
+                return await super().save_existing(form, instance, commit)
+
+            async def delete_existing(self, instance: Any, commit: bool = True) -> None:
+                if not await invoke(inline.has_delete_permission, request, instance):
+                    raise PermissionDenied()
+                await super().delete_existing(instance, commit)
+
+        return inlineformset_factory(
+            self.parent_model,
+            self.model,
+            self.form,
+            formset=PermissionFormSet,
+            fk_name=self.fk_name,
+            fields=self.get_fields(request, obj),
+            exclude=self.get_exclude(request, obj),
+            extra=self.get_extra(request, obj),
+            min_num=self.get_min_num(request, obj),
+            max_num=self.get_max_num(request, obj),
+            can_delete=self.can_delete,
+            **kwargs,
+        )
+
+
+class TabularInline(InlineModelAdmin):
+    template = "obox/admin/tabular.html"
+
+
+class StackedInline(InlineModelAdmin):
+    pass

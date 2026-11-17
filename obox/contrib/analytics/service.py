@@ -11,18 +11,19 @@ from typing import TYPE_CHECKING, Any
 import sqlalchemy as sa
 from sqlalchemy.exc import DBAPIError
 
+from obox._async import invoke
 from obox._components import ComponentQuery, ComponentRecords, RecordResults
 from obox._exceptions import BuilderValidationError, NotFound
 from obox.contrib.analytics import AggregateTimeout, Chart, Pivot
+from obox.contrib.analytics.aggregates import encode
 from obox.contrib.analytics.query import execute as chart_data
 from obox.contrib.analytics.query import records as chart_records
 from obox.contrib.analytics.query import selector
-from obox.contrib.resources.aggregates import encode
 from obox.core.exceptions import ImproperlyConfigured
 
 if TYPE_CHECKING:
+    from obox._component_service import ComponentService
     from obox._context import Context
-    from obox.contrib.resources.components import ComponentService
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +55,7 @@ async def execute(
     service: ComponentService, query: ComponentQuery, ctx: Context, component: Chart | Pivot
 ) -> dict[str, Any]:
     limits = service.app._feature("analytics")
-    resource, spec = service.resource, service.spec
+    resource, spec = service.dataset, service.spec
     if resource is None:
         raise ImproperlyConfigured("Analytics requires a source resource.")
     options = service.options(query)
@@ -112,7 +113,7 @@ async def records(
 ) -> RecordResults:
     if not component.drill:
         raise NotFound("Record inspection is disabled.")
-    resource, spec = service.resource, service.spec
+    resource, spec = service.dataset, service.spec
     if resource is None:
         raise ImproperlyConfigured("Analytics requires a source resource.")
     options = service.options(query)
@@ -154,28 +155,30 @@ async def records(
                 limit=query.limit,
                 **options,
             )
-        builder = resource.builder
-        values = []
-        for obj in objects:
-            readable = set(builder.readable(ctx, obj=obj)).intersection(builder.api_read)
-            record = await resource.serialize(
-                obj, ctx=ctx, fields=tuple(name for name in builder.api_read if name in readable)
-            )
-            values.append(
-                {
-                    builder.api_names[name]: str(value)
-                    if name in builder.api_identifiers and value is not None
-                    else encode(value)
-                    for name, value in record.items()
-                }
-            )
+        dataset = resource.dataset
+        readable = set(dataset.readable(ctx))
+        from pydantic.alias_generators import to_camel
+
+        permitted = [
+            obj for obj in objects if await invoke(component.has_object_permission, ctx, obj)
+        ]
+        values = [
+            {
+                to_camel(name): str(getattr(obj, name))
+                if name == dataset.pk_name
+                else encode(getattr(obj, name))
+                for name in await invoke(component.get_record_fields, ctx, obj)
+                if name in readable
+            }
+            for obj in permitted
+        ]
         result = RecordResults(
             records=values,
             offset=query.offset,
             limit=query.limit,
             has_more=len(objects) == query.limit,
         )
-        result._objects = list(objects)
+        result._objects = permitted
         return result
     except DBAPIError as exc:
         if not is_timeout(exc):

@@ -1,9 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import html
-import json
-import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -12,15 +9,14 @@ import httpx
 import pytest
 import sqlalchemy as sa
 from fastapi import FastAPI, Request
-from obox._auth import RBAC, Principal
+from obox._auth import Principal
 from obox._config import RuntimeConfig
 from obox._runtime import _Runtime
 from obox.contrib.files import IMAGES, File, Files, attachments
 from obox.contrib.files.models import Base as FileBase
-from obox.contrib.resources import Resource as ResourceDefinition
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-from tests.helpers import with_builders
+from tests.storage import database
 
 
 class Base(DeclarativeBase):
@@ -32,11 +28,6 @@ class Document(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(sa.String(50))
     attachments: Mapped[list[File]] = attachments(types=IMAGES)
-
-
-class DocumentBuilder(ResourceDefinition[Document]):
-    model = Document
-    fields = ("id", "name", "attachments")
 
 
 PNG = b"\x89PNG\r\n\x1a\ncontent"
@@ -54,36 +45,29 @@ async def application(tmp_path: Path) -> AsyncIterator[tuple[_Runtime, httpx.Asy
             is_superuser=True,
         )
 
-    app = _Runtime(
-        FastAPI(),
-        settings=with_builders(
-            RuntimeConfig(
-                database_url=f"sqlite+aiosqlite:///{tmp_path / 'files.sqlite3'}",
-                principal_dependency=principal,
-                default_policy=RBAC(),
-                csrf_secret="x" * 32,
+    async with database(tmp_path / "files.sqlite3", (FileBase.metadata, Base.metadata)) as factory:
+        app = _Runtime(
+            FastAPI(),
+            settings=RuntimeConfig(
+                session_factory=factory, principal_dependency=principal, csrf_secret="x" * 32
             ),
-            DocumentBuilder,
-        ),
-        features=[Files(root=tmp_path / "media")],
-    )
-    async with app.app.router.lifespan_context(app.app):
-        assert app.database.engine is not None
-        async with app.database.engine.begin() as connection:
-            await connection.run_sync(FileBase.metadata.create_all)
-            await connection.run_sync(Base.metadata.create_all)
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app.app),
-            base_url="http://test",
-            follow_redirects=True,
-        ) as client:
-            yield (app, client)
+            features=[Files(root=tmp_path / "media", models=(Document,))],
+        )
+        async with (
+            app.app.router.lifespan_context(app.app),
+            httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app.app),
+                base_url="http://test",
+                follow_redirects=True,
+            ) as client,
+        ):
+            yield app, client
 
 
 def test_file_json_contract_across_upload_resume_claim_and_widget(tmp_path: Path) -> None:
 
     async def scenario() -> None:
-        async with application(tmp_path) as (_, client):
+        async with application(tmp_path) as (app, client):
             created = await client.post(
                 "/files",
                 json={
@@ -126,11 +110,16 @@ def test_file_json_contract_across_upload_resume_claim_and_widget(tmp_path: Path
             assert renamed.status_code == 200
             assert set(renamed.json()) == FILE_FIELDS
             assert renamed.json()["filename"] == "renamed.png"
-            record = await client.post(
-                "/api/admin/documents", json={"name": "Example", "attachments": [upload["id"]]}
-            )
-            assert record.status_code == 201, record.text
-            record_id = record.json()["id"]
+            async with app.uow(
+                principal=Principal(id=1, is_authenticated=True, is_superuser=True)
+            ) as ctx:
+                values = await app._feature("files").resolve(
+                    Document, {"name": "Example", "attachments": [upload["id"]]}, ctx
+                )
+                document = Document(**values)
+                ctx.session.add(document)
+                await ctx.session.flush()
+                record_id = str(document.id)
             reordered = await client.put(
                 f"/files/{record_id}/order",
                 json={"field": "file_documents.attachments", "ids": [upload["id"]]},
@@ -141,11 +130,12 @@ def test_file_json_contract_across_upload_resume_claim_and_widget(tmp_path: Path
             assert download.status_code == 200
             assert download.content == PNG
             assert download.headers["content-type"] == "image/png"
-            page = await client.get(f"/admin/admin/documents/{record_id}")
-            assert page.status_code == 200
-            match = re.search('data-files-meta="([^"]+)"', page.text)
-            assert match is not None
-            assert json.loads(html.unescape(match[1])) == [renamed.json()]
+            async with app.uow(
+                principal=Principal(id=1, is_authenticated=True, is_superuser=True)
+            ) as ctx:
+                document = await ctx.session.get(Document, int(record_id))
+                config = app._feature("files").form_config(Document, "attachments", document, ctx)
+                assert config["files"] == [renamed.json()]
             owned_upload = await client.post(
                 "/files",
                 json={

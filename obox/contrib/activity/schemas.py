@@ -5,13 +5,14 @@ from typing import Annotated, Literal
 
 from pydantic import Field, JsonValue, StrictStr, field_serializer, field_validator
 
-from obox.contrib.resources.api import (
+from obox._schemas import (
+    ApiRequest,
+    ApiResponse,
     Page,
     json_value,
     normalize_datetime,
     normalize_optional_datetime,
 )
-from obox.contrib.resources.api_schema import ApiRequest, ApiResponse
 from obox.db._fields import _validate_text
 
 

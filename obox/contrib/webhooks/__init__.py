@@ -28,6 +28,7 @@ class Webhooks:
         retention: timedelta = timedelta(days=7),
         max_subscriptions: int = 10,
         max_attempts: int = 8,
+        models: tuple[type[Any], ...] = (),
     ) -> None:
         if (
             not signing_keys
@@ -56,6 +57,7 @@ class Webhooks:
         self.allowed_hosts = tuple(host.lower().encode("idna").decode() for host in allowed_hosts)
         self.subscription_ttl, self.retention = subscription_ttl, retention
         self.max_subscriptions, self.max_attempts = max_subscriptions, max_attempts
+        self.models = models
 
     def _attach(self, app: Any) -> None:
         from obox.contrib.webhooks.routes import build_router
@@ -63,6 +65,10 @@ class Webhooks:
         if hasattr(self, "app"):
             raise ImproperlyConfigured("Webhooks is already installed.")
         self.app = app
+        if not self.models:
+            from obox.contrib._models import installed_models
+
+            self.models = installed_models()
         app.include_router(build_router(self))
 
     def secret(self, subscription: Any) -> bytes:
@@ -76,10 +82,20 @@ class Webhooks:
     def encoded_secret(self, subscription: Any) -> str:
         return "whsec_" + base64.b64encode(self.secret(subscription)).decode()
 
-    async def record(self, builder: Any, action: str, obj: Any, ctx: Context) -> None:
+    def get_queryset(self, model: type[Any], ctx: Context) -> Any:
+        import sqlalchemy as sa
+
+        return sa.select(model)
+
+    def has_permission(self, model: type[Any], ctx: Context, obj: Any = None) -> bool:
+        from obox.contrib._models import permission
+
+        return permission(model, ctx.principal, "view")
+
+    async def record(self, action: str, obj: Any, ctx: Context) -> None:
         from obox.contrib.webhooks.services import record
 
-        await record(self, builder, action, obj, ctx)
+        await record(self, action, obj, ctx)
 
     async def prune(self, ctx: Context) -> int:
         from obox.contrib.webhooks.services import prune

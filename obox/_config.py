@@ -12,7 +12,6 @@ from typing import TYPE_CHECKING, Any
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from obox._auth import Policy
 from obox.core.exceptions import ImproperlyConfigured
 
 if TYPE_CHECKING:
@@ -24,12 +23,8 @@ class RuntimeConfig:
     session_factory: async_sessionmaker[AsyncSession] | None = field(default=None, repr=False)
     database_url: str | None = field(default=None, repr=False)
     principal_dependency: Callable[..., Any] | None = field(default=None, repr=False)
-    default_policy: Policy[Any] | None = field(default=None, repr=False)
     ui_prefix: str = "/admin"
     api_prefix: str = "/api"
-    api_default_limit: int | None = None
-    api_max_limit: int | None = None
-    api_max_batch: int | None = None
     csrf_secret: str | bytes | None = field(default=None, repr=False)
     template_dirs: Sequence[str | PathLike[str]] = ()
     templates: Jinja2Templates | None = field(default=None, repr=False)
@@ -52,21 +47,9 @@ class RuntimeConfig:
             static_root=settings.STATIC_ROOT,
             auth_password_validators=settings.AUTH_PASSWORD_VALIDATORS,
             login_redirect_url=settings.LOGIN_REDIRECT_URL,
-            **getattr(settings, "RESOURCES", {}),
         )
 
     def __post_init__(self) -> None:
-        for value in (self.api_default_limit, self.api_max_limit, self.api_max_batch):
-            if value is not None and (
-                isinstance(value, bool) or not isinstance(value, int) or value < 0
-            ):
-                raise ImproperlyConfigured("API limits must be nonnegative integers or None.")
-        if (
-            self.api_default_limit is not None
-            and self.api_max_limit is not None
-            and self.api_default_limit > self.api_max_limit
-        ):
-            raise ImproperlyConfigured("API_DEFAULT_LIMIT must not exceed API_MAX_LIMIT.")
         if (self.database_url is None) == (self.session_factory is None):
             raise ImproperlyConfigured("Provide exactly one of DATABASE_URL or SESSION_FACTORY.")
         if self.database_url is not None and (
@@ -79,8 +62,6 @@ class RuntimeConfig:
             raise ImproperlyConfigured("SESSION_FACTORY must be an async_sessionmaker.")
         if self.principal_dependency is not None and not callable(self.principal_dependency):
             raise ImproperlyConfigured("PRINCIPAL_DEPENDENCY must be callable.")
-        if self.default_policy is not None and not isinstance(self.default_policy, Policy):
-            raise ImproperlyConfigured("DEFAULT_POLICY must be a Policy instance.")
         if self.csrf_secret is not None and (
             not isinstance(self.csrf_secret, str | bytes)
             or len(

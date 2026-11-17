@@ -12,14 +12,12 @@ from pydantic import Field, JsonValue, PrivateAttr, StrictStr
 
 from obox._auth import _valid_permission
 from obox._context import Context
-from obox.contrib.resources.api_schema import ApiRequest, ApiResponse
-from obox.contrib.resources.filters import FilterGroup, parse_filter
+from obox._filters import FilterGroup, parse_filter
+from obox._schemas import ApiRequest, ApiResponse
 from obox.core.exceptions import ImproperlyConfigured
 
 if TYPE_CHECKING:
-    from obox.contrib.resources import Resource
-    from obox.contrib.resources.components import ComponentService
-    from obox.contrib.resources.service import ResourceService
+    from obox._component_service import ComponentService
 
 
 class ComponentQuery(ApiRequest):
@@ -59,9 +57,32 @@ class ComponentDescriptions(ApiResponse):
 
 
 class Component:
-    _resource: ResourceService[Any] | None = None
+    _dataset: Any | None = None
     name: str | None = None
-    source: type[Resource[Any]] | None = None
+    source: type[Any] | None = None
+    fields: tuple[str, ...] = ()
+    filter_fields: tuple[str, ...] | None = None
+    ordering: tuple[str, ...] = ()
+
+    def get_queryset(self, ctx: Context) -> Any:
+        import sqlalchemy as sa
+
+        if self.source is None:
+            raise ImproperlyConfigured("Declare a source model for this component.")
+        return sa.select(self.source)
+
+    def get_fields(self, ctx: Context) -> tuple[str, ...]:
+        return self.fields
+
+    def has_permission(self, ctx: Context) -> bool:
+        return True
+
+    def get_record_fields(self, ctx: Context, obj: Any) -> tuple[str, ...]:
+        return self.get_fields(ctx)
+
+    def has_object_permission(self, ctx: Context, obj: Any) -> bool:
+        return True
+
     title = ""
     description = ""
     kind = "custom"
@@ -75,8 +96,8 @@ class Component:
     plugin: str | None = None
 
     @property
-    def resource(self) -> ResourceService[Any]:
-        resource = self._resource
+    def dataset(self) -> Any:
+        resource = self._dataset
         if resource is None:
             raise ImproperlyConfigured("This execution has no bound source resource.")
         return resource
@@ -119,7 +140,7 @@ class Component:
         return None
 
     async def _execute(self, service: ComponentService, query: ApiRequest, ctx: Context) -> Any:
-        from obox.contrib.resources.service import invoke
+        from obox._async import invoke
 
         return await invoke(self.get_data, query, ctx)
 
@@ -145,7 +166,7 @@ def fixed_filters(value: FilterGroup | Mapping[str, Any]) -> FilterGroup:
     from obox._exceptions import OboxError
 
     if isinstance(value, Mapping):
-        from obox.contrib.resources.filters import FilterTerm
+        from obox._filters import FilterTerm
 
         terms = []
         for lookup, operand in value.items():

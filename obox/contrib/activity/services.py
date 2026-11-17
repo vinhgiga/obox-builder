@@ -1,4 +1,4 @@
-"""Scoped activity and comment operations inside the owning unit of work."""
+"""Authorized row history and author-owned comments."""
 
 import base64
 import binascii
@@ -6,34 +6,19 @@ import hashlib
 import hmac
 import json
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import Any
 from uuid import UUID
 
 import sqlalchemy as sa
-from pydantic import TypeAdapter
 
+from obox._async import invoke
+from obox._conditional import check_match
 from obox._context import Context
-from obox._exceptions import (
-    BuilderValidationError,
-    NotAuthenticated,
-    NotFound,
-    PermissionDenied,
-)
+from obox._exceptions import NotFound, PermissionDenied
+from obox._query import invalid
 from obox.contrib.activity import Activity
 from obox.contrib.activity.models import Comment, Event
 from obox.contrib.activity.schemas import CommentRead
-from obox.contrib.resources.conditional import check_match
-from obox.contrib.resources.filters import FilterGroup
-from obox.contrib.resources.query import ListQuery, invalid
-from obox.contrib.resources.service import invoke
-from obox.db._fields import schema, validate
-
-
-def ownership(builder: Any, obj: Any) -> dict[str, str]:
-    return {
-        "resource_key": builder.model.__table__.fullname,
-        "record_id": str(getattr(obj, builder.pk_name)),
-    }
 
 
 async def identity(activity: Activity, ids: set[str], ctx: Context) -> dict[Any, Any]:
@@ -69,131 +54,6 @@ def comment_etag(comment: Comment, row: dict[str, Any]) -> str:
     return '"' + hashlib.sha256(f"{comment.id}:{comment.version}:{data}".encode()).hexdigest() + '"'
 
 
-async def comment(
-    activity: Activity,
-    builder: Any,
-    id: str,
-    ctx: Context,
-    *,
-    comment_id: str | None = None,
-    action: str = "get",
-    body: str | None = None,
-    conditions: list[str] | None = None,
-    single: bool = False,
-) -> Comment:
-    service = activity.app.service(builder.model)
-    async with service._mutation(ctx, conditional=action in {"update", "delete"}):
-        parent = await service.get(id, ctx=ctx)
-        await service._get(id, ctx, "comment", lock=action != "get")
-        owner = ownership(builder, parent)
-        if action == "create":
-            if not getattr(ctx.principal, "is_authenticated", False) or not getattr(
-                ctx.principal, "is_active", True
-            ):
-                raise NotAuthenticated("An active authenticated author is required.")
-            obj = Comment(**owner, author_id=str(ctx.principal.id), body=body)
-            ctx.session.add(obj)
-            await ctx.session.flush()
-            ctx.session.add(
-                Event(
-                    **owner,
-                    kind="comment",
-                    comment_id=obj.id,
-                    actor_id=obj.author_id,
-                    source=ctx.source,
-                )
-            )
-        else:
-            try:
-                key = UUID(comment_id or "")
-            except ValueError as exc:
-                raise NotFound("Comment is unavailable.") from exc
-            stmt = sa.select(Comment).filter_by(**owner, id=key, deleted_at=None)
-            if action != "get":
-                stmt = stmt.with_for_update().execution_options(populate_existing=True)
-            loaded = await ctx.session.scalar(stmt)
-            if loaded is None:
-                raise NotFound("Comment is unavailable.")
-            obj = loaded
-            if action != "get":
-                if not own(obj, ctx):
-                    raise PermissionDenied("Only the author may change this comment.")
-                check_match(
-                    conditions or [],
-                    comment_etag(obj, await comment_row(activity, obj, ctx)),
-                    single=single,
-                )
-                if action == "delete":
-                    obj.body, obj.deleted_at = None, datetime.now(UTC)
-                elif body != obj.body:
-                    obj.body, obj.edited_at = body, datetime.now(UTC)
-        await ctx.session.flush()
-        return obj
-
-
-async def snapshot(builder: Any, obj: Any, ctx: Context) -> dict[str, Any]:
-    names = [
-        name
-        for name in builder.fields
-        if builder.specs[name].column is not builder.version_column and name != builder.pk_name
-    ]
-    unloaded = sa.inspect(obj).unloaded.intersection(names)
-    if unloaded:
-        await ctx.session.refresh(obj, attribute_names=sorted(unloaded))
-    return cast(
-        dict[str, Any],
-        TypeAdapter[Any](Any).dump_python(
-            {name: builder.specs[name].serialize(getattr(obj, name)) for name in names}, mode="json"
-        ),
-    )
-
-
-async def record(
-    activity: Activity,
-    builder: Any,
-    action: str,
-    obj: Any,
-    before: dict[str, Any] | None,
-    ctx: Context,
-) -> None:
-    after = {} if action == "delete" else await snapshot(builder, obj, ctx)
-    changes = []
-    for name in {**(before or {}), **after}:
-        if action == "update" and (before or {}).get(name) == after.get(name):
-            continue
-        spec = builder.specs[name]
-        kind = (
-            "files"
-            if "obox_files" in spec.column.info
-            else "reference"
-            if spec.column.foreign_keys
-            else "number"
-            if isinstance(spec.column.type, (sa.Numeric, sa.Integer, sa.Float))
-            else "text"
-        )
-        changes.append(
-            dict(
-                field=name,
-                kind=kind,
-                **({"before": before[name]} if before is not None and name in before else {}),
-                **({"after": after[name]} if name in after else {}),
-            )
-        )
-    if changes:
-        ctx.session.add(
-            Event(
-                **ownership(builder, obj),
-                kind="revision",
-                action=action,
-                changes=changes,
-                actor_id=str(ctx.principal.id)
-                if getattr(ctx.principal, "id", None) is not None
-                else None,
-                source=ctx.source,
-            )
-        )
-
-
 def cursor(secret: bytes, scope: str, token: str | None = None, *, last: int | None = None) -> Any:
     key = hmac.digest(secret, b"obox.activity.cursor", "sha256")
     if last is not None:
@@ -213,199 +73,117 @@ def cursor(secret: bytes, scope: str, token: str | None = None, *, last: int | N
         raise invalid("cursor", "Invalid cursor or changed query.", "invalid_cursor") from exc
 
 
-async def redact(
-    activity: Activity, builder: Any, obj: Any, changes: list[dict[str, Any]], ctx: Context
-) -> None:
-    for field in {change["field"] for change in changes}:
-        slots = [
-            (change, side)
-            for change in changes
-            if change["field"] == field
-            for side in ("before", "after")
-            if side in change and change[side] is not None
-        ]
-        if field not in builder.specs:
-            relation = sa.inspect(builder.model).relationships[field]
-            registration = activity.app._registrations.get(relation.mapper.class_)
-            allowed_ids: set[str] = set()
-            if registration is not None:
-                related_builder: Any = registration.builder
-                related_service = activity.app.service(relation.mapper.class_)
-                if (
-                    related_builder.api.enabled
-                    and "retrieve" in related_builder.api.operations
-                    and await related_service.permitted("retrieve", ctx)
-                ):
-                    related_keys = []
-                    identity = schema(
-                        "ActivityRelationship", related_builder.specs, (related_builder.pk_name,)
-                    )
-                    for change, side in slots:
-                        for value in change[side] if isinstance(change[side], list) else []:
-                            try:
-                                related_keys.append(
-                                    validate(identity, {related_builder.pk_name: value})[
-                                        related_builder.pk_name
-                                    ]
-                                )
-                            except BuilderValidationError:
-                                continue
-                    related_objects = await ctx.session.scalars(
-                        related_service._statement("retrieve", ctx).where(
-                            related_builder.pk.in_(related_keys)
-                        )
-                    )
-                    for related in related_objects.unique():
-                        if related_builder.pk_name in related_builder.readable(
-                            ctx, obj=related, fields=related_builder.api_read
-                        ) and await related_service.permitted("retrieve", ctx, related):
-                            allowed_ids.add(str(getattr(related, related_builder.pk_name)))
-            for change, side in slots:
-                change[side] = (
-                    [value if str(value) in allowed_ids else None for value in change[side]]
-                    if isinstance(change[side], list)
-                    else None
-                )
-            continue
-        spec = builder.specs[field]
-        if isinstance(spec.column.type, sa.BigInteger):
-            for change, side in slots:
-                change[side] = str(change[side])
-        if "obox_files" in spec.column.info:
-            allowed: set[str] = set()
-            if activity.app._feature("files") is not None:
-                from obox.contrib.files.models import File
-
-                owner = sa.cast(
-                    sa.literal(getattr(obj, builder.pk_name), type_=builder.pk.type), sa.String
-                )
-                allowed = {
-                    str(fid)
-                    for fid in await ctx.session.scalars(
-                        sa.select(File.id).where(
-                            File.owner_type == builder.model.__table__.fullname,
-                            File.owner_id == owner,
-                            File.field == field,
-                            File.status == "ready",
-                        )
-                    )
-                }
-            for change, side in slots:
-                value = change[side]
-                change[side] = (
-                    [fid if isinstance(fid, str) and fid in allowed else None for fid in value]
-                    if isinstance(value, list)
-                    else None
-                )
-        for fk in spec.column.foreign_keys:
-            target = activity.app._for_table(fk.column.table)
-            parsed = []
-            service = activity.app.service(target.model) if target is not None else None
-            if (
-                target is not None
-                and service is not None
-                and await service.permitted("retrieve", ctx)
-            ):
-                remote = sa.inspect(target.model).get_property_by_column(fk.column).key
-                if remote not in target.specs:
-                    for change, side in slots:
-                        change[side] = None
-                    continue
-                identity = schema("ActivityReference", target.specs, (remote,))
-                for change, side in slots:
-                    if change[side] is None:
-                        continue
-                    try:
-                        value = validate(identity, {remote: change[side]})[remote]
-                    except BuilderValidationError:
-                        continue
-                    parsed.append((change, side, value))
-                stmt = service._statement("retrieve", ctx).where(
-                    getattr(target.model, remote).in_([value for _, _, value in parsed])
-                )
-                allowed_values = set()
-                for related in (await ctx.session.scalars(stmt)).unique():
-                    fields = target.readable(ctx, obj=related, fields=target.api_read)
-                    if (
-                        target.pk_name in fields
-                        and remote in fields
-                        and await service.permitted("retrieve", ctx, related)
-                    ):
-                        allowed_values.add(str(getattr(related, remote)))
-                permitted = {
-                    (id(change), side)
-                    for change, side, value in parsed
-                    if str(value) in allowed_values
-                }
+async def comment(
+    activity: Activity,
+    model: Any,
+    id: str,
+    ctx: Context,
+    *,
+    comment_id: str | None = None,
+    action: str = "get",
+    body: str | None = None,
+    conditions: list[str] | None = None,
+    single: bool = False,
+) -> Comment:
+    await activity.get_object(
+        model, id, ctx, action="view" if action == "get" else "comment", lock=action != "get"
+    )
+    owner = {"resource_key": model.__table__.fullname, "record_id": id}
+    if action == "create":
+        obj = Comment(**owner, author_id=str(ctx.principal.id), body=body)
+        ctx.session.add(obj)
+        await ctx.session.flush()
+        ctx.session.add(
+            Event(
+                **owner,
+                kind="comment",
+                comment_id=obj.id,
+                actor_id=obj.author_id,
+                source=ctx.source,
+            )
+        )
+    else:
+        try:
+            key = UUID(comment_id or "")
+        except ValueError as exc:
+            raise NotFound("Comment is unavailable.") from exc
+        query = sa.select(Comment).filter_by(**owner, id=key, deleted_at=None)
+        if action != "get":
+            query = query.with_for_update().execution_options(populate_existing=True)
+        loaded = await ctx.session.scalar(query)
+        if loaded is None:
+            raise NotFound("Comment is unavailable.")
+        obj = loaded
+        if action != "get":
+            if not own(obj, ctx):
+                raise PermissionDenied("Only the author may change this comment.")
+            check_match(
+                conditions or [],
+                comment_etag(obj, await comment_row(activity, obj, ctx)),
+                single=single,
+            )
+            if action == "update":
+                obj.body, obj.edited_at = body, datetime.now(UTC)
             else:
-                permitted = set()
-            for change, side in slots:
-                if (id(change), side) not in permitted:
+                obj.body, obj.deleted_at = None, datetime.now(UTC)
+    await ctx.session.flush()
+    return obj
+
+
+async def redact(activity: Activity, model: Any, changes: Any, ctx: Context) -> None:
+    from obox.contrib._models import installed_models, permission
+
+    tables = {other.__table__.fullname: other for other in installed_models()}
+    mapper = sa.inspect(model)
+    for change in changes:
+        name = change["field"]
+        if name not in mapper.column_attrs:
+            # Detached attachments must not become an alternate download index.
+            for side in ("before", "after"):
+                if change.get(side):
+                    change[side] = [None for _ in change[side]]
+            continue
+        for key in mapper.column_attrs[name].columns[0].foreign_keys:
+            related = tables.get(key.column.table.fullname)
+            for side in ("before", "after"):
+                value = change.get(side)
+                if value is None:
+                    continue
+                if related is None or not permission(related, ctx.principal, "view"):
+                    change[side] = None
+                    continue
+                query = activity.get_queryset(related, ctx).where(key.column == value)
+                if await ctx.session.scalar(query) is None:
                     change[side] = None
 
 
 async def read(
     activity: Activity,
-    builder: Any,
+    model: Any,
     id: str,
     params: dict[str, str],
     ctx: Context,
     *,
     fields: Any = None,
 ) -> dict[str, Any]:
-    app = activity.app
-    service = app.service(builder.model)
-    obj = await service.get(id, ctx=ctx)
+    obj = await activity.get_object(model, id, ctx)
     kind = params.get("kind", "all")
     if kind not in {"all", "revision", "comment"}:
         raise invalid("kind", "Use all, revision, or comment.")
-    limit = ListQuery(params, FilterGroup()).integer("limit", builder.api.default_limit)
-    if builder.api.max_limit is not None:
-        if limit is not None and limit > builder.api.max_limit:
-            raise invalid("limit", "Limit exceeds the configured maximum.")
-        limit = builder.api.max_limit if limit is None else limit
-    if "cursor" in params and not limit:
-        raise invalid("cursor", "Cursor requires a positive limit.")
-    key = getattr(obj, builder.pk_name)
-    kinds = []
-    for entry_kind, action in (("revision", "history"), ("comment", "comment")):
-        if kind not in {"all", entry_kind}:
-            continue
-        if (
-            await service.permitted(action, ctx)
-            and await service.permitted(action, ctx, obj)
-            and await ctx.session.scalar(
-                sa.select(
-                    service._statement(action, ctx)
-                    .where(getattr(builder.model, builder.pk_name) == key)
-                    .exists()
-                )
-            )
-        ):
-            kinds.append(entry_kind)
-    if not kinds:
-        raise PermissionDenied("The requested activity is not permitted.")
-    resource, record_id = builder.model.__table__.fullname, str(key)
-    fields = set(
-        builder.readable(ctx, obj=obj, fields=builder.api_read if fields is None else fields)
-    )
-    allowed = builder.policy.read_fields(ctx, obj=obj)
-    fields.update(
-        name
-        for name in builder.api.write_relationships
-        if name in builder.view_related and (allowed is None or name in allowed)
-    )
-    binding = [
-        resource,
-        record_id,
-        str(getattr(ctx.principal, "id", None)),
-        kind,
-        kinds,
-        limit,
-        sorted(fields),
-    ]
-    scope = hashlib.sha256(json.dumps(binding).encode()).hexdigest()
-    last = cursor(app.csrf.secret, scope, params["cursor"]) if "cursor" in params else None
+    try:
+        limit = int(params.get("limit", "50"))
+        if not 1 <= limit <= 200:
+            raise ValueError
+    except ValueError as exc:
+        raise invalid("limit", "Use a limit from 1 to 200.") from exc
+    allowed = set(activity.get_fields(model, ctx, obj)).intersection(activity.fields[model])
+    if fields is not None:
+        allowed.intersection_update(fields)
+    label = activity.label(model)
+    scope = hashlib.sha256(
+        json.dumps([label, id, str(ctx.principal.id), kind, sorted(allowed)]).encode()
+    ).hexdigest()
+    last = cursor(activity.app.csrf.secret, scope, params["cursor"]) if "cursor" in params else None
     stmt = (
         sa.select(Event, Comment)
         .outerjoin(
@@ -418,58 +196,35 @@ async def read(
             ),
         )
         .where(
-            Event.resource_key == resource,
-            Event.record_id == record_id,
-            Event.kind.in_(kinds),
+            Event.resource_key == model.__table__.fullname,
+            Event.record_id == id,
             sa.or_(Event.kind == "revision", Comment.id.is_not(None)),
         )
         .order_by(Event.id.desc())
     )
+    if kind != "all":
+        stmt = stmt.where(Event.kind == kind)
     items: list[dict[str, Any]] = []
-    wanted = None if limit is None else max(limit, 1) + (limit != 0)
-    while wanted is None or len(items) < wanted:
-        query = stmt.where(Event.id < last) if last is not None else stmt
-        batch = list(await ctx.session.execute(query.limit(100)))
+    while len(items) <= limit:
+        batch = list(
+            await ctx.session.execute((stmt.where(Event.id < last) if last else stmt).limit(100))
+        )
         if not batch:
             break
-        projected = {
-            event.id: [
+        for event, entry in batch:
+            changes = [
                 {
-                    name: value
-                    for name, value in change.items()
-                    if name in {"field", "kind", "before", "after"}
+                    key: value
+                    for key, value in change.items()
+                    if key in {"field", "kind", "before", "after"}
                 }
                 for change in event.changes or ()
-                if change.get("field") in fields
+                if change.get("field") in allowed
             ]
-            for event, _ in batch
-            if event.kind == "revision"
-        }
-        await redact(
-            activity,
-            builder,
-            obj,
-            [change for changes in projected.values() for change in changes],
-            ctx,
-        )
-        ids = {
-            value
-            for event, comment in batch
-            for value in (event.actor_id, comment.author_id if comment else None)
-            if value is not None
-        }
-        identities = await invoke(activity.identities, ids, ctx) if activity.identities else {}
-
-        actors = {
-            value: identities.get(
-                value, {"id": None, "display_name": "System" if value is None else "Unknown"}
-            )
-            for value in (None, *ids)
-        }
-
-        for event, comment in batch:
-            if event.kind == "revision" and not projected[event.id]:
+            if event.kind == "revision" and not changes:
                 continue
+            await redact(activity, model, changes, ctx)
+            actors = await identity(activity, {event.actor_id} if event.actor_id else set(), ctx)
             item = {
                 "id": str(event.id),
                 "kind": event.kind,
@@ -477,36 +232,24 @@ async def read(
                 "source": event.source,
                 "occurred_at": event.occurred_at,
             }
-            if event.kind == "revision":
-                item.update(action=event.action, changes=projected[event.id])
+            if entry is None:
+                item.update(action=event.action, changes=changes)
             else:
-                own = (
-                    getattr(ctx.principal, "is_authenticated", False)
-                    and getattr(ctx.principal, "is_active", True)
-                    and str(getattr(ctx.principal, "id", None)) == comment.author_id
-                )
-                item["comment"] = {
-                    "id": str(comment.id),
-                    "author": actors[comment.author_id],
-                    "body": comment.body,
-                    "created_at": comment.created_at,
-                    "edited_at": comment.edited_at,
-                    "permissions": {"update": own, "delete": own},
-                }
+                item["comment"] = await comment_row(activity, entry, ctx)
             items.append(item)
-            if wanted is not None and len(items) == wanted:
+            if len(items) > limit:
                 break
         last = batch[-1][0].id
-    more = limit is not None and len(items) > limit
-    items = items if limit is None else items[:limit]
+    more = len(items) > limit
+    items = items[:limit]
     return {
         "items": items,
         "page": {
             "limit": limit,
             "offset": 0,
             "has_more": more,
-            "next_cursor": cursor(app.csrf.secret, scope, last=int(items[-1]["id"]))
-            if more and items
+            "next_cursor": cursor(activity.app.csrf.secret, scope, last=int(items[-1]["id"]))
+            if more
             else None,
             "total": None,
         },

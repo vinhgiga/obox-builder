@@ -103,6 +103,12 @@ class APIView(View):
                 request.scope["user"], request.state.auth = result
                 self._successful_authenticator = authenticator
                 break
+        from obox.db import _current
+
+        current = _current.get()
+        if current is not None and "obox._context" in current[1].info:
+            ctx = current[1].info["obox._context"]
+            ctx.principal, ctx.source = request.user, "api"
         await self.check_permissions(request)
 
     async def dispatch(self, request: Request, *args: Any, **kwargs: Any) -> Any:

@@ -134,21 +134,8 @@ root_package = "obox"
 include_external_packages = true
 
 [[tool.importlinter.contracts]]
-name = "Services do not depend on presentation or application assembly"
+name = "Analytical and history execution do not depend on HTTP or rendering"
 type = "forbidden"
-source_modules = ["obox.contrib.resources.service"]
-forbidden_modules = ["obox.contrib.resources.api", "obox.contrib.resources.ui", "obox._runtime", "fastapi", "jinja2"]
-allow_indirect_imports = true
-
-[[tool.importlinter.contracts]]
-name = "Shared identity, context and errors do not depend on builders"
-type = "forbidden"
-source_modules = ["obox._auth", "obox._context", "obox._exceptions"]
-forbidden_modules = ["obox.contrib.resources", "obox._runtime"]
-
-[[tool.importlinter.contracts]]
-name = "Component services do not depend on HTTP or rendering"
-type = "forbidden"
-source_modules = ["obox.contrib.resources.components", "obox.contrib.analytics.service"]
-forbidden_modules = ["obox.contrib.resources.component_api", "obox.contrib.analytics.routes", "obox._runtime", "fastapi", "jinja2"]
+source_modules = ["obox.contrib.analytics.query", "obox.contrib.activity.tracking"]
+forbidden_modules = ["fastapi", "jinja2", "obox._runtime"]
 allow_indirect_imports = true

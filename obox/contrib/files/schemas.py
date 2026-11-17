@@ -5,7 +5,7 @@ from uuid import UUID
 
 from pydantic import Field
 
-from obox.contrib.resources.api_schema import ApiRequest, ApiResponse
+from obox._schemas import ApiRequest, ApiResponse
 
 
 class NewFile(ApiRequest):

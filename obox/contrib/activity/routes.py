@@ -3,11 +3,11 @@
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request, Response
-from fastapi.routing import APIRoute
-from pydantic.alias_generators import to_camel
 
 from obox._context import Context
-from obox._exceptions import NotFound
+from obox._query import invalid, parameters
+from obox._routes import ApiRoute
+from obox._schemas import FieldError, Problem
 from obox.contrib.activity import Activity
 from obox.contrib.activity.schemas import (
     ActivityPage,
@@ -16,18 +16,15 @@ from obox.contrib.activity.schemas import (
     CommentRead,
 )
 from obox.contrib.activity.services import comment, comment_etag, comment_row, read
-from obox.contrib.resources.api_schema import FieldError, Problem
-from obox.contrib.resources.http import ApiRoute
-from obox.contrib.resources.query import invalid, parameters
 
 
 class ActivityRoute(ApiRoute):
     cache_control = "private, no-store"
 
 
-def build_router(activity: Activity, app_label: str) -> APIRouter:
+def build_router(activity: Activity) -> APIRouter:
     app = activity.app
-    prefix = f"{app.settings.api_prefix}/{app_label}"
+    prefix = f"{app.settings.api_prefix}/activity"
     router = APIRouter(prefix=prefix, route_class=ActivityRoute)
     dependency = Depends(app.context_dependency("api"), scope="function")
     problem = Problem.model_json_schema()
@@ -40,18 +37,8 @@ def build_router(activity: Activity, app_label: str) -> APIRouter:
         }
     )
 
-    def resource(slug: str) -> Any:
-        builder = next(
-            (
-                item.builder
-                for item in app._registrations.values()
-                if (item.builder.api.prefix or item.slug) == slug and item.app_label == app_label
-            ),
-            None,
-        )
-        if builder is None or not builder.api.enabled or "retrieve" not in builder.api.operations:
-            raise NotFound("Activity is unavailable.")
-        return builder
+    def model(slug: str) -> Any:
+        return activity.model(slug)
 
     @router.get(
         "/{slug}/{id}/activity",
@@ -65,29 +52,20 @@ def build_router(activity: Activity, app_label: str) -> APIRouter:
         tags=["activity"],
     )
     async def timeline(request: Request, slug: str, id: str, ctx: Context = dependency) -> Any:
-        builder = resource(slug)
+        target = model(slug)
         params = parameters(request.query_params.multi_items(), {"kind", "limit", "cursor"})
-        page = await read(activity, builder, id, params, ctx)
-        for item in page["items"]:
-            for change in item.get("changes", ()):
-                field = change["field"]
-                if field in builder.api_identifiers:
-                    for side in ("before", "after"):
-                        if change.get(side) is not None:
-                            change[side] = str(change[side])
-                change["field"] = builder.api_names.get(field, to_camel(field))
-        return page
+        return await read(activity, target, id, params, ctx)
 
     @router.get(
         "/{slug}/{id}/comments", response_model=CommentPage, operation_id="record_comments_list"
     )
     async def comments(request: Request, slug: str, id: str, ctx: Context = dependency) -> Any:
         params = parameters(request.query_params.multi_items(), {"limit", "cursor"})
-        page = await read(activity, resource(slug), id, {**params, "kind": "comment"}, ctx)
+        page = await read(activity, model(slug), id, {**params, "kind": "comment"}, ctx)
         return {"items": [item["comment"] for item in page["items"]], "page": page["page"]}
 
     async def result(slug: str, id: str, ctx: Context, response: Response, **kwargs: Any) -> Any:
-        obj = await comment(activity, resource(slug), id, ctx, **kwargs)
+        obj = await comment(activity, model(slug), id, ctx, **kwargs)
         row = await comment_row(activity, obj, ctx)
         response.headers["ETag"] = comment_etag(obj, row)
         return row
@@ -169,7 +147,7 @@ def build_router(activity: Activity, app_label: str) -> APIRouter:
             raise invalid("body", "Request body must be empty.")
         await comment(
             activity,
-            resource(slug),
+            model(slug),
             id,
             ctx,
             comment_id=comment_id,
@@ -178,9 +156,4 @@ def build_router(activity: Activity, app_label: str) -> APIRouter:
         )
         return Response(status_code=204)
 
-    if app_label:
-        for route in router.routes:
-            if isinstance(route, APIRoute):
-                route.name = f"{app_label}.{route.name}"
-                route.operation_id = f"{app_label}.{route.operation_id}"
     return router

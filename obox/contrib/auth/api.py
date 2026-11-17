@@ -13,10 +13,10 @@ from pydantic import AwareDatetime, Field, StrictStr, field_serializer
 
 from obox._context import Context
 from obox._exceptions import BuilderValidationError, NotAuthenticated, PermissionDenied
+from obox._query import parameters
+from obox._routes import ApiRoute
+from obox._schemas import ApiRequest, ApiResponse
 from obox.contrib.auth.backends import TokenBackend
-from obox.contrib.resources.api_schema import ApiRequest, ApiResponse
-from obox.contrib.resources.http import ApiRoute
-from obox.contrib.resources.query import parameters
 from obox.core.exceptions import ImproperlyConfigured
 
 if TYPE_CHECKING:
@@ -194,24 +194,18 @@ def build_router(app: _Runtime, auth: Auth) -> APIRouter:
         ) -> TokenCreated:
             user_id = owner(request, ctx.principal)
             app.csrf.validate(request, ctx.principal)
-            known = {
-                registration.builder.permission_name(action): (registration.service, action)
-                for registration in app._registrations.values()
-                if registration.builder.api.enabled
-                for action in (
-                    *registration.builder.api.operations,
-                    *registration.builder.permissions,
-                )
-            }
+            known = app.permissions
             if len(set(data.scopes)) != len(data.scopes) or any(
                 scope not in known for scope in data.scopes
             ):
                 raise BuilderValidationError(
                     {"scopes": ["Choose unique, exposed permission scopes."]}
                 )
+            from obox._auth import has_permission
+
             for scope in data.scopes:
-                service, action = known[scope]
-                await service.authorize(action, ctx)
+                if not has_permission(ctx.principal, scope):
+                    raise PermissionDenied("This permission is not granted to the current user.")
             row, token = await backend.create_api_token(
                 user_id,
                 name=data.name,

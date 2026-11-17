@@ -10,8 +10,8 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import sqlalchemy as sa
 
-from obox.contrib.resources.aggregates import Measure
-from obox.contrib.resources.filters import FilterGroup, FilterTerm
+from obox._filters import FilterGroup, FilterTerm
+from obox.contrib.analytics.aggregates import Measure
 from obox.core.exceptions import ImproperlyConfigured
 
 if TYPE_CHECKING:

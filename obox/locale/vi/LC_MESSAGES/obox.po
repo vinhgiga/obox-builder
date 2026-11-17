@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  obox-builder\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-11-16 21:31+0700\n"
+"POT-Creation-Date: 2026-11-17 23:00+0700\n"
 "PO-Revision-Date: 2026-10-31 20:45+0700\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: vi\n"
@@ -18,61 +18,81 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 2.18.0\n"
 
-#: obox/contrib/analytics/routes.py:213
+#: obox/_navigation.py:74
+msgid "Home"
+msgstr "Trang chủ"
+
+#: obox/_navigation.py:106 obox/templates/obox/app_index.html:4
+msgid "Applications"
+msgstr "Ứng dụng"
+
+#: obox/_routes.py:264
+msgid "msg"
+msgstr ""
+
+#: obox/_routes.py:273
+msgid "Internal server error."
+msgstr ""
+
+#: obox/_routes.py:285
+msgid "Internal server error.Invalid input."
+msgstr ""
+
+#: obox/contrib/analytics/routes.py:199
 msgid "Empty"
 msgstr "Trống"
 
-#: obox/contrib/analytics/routes.py:214
+#: obox/contrib/analytics/routes.py:200
 msgid "Total"
 msgstr "Tổng"
 
-#: obox/contrib/analytics/routes.py:215
+#: obox/contrib/analytics/routes.py:201
 msgid "Loading…"
 msgstr "Đang tải…"
 
-#: obox/contrib/analytics/routes.py:216
+#: obox/contrib/analytics/routes.py:202
 #: obox/contrib/analytics/templates/obox_analytics/records.html:21
 msgid "No records found."
 msgstr "Không có bản ghi."
 
-#: obox/contrib/analytics/routes.py:217
+#: obox/contrib/analytics/routes.py:203
 msgid "Unable to load data. Try again."
 msgstr "Không thể tải dữ liệu. Vui lòng thử lại."
 
-#: obox/contrib/analytics/routes.py:218
+#: obox/contrib/analytics/routes.py:204
 msgid "Value"
 msgstr "Giá trị"
 
-#: obox/contrib/analytics/routes.py:219
+#: obox/contrib/analytics/routes.py:205
 msgid "Series"
 msgstr "Chuỗi dữ liệu"
 
-#: obox/contrib/analytics/routes.py:220
+#: obox/contrib/analytics/routes.py:206
 #: obox/contrib/analytics/templates/obox_analytics/records.html:10
 msgid "View records"
 msgstr "Xem bản ghi"
 
-#: obox/contrib/analytics/routes.py:221
+#: obox/contrib/analytics/routes.py:207
 msgid "Chart options"
 msgstr "Tùy chọn biểu đồ"
 
-#: obox/contrib/analytics/routes.py:222
+#: obox/contrib/analytics/routes.py:208
 msgid "View as table"
 msgstr "Xem dạng bảng"
 
-#: obox/contrib/analytics/routes.py:223
+#: obox/contrib/analytics/routes.py:209
 msgid "View as chart"
 msgstr "Xem dạng biểu đồ"
 
-#: obox/contrib/analytics/routes.py:224
+#: obox/contrib/analytics/routes.py:210
 msgid "Expand"
 msgstr "Mở rộng"
 
-#: obox/contrib/analytics/routes.py:225
+#: obox/contrib/analytics/routes.py:211
 msgid "Close"
 msgstr "Đóng"
 
-#: obox/contrib/analytics/routes.py:226
+#: obox/contrib/analytics/routes.py:212
 msgid "All records"
 msgstr "Tất cả bản ghi"
 
@@ -81,7 +101,7 @@ msgid "Back"
 msgstr "Quay lại"
 
 #: obox/contrib/analytics/templates/obox_analytics/records.html:17
-#: obox/contrib/resources/templates/obox/app_index.html:21
+#: obox/templates/obox/app_index.html:21
 msgid "Open"
 msgstr "Mở"
 
@@ -125,7 +145,6 @@ msgid "Superuser access is required."
 msgstr ""
 
 #: obox/contrib/auth/admin.py:236 obox/contrib/auth/views.py:217
-#: obox/contrib/resources/ui.py:1008
 msgid "Duplicate form fields are not permitted."
 msgstr "Không được gửi trường trùng lặp."
 
@@ -218,8 +237,7 @@ msgstr ""
 msgid "Invalid username or password."
 msgstr "Tên đăng nhập hoặc mật khẩu không đúng."
 
-#: obox/contrib/auth/views.py:95
-#: obox/contrib/resources/templates/obox/login.html:47
+#: obox/contrib/auth/views.py:95 obox/templates/obox/login.html:47
 msgid "Sign in"
 msgstr "Đăng nhập"
 
@@ -322,9 +340,6 @@ msgstr "Tạo vai trò"
 
 #: obox/contrib/auth/templates/obox/auth/roles.html:86
 #: obox/contrib/auth/templates/obox/auth/user_form.html:192
-#: obox/contrib/resources/templates/obox/_record_comment.html:11
-#: obox/contrib/resources/templates/obox/_record_fields.html:30
-#: obox/contrib/resources/templates/obox/form.html:117
 msgid "Save"
 msgstr "Lưu"
 
@@ -349,7 +364,7 @@ msgid "Back to users"
 msgstr "Quay lại danh sách người dùng"
 
 #: obox/contrib/auth/templates/obox/auth/user_form.html:45
-#: obox/contrib/resources/templates/obox/login.html:33
+#: obox/templates/obox/login.html:33
 msgid "Password"
 msgstr "Mật khẩu"
 
@@ -359,8 +374,6 @@ msgstr "Để trống để giữ mật khẩu hiện tại."
 
 #: obox/contrib/auth/templates/obox/auth/user_form.html:99
 #: obox/contrib/auth/templates/obox/auth/user_form.html:108
-#: obox/contrib/resources/templates/obox/form.html:83
-#: obox/contrib/resources/templates/obox/form.html:104
 msgid "Remove"
 msgstr "Bỏ"
 
@@ -381,9 +394,6 @@ msgid "No permissions are granted by the selected roles."
 msgstr "Các vai trò đã chọn không cấp quyền nào."
 
 #: obox/contrib/auth/templates/obox/auth/user_form.html:194
-#: obox/contrib/resources/templates/obox/_record_comment.html:12
-#: obox/contrib/resources/templates/obox/_record_fields.html:33
-#: obox/contrib/resources/templates/obox/list.html:80
 msgid "Cancel"
 msgstr "Hủy"
 
@@ -400,15 +410,11 @@ msgid "User deleted."
 msgstr "Đã xoá người dùng."
 
 #: obox/contrib/auth/templates/obox/auth/users.html:17
-#: obox/contrib/resources/templates/obox/app_index.html:12
+#: obox/templates/obox/app_index.html:12
 msgid "Actions"
 msgstr "Thao tác"
 
 #: obox/contrib/auth/templates/obox/auth/users.html:33
-#: obox/contrib/resources/templates/obox/_record_activity.html:17
-#: obox/contrib/resources/templates/obox/_record_content.html:5
-#: obox/contrib/resources/templates/obox/_record_fields.html:49
-#: obox/contrib/resources/templates/obox/detail.html:3
 msgid "Edit"
 msgstr "Sửa"
 
@@ -417,11 +423,6 @@ msgid "Delete this user?"
 msgstr "Xoá người dùng này?"
 
 #: obox/contrib/auth/templates/obox/auth/users.html:40
-#: obox/contrib/resources/templates/obox/_record_activity.html:25
-#: obox/contrib/resources/templates/obox/_record_content.html:7
-#: obox/contrib/resources/templates/obox/detail.html:9
-#: obox/contrib/resources/templates/obox/form.html:77
-#: obox/contrib/resources/templates/obox/form.html:126
 msgid "Delete"
 msgstr "Xoá"
 
@@ -437,459 +438,74 @@ msgstr "ngừng hoạt động"
 msgid "No users found."
 msgstr "Không tìm thấy người dùng nào."
 
-#: obox/contrib/resources/catalog.py:100
-msgid "Home"
-msgstr "Trang chủ"
-
-#: obox/contrib/resources/catalog.py:132
-#: obox/contrib/resources/templates/obox/app_index.html:4
-msgid "Applications"
-msgstr "Ứng dụng"
-
-#: obox/contrib/resources/forms.py:74
-msgid "Enter valid JSON."
-msgstr "Nhập JSON hợp lệ."
-
-#: obox/contrib/resources/http.py:264
-msgid "msg"
-msgstr ""
-
-#: obox/contrib/resources/http.py:273
-msgid "Internal server error."
-msgstr ""
-
-#: obox/contrib/resources/http.py:285
-msgid "Internal server error.Invalid input."
-msgstr ""
-
-#: obox/contrib/resources/service.py:673
-msgid "Field cannot be null."
-msgstr ""
-
-#: obox/contrib/resources/service.py:687 obox/contrib/resources/service.py:769
-msgid "Field is required."
-msgstr "Trường này là bắt buộc."
-
-#: obox/contrib/resources/service.py:717
-msgid "Related record is unavailable."
-msgstr "Bản ghi liên quan không khả dụng."
-
-#: obox/contrib/resources/service.py:740 obox/contrib/resources/service.py:749
-msgid "A value is outside the database column limits."
-msgstr ""
-
-#: obox/contrib/resources/ui.py:445
-msgid "Unsupported form widget."
-msgstr "Kiểu nhập không được hỗ trợ."
-
-#: obox/contrib/resources/ui.py:690 obox/contrib/resources/ui.py:693
-msgid "Invalid inline count."
-msgstr "Số dòng không hợp lệ."
-
-#: obox/contrib/resources/ui.py:705 obox/contrib/resources/ui.py:734
-msgid "An inline record is unavailable."
-msgstr "Không tìm thấy bản ghi inline."
-
-#: obox/contrib/resources/ui.py:775
-msgid "Unknown inline field."
-msgstr "Trường inline không hợp lệ."
-
-#: obox/contrib/resources/templates/obox/_record_activity.html:22
-#: obox/contrib/resources/templates/obox/confirm_delete.html:3
-#: obox/contrib/resources/ui.py:1136
-msgid "Are you sure?"
-msgstr "Bạn có chắc không?"
-
-#: obox/contrib/resources/ui.py:1165 obox/contrib/resources/ui.py:1183
-msgid "Choose a valid action and records."
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/_form_controls.html:12
-msgid "Choose…"
-msgstr "Chọn…"
-
-#: obox/contrib/resources/templates/obox/_record_activity.html:2
-#: obox/contrib/resources/templates/obox/_record_sidebar.html:2
-msgid "Activity"
-msgstr "Hoạt động"
-
-#: obox/contrib/resources/templates/obox/_record_activity.html:15
-msgid "Edited"
-msgstr "Đã sửa"
-
-#: obox/contrib/resources/templates/obox/_record_activity.html:31
-msgid "No activity yet."
-msgstr "Chưa có hoạt động."
-
-#: obox/contrib/resources/templates/obox/_record_activity.html:33
-#: obox/contrib/resources/templates/obox/_record_fields.html:21
-#: obox/contrib/resources/templates/obox/_record_relationship.html:13
-msgid "Load more"
-msgstr "Xem thêm"
-
-#: obox/contrib/resources/templates/obox/_record_activity.html:42
-#: obox/contrib/resources/templates/obox/_record_activity.html:45
-#: obox/contrib/resources/templates/obox/_record_comment.html:8
-msgid "Comment"
-msgstr "Bình luận"
-
-#: obox/contrib/resources/templates/obox/_record_comment.html:15
-#: obox/contrib/resources/templates/obox/_record_fields.html:35
-#: obox/contrib/resources/templates/obox/form.html:27
-msgid "Reload"
-msgstr "Tải lại"
-
-#: obox/contrib/resources/templates/obox/_record_content.html:4
-#: obox/contrib/resources/templates/obox/detail.html:3
-#: obox/contrib/resources/templates/obox/form.html:13
-msgid "Back to list"
-msgstr "Quay lại danh sách"
-
-#: obox/contrib/resources/templates/obox/_record_fields.html:14
-#: obox/contrib/resources/templates/obox/components.html:26
-msgid "Search"
-msgstr "Tìm kiếm"
-
-#: obox/contrib/resources/templates/obox/_record_fields.html:28
-msgid "Clear value"
-msgstr "Xóa giá trị"
-
-#: obox/contrib/resources/templates/obox/_record_relationship.html:9
-#: obox/contrib/resources/templates/obox/_related.html:22
-#: obox/contrib/resources/templates/obox/list.html:464
-msgid "No records."
-msgstr "Không có bản ghi."
-
-#: obox/contrib/resources/templates/obox/account.html:3
+#: obox/templates/obox/account.html:3
 msgid "No resources are available for your account."
 msgstr "Không có tài nguyên nào cho tài khoản của bạn."
 
-#: obox/contrib/resources/templates/obox/app_index.html:5
+#: obox/templates/obox/app_index.html:5
 msgid "Data"
 msgstr "Dữ liệu"
 
-#: obox/contrib/resources/templates/obox/app_index.html:11
-#: obox/contrib/resources/templates/obox/base.html:103
-#: obox/contrib/resources/templates/obox/base.html:118
+#: obox/templates/obox/app_index.html:11 obox/templates/obox/base.html:103
+#: obox/templates/obox/base.html:118
 msgid "Resources"
 msgstr "Tài nguyên"
 
-#: obox/contrib/resources/templates/obox/app_index.html:23
+#: obox/templates/obox/app_index.html:23
 msgid "Create"
 msgstr "Thêm mới"
 
-#: obox/contrib/resources/templates/obox/app_index.html:28
+#: obox/templates/obox/app_index.html:28
 msgid "No resources available."
 msgstr "Không có tài nguyên khả dụng."
 
-#: obox/contrib/resources/templates/obox/base.html:22
+#: obox/templates/obox/base.html:22
 msgid "Skip to content"
 msgstr "Bỏ qua nội dung"
 
-#: obox/contrib/resources/templates/obox/base.html:53
+#: obox/templates/obox/base.html:53
 msgid "Sign out"
 msgstr "Đăng xuất"
 
-#: obox/contrib/resources/templates/obox/base.html:58
+#: obox/templates/obox/base.html:58
 msgid "Language"
 msgstr "Ngôn ngữ"
 
-#: obox/contrib/resources/templates/obox/base.html:75
-#: obox/contrib/resources/templates/obox/base.html:76
+#: obox/templates/obox/base.html:75 obox/templates/obox/base.html:76
 msgid "Browse tabs"
 msgstr "Danh sách tab"
 
-#: obox/contrib/resources/templates/obox/base.html:98
-#: obox/contrib/resources/templates/obox/base.html:99
+#: obox/templates/obox/base.html:98 obox/templates/obox/base.html:99
 msgid "Search tabs"
 msgstr "Tìm tab"
 
-#: obox/contrib/resources/templates/obox/base.html:114
+#: obox/templates/obox/base.html:114
 msgid "No tabs match your search."
 msgstr "Không tìm thấy tab phù hợp."
 
-#: obox/contrib/resources/templates/obox/components.html:43
-#: obox/contrib/resources/templates/obox/list.html:156
-#: obox/contrib/resources/templates/obox/list.html:162
+#: obox/templates/obox/components.html:26
+msgid "Search"
+msgstr "Tìm kiếm"
+
+#: obox/templates/obox/components.html:43
 msgid "Filter"
 msgstr "Lọc"
 
-#: obox/contrib/resources/templates/obox/components.html:54
+#: obox/templates/obox/components.html:54
 msgid "Apply filters"
 msgstr "Áp dụng bộ lọc"
 
-#: obox/contrib/resources/templates/obox/components.html:57
-#: obox/contrib/resources/templates/obox/list.html:169
+#: obox/templates/obox/components.html:57
 msgid "Reset"
 msgstr "Đặt lại"
 
-#: obox/contrib/resources/templates/obox/confirm_delete.html:4
-#, python-format
-msgid "Are you sure you want to delete “%(label)s”?"
-msgstr "Bạn có chắc muốn xoá “%(label)s”?"
-
-#: obox/contrib/resources/templates/obox/confirm_delete.html:8
-msgid "Yes, I'm sure"
-msgstr "Có, tôi chắc chắn"
-
-#: obox/contrib/resources/templates/obox/confirm_delete.html:10
-msgid "No, take me back"
-msgstr "Không, quay lại"
-
-#: obox/contrib/resources/templates/obox/form.html:18
-#: obox/contrib/resources/templates/obox/form.html:19
-msgid "Previous record"
-msgstr "Bản ghi trước"
-
-#: obox/contrib/resources/templates/obox/form.html:22
-#: obox/contrib/resources/templates/obox/form.html:23
-msgid "Next record"
-msgstr "Bản ghi tiếp theo"
-
-#: obox/contrib/resources/templates/obox/form.html:55
-msgid "Delete?"
-msgstr "Xoá?"
-
-#: obox/contrib/resources/templates/obox/form.html:110
-#, python-format
-msgid "Add another %(name)s"
-msgstr "Thêm %(name)s khác"
-
-#: obox/contrib/resources/templates/obox/form.html:120
-msgid "Save and add another"
-msgstr "Lưu và thêm mới"
-
-#: obox/contrib/resources/templates/obox/form.html:123
-msgid "Save and continue"
-msgstr "Lưu và tiếp tục"
-
-#: obox/contrib/resources/templates/obox/index.html:11
+#: obox/templates/obox/index.html:11
 msgid "No applications available."
 msgstr "Bạn chưa có ứng dụng nào được cấp quyền."
 
-#: obox/contrib/resources/templates/obox/list.html:10
-msgid "Grid view"
-msgstr "Dạng lưới"
-
-#: obox/contrib/resources/templates/obox/list.html:14
-msgid "Choose a bulk action"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/list.html:20
-msgid "Choose an action"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/list.html:21
-msgid "Delete selected"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/list.html:28
-msgid "Run"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/list.html:44
-#: obox/contrib/resources/templates/obox/list.html:82
-msgid "Sort"
-msgstr "Sắp xếp"
-
-#: obox/contrib/resources/templates/obox/list.html:48
-msgid "Sort by"
-msgstr "Sắp xếp theo"
-
-#: obox/contrib/resources/templates/obox/list.html:51
-#: obox/contrib/resources/templates/obox/list.html:52
-msgid ""
-"Sort records by one or more fields. Fields higher in the list take "
-"priority."
-msgstr ""
-"Sắp xếp bản ghi theo một hoặc nhiều trường. Trường ở vị trí cao hơn có độ"
-" ưu tiên cao hơn."
-
-#: obox/contrib/resources/templates/obox/list.html:67
-#: obox/contrib/resources/templates/obox/list.html:68
-#: obox/contrib/resources/templates/obox/list.html:128
-#: obox/contrib/resources/templates/obox/list.html:129
-#: obox/contrib/resources/templates/obox/list.html:195
-#: obox/contrib/resources/templates/obox/list.html:199
-msgid "Find a field"
-msgstr "Tìm trường"
-
-#: obox/contrib/resources/templates/obox/list.html:75
-msgid "Add another sort"
-msgstr "Thêm tiêu chí sắp xếp"
-
-#: obox/contrib/resources/templates/obox/list.html:102
-msgid "Group"
-msgstr "Nhóm"
-
-#: obox/contrib/resources/templates/obox/list.html:109
-msgid "Group by"
-msgstr "Nhóm theo"
-
-#: obox/contrib/resources/templates/obox/list.html:112
-#: obox/contrib/resources/templates/obox/list.html:113
-msgid ""
-"Group records by one or more fields. Fields higher in the list take "
-"priority."
-msgstr ""
-"Nhóm bản ghi theo một hoặc nhiều trường. Trường ở vị trí cao hơn có độ ưu"
-" tiên cao hơn."
-
-#: obox/contrib/resources/templates/obox/list.html:136
-msgid "Add subgroup"
-msgstr "Thêm nhóm con"
-
-#: obox/contrib/resources/templates/obox/list.html:163
-msgid "In this view, show records"
-msgstr "Trong chế độ xem này, hiển thị bản ghi"
-
-#: obox/contrib/resources/templates/obox/list.html:167
-msgid "Apply"
-msgstr "Áp dụng"
-
-#: obox/contrib/resources/templates/obox/list.html:191
-msgid "Hide fields"
-msgstr "Ẩn trường"
-
-#: obox/contrib/resources/templates/obox/list.html:204
-msgid "Fields"
-msgstr "Trường"
-
-#: obox/contrib/resources/templates/obox/list.html:236
-msgid "No fields found."
-msgstr "Không tìm thấy trường."
-
-#: obox/contrib/resources/templates/obox/list.html:241
-msgid "Hide all"
-msgstr "Ẩn tất cả"
-
-#: obox/contrib/resources/templates/obox/list.html:244
-msgid "Show all"
-msgstr "Hiện tất cả"
-
-#: obox/contrib/resources/templates/obox/list.html:259
-#: obox/contrib/resources/templates/obox/list.html:264
-msgid "Row height"
-msgstr "Chiều cao dòng"
-
-#: obox/contrib/resources/templates/obox/list.html:305
-msgid "Wrap headers"
-msgstr "Xuống dòng tiêu đề"
-
-#: obox/contrib/resources/templates/obox/list.html:315
-#: obox/contrib/resources/templates/obox/list.html:316
-#: obox/contrib/resources/templates/obox/list.html:333
-#: obox/contrib/resources/templates/obox/list.html:338
-#: obox/contrib/resources/templates/obox/list.html:339
-msgid "Search records"
-msgstr "Tìm bản ghi"
-
-#: obox/contrib/resources/templates/obox/list.html:330
-msgid "No matches"
-msgstr "Không có kết quả"
-
-#: obox/contrib/resources/templates/obox/list.html:331
-msgid "of"
-msgstr "trong"
-
-#: obox/contrib/resources/templates/obox/list.html:346
-#: obox/contrib/resources/templates/obox/list.html:347
-msgid "Previous match"
-msgstr "Kết quả trước"
-
-#: obox/contrib/resources/templates/obox/list.html:360
-#: obox/contrib/resources/templates/obox/list.html:361
-msgid "Next match"
-msgstr "Kết quả tiếp theo"
-
-#: obox/contrib/resources/templates/obox/list.html:374
-#: obox/contrib/resources/templates/obox/list.html:375
-msgid "Close search"
-msgstr "Đóng tìm kiếm"
-
-#: obox/contrib/resources/templates/obox/list.html:389
-msgid "records"
-msgstr "bản ghi"
-
-#: obox/contrib/resources/templates/obox/list.html:396
-msgid "Delete this selected record?"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/list.html:397
-msgid "Delete these selected records?"
-msgstr ""
-
-#: obox/contrib/resources/templates/obox/list.html:413
-#, fuzzy
-msgid "Select all records on this page"
-msgstr "%(count)s bản ghi trên trang này"
-
-#: obox/contrib/resources/templates/obox/list.html:415
-msgid "Row"
-msgstr "Dòng"
-
-#: obox/contrib/resources/templates/obox/list.html:452
-#, fuzzy
-msgid "Select record"
-msgstr "Tìm bản ghi"
-
-#: obox/contrib/resources/templates/obox/list.html:481
-msgid "Add record"
-msgstr "Thêm bản ghi"
-
-#: obox/contrib/resources/templates/obox/list.html:490
-#, fuzzy
-msgid "record on this page"
-msgstr "%(count)s bản ghi trên trang này"
-
-#: obox/contrib/resources/templates/obox/list.html:491
-#, fuzzy
-msgid "records on this page"
-msgstr "%(count)s bản ghi trên trang này"
-
-#: obox/contrib/resources/templates/obox/list.html:492
-#, fuzzy
-msgid "record selected"
-msgstr "bản ghi"
-
-#: obox/contrib/resources/templates/obox/list.html:493
-#, fuzzy
-msgid "records selected"
-msgstr "bản ghi"
-
-#: obox/contrib/resources/templates/obox/list.html:494
-#, fuzzy, python-format
-msgid "All %(count)s record selected"
-msgid_plural "All %(count)s records selected"
-msgstr[0] "%(count)s bản ghi trên trang này"
-
-#: obox/contrib/resources/templates/obox/list.html:494
-#, python-format
-msgid "%(count)s record on this page"
-msgid_plural "%(count)s records on this page"
-msgstr[0] "%(count)s bản ghi trên trang này"
-
-#: obox/contrib/resources/templates/obox/list.html:496
-#, python-format
-msgid "Select all %(count)s record"
-msgid_plural "Select all %(count)s records"
-msgstr[0] ""
-
-#: obox/contrib/resources/templates/obox/list.html:500
-#, fuzzy
-msgid "Clear selection"
-msgstr "Xác nhận xoá"
-
-#: obox/contrib/resources/templates/obox/list.html:503
-msgid "Next page →"
-msgstr "Trang sau →"
-
-#: obox/contrib/resources/templates/obox/login.html:43
+#: obox/templates/obox/login.html:43
 msgid "Show password"
 msgstr "Hiện mật khẩu"
-
-#~ msgid "Search"
-#~ msgstr "Tìm kiếm"
 
 #~ msgid "Default"
 #~ msgstr "Mặc định"
@@ -962,3 +578,243 @@ msgstr "Hiện mật khẩu"
 
 #~ msgid "All records"
 #~ msgstr "Tất cả bản ghi"
+
+#~ msgid "Enter valid JSON."
+#~ msgstr "Nhập JSON hợp lệ."
+
+#~ msgid "Field cannot be null."
+#~ msgstr ""
+
+#~ msgid "Field is required."
+#~ msgstr "Trường này là bắt buộc."
+
+#~ msgid "Related record is unavailable."
+#~ msgstr "Bản ghi liên quan không khả dụng."
+
+#~ msgid "A value is outside the database column limits."
+#~ msgstr ""
+
+#~ msgid "Unsupported form widget."
+#~ msgstr "Kiểu nhập không được hỗ trợ."
+
+#~ msgid "Invalid inline count."
+#~ msgstr "Số dòng không hợp lệ."
+
+#~ msgid "An inline record is unavailable."
+#~ msgstr "Không tìm thấy bản ghi inline."
+
+#~ msgid "Unknown inline field."
+#~ msgstr "Trường inline không hợp lệ."
+
+#~ msgid "Are you sure?"
+#~ msgstr "Bạn có chắc không?"
+
+#~ msgid "Choose a valid action and records."
+#~ msgstr ""
+
+#~ msgid "Choose…"
+#~ msgstr "Chọn…"
+
+#~ msgid "Activity"
+#~ msgstr "Hoạt động"
+
+#~ msgid "Edited"
+#~ msgstr "Đã sửa"
+
+#~ msgid "No activity yet."
+#~ msgstr "Chưa có hoạt động."
+
+#~ msgid "Load more"
+#~ msgstr "Xem thêm"
+
+#~ msgid "Comment"
+#~ msgstr "Bình luận"
+
+#~ msgid "Reload"
+#~ msgstr "Tải lại"
+
+#~ msgid "Back to list"
+#~ msgstr "Quay lại danh sách"
+
+#~ msgid "Clear value"
+#~ msgstr "Xóa giá trị"
+
+#~ msgid "No records."
+#~ msgstr "Không có bản ghi."
+
+#~ msgid "Are you sure you want to delete “%(label)s”?"
+#~ msgstr "Bạn có chắc muốn xoá “%(label)s”?"
+
+#~ msgid "Yes, I'm sure"
+#~ msgstr "Có, tôi chắc chắn"
+
+#~ msgid "No, take me back"
+#~ msgstr "Không, quay lại"
+
+#~ msgid "Previous record"
+#~ msgstr "Bản ghi trước"
+
+#~ msgid "Next record"
+#~ msgstr "Bản ghi tiếp theo"
+
+#~ msgid "Delete?"
+#~ msgstr "Xoá?"
+
+#~ msgid "Add another %(name)s"
+#~ msgstr "Thêm %(name)s khác"
+
+#~ msgid "Save and add another"
+#~ msgstr "Lưu và thêm mới"
+
+#~ msgid "Save and continue"
+#~ msgstr "Lưu và tiếp tục"
+
+#~ msgid "Grid view"
+#~ msgstr "Dạng lưới"
+
+#~ msgid "Choose a bulk action"
+#~ msgstr ""
+
+#~ msgid "Choose an action"
+#~ msgstr ""
+
+#~ msgid "Delete selected"
+#~ msgstr ""
+
+#~ msgid "Run"
+#~ msgstr ""
+
+#~ msgid "Sort"
+#~ msgstr "Sắp xếp"
+
+#~ msgid "Sort by"
+#~ msgstr "Sắp xếp theo"
+
+#~ msgid ""
+#~ "Sort records by one or more "
+#~ "fields. Fields higher in the list "
+#~ "take priority."
+#~ msgstr ""
+#~ "Sắp xếp bản ghi theo một hoặc "
+#~ "nhiều trường. Trường ở vị trí cao"
+#~ " hơn có độ ưu tiên cao hơn."
+
+#~ msgid "Find a field"
+#~ msgstr "Tìm trường"
+
+#~ msgid "Add another sort"
+#~ msgstr "Thêm tiêu chí sắp xếp"
+
+#~ msgid "Group"
+#~ msgstr "Nhóm"
+
+#~ msgid "Group by"
+#~ msgstr "Nhóm theo"
+
+#~ msgid ""
+#~ "Group records by one or more "
+#~ "fields. Fields higher in the list "
+#~ "take priority."
+#~ msgstr ""
+#~ "Nhóm bản ghi theo một hoặc nhiều"
+#~ " trường. Trường ở vị trí cao "
+#~ "hơn có độ ưu tiên cao hơn."
+
+#~ msgid "Add subgroup"
+#~ msgstr "Thêm nhóm con"
+
+#~ msgid "In this view, show records"
+#~ msgstr "Trong chế độ xem này, hiển thị bản ghi"
+
+#~ msgid "Apply"
+#~ msgstr "Áp dụng"
+
+#~ msgid "Hide fields"
+#~ msgstr "Ẩn trường"
+
+#~ msgid "Fields"
+#~ msgstr "Trường"
+
+#~ msgid "No fields found."
+#~ msgstr "Không tìm thấy trường."
+
+#~ msgid "Hide all"
+#~ msgstr "Ẩn tất cả"
+
+#~ msgid "Show all"
+#~ msgstr "Hiện tất cả"
+
+#~ msgid "Row height"
+#~ msgstr "Chiều cao dòng"
+
+#~ msgid "Wrap headers"
+#~ msgstr "Xuống dòng tiêu đề"
+
+#~ msgid "Search records"
+#~ msgstr "Tìm bản ghi"
+
+#~ msgid "No matches"
+#~ msgstr "Không có kết quả"
+
+#~ msgid "of"
+#~ msgstr "trong"
+
+#~ msgid "Previous match"
+#~ msgstr "Kết quả trước"
+
+#~ msgid "Next match"
+#~ msgstr "Kết quả tiếp theo"
+
+#~ msgid "Close search"
+#~ msgstr "Đóng tìm kiếm"
+
+#~ msgid "records"
+#~ msgstr "bản ghi"
+
+#~ msgid "Delete this selected record?"
+#~ msgstr ""
+
+#~ msgid "Delete these selected records?"
+#~ msgstr ""
+
+#~ msgid "Select all records on this page"
+#~ msgstr "%(count)s bản ghi trên trang này"
+
+#~ msgid "Row"
+#~ msgstr "Dòng"
+
+#~ msgid "Select record"
+#~ msgstr "Tìm bản ghi"
+
+#~ msgid "Add record"
+#~ msgstr "Thêm bản ghi"
+
+#~ msgid "record on this page"
+#~ msgstr "%(count)s bản ghi trên trang này"
+
+#~ msgid "records on this page"
+#~ msgstr "%(count)s bản ghi trên trang này"
+
+#~ msgid "record selected"
+#~ msgstr "bản ghi"
+
+#~ msgid "records selected"
+#~ msgstr "bản ghi"
+
+#~ msgid "All %(count)s record selected"
+#~ msgid_plural "All %(count)s records selected"
+#~ msgstr[0] "%(count)s bản ghi trên trang này"
+
+#~ msgid "%(count)s record on this page"
+#~ msgid_plural "%(count)s records on this page"
+#~ msgstr[0] "%(count)s bản ghi trên trang này"
+
+#~ msgid "Select all %(count)s record"
+#~ msgid_plural "Select all %(count)s records"
+#~ msgstr[0] ""
+
+#~ msgid "Clear selection"
+#~ msgstr "Xác nhận xoá"
+
+#~ msgid "Next page →"
+#~ msgstr "Trang sau →"
