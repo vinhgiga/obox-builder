@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from importlib import import_module
 from importlib.util import find_spec
-from pathlib import Path
 from threading import RLock
 from types import ModuleType
 from typing import Any
@@ -13,23 +12,12 @@ from obox.core.exceptions import AppRegistryNotReady, ImproperlyConfigured
 
 
 class AppConfig:
-    path: str
-
     def __init__(self, app_name: str, app_module: ModuleType) -> None:
         self.name, self.module = app_name, app_module
         self.label = getattr(self, "label", app_name.rsplit(".", 1)[-1])
         if not isinstance(self.label, str) or not self.label.isidentifier():
             raise ImproperlyConfigured(f"Invalid application label: {self.label!r}.")
         self.verbose_name = getattr(self, "verbose_name", self.label.replace("_", " ").title())
-        paths = list(getattr(app_module, "__path__", []))
-        if hasattr(self, "path"):
-            self.path = str(self.path)
-        elif len(paths) == 1:
-            self.path = paths[0]
-        elif getattr(app_module, "__file__", None):
-            self.path = str(Path(str(app_module.__file__)).parent)
-        else:
-            raise ImproperlyConfigured(f"Application {app_name!r} needs an explicit path.")
         self.models_module: ModuleType | None = None
         self.models: dict[str, type[Any]] = {}
         self.apps: Apps

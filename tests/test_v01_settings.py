@@ -98,7 +98,6 @@ def test_app_config_selects_the_single_explicit_default(
     config = AppConfig.create("v01_defaults")
     assert type(config).__name__ == "Chosen"
     assert config.verbose_name == "V01 Defaults"
-    assert config.path == str(package)
     from v01_defaults.apps import First
 
     monkeypatch.setattr(First, "default", True, raising=False)
