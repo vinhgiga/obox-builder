@@ -31,15 +31,6 @@ class Obox:
                 entry.label,
                 entry.verbose_name,
             )
-            for name in (
-                "components",
-                "pages",
-                "routers",
-                "ui_prefix",
-                "tab_bar_color",
-            ):
-                if hasattr(entry, name):
-                    setattr(catalog, name, getattr(entry, name))
             runtime.add_app(catalog)
         for entry in apps.get_app_configs():
             factory = getattr(entry, "_service_factory", None)
