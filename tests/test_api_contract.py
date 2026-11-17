@@ -101,6 +101,7 @@ class CategoryBuilder(ResourceDefinition[Category]):
     fields = ("id", "label")
     slug = "categories"
     label_field = "label"
+    filter_fields = ("label",)
 
 
 class RecordBuilder(ResourceDefinition[Record]):
@@ -442,6 +443,34 @@ def test_public_field_names_work_in_all_query_positions(method: str) -> None:
             parameters = schema["paths"]["/api/admin/records"]["get"]["parameters"]
             assert "categoryId" in {p["name"] for p in parameters}
             assert "category_id" not in {p["name"] for p in parameters}
+
+    asyncio.run(scenario())
+
+
+def test_read_filters_distinguish_null_empty_string_and_empty_in() -> None:
+
+    async def scenario() -> None:
+        async with application() as app:
+            async with app.uow(principal=STAFF) as ctx:
+                ctx.session.add_all([Category(id=1, label=None), Category(id=2, label="")])
+
+            async def ids(expression: str) -> list[str]:
+                response = await request(
+                    app, "GET", "/api/admin/categories", params={"label": expression}
+                )
+                assert response.status_code == 200, response.text
+                return [item["id"] for item in response.json()["items"]]
+
+            assert await ids("is.null") == ["1"]
+            assert await ids("eq.") == ["2"]
+            assert await ids("in.()") == []
+            assert await ids('in.("")') == []
+            assert await ids("not.in.()") == ["1", "2"]
+            options = await request(app, "GET", "/api/admin/categories:queryOptions?order=id.asc")
+            assert options.json()["items"] == [
+                {"id": "1", "label": "1"},
+                {"id": "2", "label": "2"},
+            ]
 
     asyncio.run(scenario())
 

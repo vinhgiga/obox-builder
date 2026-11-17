@@ -26,11 +26,13 @@ class NumericRecord(Base):
     value: Mapped[float | None]
     number: Mapped[int | None]
     amount: Mapped[Decimal | None] = mapped_column(sa.Numeric(10, 2))
+    active: Mapped[bool | None]
 
 
 class Numbers(ResourceDefinition[NumericRecord]):
     model = NumericRecord
-    fields = ("id", "name", "value", "number", "amount")
+    fields = ("id", "name", "value", "number", "amount", "active")
+    filter_fields = ("active",)
     slug = "numbers"
 
     class ApiOptions(ApiOptions):
@@ -161,6 +163,29 @@ def test_numeric_output_and_openapi() -> None:
             ]["schema"]["$ref"]
             field = schema["components"]["schemas"][ref.rsplit("/", 1)[1]]["properties"]["value"]
             assert {item["type"] for item in field["anyOf"]} == {"number", "null"}
+
+    asyncio.run(scenario())
+
+
+def test_boolean_read_filters_distinguish_true_false_and_null() -> None:
+
+    async def scenario() -> None:
+        async with application(configured=Numbers) as app:
+            async with app.uow(principal=STAFF) as ctx:
+                ctx.session.add_all(
+                    [
+                        NumericRecord(name="true", active=True),
+                        NumericRecord(name="false", active=False),
+                        NumericRecord(name="null", active=None),
+                    ]
+                )
+
+            for literal, expected in (("true", "true"), ("false", "false"), ("null", "null")):
+                response = await request(
+                    app, "GET", f"/api/admin/numbers?active=is.{literal}"
+                )
+                assert response.status_code == 200, response.text
+                assert [row["name"] for row in response.json()["items"]] == [expected]
 
     asyncio.run(scenario())
 

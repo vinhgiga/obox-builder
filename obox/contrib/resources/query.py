@@ -117,7 +117,8 @@ def parse_terms(pairs: Iterable[tuple[str, str]]) -> tuple[dict[str, str], Filte
         if op == "in":
             if not value.startswith("(") or not value.endswith(")"):
                 raise invalid(name, "Use in.(value1,value2).")
-            parsed: Any = [literal(part) for part in split_terms(value[1:-1])]
+            parts = [] if value == "()" else split_terms(value[1:-1])
+            parsed: Any = [literal(part) for part in parts]
         else:
             parsed = literal(value)
         return FilterTerm(
@@ -158,7 +159,7 @@ def condition(builder: Any, readable: set[str], term: FilterTerm, dialect: str) 
     model = schema("Filter", builder.specs, (name,), partial=True)
 
     def value(item: Any) -> Any:
-        return validate(model, {name: item})[name]
+        return spec.normalize(validate(model, {name: item})[name])
 
     if op == "is":
         choices = {"null": None, "true": True, "false": False}
@@ -193,7 +194,8 @@ def condition(builder: Any, readable: set[str], term: FilterTerm, dialect: str) 
                 "".join("%" if piece == "*" else piece for piece in pieces), escape="\\"
             )
     elif op == "in":
-        result = column.in_([value(item) for item in raw])
+        values = [] if not raw or raw == [""] else [value(item) for item in raw]
+        result = column.in_(values)
     elif op == "isdistinct":
         result = column.is_distinct_from(value(raw))
     elif op in COMPARISONS:

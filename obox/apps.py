@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from importlib import import_module
 from importlib.util import find_spec
+from pathlib import Path
 from threading import RLock
 from types import ModuleType
 from typing import Any
@@ -14,6 +15,15 @@ from obox.core.exceptions import AppRegistryNotReady, ImproperlyConfigured
 class AppConfig:
     def __init__(self, app_name: str, app_module: ModuleType) -> None:
         self.name, self.module = app_name, app_module
+        module_file = getattr(app_module, "__file__", None)
+        if module_file is not None:
+            self.path = str(Path(module_file).resolve().parent)
+        else:
+            locations = iter(getattr(app_module, "__path__", ()))
+            location = next(locations, None)
+            if location is None:
+                raise ImproperlyConfigured(f"Application {app_name!r} has no package path.")
+            self.path = str(Path(location).resolve())
         self.label = getattr(self, "label", app_name.rsplit(".", 1)[-1])
         if not isinstance(self.label, str) or not self.label.isidentifier():
             raise ImproperlyConfigured(f"Invalid application label: {self.label!r}.")
