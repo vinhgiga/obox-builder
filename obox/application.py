@@ -32,7 +32,6 @@ class Obox:
                 entry.verbose_name,
             )
             for name in (
-                "resources",
                 "components",
                 "pages",
                 "routers",
@@ -40,18 +39,13 @@ class Obox:
                 "tab_bar_color",
             ):
                 if hasattr(entry, name):
-                    setattr(
-                        catalog, "builders" if name == "resources" else name, getattr(entry, name)
-                    )
+                    setattr(catalog, name, getattr(entry, name))
             runtime.add_app(catalog)
         for entry in apps.get_app_configs():
             factory = getattr(entry, "_service_factory", None)
             feature = factory() if factory is not None else None
             if feature is not None:
                 runtime._activate(feature)
-        for entry in tuple(runtime._apps.values()):
-            for resource in entry.builders:
-                runtime._compile_resource(resource, app_label=entry.label)
         runtime._loading_apps = False
         for feature in runtime._pending_features:
             runtime._attach_feature(feature)
