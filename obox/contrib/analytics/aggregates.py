@@ -15,22 +15,35 @@ from pydantic_core import to_jsonable_python
 from obox._exceptions import BuilderValidationError
 from obox.core.exceptions import ImproperlyConfigured
 
-Operation = Literal["count", "sum", "avg", "min", "max"]
+Operation = Literal["count", "count_numbers", "sum", "avg", "min", "max"]
 
 
 @dataclass(frozen=True)
 class Measure:
     operation: Operation = "count"
     field: str | None = None
+    label: str | None = None
 
     def __post_init__(self) -> None:
-        valid_field = (
-            self.field is None
-            if self.operation == "count"
-            else (isinstance(self.field, str) and bool(self.field))
-        )
-        if self.operation not in {"count", "sum", "avg", "min", "max"} or not valid_field:
-            raise ImproperlyConfigured("Use count without a field, or a numeric field measure.")
+        if (
+            self.operation not in {"count", "sum", "avg", "min", "max"}
+            or (self.field is not None if self.operation == "count" else not self.field)
+            or (self.field is not None and not isinstance(self.field, str))
+            or (self.label is not None and (not isinstance(self.label, str) or not self.label))
+        ):
+            raise ImproperlyConfigured("Invalid measure.")
+
+
+@dataclass(frozen=True)
+class FieldCount(Measure):
+    def __post_init__(self) -> None:
+        if (
+            self.operation not in {"count", "count_numbers"}
+            or not isinstance(self.field, str)
+            or not self.field
+            or (self.label is not None and (not isinstance(self.label, str) or not self.label))
+        ):
+            raise ImproperlyConfigured("Invalid pivot field count.")
 
 
 @dataclass(frozen=True)
@@ -50,6 +63,8 @@ class Aggregation:
     def validate(self, builder: Any) -> None:
         if (
             not isinstance(self.measure, Measure)
+            or self.measure.operation == "count_numbers"
+            or (self.measure.operation == "count" and self.measure.field is not None)
             or self.row_sort not in {"group", "value"}
             or (self.column_sort not in {"group", "value"})
         ):

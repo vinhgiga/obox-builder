@@ -58,6 +58,7 @@ class ComponentDescriptions(ApiResponse):
 
 class Component:
     _dataset: Any | None = None
+    _supports_memory = False
     name: str | None = None
     source: type[Any] | None = None
     fields: tuple[str, ...] = ()

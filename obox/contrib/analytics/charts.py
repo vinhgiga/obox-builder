@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any, Literal
 import sqlalchemy as sa
 
 from obox._filters import FilterGroup, FilterTerm
-from obox.contrib.analytics.aggregates import Measure
+from obox.contrib.analytics.aggregates import FieldCount, Measure
 from obox.core.exceptions import ImproperlyConfigured
 
 if TYPE_CHECKING:
@@ -38,8 +38,8 @@ def _where(value: FilterGroup | Mapping[str, Any] | None) -> FilterGroup | None:
     return FilterGroup(children=tuple(terms))
 
 
-def Count() -> Measure:  # noqa: N802
-    return Measure()
+def Count(name: str | None = None, *, label: str | None = None) -> Measure:  # noqa: N802
+    return Measure(label=label) if name is None else FieldCount("count", name, label)
 
 
 def Sum(name: str) -> Measure:  # noqa: N802
@@ -246,6 +246,11 @@ class ChartSpec:
         for series in self.series:
             value = series.value
             name = value.name if isinstance(value, Field) else value.field
+            if isinstance(value, Measure) and (
+                value.operation == "count_numbers"
+                or (value.operation == "count" and name is not None)
+            ):
+                raise ImproperlyConfigured("Chart count measures count records.")
             if name:
                 kind = builder.specs[name].column.type
                 if isinstance(kind, sa.Boolean) or not isinstance(kind, (sa.Integer, sa.Numeric)):

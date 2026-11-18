@@ -12,11 +12,32 @@ const {
   chartConfiguration,
   ComponentLoader,
   pooled,
+  pivotEntries,
   recordURL,
   selectWidget,
   setWidgetView,
   widgetRecordSelections,
-} = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
+} = await import(
+  `data:text/javascript;base64,${Buffer.from(`${source}\nexport { pivotEntries };`).toString("base64")}`
+);
+
+const labels = { empty: "(blank)", total: "Total" };
+const rowPaths = [
+  [["str", "North"]],
+  [
+    ["str", "North"],
+    ["str", "N-1"],
+  ],
+  [
+    ["str", "North"],
+    ["str", "N-2"],
+  ],
+  [["str", "South"]],
+  [
+    ["str", "South"],
+    ["str", "S-1"],
+  ],
+];
 
 test("drill-down preserves filters and distinguishes totals, null and empty groups", () => {
   const filters = new URLSearchParams({ "filter.region": "East" });
@@ -30,6 +51,153 @@ test("drill-down preserves filters and distinguishes totals, null and empty grou
   assert.equal(
     JSON.parse(new URL(recordURL(total.href, filters, text)).searchParams.get("row")),
     text,
+  );
+});
+
+test("pivot rows place value fields around nested dimensions and keep subtotals", () => {
+  const entries = pivotEntries(
+    rowPaths,
+    ["region", "code"],
+    ["Sum of amount", "Average of amount"],
+    1,
+    new Set(),
+    labels,
+    { columns: false, subtotals: true },
+  );
+  const northChildren = entries.filter(
+    (entry) => entry.path.length === 2 && entry.path[0][1] === "North",
+  );
+  const northSubtotal = entries.filter((entry) => entry.index === 0);
+
+  assert.deepEqual(
+    northChildren.map(({ heading }) => heading.map(({ label }) => label)),
+    [
+      ["North", "Sum of amount", "N-1"],
+      ["North", "Sum of amount", "N-2"],
+      ["North", "Average of amount", "N-1"],
+      ["North", "Average of amount", "N-2"],
+    ],
+  );
+  assert.deepEqual(
+    northSubtotal.map(({ heading }) => heading.map(({ label }) => label)),
+    [
+      ["North", "North Sum of amount"],
+      ["North", "North Average of amount"],
+    ],
+  );
+  assert.ok(
+    entries.findIndex(({ index }) => index === 0) >
+      entries.findIndex(({ path }) => path.length === 2),
+  );
+  assert.equal(
+    northSubtotal.every(({ subtotal, showValue }) => subtotal && showValue),
+    true,
+  );
+});
+
+test("pivot columns insert measures at the configured level and order subtotals after details", () => {
+  const entries = pivotEntries(
+    [
+      [["str", "NG"]],
+      [
+        ["str", "NG"],
+        ["str", "store"],
+      ],
+      [
+        ["str", "NG"],
+        ["str", "web"],
+      ],
+    ],
+    ["status", "channel"],
+    ["Count of code", "Sum of amount"],
+    1,
+    new Set(),
+    labels,
+    { columns: true, subtotals: true },
+  );
+
+  assert.deepEqual(
+    entries.map(({ heading }) => heading.map(({ label }) => label)),
+    [
+      ["NG", "Count of code", "store"],
+      ["NG", "Count of code", "web"],
+      ["NG", "Sum of amount", "store"],
+      ["NG", "Sum of amount", "web"],
+      ["NG Total", "Count of code"],
+      ["NG Total", "Sum of amount"],
+    ],
+  );
+  assert.deepEqual(
+    entries.slice(-2).map(({ subtotal }) => subtotal),
+    [true, true],
+  );
+});
+
+test("pivot column measures can lead or trail the dimension hierarchy", () => {
+  const paths = [
+    [["str", "NG"]],
+    [
+      ["str", "NG"],
+      ["str", "store"],
+    ],
+    [
+      ["str", "NG"],
+      ["str", "web"],
+    ],
+  ];
+  const leading = pivotEntries(
+    paths,
+    ["status", "channel"],
+    ["Count of code"],
+    0,
+    new Set(),
+    labels,
+    { columns: true, subtotals: false },
+  );
+  const trailing = pivotEntries(
+    paths,
+    ["status", "channel"],
+    ["Count of code"],
+    2,
+    new Set(),
+    labels,
+    { columns: true, subtotals: false },
+  );
+
+  assert.deepEqual(
+    leading[0].heading.map(({ label }) => label),
+    ["Count of code", "NG", "store"],
+  );
+  assert.deepEqual(
+    trailing[0].heading.map(({ label }) => label),
+    ["NG", "store", "Count of code"],
+  );
+});
+
+test("pivot collapse retains the selected group subtotal", () => {
+  const folded = new Set([JSON.stringify([["str", "North"]])]);
+  const entries = pivotEntries(
+    rowPaths,
+    ["region", "code"],
+    ["Count of code", "Sum of amount"],
+    1,
+    folded,
+    labels,
+    { columns: false, subtotals: true },
+  );
+
+  assert.deepEqual(
+    entries
+      .filter(({ path }) => path[0][1] === "North")
+      .map(({ heading }) => heading.map(({ label }) => label)),
+    [
+      ["North", "North Count of code"],
+      ["North", "North Sum of amount"],
+    ],
+  );
+  assert.equal(
+    entries.some(({ path }) => path.length === 2 && path[0][1] === "North"),
+    false,
   );
 });
 

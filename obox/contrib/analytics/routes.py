@@ -19,7 +19,7 @@ from obox._i18n import localize, translate
 from obox._page_routes import PageRoute
 from obox._routes import ApiRoute
 from obox._ui import build_navigation, filter_columns, query_options
-from obox.contrib.analytics.source import DataSource
+from obox.contrib.analytics.pivot import PivotSpec
 
 if TYPE_CHECKING:
     from obox._component_service import ComponentService
@@ -71,10 +71,10 @@ def _query(request: Request, service: ComponentService, *, records: bool = False
         query = ComponentRecords.model_validate(selection) if records else ComponentQuery()
     except ValidationError as exc:
         raise BuilderValidationError({"records": [error["msg"] for error in exc.errors()]}) from exc
-    if service.dataset is not None:
+    if service.dataset is not None or service.definition._supports_memory:
         values = query_options(
             Request(dict(request.scope, query_string=urlencode(pairs).encode())),
-            service.dataset.dataset,
+            service.dataset.dataset if service.dataset else None,
             pagination=False,
         )
         if "ordering" in values:
@@ -238,14 +238,46 @@ async def page_context(
                 )
             else:
                 description = (await service.describe(ctx=ctx)).presentation
-                builder = cast(DataSource, service.dataset).dataset
-                readable = set(builder.readable(ctx))
-                item.update(
-                    filters=filter_columns(
-                        builder, ctx, [name for name in builder.filter_fields if name in readable]
-                    ),
-                    search_enabled=any(name in readable for name in builder.search_fields),
-                )
+                if service.dataset is not None:
+                    builder = service.dataset.dataset
+                    readable = set(builder.readable(ctx))
+                    item.update(
+                        filters=filter_columns(
+                            builder,
+                            ctx,
+                            [name for name in builder.filter_fields if name in readable],
+                        ),
+                        search_enabled=any(name in readable for name in builder.search_fields),
+                    )
+                elif isinstance(spec, PivotSpec):
+                    readable = set(definition.get_fields(ctx)).intersection(definition.fields)
+                    fields = (
+                        definition.fields
+                        if definition.filter_fields is None
+                        else definition.filter_fields
+                    )
+                    item.update(
+                        filters=[
+                            {
+                                "name": name,
+                                "label": name.replace("_", " ").capitalize(),
+                                "kind": "text",
+                                "choices": [],
+                                "operators": [
+                                    "is",
+                                    "is_not",
+                                    "contains",
+                                    "does_not_contain",
+                                    "is_empty",
+                                    "is_not_empty",
+                                ],
+                            }
+                            for name in fields
+                            if name in readable
+                        ],
+                        search_enabled=bool(readable),
+                    )
+                legacy = spec.legacy if isinstance(spec, PivotSpec) else None
                 config[service.name] = {
                     "slug": service.name,
                     "title": item["title"],
@@ -266,8 +298,10 @@ async def page_context(
                     else "",
                     "rowLabel": spec.dimension.label or spec.dimension.field
                     if hasattr(spec, "dimension")
-                    else spec.rows,
-                    "columnLabel": getattr(spec, "columns", "") or "",
+                    else legacy.rows
+                    if legacy
+                    else "",
+                    "columnLabel": (legacy.columns or "") if legacy else "",
                     "rowTotals": description.get("rowTotals", True),
                     "columnTotals": description.get("columnTotals", True),
                 }

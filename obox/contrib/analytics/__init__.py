@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, cast
 
-from obox._components import Component, ComponentQuery
-from obox._exceptions import OboxError
-from obox._filters import FilterGroup
-from obox.contrib.analytics.aggregates import Aggregation, Measure
+from obox._components import Component, ComponentQuery, fixed_filters
+from obox._exceptions import BuilderValidationError, OboxError
+from obox._schemas import ApiResponse
+from obox.contrib.analytics.aggregates import Aggregation, FieldCount, Measure
 from obox.contrib.analytics.charts import (
     Avg,
     Axis,
@@ -23,7 +22,9 @@ from obox.contrib.analytics.charts import (
     Sum,
     chart_spec,
 )
-from obox.contrib.analytics.schemas import ChartData, PivotData
+from obox.contrib.analytics.pivot import PivotSpec, ValuesAxis, axis
+from obox.contrib.analytics.pivot_memory import MemoryRows, condition, execute_memory
+from obox.contrib.analytics.schemas import ChartData, PivotData, PivotMatrix
 from obox.core.exceptions import ImproperlyConfigured
 
 if TYPE_CHECKING:
@@ -38,6 +39,7 @@ __all__ = [
     "Bar",
     "Chart",
     "Count",
+    "CountNumbers",
     "Dim",
     "Donut",
     "Field",
@@ -47,38 +49,15 @@ __all__ = [
     "Min",
     "Pie",
     "Pivot",
+    "PivotMatrix",
     "Scatter",
     "Series",
     "Sum",
 ]
 
 
-@dataclass(frozen=True)
-class PivotSpec:
-    slug: str
-    rows: str
-    measure: Measure = field(default_factory=Measure)
-    columns: str | None = None
-    title: str = ""
-    filters: FilterGroup = field(default_factory=FilterGroup)
-    row_sort: Literal["group", "value"] = "group"
-    column_sort: Literal["group", "value"] = "group"
-    row_descending: bool = False
-    column_descending: bool = False
-    show_row_totals: bool = True
-    show_column_totals: bool = True
-
-    @property
-    def aggregation(self) -> Aggregation:
-        return Aggregation(
-            self.rows,
-            self.measure,
-            self.columns,
-            self.row_sort,
-            self.column_sort,
-            self.row_descending,
-            self.column_descending,
-        )
+def CountNumbers(name: str, *, label: str | None = None) -> Measure:  # noqa: N802
+    return FieldCount("count_numbers", name, label)
 
 
 class Chart(Component):
@@ -181,48 +160,165 @@ class Donut(Chart):
 
 
 class Pivot(Component):
+    _supports_memory = True
     plugin = "analytics"
     kind = "pivot"
     query_model = ComponentQuery
-    result_model = PivotData
-    rows = ""
-    columns: str | None = None
+    result_model: type[ApiResponse] = PivotData
+    data: Any = None
+    rows: str | tuple[str, ...] | list[str] = ""
+    columns: str | tuple[str, ...] | list[str] | None = None
     measure = Measure()
+    values: tuple[Measure, ...] | list[Measure] | None = None
+    values_axis: ValuesAxis = "columns"
+    values_position: int | None = None
     row_sort: Literal["group", "value"] = "group"
     column_sort: Literal["group", "value"] = "group"
     row_descending = False
     column_descending = False
+    show_row_subtotals = True
+    show_column_subtotals = True
     show_row_totals = True
     show_column_totals = True
     drill = False
     height = "md"
 
-    def _build(self, builder: Any, name: str) -> PivotSpec:
-        spec = PivotSpec(
-            name,
-            self.rows,
-            self.measure,
-            self.columns,
-            self.title,
-            cast(FilterGroup, self.filters),
+    def __init__(self, *, data: Any = None, **options: Any) -> None:
+        super().__init__(**options)
+        data = self.data if data is None else data
+        if data is not None:
+            if self.source is not None:
+                raise ImproperlyConfigured("Choose a model source or in-memory pivot data.")
+            self.data = MemoryRows.from_data(data, tuple(self.fields))
+            self.fields = self.data.columns
+
+    def _layout(self, *, model: bool = False) -> PivotSpec:
+        rows, columns = axis(self.rows), axis(self.columns)
+        if len(set(rows + columns)) != len(rows + columns):
+            raise ImproperlyConfigured("Each pivot dimension can occur once across the axes.")
+        values = self.values if self.values is not None else (self.measure,)
+        if (
+            not isinstance(values, (list, tuple))
+            or not values
+            or any(not isinstance(value, Measure) for value in values)
+        ):
+            raise ImproperlyConfigured("Pivot values require at least one Measure.")
+        depth = len(rows if self.values_axis == "rows" else columns)
+        position = depth if self.values_position is None else self.values_position
+        if (
+            any(
+                type(flag) is not bool
+                for flag in (
+                    self.show_row_totals,
+                    self.show_column_totals,
+                    self.show_row_subtotals,
+                    self.show_column_subtotals,
+                    self.row_descending,
+                    self.column_descending,
+                    self.drill,
+                )
+            )
+            or self.height not in {"sm", "md", "lg"}
+            or self.row_sort not in {"group", "value"}
+            or self.column_sort not in {"group", "value"}
+            or self.values_axis not in {"rows", "columns"}
+            or type(position) is not int
+            or not 0 <= position <= depth
+        ):
+            raise ImproperlyConfigured("Invalid pivot presentation.")
+        legacy = None
+        if (
+            model
+            and isinstance(self.rows, str)
+            and self.rows
+            and (self.columns is None or isinstance(self.columns, str))
+            and self.values is None
+            and self.values_axis == "columns"
+            and self.values_position is None
+            and self.measure.label is None
+            and self.measure.operation != "count_numbers"
+            and not (self.measure.operation == "count" and self.measure.field is not None)
+        ):
+            legacy = Aggregation(
+                self.rows,
+                self.measure,
+                self.columns,
+                self.row_sort,
+                self.column_sort,
+                self.row_descending,
+                self.column_descending,
+            )
+        return PivotSpec(
+            rows,
+            columns,
+            tuple(values),
+            self.values_axis,
+            position,
             self.row_sort,
             self.column_sort,
             self.row_descending,
             self.column_descending,
+            self.show_row_subtotals,
+            self.show_column_subtotals,
             self.show_row_totals,
             self.show_column_totals,
+            legacy,
         )
-        spec.aggregation.validate(builder)
-        if any(
-            type(flag) is not bool
-            for flag in (
-                self.show_row_totals,
-                self.show_column_totals,
-                self.drill,
-            )
-        ) or self.height not in {"sm", "md", "lg"}:
-            raise ImproperlyConfigured("Invalid pivot presentation.")
+
+    def _build(self, builder: Any, name: str) -> PivotSpec:
+        spec = self._layout(model=builder is not None)
+        if builder is not None:
+            if spec.legacy is None:
+                spec.validate_model(builder)
+            else:
+                spec.legacy.validate(builder)
+        else:
+            if not isinstance(self.data, MemoryRows):
+                raise ImproperlyConfigured("Declare a pivot source or data.")
+            self.fields = self._memory_fields(self.data, spec)
+            try:
+                condition(
+                    fixed_filters(self.filters),
+                    set(self.fields).intersection(
+                        self.fields if self.filter_fields is None else self.filter_fields
+                    ),
+                )
+            except BuilderValidationError as exc:
+                raise ImproperlyConfigured("Invalid fixed pivot filter.") from exc
+        if spec.legacy is None:
+            self.result_model = PivotMatrix
         return spec
+
+    def _memory_fields(self, data: MemoryRows, spec: PivotSpec) -> tuple[str, ...]:
+        columns = data.columns if data.columns or data.rows else spec.fields
+        if not set(spec.fields).issubset(columns):
+            raise ImproperlyConfigured("Pivot data is missing configured fields.")
+        return columns
+
+    def compute(
+        self,
+        data: Any = None,
+        *,
+        max_rows: int = 200,
+        max_columns: int = 50,
+        max_cells: int = 10_000,
+    ) -> PivotMatrix:
+        """Compute a matrix from records or a DataFrame without binding to an application."""
+        spec = self._layout()
+        source = self.data if data is None else MemoryRows.from_data(data, tuple(self.fields))
+        if not isinstance(source, MemoryRows):
+            raise ImproperlyConfigured("Provide records or a DataFrame to compute a pivot.")
+        fields = self._memory_fields(source, spec)
+        rows = source.matching(
+            readable=set(fields),
+            filter_fields=fields if self.filter_fields is None else self.filter_fields,
+            fixed=fixed_filters(self.filters),
+        )
+        return PivotMatrix.model_validate(
+            execute_memory(
+                rows, spec, max_rows=max_rows, max_columns=max_columns, max_cells=max_cells
+            )
+        )
 
     async def _execute(self, service: ComponentService, query: Any, ctx: Context) -> Any:
         from obox.contrib.analytics.service import execute

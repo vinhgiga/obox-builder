@@ -17,6 +17,25 @@ class PivotData(ApiResponse):
     records: int
 
 
+class PivotMatrix(ApiResponse):
+    row_fields: list[str]
+    column_fields: list[str]
+    values: list[str]
+    values_axis: Literal["rows", "columns"]
+    values_position: int
+    show_row_subtotals: bool
+    show_column_subtotals: bool
+    show_row_totals: bool
+    show_column_totals: bool
+    rows: list[list[tuple[str, JsonValue]]]
+    columns: list[list[tuple[str, JsonValue]]]
+    cells: list[list[list[JsonValue]]]
+    row_totals: list[list[JsonValue]]
+    column_totals: list[list[JsonValue]]
+    total: list[JsonValue]
+    records: int
+
+
 class Point(ApiResponse):
     x: JsonValue
     y: JsonValue

@@ -246,6 +246,28 @@
 .analytics-table thead th:first-child {
   z-index: 2;
 }
+.analytics-pivot-matrix thead th {
+  position: static;
+}
+.analytics-pivot-matrix thead tr:first-child th:first-child,
+.analytics-pivot-matrix tbody th,
+.analytics-pivot-matrix tfoot th {
+  position: sticky;
+  top: auto;
+}
+.analytics-pivot-matrix thead tr:not(:first-child) th:first-child {
+  text-align: end;
+}
+.analytics-pivot-subtotal,
+.analytics-pivot-matrix tfoot {
+  font-weight: 600;
+}
+.analytics-pivot-toggle {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  margin-inline-end: 0.25rem;
+}
 .analytics-expanded[data-record-list] .analytics-expanded-records thead th {
   position: sticky;
   top: 0;

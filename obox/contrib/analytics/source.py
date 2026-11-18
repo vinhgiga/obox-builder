@@ -9,6 +9,7 @@ from obox._exceptions import BuilderValidationError, PermissionDenied
 from obox.contrib._models import authorize
 from obox.contrib.analytics.aggregates import execute
 from obox.contrib.analytics.filters import _filter_condition, _filter_tree
+from obox.contrib.analytics.pivot import PivotSpec, execute_sql
 from obox.core.exceptions import ImproperlyConfigured
 from obox.db import _scope
 from obox.db._fields import inspect_fields
@@ -123,7 +124,8 @@ class DataSource:
         self, query: Any, *, ctx: Any, filter_group: Any = None, search: Any = None, **limits: Any
     ) -> Any:
         stmt = await self._aggregate_statement(query, ctx, filter_group, search)
-        return await execute(
+        engine = execute_sql if isinstance(query, PivotSpec) else execute
+        return await engine(
             stmt,
             self.dataset,
             ctx.session,
@@ -145,7 +147,12 @@ class DataSource:
         from pydantic import TypeAdapter, ValidationError
 
         stmt = await self._aggregate_statement(query, ctx, filter_group, search)
-        if not set(keys) <= {query.rows, query.columns}:
+        dimensions = (
+            set(query.rows + query.columns)
+            if isinstance(query, PivotSpec)
+            else {query.rows, query.columns}
+        )
+        if not set(keys) <= dimensions:
             raise BuilderValidationError({"keys": ["Unknown grouping field."]})
         for name, value in keys.items():
             spec = self.dataset.specs[name]

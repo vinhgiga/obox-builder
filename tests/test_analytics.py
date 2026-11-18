@@ -6,7 +6,7 @@ import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime
-from decimal import Decimal
+from decimal import Decimal, localcontext
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -22,7 +22,21 @@ from obox._context import Context
 from obox._filters import FilterGroup, FilterTerm
 from obox._pages import Page
 from obox._runtime import _Runtime
-from obox.contrib.analytics import Analytics, Bar, Chart, Donut, Line, Pie, Pivot
+from obox.contrib.analytics import (
+    Analytics,
+    Avg,
+    Bar,
+    Chart,
+    Count,
+    CountNumbers,
+    Donut,
+    Line,
+    Max,
+    Min,
+    Pie,
+    Pivot,
+    Sum,
+)
 from obox.contrib.analytics.aggregates import Aggregation, Measure
 from obox.core.exceptions import ImproperlyConfigured
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -272,15 +286,15 @@ def test_aggregates_and_totals(tmp_path: Path, operation: Any, total: Any) -> No
 
     async def scenario() -> None:
         async with application(tmp_path) as (app, _, policy):
+            service = app.component("pivot", app_label="admin").dataset
+            assert service is not None
             query = Aggregation(
                 "distributor",
                 Measure(operation, None if operation == "count" else "amount"),
                 "region",
             )
             async with app.uow(principal=STAFF) as ctx:
-                result = await app.component("pivot", app_label="admin").dataset.aggregate(
-                    query, ctx=ctx
-                )
+                result = await service.aggregate(query, ctx=ctx)
                 assert result.records == 7
                 assert result.rows == ["", "A", "B", None]
                 assert result.columns == ["East", "West"]
@@ -292,11 +306,7 @@ def test_aggregates_and_totals(tmp_path: Path, operation: Any, total: Any) -> No
                 before = result.to_dict()
             policy.joined = True
             async with app.uow(principal=STAFF) as ctx:
-                assert (
-                    await app.component("pivot", app_label="admin").dataset.aggregate(
-                        query, ctx=ctx
-                    )
-                ).to_dict() == before
+                assert (await service.aggregate(query, ctx=ctx)).to_dict() == before
 
     asyncio.run(scenario())
 
@@ -307,6 +317,7 @@ def test_filters_weighted_average_empty_and_null(tmp_path: Path) -> None:
         async with application(tmp_path) as (app, client, _):
             async with app.uow(principal=STAFF) as ctx:
                 service = app.component("pivot", app_label="admin").dataset
+                assert service is not None
                 query = Aggregation(
                     "distributor",
                     Measure("avg", "amount"),
@@ -524,7 +535,9 @@ def test_boundaries_sorting_keys_and_masking(tmp_path: Path) -> None:
                 )
             ).status_code == 422
             async with app.uow(principal=STAFF) as ctx:
-                result = await app.component("pivot", app_label="admin").dataset.aggregate(
+                service = app.component("pivot", app_label="admin").dataset
+                assert service is not None
+                result = await service.aggregate(
                     Aggregation(
                         "distributor",
                         Measure("sum", "amount"),
@@ -570,8 +583,10 @@ def test_invalid_fields_fail_at_installation(tmp_path: Path, query: Aggregation)
 
     async def scenario() -> None:
         async with application(tmp_path) as (app, _, _):
+            service = app.component("pivot", app_label="admin").dataset
+            assert service is not None
             with pytest.raises(ImproperlyConfigured):
-                query.validate(app.component("pivot", app_label="admin").dataset.dataset)
+                query.validate(service.dataset)
 
     asyncio.run(scenario())
 
@@ -740,5 +755,194 @@ def test_chart_json_axes_and_widget_keys(tmp_path: Path) -> None:
             assert data["config"]["secondaryAxis"] == {}
             assert "primary_axis" not in data["config"]
             assert data["series"][0]["points"][0]["recordCount"] >= 1
+
+    asyncio.run(scenario())
+
+
+def test_multidimensional_sql_pivot_and_drill_match_scoped_source(tmp_path: Path) -> None:
+    widget = Pivot(
+        name="multi",
+        source=Sale,
+        fields=FIELDS,
+        rows=("distributor", "region"),
+        columns=("active", "occurred_on"),
+        values=(
+            Count(),
+            Count("id"),
+            CountNumbers("quantity"),
+            CountNumbers("active"),
+            Sum("amount"),
+            Avg("amount"),
+            Min("amount"),
+            Max("amount"),
+        ),
+        drill=True,
+    )
+
+    async def scenario() -> None:
+        async with application(tmp_path, widgets=(widget,)) as (app, client, policy):
+            async with app.uow(principal=STAFF) as ctx:
+                ctx.session.add_all(
+                    [
+                        Sale(
+                            id=9,
+                            account_id=1,
+                            distributor="C",
+                            region="North",
+                            amount=Decimal(5),
+                            active=False,
+                            occurred_on=date(2026, 2, 1),
+                        ),
+                        Sale(
+                            id=10,
+                            account_id=1,
+                            distributor="C",
+                            region="South",
+                            amount=None,
+                            active=False,
+                            occurred_on=date(2026, 2, 1),
+                        ),
+                    ]
+                )
+                ctx.session.add_all([Duplicate(sale_id=9), Duplicate(sale_id=10)])
+
+            response = await client.get("/admin/admin/report/_components/multi/data")
+            assert response.status_code == 200, response.text
+            data = response.json()
+            assert data["rowFields"] == ["distributor", "region"]
+            assert data["columnFields"] == ["active", "occurred_on"]
+            assert data["values"] == [
+                "Count",
+                "Count of id",
+                "Count Numbers of quantity",
+                "Count Numbers of active",
+                "Sum of amount",
+                "Average of amount",
+                "Min of amount",
+                "Max of amount",
+            ]
+            assert data["records"] == 9
+            assert data["total"][:4] == [9, 9, 9, 0]
+            assert Decimal(data["total"][4]) == Decimal(90)
+            with localcontext() as context:
+                context.prec = 38
+                assert Decimal(data["total"][5]) == Decimal(90) / Decimal(7)
+            assert data["total"][6:] == ["-5.00", "40.00"]
+            row = data["rows"].index([["str", "C"], ["str", "North"]])
+            column = data["columns"].index([["bool", False], ["date", "2026-02-01"]])
+            assert data["cells"][row][column] == [1, 1, 1, 0, "5.00", "5.00", "5.00", "5.00"]
+
+            records = await client.get(
+                "/admin/admin/report/_components/multi/records",
+                params={
+                    "row": json.dumps([["str", "C"], ["str", "North"]]),
+                    "column": json.dumps([["bool", False], ["date", "2026-02-01"]]),
+                },
+            )
+            assert records.status_code == 200, records.text
+            assert "5.00" in records.text
+            assert "South" not in records.text
+            invalid = await client.get(
+                "/admin/admin/report/_components/multi/records", params={"row": "{}"}
+            )
+            assert invalid.status_code == 422
+
+            empty = await client.get(
+                "/admin/admin/report/_components/multi/data",
+                params={"multi.search": "no matching row"},
+            )
+            assert empty.status_code == 200, empty.text
+            assert empty.json()["records"] == 0
+            assert empty.json()["rows"] == []
+            assert empty.json()["total"] == [None] * len(data["values"])
+
+            policy.joined = True
+            joined = await client.get("/admin/admin/report/_components/multi/data")
+            assert joined.json() == data
+            assert "SECRET" not in joined.text
+
+    asyncio.run(scenario())
+
+
+def test_sql_pivot_without_dimensions_returns_one_grand_total(tmp_path: Path) -> None:
+    widget = Pivot(
+        name="summary",
+        source=Sale,
+        fields=FIELDS,
+        values=(Count(), Sum("amount")),
+    )
+
+    async def scenario() -> None:
+        async with application(tmp_path, widgets=(widget,)) as (_, client, _):
+            response = await client.get("/admin/admin/report/_components/summary/data")
+            assert response.status_code == 200, response.text
+            data = response.json()
+            assert data["rowFields"] == []
+            assert data["columnFields"] == []
+            assert data["rows"] == [[]]
+            assert data["columns"] == [[]]
+            assert data["cells"] == [[[7, "85.00"]]]
+            assert data["total"] == [7, "85.00"]
+            assert data["records"] == 7
+
+    asyncio.run(scenario())
+
+
+def test_registered_memory_pivot_supports_filters_search_and_matrix_api(tmp_path: Path) -> None:
+    widget = Pivot(
+        name="memory",
+        data=[
+            {
+                "distributor": "A",
+                "region": "East",
+                "amount": 10,
+                "active": True,
+                "occurred_on": "2026-01-01",
+            },
+            {
+                "distributor": "A",
+                "region": "West",
+                "amount": 20,
+                "active": True,
+                "occurred_on": "2026-01-01",
+            },
+            {
+                "distributor": "B",
+                "region": "East",
+                "amount": None,
+                "active": False,
+                "occurred_on": "2026-01-02",
+            },
+        ],
+        rows=("distributor", "region"),
+        columns=("active", "occurred_on"),
+        values=(Count("distributor"), Sum("amount")),
+    )
+
+    async def scenario() -> None:
+        async with application(tmp_path, widgets=(widget,)) as (_, client, _):
+            response = await client.get("/admin/admin/report/_components/memory/data")
+            assert response.status_code == 200, response.text
+            data = response.json()
+            assert data["rowFields"] == ["distributor", "region"]
+            assert data["columnFields"] == ["active", "occurred_on"]
+            assert data["records"] == 3
+            assert data["total"] == [3, 30]
+
+            filtered = await client.get(
+                "/admin/admin/report/_components/memory/data",
+                params={"memory.filter.region": "East"},
+            )
+            assert filtered.status_code == 200, filtered.text
+            assert filtered.json()["records"] == 2
+            assert filtered.json()["total"] == [2, 10]
+
+            searched = await client.get(
+                "/admin/admin/report/_components/memory/data",
+                params={"memory.search": "West"},
+            )
+            assert searched.status_code == 200, searched.text
+            assert searched.json()["records"] == 1
+            assert searched.json()["total"] == [1, 20]
 
     asyncio.run(scenario())

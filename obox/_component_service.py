@@ -82,7 +82,9 @@ class ComponentService:
                 _filter_tree(dataset.dataset, set(dataset.dataset.fields), predicate, "sqlite")
             except BuilderValidationError as exc:
                 raise ImproperlyConfigured("Invalid fixed component filter.") from exc
-        elif component.plugin == "analytics" or predicate.children:
+        elif not component._supports_memory and (
+            component.plugin == "analytics" or predicate.children
+        ):
             raise ImproperlyConfigured("Data filters require a source model.")
         spec = component._build(dataset.dataset if dataset else None, component.name)
         if (
@@ -149,6 +151,15 @@ class ComponentService:
                 raise PermissionDenied("These fields are not available for this component.")
             # Recheck dynamic field restrictions on fixed filters.
             self.dataset._statement("list", ctx)
+        elif definition._supports_memory:
+            if not await invoke(definition.has_permission, ctx):
+                raise PermissionDenied("This component is not permitted.")
+            readable = set(definition.get_fields(ctx))
+            if not readable.issubset(definition.fields):
+                raise PermissionDenied("Dynamic component fields must narrow its declared fields.")
+            fields = set(definition.required_fields).union(self.spec.fields)
+            if not fields.issubset(readable):
+                raise PermissionDenied("These fields are not available for this component.")
         return ctx
 
     async def permitted(self, ctx: Context) -> bool:
@@ -161,7 +172,7 @@ class ComponentService:
     def options(self, query: ComponentQuery) -> dict[str, Any]:
         if query._options is not None:
             return query._options
-        if self.dataset is None:
+        if self.dataset is None and not self._prototype._supports_memory:
             return {}
         for key, _ in query.query:
             if key in CONTROLS - {"search"}:
@@ -171,7 +182,8 @@ class ComponentService:
         params, predicate = parse_terms(query.query)
         from pydantic.alias_generators import to_camel
 
-        names = {to_camel(name): name for name in self.dataset.dataset.fields}
+        fields = self.dataset.dataset.fields if self.dataset else self._prototype.fields
+        names = {to_camel(name): name for name in fields}
 
         def resolve(node: FilterTerm | FilterGroup) -> FilterTerm | FilterGroup:
             if isinstance(node, FilterTerm):

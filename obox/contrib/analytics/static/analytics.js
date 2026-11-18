@@ -100,6 +100,7 @@ function node(tag, text, parent) {
 
 function renderTable(widget, data, filters, labels) {
   if (data.series) return renderSeriesTable(widget, data, filters, labels);
+  if (data.rowFields) return renderPivot(widget, data, filters, labels);
   const parent = widget.querySelector("[data-table]");
   parent.replaceChildren();
   const table = node("table", undefined, parent);
@@ -146,6 +147,235 @@ function renderTable(widget, data, filters, labels) {
     });
     if (showRowTotals) cell(row, data.total, undefined, undefined);
   }
+}
+
+function pivotEntries(paths, fields, measures, position, folded, labels, { columns, subtotals }) {
+  const pathId = (path) => JSON.stringify(path);
+  const ranks = new Map(paths.map((path, i) => [pathId(path), i]));
+  const entries = [];
+  for (const [index, path] of paths.entries()) {
+    const prefixes = path.map((_, i) => pathId(path.slice(0, i + 1)));
+    if (prefixes.slice(0, -1).some((key) => folded.has(key))) continue;
+    const group = path.length > 0 && path.length < fields.length;
+    const collapsed = folded.has(pathId(path));
+    const subtotalAfterChildren =
+      !columns && group && measures.length > 1 && position >= path.length;
+    if ((columns || subtotalAfterChildren) && group && !collapsed && !subtotals) continue;
+    const parts = path.map(([_, value], i) => ({
+      key: prefixes[i],
+      label: value === null ? labels.empty : String(value),
+      toggle: i + 1 < fields.length ? prefixes[i] : undefined,
+    }));
+    const order = prefixes.map((key) => ranks.get(key));
+    if (columns && group && !collapsed) {
+      const part = parts.at(-1);
+      parts[parts.length - 1] = {
+        key: `subtotal:${part.key}`,
+        label: `${part.label} ${labels.total}`,
+      };
+      order.push(paths.length);
+    }
+    for (const [measure, label] of measures.entries()) {
+      const heading = [...parts];
+      const rank = [...order];
+      if (subtotalAfterChildren) {
+        heading.push({ key: `subtotal:${measure}`, label: `${parts.at(-1).label} ${label}` });
+        rank.push(paths.length, measure);
+      } else if (label) {
+        const offset = Math.min(path.length, position);
+        heading.splice(offset, 0, { key: `value:${measure}`, label });
+        const afterSubtotal = columns && group && !collapsed && offset === path.length;
+        rank.splice(offset + Number(afterSubtotal), 0, measure);
+      }
+      entries.push({
+        index,
+        path,
+        measure,
+        heading,
+        rank,
+        subtotal: group,
+        showValue: !group || collapsed || subtotals,
+      });
+    }
+  }
+  return entries.sort((a, b) => {
+    for (let i = 0; i < Math.min(a.rank.length, b.rank.length); i++) {
+      if (a.rank[i] !== b.rank[i]) return a.rank[i] - b.rank[i];
+    }
+    return a.rank.length - b.rank.length;
+  });
+}
+
+function renderPivot(widget, data, filters, labels) {
+  const container = widget.querySelector("[data-table]");
+  const rowFolds = new Set();
+  const columnFolds = new Set();
+  const rowValues = data.valuesAxis === "rows";
+  const multiple = data.values.length > 1;
+  const rowMeasures = rowValues && multiple ? data.values : [null];
+  const columnMeasures = !rowValues && multiple ? data.values : [null];
+  const showColumnTotal = data.columnFields.length && data.showRowTotals;
+  const showRowTotal = data.rowFields.length && data.showColumnTotals;
+
+  function heading(parent, part, folded) {
+    if (part.toggle) {
+      const id = part.toggle;
+      const expanded = !folded.has(id);
+      const button = node("button", expanded ? "▾" : "▸", parent);
+      button.type = "button";
+      button.className = "analytics-pivot-toggle";
+      button.dataset.pivotToggle = id;
+      button.setAttribute("aria-expanded", String(expanded));
+      button.setAttribute("aria-label", part.label);
+      button.addEventListener("click", () => {
+        if (expanded) folded.add(id);
+        else folded.delete(id);
+        draw();
+        const scope = folded === rowFolds ? "tbody" : "thead";
+        const replacements = container.querySelectorAll(`${scope} [data-pivot-toggle]`);
+        for (const replacement of replacements) {
+          if (replacement.dataset.pivotToggle === id) {
+            replacement.focus();
+            break;
+          }
+        }
+      });
+    }
+    node("span", part.label, parent);
+  }
+
+  function draw() {
+    container.replaceChildren();
+    const table = node("table", undefined, container);
+    table.className = "analytics-pivot-matrix";
+    node("caption", widget.querySelector("h2").textContent, table);
+    const rows = pivotEntries(
+      data.rows,
+      data.rowFields,
+      rowMeasures,
+      data.valuesPosition,
+      rowFolds,
+      labels,
+      { columns: false, subtotals: data.showRowSubtotals },
+    );
+    const columns = pivotEntries(
+      data.columns,
+      data.columnFields,
+      columnMeasures,
+      data.valuesPosition,
+      columnFolds,
+      labels,
+      { columns: true, subtotals: data.showColumnSubtotals },
+    );
+    if (showColumnTotal && data.records) {
+      for (const [measure, label] of columnMeasures.entries()) {
+        columns.push({
+          measure,
+          heading: [
+            { key: "total", label: labels.total },
+            ...(label ? [{ key: measure, label }] : []),
+          ],
+        });
+      }
+    }
+    for (const column of columns) {
+      if (!column.heading.length) {
+        column.heading = [
+          { key: "value", label: rowValues && multiple ? labels.value : data.values[0] },
+        ];
+      }
+    }
+    const head = node("thead", undefined, table);
+    const levels = Math.max(1, ...columns.map((column) => column.heading.length));
+    for (let level = 0; level < levels; level++) {
+      const row = node("tr", undefined, head);
+      if (level === 0) {
+        const corner = node("th", data.rowFields.join(" / ") || labels.value, row);
+        corner.scope = "col";
+        corner.rowSpan = levels;
+      }
+      for (let start = 0; start < columns.length; ) {
+        const path = columns[start].heading;
+        const part = path[level];
+        if (!part) {
+          start++;
+          continue;
+        }
+        const prefix = JSON.stringify(path.slice(0, level + 1).map(({ key }) => key));
+        const hasChildren = level + 1 < path.length;
+        let end = start + 1;
+        while (
+          end < columns.length &&
+          columns[end].heading.length > level + 1 === hasChildren &&
+          JSON.stringify(columns[end].heading.slice(0, level + 1).map(({ key }) => key)) === prefix
+        )
+          end++;
+        const cell = node("th", undefined, row);
+        cell.scope = hasChildren ? "colgroup" : "col";
+        cell.colSpan = end - start;
+        if (!hasChildren) cell.rowSpan = levels - level;
+        heading(cell, part, columnFolds);
+        start = end;
+      }
+    }
+    const body = node("tbody", undefined, table);
+
+    function values(row, entry) {
+      for (const column of columns) {
+        const cell = node("td", undefined, row);
+        if (!entry?.showValue) continue;
+        const items =
+          entry.index === undefined
+            ? column.index === undefined
+              ? data.total
+              : data.columnTotals[column.index]
+            : column.index === undefined
+              ? data.rowTotals[entry.index]
+              : data.cells[entry.index][column.index];
+        const value = items[rowValues ? entry.measure : column.measure];
+        if (value === null) continue;
+        if (widget.dataset.drill === "true") {
+          const link = node("a", String(value), cell);
+          link.href = recordURL(widget.dataset.recordsUrl, filters, entry.path, column.path);
+          link.setAttribute("aria-label", `${labels.records}: ${value}`);
+        } else cell.textContent = String(value);
+      }
+    }
+
+    const root = { children: new Map() };
+    for (const entry of rows) {
+      let group = root;
+      for (const part of entry.heading) {
+        if (!group.children.has(part.key)) {
+          group.children.set(part.key, { part, children: new Map() });
+        }
+        group = group.children.get(part.key);
+      }
+      group.entry = entry;
+    }
+    function drawRows({ part, entry, children }, depth) {
+      const row = node("tr", undefined, body);
+      const cell = node("th", undefined, row);
+      cell.scope = "row";
+      cell.style.paddingInlineStart = `${0.6 + depth * 1.1}rem`;
+      heading(cell, part || { label: labels.total }, rowFolds);
+      if (part?.toggle || entry?.subtotal) row.classList.add("analytics-pivot-subtotal");
+      values(row, entry);
+      for (const child of children.values()) drawRows(child, depth + 1);
+    }
+    if (root.entry) drawRows(root, 0);
+    else for (const child of root.children.values()) drawRows(child, 0);
+
+    if (showRowTotal && data.records) {
+      const foot = node("tfoot", undefined, table);
+      for (const [measure, label] of rowMeasures.entries()) {
+        const row = node("tr", undefined, foot);
+        node("th", label ? `${labels.total} ${label}` : labels.total, row).scope = "row";
+        values(row, { measure, showValue: true });
+      }
+    }
+  }
+  draw();
 }
 
 function selectionURL(base, filters, selector) {
