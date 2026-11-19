@@ -80,7 +80,12 @@ class _Runtime:
 
         def openapi() -> dict[str, Any]:
             schema = original_openapi()
-            if not self._features:
+            from obox._routes import ApiRoute
+
+            routes = tuple(iter_route_contexts(self.app.routes))
+            if not self._features and not any(
+                isinstance(route.original_route, ApiRoute) for route in routes
+            ):
                 return schema
             from obox._schemas import Problem
 
@@ -105,9 +110,7 @@ class _Runtime:
                         "type": "http",
                         "scheme": "bearer",
                     }
-                from obox._routes import ApiRoute
-
-                for route in iter_route_contexts(self.app.routes):
+                for route in routes:
                     if not isinstance(route.original_route, ApiRoute) and not any(
                         _api_contexts((route,))
                     ):
@@ -156,6 +159,7 @@ class _Runtime:
         self._frozen = False
         self.csrf = CSRF(self.settings.csrf_secret)
         self.templates = create_templates(self.settings)
+        app.dependency_overrides.setdefault(_api_context, self.context_dependency("api"))
         original_lifespan = app.router.lifespan_context
 
         @asynccontextmanager
@@ -511,8 +515,6 @@ class _Runtime:
 
     def include_router(self, router: APIRouter, *, ui: bool = False, prefix: str = "") -> None:
         self._check_mutable()
-        if any(_api_contexts(router.routes)):
-            self.app.dependency_overrides.setdefault(_api_context, self.context_dependency("api"))
         self.app.include_router(router, prefix=prefix)
         owned = {id(r.original_route) for r in iter_route_contexts(router.routes)}
         self._owned_routes.update(owned)
@@ -549,6 +551,10 @@ class _Runtime:
         if self._installation_failed:
             raise ImproperlyConfigured("Application setup failed.")
         from jinja2 import TemplateNotFound
+
+        from obox.api import _check_route_conflicts
+
+        _check_route_conflicts(iter_route_contexts(self.app.routes))
 
         diagnostics = []
         definitions = [service.definition for service in self._components.values()]

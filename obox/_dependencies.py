@@ -4,7 +4,7 @@ from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from typing import Annotated
 
-from fastapi import Depends
+from fastapi import Depends, Request
 from fastapi.routing import RouteContext, iter_route_contexts
 from starlette.routing import BaseRoute
 
@@ -15,15 +15,16 @@ from obox.core.exceptions import ImproperlyConfigured
 
 
 async def _api_context() -> Context:
-    raise ImproperlyConfigured("Install _Runtime before using api_context.")
+    raise ImproperlyConfigured("Install Obox before using an API context dependency.")
 
 
 @dataclass(frozen=True)
 class _APIContext:
     permission: str | None
+    csrf: bool = False
 
     async def __call__(
-        self, ctx: Annotated[Context, Depends(_api_context, scope="function")]
+        self, request: Request, ctx: Annotated[Context, Depends(_api_context, scope="function")]
     ) -> Context:
         principal = ctx.principal
         if (
@@ -33,16 +34,24 @@ class _APIContext:
             raise NotAuthenticated("Authentication is required.")
         if self.permission is not None and not has_permission(principal, self.permission):
             raise PermissionDenied("This operation is not permitted.")
+        if (
+            self.csrf
+            and request.method not in {"GET", "HEAD", "OPTIONS", "TRACE"}
+            and getattr(request.state, "obox_bearer_principal", None) is not principal
+        ):
+            request.app.state.obox.csrf.validate(request, principal)
         return ctx
 
 
-def api_context(*, permission: str | None = None) -> _APIContext:
+def api_context(*, permission: str | None = None, csrf: bool = False) -> _APIContext:
     """Require an active identity and optionally a permission, returning its API context."""
     if permission is not None and (
         not isinstance(permission, str) or not _valid_permission(permission)
     ):
-        raise ImproperlyConfigured("API permissions require app.resource.action.")
-    return _APIContext(permission)
+        raise ImproperlyConfigured(
+            "Use a permission such as app.view_model or app.resource.action."
+        )
+    return _APIContext(permission, csrf)
 
 
 def _api_contexts(routes: Sequence[BaseRoute | RouteContext]) -> Iterator[_APIContext]:

@@ -135,10 +135,12 @@ class Auth:
             identity = await cast(TokenBackend, self.backend).resolve_api_token(
                 parts[1], request=request
             )
-            if identity.is_authenticated and getattr(identity, "api_scopes", None) is None:
-                raise ImproperlyConfigured(
-                    "Token backends must return an identity with api_scopes."
-                )
+            if identity.is_authenticated:
+                if getattr(identity, "api_scopes", None) is None:
+                    raise ImproperlyConfigured(
+                        "Token backends must return an identity with api_scopes."
+                    )
+                request.state.obox_bearer_principal = identity
             return identity
         return await self.backend.resolve(self.get_token(request), request=request)
 

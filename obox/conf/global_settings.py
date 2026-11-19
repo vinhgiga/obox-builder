@@ -20,7 +20,6 @@ LOGIN_REDIRECT_URL = "/accounts/profile/"
 AUTH_USER_MODEL = "auth.User"
 AUTHENTICATION_BACKENDS = ["obox.contrib.auth.backends.ModelBackend"]
 AUTH_PASSWORD_VALIDATORS: list[dict[str, Any]] = []
-REST_FRAMEWORK: dict[str, Any] = {}
 
 CSRF_COOKIE_NAME = "csrftoken"
 CSRF_COOKIE_AGE = 31449600

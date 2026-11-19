@@ -1,4 +1,4 @@
-"""A small Django/DRF-shaped toolkit for FastAPI and SQLAlchemy."""
+"""Model-driven forms, views and APIs for FastAPI and SQLAlchemy."""
 
 from obox.application import Obox as Obox
 

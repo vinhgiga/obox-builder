@@ -86,29 +86,14 @@ def _mount(
         if extra:
             endpoint = _with_defaults(callback, extra)
         documented = getattr(callback, "include_in_schema", False)
-        groups = [[method] for method in methods] if documented else [methods]
-        for group in groups:
-            action = getattr(callback, "actions", {}).get(group[0])
-            status = 201 if action == "create" else 204 if action == "destroy" else 200
-            app.add_api_route(
-                url,
-                endpoint,
-                methods=[method.upper() for method in group],
-                name=namespace + pattern.name if pattern.name else None,
-                response_model=None,
-                include_in_schema=documented,
-                status_code=status,
-            )
-        # Dispatch unsupported methods through APIView so DRF errors and permissions apply.
-        extra_methods = [
-            method.upper()
-            for method in getattr(getattr(callback, "view_class", None), "http_method_names", ())
-            if method not in methods
-        ]
-        if documented and extra_methods:
-            app.add_api_route(
-                url, endpoint, methods=extra_methods, response_model=None, include_in_schema=False
-            )
+        app.add_api_route(
+            url,
+            endpoint,
+            methods=[method.upper() for method in methods],
+            name=namespace + pattern.name if pattern.name else None,
+            response_model=None,
+            include_in_schema=documented,
+        )
 
 
 def _with_defaults(callback: Any, values: dict[str, Any]) -> Any:

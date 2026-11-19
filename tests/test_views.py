@@ -270,13 +270,10 @@ def test_jinja_backend_options_errors_and_standalone_template_view(tmp_path: Any
     asyncio.run(scenario())
 
 
-def test_native_uuid_lookup_works_in_generic_views_and_rest() -> None:
+def test_native_uuid_lookup_works_in_generic_views() -> None:
     from uuid import UUID, uuid4
 
     from obox.forms import modelform_factory
-    from obox.rest_framework.routers import SimpleRouter
-    from obox.rest_framework.serializers import ModelSerializer
-    from obox.rest_framework.viewsets import ModelViewSet
     from obox.views.generic import DetailView
     from sqlalchemy.orm import Mapped, mapped_column
 
@@ -286,15 +283,6 @@ def test_native_uuid_lookup_works_in_generic_views_and_rest() -> None:
         __tablename__ = "v01_uuid_records"
         record_key: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
         name: Mapped[str] = mapped_column(sa.String(20))
-
-    class RecordSerializer(ModelSerializer):
-        class Meta:
-            model = Record
-            fields = ("record_key", "name")
-
-    class Records(ModelViewSet):
-        queryset = sa.select(Record)
-        serializer_class = RecordSerializer
 
     class Detail(DetailView):
         model = Record
@@ -308,22 +296,12 @@ def test_native_uuid_lookup_works_in_generic_views_and_rest() -> None:
             assert await form.is_valid()
             record = await form.save()
             app = FastAPI()
-            router = SimpleRouter()
-            router.register("records", Records)
-            _mount(
-                app,
-                [path("records/<uuid:pk>/", Detail.as_view()), path("api/", include(router.urls))],
-            )
+            _mount(app, [path("records/<uuid:pk>/", Detail.as_view())])
             async with httpx.AsyncClient(
                 transport=httpx.ASGITransport(app=app), base_url="http://test"
             ) as client:
                 assert (await client.get(f"/records/{record.record_key}/")).text == str(
                     record.record_key
                 )
-                response = await client.post("/api/records/", json={"name": "second"})
-                assert response.status_code == 201
-                pk = response.json()["record_key"]
-                assert isinstance(UUID(pk), UUID)
-                assert (await client.get(f"/api/records/{pk}/")).json()["name"] == "second"
 
     asyncio.run(scenario())

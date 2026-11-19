@@ -86,7 +86,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
       - run: uv sync --all-extras --locked
-      - name: Install isolated Django and DRF references
+      - name: Install isolated Django reference
         run: |
           uv venv "$RUNNER_TEMP/reference-env"
           uv pip install --python "$RUNNER_TEMP/reference-env/bin/python" -r tests/reference/requirements.txt

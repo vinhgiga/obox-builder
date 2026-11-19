@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-11-17 23:00+0700\n"
+"POT-Creation-Date: 2026-11-19 21:41+0700\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -25,15 +25,15 @@ msgstr ""
 msgid "Applications"
 msgstr ""
 
-#: obox/_routes.py:264
+#: obox/_routes.py:263
 msgid "msg"
 msgstr ""
 
-#: obox/_routes.py:273
+#: obox/_routes.py:272
 msgid "Internal server error."
 msgstr ""
 
-#: obox/_routes.py:285
+#: obox/_routes.py:284
 msgid "Internal server error.Invalid input."
 msgstr ""
 
@@ -123,7 +123,7 @@ msgstr ""
 msgid "Username"
 msgstr ""
 
-#: obox/contrib/auth/__init__.py:273 obox/contrib/auth/apps.py:21
+#: obox/contrib/auth/__init__.py:275 obox/contrib/auth/apps.py:21
 msgid "Users and roles"
 msgstr ""
 

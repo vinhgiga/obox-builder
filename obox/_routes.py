@@ -59,9 +59,8 @@ class MethodRoute(APIRoute):
         ):
             raise HTTPException(405, "Method Not Allowed", headers={"Allow": allow_header(scope)})
         if scope["method"] == "HEAD" and "GET" in self.methods:
-            await self.app(scope, receive, send)
-        else:
-            await super().handle(scope, receive, send)
+            scope = {**scope, "method": "GET"}
+        await super().handle(scope, receive, send)
 
 
 class OboxRoute(MethodRoute):

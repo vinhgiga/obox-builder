@@ -285,8 +285,6 @@ def test_atomic_task_isolation_savepoint_and_durable_contract() -> None:
 def test_enum_model_values_are_normalized_for_persistence_and_unique_validation() -> None:
     from enum import Enum
 
-    from obox.rest_framework.serializers import ModelSerializer
-
     class State(Enum):
         OPEN = "open"
         CLOSED = "closed"
@@ -301,20 +299,11 @@ def test_enum_model_values_are_normalized_for_persistence_and_unique_validation(
             model = Choice
             fields = ("state",)
 
-    class ChoiceSerializer(ModelSerializer):
-        class Meta:
-            model = Choice
-            fields = ("id", "state")
-
     async def scenario() -> None:
         async with configured():
             form = ChoiceForm({"state": "open"})
             assert await form.is_valid()
             assert (await form.save()).state is State.OPEN
             assert not await ChoiceForm({"state": "open"}).is_valid()
-            serializer = ChoiceSerializer(data={"state": "closed"})
-            assert await serializer.is_valid()
-            assert (await serializer.save()).state is State.CLOSED
-            assert serializer.data["state"] == "closed"
 
     asyncio.run(scenario())

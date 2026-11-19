@@ -29,7 +29,6 @@ LOGIN_URL = "/auth/login"
 LOGIN_REDIRECT_URL = "/admin/"
 TIME_ZONE = "UTC"
 USE_TZ = True
-REST_FRAMEWORK = {"DEFAULT_PERMISSION_CLASSES": ["obox.rest_framework.permissions.IsAuthenticated"]}
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "obox.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
     {"NAME": "obox.contrib.auth.password_validation.MinimumLengthValidator"},

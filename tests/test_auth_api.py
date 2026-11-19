@@ -11,13 +11,13 @@ from typing import Any, cast
 import httpx
 import pytest
 import sqlalchemy as sa
-from fastapi import APIRouter, Depends, FastAPI, Request
+from fastapi import APIRouter, Depends, FastAPI
 from obox._config import RuntimeConfig
 from obox._context import Context
-from obox._dependencies import api_context
 from obox._exceptions import NotFound
 from obox._routes import ApiRoute
 from obox._runtime import _Runtime
+from obox.api import BaseApi
 from obox.contrib.auth import APIToken, Auth, Role, User
 from obox.contrib.auth.models import Base as AuthBase
 from obox.contrib.auth.passwords import hash_password
@@ -53,7 +53,7 @@ async def application(
     router = APIRouter(route_class=ApiRoute)
 
     def dependency(action: str) -> Any:
-        return Depends(api_context(permission="notes.records." + action))
+        return Depends(BaseApi.permission_required("notes.records." + action))
 
     list_context, read_context, create_context, history_context = (
         dependency(action) for action in ("list", "retrieve", "create", "history")
@@ -74,8 +74,7 @@ async def application(
         return {"id": str(row.id), "titleText": row.title_text}
 
     @router.post("/api/admin/notes", status_code=201)
-    async def create(request: Request, data: dict[str, Any], ctx: Context = create_context) -> Any:
-        app.csrf.validate(request, ctx.principal)
+    async def create(data: dict[str, Any], ctx: Context = create_context) -> Any:
         row = Note(title_text=data["titleText"], owner_id=ctx.principal.id)
         ctx.session.add(row)
         await ctx.session.flush()
@@ -204,13 +203,23 @@ def test_api_token_scopes_hashing_row_scope_and_cookie_isolation(tmp_path: Path)
                 stored = (await db.scalars(sa.select(APIToken))).one()
                 assert stored.token_hash == hashlib.sha256(token.encode()).hexdigest()
                 assert stored.token_hash != token
+            writer = await issue(client, ["notes.records.create"])
+            created = await client.post(
+                "/api/admin/notes",
+                json={"titleText": "Bearer write"},
+                headers={"authorization": "Bearer " + writer["token"]},
+            )
+            assert created.status_code == 201
             async with httpx.AsyncClient(
                 transport=httpx.ASGITransport(app=app.app),
                 base_url="http://test",
                 headers={"authorization": "Bearer " + token},
             ) as bearer:
                 rows = await bearer.get("/api/admin/notes")
-                assert [row["titleText"] for row in rows.json()["items"]] == ["Alice"]
+                assert [row["titleText"] for row in rows.json()["items"]] == [
+                    "Alice",
+                    "Bearer write",
+                ]
                 assert (await bearer.get("/api/admin/notes/2")).status_code == 404
                 assert (await bearer.get("/api/admin/notes/1")).status_code == 200
                 assert (

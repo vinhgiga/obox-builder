@@ -804,6 +804,7 @@ def test_multidimensional_sql_pivot_and_drill_match_scoped_source(tmp_path: Path
                         ),
                     ]
                 )
+                await ctx.session.flush()
                 ctx.session.add_all([Duplicate(sale_id=9), Duplicate(sale_id=10)])
 
             response = await client.get("/admin/admin/report/_components/multi/data")

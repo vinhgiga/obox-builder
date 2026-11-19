@@ -1,4 +1,4 @@
-"""Run only in the isolated Django/DRF reference environment."""
+"""Run only in the isolated Django reference environment."""
 
 import json
 import sys
@@ -11,27 +11,15 @@ django.setup()
 
 from django import forms  # noqa: E402
 
-from rest_framework import serializers  # noqa: E402
-
 
 class ContactForm(forms.Form):
     name = forms.CharField(max_length=5)
     age = forms.IntegerField(required=False)
 
 
-class ContactSerializer(serializers.Serializer):
-    name = serializers.CharField(max_length=5)
-    age = serializers.IntegerField(required=False)
-
-
-payload = json.load(sys.stdin)
-cls = ContactForm if payload["kind"] == "form" else ContactSerializer
 results = []
-for data in payload["inputs"]:
-    item = cls(data=data)
+for data in json.load(sys.stdin):
+    item = ContactForm(data=data)
     valid = item.is_valid()
-    cleaned = (
-        getattr(item, "cleaned_data", {}) if payload["kind"] == "form" else item.validated_data
-    )
-    results.append({"valid": valid, "errors": dict(item.errors), "data": cleaned})
+    results.append({"valid": valid, "errors": dict(item.errors), "data": item.cleaned_data})
 print(json.dumps(results, default=str))
