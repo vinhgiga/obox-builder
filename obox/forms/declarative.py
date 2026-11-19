@@ -28,9 +28,18 @@ from typing import (
 )
 from uuid import UUID
 
-from pydantic import AfterValidator, BeforeValidator, PlainValidator, TypeAdapter, WrapValidator
+from fastapi import UploadFile
+from pydantic import (
+    AfterValidator,
+    BeforeValidator,
+    ConfigDict,
+    PlainValidator,
+    TypeAdapter,
+    WrapValidator,
+)
 from pydantic import Field as PydanticField
 from pydantic import ValidationError as PydanticValidationError
+from starlette.datastructures import UploadFile as NativeUploadFile
 
 from obox._async import invoke
 from obox.core.exceptions import ImproperlyConfigured, ValidationError
@@ -41,6 +50,7 @@ from obox.forms.fields import (
     DateTimeField,
     DecimalField,
     Field,
+    FileField,
     FloatField,
     IntegerField,
     JSONField,
@@ -194,6 +204,8 @@ class TypedField(Field):
             UUID: UUIDField,
             dict: JSONField,
             list: JSONField,
+            UploadFile: FileField,
+            NativeUploadFile: FileField,
         }
         converter = converters.get(get_origin(kind) or kind)
         if converter is None:
@@ -227,8 +239,9 @@ class TypedField(Field):
         self.is_json = isinstance(self.converter, JSONField)
         input_type: Any = Annotated[annotation, PydanticField(**constraints)]
         output_type: Any = Annotated[_output_type(annotation), PydanticField(**constraints)]
-        self.adapter: TypeAdapter[Any] = TypeAdapter(input_type)
-        self.output_adapter: TypeAdapter[Any] = TypeAdapter(output_type)
+        config = ConfigDict(arbitrary_types_allowed=True) if kind is NativeUploadFile else None
+        self.adapter: TypeAdapter[Any] = TypeAdapter(input_type, config=config)
+        self.output_adapter: TypeAdapter[Any] = TypeAdapter(output_type, config=config)
 
     def __deepcopy__(self, memo: dict[int, Any]) -> TypedField:
         result = type(self).__new__(type(self))
@@ -270,6 +283,8 @@ class TypedField(Field):
             if not (self.is_json and isinstance(value, (dict, list))):
                 value = self.converter.to_python(value)
         value = self.validate(value)
+        if isinstance(self.converter, FileField):
+            await self.converter._validate_size(value, self.widget)
         if value not in self.empty_values or isinstance(self.converter, BooleanField):
             for validator in self.validators:
                 await invoke(validator, value)

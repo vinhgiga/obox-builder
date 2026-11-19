@@ -6,6 +6,7 @@ from fastapi import Request
 from fastapi.responses import RedirectResponse, Response
 
 from obox._async import invoke
+from obox._http import form_input
 from obox.core.exceptions import ImproperlyConfigured
 from obox.db import _session
 from obox.forms import Form, ModelForm, modelform_factory
@@ -33,10 +34,7 @@ class FormMixin(ContextMixin):
     async def get_form_kwargs(self) -> dict[str, Any]:
         kwargs: dict[str, Any] = {"initial": self.get_initial(), "prefix": self.get_prefix()}
         if self.request.method in ("POST", "PUT"):
-            from obox._http import read_form
-
-            data = await read_form(self.request)
-            kwargs["data"] = data
+            kwargs.update(await form_input(self.request))
         return kwargs
 
     async def get_form(self, form_class: Any = None) -> Any:

@@ -10,6 +10,7 @@ from urllib.parse import urlsplit
 from fastapi import Request
 from fastapi.responses import Response
 
+from obox._http import form_media_type, read_form
 from obox.conf import settings
 from obox.core.exceptions import PermissionDenied
 
@@ -43,7 +44,7 @@ def get_token(request: Request) -> str:
     return mask + cipher
 
 
-async def _check(request: Request) -> None:
+async def _check(request: Request, *, multipart: bool = False) -> None:
     if request.method in ("GET", "HEAD", "OPTIONS", "TRACE"):
         return
     origin = request.headers.get("origin")
@@ -58,16 +59,22 @@ async def _check(request: Request) -> None:
         if referer.scheme != "https" or referer.netloc != request.url.netloc:
             raise PermissionDenied("Referer checking failed.")
     expected = _secret(request.cookies.get(settings.CSRF_COOKIE_NAME, ""))
+    if expected is None:
+        raise PermissionDenied("CSRF verification failed.")
     provided = request.headers.get("x-csrftoken", "")
-    if request.method == "POST" and request.headers.get("content-type", "").startswith(
-        "application/x-www-form-urlencoded"
-    ):
-        from obox._http import read_form
-
-        data = await read_form(request)
-        provided = str(data.get("csrfmiddlewaretoken", "")) or provided
+    if request.method == "POST":
+        media_type = form_media_type(request)
+        if media_type == "application/x-www-form-urlencoded":
+            data = await read_form(request)
+        elif multipart and media_type == "multipart/form-data":
+            data = await request.form()
+        else:
+            data = None
+        token = data.get("csrfmiddlewaretoken") if data is not None else None
+        if isinstance(token, str) and token:
+            provided = token
     actual = _secret(provided)
-    if expected is None or actual is None or not compare_digest(expected, actual):
+    if actual is None or not compare_digest(expected, actual):
         raise PermissionDenied("CSRF verification failed.")
 
 

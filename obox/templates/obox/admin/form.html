@@ -8,7 +8,11 @@
   </head>
   <body>
     {% for error in form.non_field_errors() %}<p role="alert">{{ error }}</p>{% endfor %}
-    <form method="post">
+    {% set upload = namespace(required=form.is_multipart()) %}
+    {% for group in inline_admin_formsets %}
+      {% if group.formset.is_multipart() %}{% set upload.required = true %}{% endif %}
+    {% endfor %}
+    <form method="post"{% if upload.required %} enctype="multipart/form-data"{% endif %}>
       <input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">
       {% for group in fieldsets %}
         <fieldset>

@@ -8,7 +8,9 @@
   </head>
   <body>
     <h1>{{ title }}</h1>
-    {% if add_url %}<a href="{{ add_url }}">Add</a>{% endif %}
+    {% block object_tools %}
+      {% if add_url %}<a href="{{ add_url }}">Add</a>{% endif %}
+    {% endblock %}
     {% if search_fields or filters %}
       <form method="get">
         {% if search_fields %}<label>Search <input name="q"

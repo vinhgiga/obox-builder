@@ -89,7 +89,7 @@ class View:
                 async with _request_session(request):
                     from obox.middleware.csrf import _check, _set_cookie
 
-                    await _check(request)
+                    await _check(request, multipart=True)
                     response = cast(Response, await invoke(self.dispatch, request, **self.kwargs))
                     _set_cookie(request, response)
                     return response
@@ -99,6 +99,8 @@ class View:
                 return HTMLResponse(
                     str(exc.detail), status_code=exc.status_code, headers=exc.headers
                 )
+            finally:
+                await request.close()
 
         endpoint: Any = view
         endpoint.view_class = cls

@@ -21,6 +21,7 @@ def _attrs(values: dict[str, Any]) -> str:
 class Widget:
     input_type = "text"
     allow_multiple_selected = False
+    needs_multipart_form = False
 
     def __init__(self, attrs: dict[str, Any] | None = None) -> None:
         self.attrs = dict(attrs or {})
@@ -55,6 +56,20 @@ class PasswordInput(Widget):
 
     def render(self, name: str, value: Any, attrs: Any = None, renderer: Any = None) -> Markup:
         return super().render(name, value if self.render_value else None, attrs, renderer)
+
+
+class FileInput(Widget):
+    input_type = "file"
+    needs_multipart_form = True
+
+    def __init__(self, attrs: dict[str, Any] | None = None, *, max_size: int | None = None) -> None:
+        super().__init__(attrs)
+        if max_size is not None and (type(max_size) is not int or max_size < 0):
+            raise ValueError("max_size must be a nonnegative integer or None.")
+        self.max_size = max_size
+
+    def render(self, name: str, value: Any, attrs: Any = None, renderer: Any = None) -> Markup:
+        return super().render(name, None, attrs, renderer)
 
 
 class CheckboxInput(Widget):

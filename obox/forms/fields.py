@@ -1,22 +1,25 @@
-"""The scalar form fields used by the supported model types."""
+"""Field conversion and validation for Obox forms."""
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import date, datetime, time
 from decimal import Decimal, InvalidOperation
 from functools import cache
-from typing import Any
+from os import SEEK_END
+from typing import Any, BinaryIO
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from pydantic import TypeAdapter
 from pydantic import ValidationError as PydanticValidationError
+from starlette.datastructures import UploadFile
 
 from obox._async import invoke
 from obox.conf import settings
 from obox.core.exceptions import ValidationError
-from obox.forms.widgets import CheckboxInput, NumberInput, Select, Textarea, TextInput
+from obox.forms.widgets import CheckboxInput, FileInput, NumberInput, Select, Textarea, TextInput
 
 
 class Field:
@@ -57,6 +60,50 @@ class Field:
             for validator in self.validators:
                 await invoke(validator, value)
         return value
+
+
+class FileField(Field):
+    widget = FileInput
+
+    def to_python(self, value: Any) -> UploadFile | None:
+        if value in self.empty_values:
+            return None
+        if not isinstance(value, UploadFile):
+            raise ValidationError(self.error_messages["invalid"], code="invalid")
+        return value if value.filename else None
+
+    async def clean(self, value: Any) -> Any:
+        await self._validate_size(value, self.widget)
+        return await super().clean(value)
+
+    @staticmethod
+    async def _validate_size(value: object, widget: object) -> None:
+        if not isinstance(value, UploadFile) or not value.filename:
+            return
+        limit = widget.max_size if isinstance(widget, FileInput) else None
+        if limit is None:
+            return
+        size = value.size
+        if size is None:
+            try:
+                size = await asyncio.to_thread(FileField._measure_size, value.file)
+            except (OSError, ValueError) as exc:
+                raise ValidationError(
+                    "Cannot determine the uploaded file size.", code="invalid"
+                ) from exc
+        if size > limit:
+            raise ValidationError(
+                f"Ensure this file is at most {limit} bytes (it has {size}).",
+                code="max_size",
+            )
+
+    @staticmethod
+    def _measure_size(file: BinaryIO) -> int:
+        position = file.tell()
+        try:
+            return file.seek(0, SEEK_END)
+        finally:
+            file.seek(position)
 
 
 class CharField(Field):

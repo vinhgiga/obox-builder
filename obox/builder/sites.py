@@ -199,6 +199,7 @@ class AdminSite:
                         queryset = queryset.where(sa.false())
                     formset = cls(
                         data=form.data if form.is_bound else None,
+                        files=form.files if form.is_bound else None,
                         instance=form.instance,
                         prefix=prefix,
                         queryset=queryset,

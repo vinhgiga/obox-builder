@@ -173,6 +173,10 @@ class BaseFormSet:
     def __bool__(self) -> bool:
         return True
 
+    def is_multipart(self) -> bool:
+        form = self.forms[0] if self.forms else self.empty_form
+        return form.is_multipart()
+
     async def prepare(self) -> None:
         for form in self.forms:
             await form.prepare()

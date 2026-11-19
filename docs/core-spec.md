@@ -31,6 +31,11 @@ for model forms, `instance`. Fieldsets belong to ModelBuilder.
 Unbound forms are invalid and have no errors. Await `is_valid()` or `full_clean()`
 before reading `errors` or `cleaned_data`. Cleaning runs field conversion and
 validators, `clean_<field>()`, `clean()`, then model uniqueness/foreign-key checks.
+`fastapi.UploadFile` declares a file input. Bind uploads with
+`files=` using the same prefix rules as `data=`. Use `UploadFile | None` for an
+optional file. `Form.is_multipart()` reports the encoding required by its widgets.
+`FileInput(max_size=...)` sets an optional per-file byte limit, enforced during
+form validation. Files larger than the limit receive a `max_size` field error.
 `add_error()` removes the affected value from cleaned_data. Validation never saves
 or mutates a persisted SQLAlchemy instance. This differs from Django's in-memory
 model construction to avoid SQLAlchemy's automatic dirty tracking.
@@ -39,9 +44,9 @@ model construction to avoid SQLAlchemy's automatic dirty tracking.
 inserting/updating it. `await form.save()` flushes within the current transaction
 or owns a short transaction. `async with transaction.atomic()` groups work and
 rolls back on exceptions. Metadata/configuration methods stay synchronous;
-database-aware hooks may be asynchronous. Scalar fields and the documented
-widgets are supported; formsets, uploaded-file fields and many-to-many model
-form persistence are outside this release's subset.
+database-aware hooks may be asynchronous. Uploaded files are available to the
+application during form processing. The application owns any file storage and
+model persistence for upload fields.
 
 ## Generic views and URLs
 
@@ -60,6 +65,10 @@ confirmation. Unsupported methods return 405 and an Allow header.
 namespaces on FastAPI. Reverse links use the host request's `url_for()`.
 HTML unsafe methods require the `csrftoken` cookie plus `csrfmiddlewaretoken`
 or `X-CSRFToken`. Origin/referer checks apply. Jinja2 context exposes `csrf_token`.
+Generic editing views use FastAPI's request form parsing, bind multipart text and
+files separately, and close uploads when the view exits. Built-in form templates
+set the encoding automatically.
+See [File forms](examples/views/index.md#file-forms) for routing and list integration.
 
 ## ModelBuilder
 

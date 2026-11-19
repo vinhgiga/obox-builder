@@ -7,7 +7,9 @@
     <title>{{ title | default("Records") }}</title>
   </head>
   <body>
-    {% if add_url %}<a href="{{ add_url }}">Add</a>{% endif %}
+    {% block object_tools %}
+      {% if add_url %}<a href="{{ add_url }}">Add</a>{% endif %}
+    {% endblock %}
     <table>
       <thead><tr>{% for field in list_display %}<th>{{ field }}</th>{% endfor %}</tr></thead>
       <tbody>{% for row in rows %}<tr>{% for value in row %}<td>{{ value }}</td>{% endfor %}</tr>{% endfor %}</tbody>

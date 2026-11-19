@@ -10,6 +10,7 @@ from obox.forms.fields import (
     DateTimeField,
     DecimalField,
     Field,
+    FileField,
     FloatField,
     IntegerField,
     JSONField,
@@ -31,6 +32,7 @@ from obox.forms.models import (
 from obox.forms.relations import ModelChoiceField, ModelMultipleChoiceField
 from obox.forms.widgets import (
     CheckboxInput,
+    FileInput,
     HiddenInput,
     NumberInput,
     PasswordInput,
@@ -54,6 +56,8 @@ __all__ = [
     "DateTimeField",
     "DecimalField",
     "Field",
+    "FileField",
+    "FileInput",
     "FloatField",
     "Form",
     "HiddenInput",

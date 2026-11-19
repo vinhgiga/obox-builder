@@ -11,11 +11,13 @@ from html import escape
 from typing import Any, ClassVar
 
 from markupsafe import Markup
+from starlette.datastructures import UploadFile
 
 from obox._async import invoke
 from obox.core.exceptions import NON_FIELD_ERRORS, ValidationError
 from obox.forms.declarative import MISSING, TypedField, collect_fields
 from obox.forms.fields import ChoiceField, Field, JSONField
+from obox.forms.widgets import FileInput
 
 
 class BoundField:
@@ -140,10 +142,17 @@ class Form:
 
     def _data_value(self, name: str, field: Field) -> Any:
         key = self.add_prefix(name)
+        if isinstance(field.widget, FileInput):
+            return self.files.get(key)
         getlist = getattr(self.data, "getlist", None)
         if getattr(field.widget, "allow_multiple_selected", False) and getlist is not None:
             return getlist(key)
         return self.data.get(key, MISSING if isinstance(field, TypedField) else None)
+
+    def is_multipart(self) -> bool:
+        return any(
+            getattr(field.widget, "needs_multipart_form", False) for field in self.fields.values()
+        )
 
     async def prepare(self) -> None:
         """Load asynchronous choices before rendering a form."""
@@ -240,13 +249,16 @@ class Form:
                     self.add_error(name, exc)
         await self._post_clean()
         if not self.errors:
-            self._values = deepcopy(
-                {
-                    name: value
-                    for name, value in self.cleaned_data.items()
-                    if isinstance(self.fields.get(name), TypedField)
-                }
-            )
+            values = {
+                name: value
+                for name, value in self.cleaned_data.items()
+                if isinstance(self.fields.get(name), TypedField)
+            }
+            # Uploaded streams have a request-owned lifetime and cannot be copied.
+            uploads = {
+                id(value): value for value in values.values() if isinstance(value, UploadFile)
+            }
+            self._values = deepcopy(values, uploads)
         self._validated = True
 
     async def _post_clean(self) -> None:
