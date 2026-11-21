@@ -12,8 +12,9 @@ class Article(Base):
     images: Mapped[list[File]] = attachments(types=IMAGES, max_count=8)
 ```
 
-Enable `obox.contrib.resources`, `obox.contrib.auth` and `obox.contrib.files`,
-then set MEDIA_ROOT/FILES in settings. Add attachment fields to the contrib
-Resource declaration; its editor handles upload and claiming. Files tables must
-be included in Alembic migrations. Use an application-owned persistent directory.
+Enable `obox.contrib.auth` and `obox.contrib.files`, then configure `FILES` with
+an application-owned persistent directory. Include the file tables in Alembic
+migrations and add the attachment field to the resource's explicit `fields`.
+Grant `files.access_files` along with the applicable model permissions. The
+generated form and API use the same attachment ownership and persistence rules.
 See [activity and files](../../features/activity-files.md).

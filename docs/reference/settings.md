@@ -4,7 +4,7 @@
 # settings.py
 SECRET_KEY = "load-a-long-random-value-from-your-environment"
 DEBUG = False
-INSTALLED_APPS = ["obox.contrib.auth", "obox.builder", "app.products"]
+INSTALLED_APPS = ["obox.contrib.auth", "app.products"]
 DATABASES = {
     "default": {"ENGINE": "obox.db.backends.sqlite3", "NAME": "db.sqlite3"},
 }
@@ -16,10 +16,6 @@ TEMPLATES = [
         "OPTIONS": {},
     }
 ]
-ROOT_URLCONF = "urls"
-REST_FRAMEWORK = {
-    "DEFAULT_PERMISSION_CLASSES": ["obox.rest_framework.permissions.IsAuthenticated"],
-}
 ```
 
 Set `OBOX_SETTINGS_MODULE=settings` before accessing `obox.conf.settings`.
@@ -39,14 +35,7 @@ LANGUAGE_CODE, TIME_ZONE, USE_TZ, LOGIN_URL, LOGIN_REDIRECT_URL,
 AUTH_PASSWORD_VALIDATORS, and CSRF_COOKIE_NAME/SECURE/HTTPONLY/SAMESITE and
 CSRF_TRUSTED_ORIGINS. See `obox/conf/global_settings.py` for defaults.
 
-REST_FRAMEWORK accepts DEFAULT_AUTHENTICATION_CLASSES, DEFAULT_PERMISSION_CLASSES,
-DEFAULT_FILTER_BACKENDS, DEFAULT_PAGINATION_CLASS, PAGE_SIZE and
-NON_FIELD_ERRORS_KEY. Values for classes may be dotted paths or class objects.
-Default permission is AllowAny and default pagination is disabled.
-
-Optional contrib apps read dictionaries named AUTH, FILES, ACTIVITY, ANALYTICS,
-IDEMPOTENCY, WEBHOOKS and RESOURCES. These configure product services, not core
-Django/DRF APIs. For example `AUTH = {'api_tokens': True}` and
-`FILES = {'root': MEDIA_ROOT}`. Resources accepts its product runtime options,
-including `ui_prefix` and `api_prefix`; choose a different UI prefix when mounting
-the standard builder at `/admin/`.
+Optional contrib apps read settings such as `AUTH`, `FILES`, `ACTIVITY`,
+`ANALYTICS` and `WEBHOOKS`. For example, use `AUTH = {"api_tokens": True}` and
+`FILES = {"root": MEDIA_ROOT}`. Declare custom routes on FastAPI and register
+generated model routes with `Obox.register()` or `AppConfig.register()`.

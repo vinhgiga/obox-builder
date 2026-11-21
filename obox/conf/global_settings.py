@@ -7,7 +7,6 @@ SECRET_KEY = ""
 INSTALLED_APPS: list[str] = []
 DATABASES: dict[str, Any] = {}
 TEMPLATES: list[dict[str, Any]] = []
-ROOT_URLCONF = None
 STATIC_URL = "/static/"
 STATIC_ROOT = None
 MEDIA_URL = "/media/"

@@ -57,7 +57,7 @@ class Files:
             namespace="files",
             name="obox_files_static",
         )
-        app.include_router(build_router(self), ui=True)
+        app.include_router(build_router(self), ui=True, permission="files.access_files")
         app.add_ui_prefix(self.prefix)
 
     @asynccontextmanager

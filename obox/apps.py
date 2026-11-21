@@ -7,9 +7,13 @@ from importlib.util import find_spec
 from pathlib import Path
 from threading import RLock
 from types import ModuleType
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from obox.core.exceptions import AppRegistryNotReady, ImproperlyConfigured
+
+if TYPE_CHECKING:
+    from obox.builder.options import ModelBuilder
+    from obox.builder.registration import Registration
 
 
 class AppConfig:
@@ -31,6 +35,7 @@ class AppConfig:
         self.models_module: ModuleType | None = None
         self.models: dict[str, type[Any]] = {}
         self.apps: Apps
+        self._registrations: list[Registration] = []
 
     @classmethod
     def create(cls, entry: str) -> AppConfig:
@@ -98,6 +103,20 @@ class AppConfig:
             return self.models[model_name.lower()]
         except KeyError as exc:
             raise LookupError(f"App {self.label!r} has no {model_name!r} model.") from exc
+
+    def register(
+        self,
+        target: type[Any],
+        *,
+        builder: type[ModelBuilder] | None = None,
+        api: bool = True,
+        views: bool = True,
+    ) -> None:
+        from obox.builder.registration import Registration
+
+        if not self.apps.models_ready or self.apps.ready:
+            raise ImproperlyConfigured("Register app resources in AppConfig.ready().")
+        self._registrations.append(Registration(target, builder, api, views))
 
     def ready(self) -> None:
         pass

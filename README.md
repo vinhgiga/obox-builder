@@ -4,67 +4,42 @@ Less code is better. Obox provides a small subset of Django 5.2 and Django REST
 Framework 3.16.1 using FastAPI, asynchronous SQLAlchemy, Pydantic and Jinja2.
 Install `obox-builder`; import `obox`. The target version is **0.1.0**.
 
-Forms, generic views, REST endpoints and the admin builder work independently.
-`ModelBuilder` coordinates the admin interface; it does not own REST registration.
+Register a SQLAlchemy model once to publish authorized HTML and REST CRUD.
 
 ```sh
 uv add obox-builder uvicorn
 uv run obox startproject example
 cd example
 uv run alembic upgrade head
+uv run obox createsuperuser
 uv run uvicorn main:app --reload
 ```
 
-Generated projects use `settings.py`, `OBOX_SETTINGS_MODULE`, `DATABASES`,
-`TEMPLATES` and `INSTALLED_APPS`. The host application remains native FastAPI:
-
 ```python
 import os
+
 from fastapi import FastAPI
 from obox import Obox
 
-os.environ.setdefault("OBOX_SETTINGS_MODULE", "settings")
-app = FastAPI()
-Obox(app)
-```
-
-Declare a model form and reuse it in a view or builder:
-
-```python
-from obox import forms
-from obox.builder import ModelBuilder, register
-from obox.views.generic import CreateView
 from app.products.models import Product
 
-
-class ProductForm(forms.ModelForm):
-    class Meta:
-        model = Product
-        fields = ("name", "price")
-
-
-class ProductCreateView(CreateView):
-    model = Product
-    form_class = ProductForm
-    success_url = "/products/"
-
-
-@register(Product)
-class ProductBuilder(ModelBuilder):
-    form = ProductForm
-    list_display = ("id", "name", "price")
+os.environ.setdefault("OBOX_SETTINGS_MODULE", "settings")
+app = FastAPI(openapi_url=None)
+obox = Obox(app)
+obox.register(Product)  # /products and /api/products
 ```
 
-Database-aware hooks and validation use `await`. Query hooks return SQLAlchemy
-`Select` objects, not executed results or a simulated Django QuerySet.
+Use `views=False` for REST only or `api=False` for HTML only. Register from
+`AppConfig.ready()` for app-prefixed routes. Declare a `Resource` to share
+field selection, validation and access rules between both surfaces. Use
+`ModelBuilder` to customize the generated views, forms and REST adapter.
 
-Optional product features live in `obox.contrib`: resource editing, batch/upsert,
-metadata, analytics, activity/comments, files, auth, jobs and webhooks. Their
-protocols are separate from the standardized core.
+Native FastAPI routes declare a permission with `Depends(permission_required(...))`.
+Administrators assign permissions through roles. Keep the ASGI lifespan enabled
+so Obox validates route registration before serving requests.
 
-See [installation](docs/installation.md), [quickstart](docs/examples/quickstart.md),
-[API mapping](docs/mapping.md), [core contract](docs/core-spec.md),
-[REST contract](docs/api-spec.md), and [v0.1 release notes](docs/release-notes.md).
+See the [quickstart](docs/examples/quickstart.md), [registration examples](docs/examples/features/register-resource.md)
+and [Python API](docs/reference/python-api.md).
 
 For development:
 

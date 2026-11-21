@@ -245,6 +245,8 @@ class Auth:
             backend.password_validators = get_password_validators(
                 app.settings.auth_password_validators
             )
+        from fastapi.routing import iter_route_contexts
+
         routes = self.get_router(app) if self.router is None else self.router
         names = {getattr(route, "name", None) for route in routes.routes}
         if not {self.login_route, self.logout_route} <= names:
@@ -264,7 +266,9 @@ class Auth:
             from sqlalchemy import inspect
 
             if "roles" in inspect(user_model).relationships:
-                app.include_router(self.get_admin_router(app), ui=True)
+                app.include_router(
+                    self.get_admin_router(app), ui=True, permission="auth.manage_access"
+                )
                 self._admin_installed = True
                 from obox._catalog import CatalogConfig
                 from obox.contrib.auth.apps import AuthConfig
@@ -279,6 +283,10 @@ class Auth:
                     app._apps["auth"] = config
                 else:
                     app.add_app(config)
+        if self.router is None and app._enforce_permissions:
+            for route in iter_route_contexts(routes.routes):
+                if route.name in {self.login_route, self.logout_route}:
+                    app._public_routes.add(id(route.original_route))
         app.include_router(routes, ui=True)
         app.provide_defaults(
             principal_dependency=self.principal,
@@ -286,6 +294,15 @@ class Auth:
         if self.api:
             from obox.contrib.auth.api import build_router
 
-            app.include_router(build_router(app, self))
+            api_routes = build_router(app, self)
+            if app._enforce_permissions:
+                for route in iter_route_contexts(api_routes.routes):
+                    if route.name in {
+                        "obox_api_auth_csrf",
+                        "obox_api_auth_login",
+                        "obox_api_auth_logout",
+                    }:
+                        app._public_routes.add(id(route.original_route))
+            app.include_router(api_routes)
         app.add_ui_prefix(self.prefix)
         self._installed = True

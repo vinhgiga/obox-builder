@@ -1,20 +1,12 @@
-# Auth and permissions
+# Authentication and permissions
 
-```python
-# settings.py
-INSTALLED_APPS = ["obox.contrib.auth", "obox.builder", "app.products"]
-AUTH = {"api_tokens": True}
-REST_FRAMEWORK = {
-    "DEFAULT_PERMISSION_CLASSES": ["obox.rest_framework.permissions.IsAuthenticated"],
-}
-```
+Include `obox.contrib.auth` in `INSTALLED_APPS` and run the auth migrations from
+the scaffold. Create the first administrator with `uv run obox createsuperuser`.
 
-Run migrations and `obox createsuperuser`. The builder requires active
-staff and model grants such as `products.view_product` or `products.change_product`.
-Superusers have model access. REST can use IsAuthenticated, IsAdminUser or
-DjangoModelPermissions per viewset. Override get_queryset to constrain rows and
-has_object_permission for per-object checks.
+Open `/auth/login`, then use `/auth/users` and `/auth/roles` to grant model and
+custom route permissions. The account page is governed by `auth.use_account`.
+Installing the API token feature with `AUTH = {"api_tokens": True}` allows
+users with account access to create scoped tokens.
 
-Contrib resources use separate grants such as `products.products.update`.
-A builder grant does not implicitly grant a product operation. Product policies
-can restrict readable/writable fields, row scope and trusted preset values.
+See [access control](../../features/access-control.md) for a protected native
+FastAPI route and the default model permission names.

@@ -9,7 +9,7 @@ SECRET_KEY = os.getenv(
     "OBOX_SECRET_KEY",
     "__SECRET_KEY__",
 )
-INSTALLED_APPS = ["obox.contrib.auth", "obox.builder"]
+INSTALLED_APPS = ["obox.contrib.auth"]
 DATABASES = {
     "default": {
         "ENGINE": "obox.db.backends.sqlite3",
@@ -23,10 +23,9 @@ TEMPLATES = [
         "APP_DIRS": True,
     }
 ]
-ROOT_URLCONF = "urls"
 STATIC_URL = "/static/"
 LOGIN_URL = "/auth/login"
-LOGIN_REDIRECT_URL = "/admin/"
+LOGIN_REDIRECT_URL = "/auth/profile"
 TIME_ZONE = "UTC"
 USE_TZ = True
 AUTH_PASSWORD_VALIDATORS = [

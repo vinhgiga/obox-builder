@@ -4,12 +4,15 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from fastapi import FastAPI
 
 from obox.apps import apps
 from obox.conf import settings
+
+if TYPE_CHECKING:
+    from obox.builder.options import ModelBuilder
 
 
 class Obox:
@@ -21,7 +24,9 @@ class Obox:
 
         config = RuntimeConfig.from_settings()
         self.app = app
-        self._runtime = runtime = _Runtime(app, settings=config, defer=True)
+        self._runtime = runtime = _Runtime(
+            app, settings=config, defer=True, enforce_permissions=True
+        )
         app.state._obox_adapter = self
         apps.populate(settings.INSTALLED_APPS)
         for entry in apps.get_app_configs():
@@ -63,9 +68,18 @@ class Obox:
                 await _close()
 
         app.router.lifespan_context = managed
-        if settings.ROOT_URLCONF:
-            from importlib import import_module
+        for entry in apps.get_app_configs():
+            for registration in entry._registrations:
+                registration.mount(runtime, entry.label)
 
-            from obox.urls import _mount
+    def register(
+        self,
+        target: type[Any],
+        *,
+        builder: type[ModelBuilder] | None = None,
+        api: bool = True,
+        views: bool = True,
+    ) -> None:
+        from obox.builder.registration import Registration
 
-            _mount(app, import_module(settings.ROOT_URLCONF).urlpatterns)
+        Registration(target, builder, api, views).mount(self._runtime)

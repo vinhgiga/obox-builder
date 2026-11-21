@@ -42,6 +42,7 @@ class RuntimeConfig:
         template = settings.TEMPLATES[0] if settings.TEMPLATES else {}
         return cls(
             session_factory=_factory(),
+            ui_prefix="",
             csrf_secret=settings.SECRET_KEY or None,
             template_dirs=template.get("DIRS", ()),
             static_root=settings.STATIC_ROOT,

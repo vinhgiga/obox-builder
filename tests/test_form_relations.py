@@ -6,12 +6,12 @@ from uuid import UUID, uuid4
 import httpx
 import pytest
 import sqlalchemy as sa
-from fastapi import FastAPI
-from obox import Obox, forms
+from fastapi import Depends, FastAPI
+from obox import Obox, forms, permission_required
+from obox._auth import Principal
 from obox.core.exceptions import ImproperlyConfigured
 from obox.db import _session
 from obox.db.transaction import atomic
-from obox.urls import _mount, path
 from obox.views.generic import CreateView
 from sqlalchemy.orm import Mapped, mapped_column, relationship, selectinload, with_loader_criteria
 from starlette.datastructures import FormData
@@ -477,9 +477,19 @@ def test_generic_view_prepares_scoped_choices_and_checks_forged_post() -> None:
     async def scenario() -> None:
         async with configured():
             await seed()
-            app = FastAPI()
+            from tests.test_builder import Actors
+
+            app = FastAPI(openapi_url=None)
+            app.add_middleware(
+                Actors, actor=Principal(id=1, is_authenticated=True, is_superuser=True)
+            )
             Obox(app)
-            _mount(app, [path("new/", Create.as_view())])
+            app.add_api_route(
+                "/new/",
+                Create.as_view(),
+                methods=["GET", "POST"],
+                dependencies=[Depends(permission_required("tests.use_forms", html=True))],
+            )
             async with (
                 app.router.lifespan_context(app),
                 httpx.AsyncClient(
@@ -513,7 +523,7 @@ def test_generic_view_prepares_scoped_choices_and_checks_forged_post() -> None:
                         "tags": ["1", "2"],
                     },
                 )
-                assert good.status_code == 302
+                assert good.status_code == 303
                 async with _session() as session:
                     assert (
                         await session.scalar(sa.select(sa.func.count()).select_from(product_tags))

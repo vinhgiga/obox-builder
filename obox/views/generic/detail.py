@@ -10,38 +10,33 @@ from starlette.exceptions import HTTPException
 from obox._async import invoke
 from obox.core.exceptions import ImproperlyConfigured
 from obox.db import _session
+from obox.db._identity import _model_label
+from obox.resources import Resource, resolve_resource
 from obox.views.generic.base import ContextMixin, TemplateResponseMixin, View
-
-
-def _model_label(model: type[Any]) -> tuple[str, str]:
-    from obox.apps import apps
-
-    candidates = [
-        config
-        for config in apps.app_configs.values()
-        if model.__module__ == config.name or model.__module__.startswith(config.name + ".")
-    ]
-    label = (
-        max(candidates, key=lambda config: len(config.name)).label
-        if candidates
-        else model.__module__.split(".")[-2]
-        if "." in model.__module__
-        else "app"
-    )
-    return label, model.__name__.lower()
 
 
 class SingleObjectMixin(ContextMixin):
     model: type[Any] | None = None
+    resource: type[Resource[Any]] | Resource[Any] | None = None
     queryset: Any = None
     context_object_name: str | None = None
     pk_url_kwarg = "pk"
     slug_url_kwarg = "slug"
     slug_field = "slug"
     kwargs: dict[str, Any]
+    request: Request
     object: Any
 
+    def _bound_resource(self) -> Resource[Any] | None:
+        if isinstance(self.resource, type):
+            if self.model is not None:
+                raise ImproperlyConfigured("Specify either model or resource.")
+            self.resource = resolve_resource(self.resource)
+        return self.resource
+
     def get_queryset(self) -> Any:
+        if resource := self._bound_resource():
+            return resource._query(self.request.user)
         if self.queryset is not None:
             return self.queryset._generate()
         if self.model is not None:
@@ -52,6 +47,11 @@ class SingleObjectMixin(ContextMixin):
         query = await invoke(self.get_queryset) if queryset is None else queryset
         model = query.column_descriptions[0]["entity"]
         pk, slug = self.kwargs.get(self.pk_url_kwarg), self.kwargs.get(self.slug_url_kwarg)
+        if pk is not None and (resource := self._bound_resource()):
+            async with _session() as session:
+                return await resource._get(
+                    session, query, pk, lock=self.request.method not in {"GET", "HEAD", "OPTIONS"}
+                )
         if pk is not None:
             column = sa.inspect(model).primary_key[0]
             try:
@@ -84,6 +84,7 @@ class SingleObjectMixin(ContextMixin):
 class SingleObjectTemplateResponseMixin(TemplateResponseMixin):
     template_name_suffix = "_detail"
     model: type[Any] | None
+    request: Request
     object: Any
 
     def get_template_names(self) -> list[str]:

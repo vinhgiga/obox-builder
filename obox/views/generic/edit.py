@@ -2,14 +2,17 @@ from __future__ import annotations
 
 from typing import Any, ClassVar, cast
 
+import sqlalchemy as sa
 from fastapi import Request
 from fastapi.responses import RedirectResponse, Response
 
 from obox._async import invoke
+from obox._exceptions import BuilderValidationError, PermissionDenied
 from obox._http import form_input
 from obox.core.exceptions import ImproperlyConfigured
 from obox.db import _session
 from obox.forms import Form, ModelForm, modelform_factory
+from obox.resources import WriteAction
 from obox.views.generic.base import ContextMixin, TemplateResponseMixin, View
 from obox.views.generic.detail import SingleObjectMixin, SingleObjectTemplateResponseMixin
 
@@ -51,7 +54,7 @@ class FormMixin(ContextMixin):
         return str(self.success_url)
 
     async def form_valid(self, form: Form) -> Response:
-        return RedirectResponse(await invoke(self.get_success_url), status_code=302)
+        return RedirectResponse(await invoke(self.get_success_url), status_code=303)
 
     async def form_invalid(self, form: Form) -> Response:
         return cast(
@@ -91,6 +94,8 @@ class ModelFormMixin(FormMixin, SingleObjectMixin):
             raise ImproperlyConfigured("Specifying both fields and form_class is not permitted.")
         if self.form_class is not None:
             return cast(type[ModelForm], self.form_class)
+        if resource := self._bound_resource():
+            return modelform_factory(resource.model, fields=self.fields or resource.writable)
         model = self.model or type(self.object)
         if self.fields is None:
             raise ImproperlyConfigured("Define fields or form_class.")
@@ -99,9 +104,70 @@ class ModelFormMixin(FormMixin, SingleObjectMixin):
     async def get_form_kwargs(self) -> dict[str, Any]:
         return {**await super().get_form_kwargs(), "instance": self.object}
 
+    async def get_form(self, form_class: Any = None) -> Any:
+        form = await super().get_form(form_class)
+        if resource := self._bound_resource():
+            action: WriteAction = "create" if self.object is None else "update"
+            await resource._authorize(action, self.object, self.request.user)
+            allowed = await resource._writable(action, self.object, self.request.user)
+            submitted = {
+                name
+                for name in resource.specs
+                if form.add_prefix(name) in form.data or form.add_prefix(name) in form.files
+            }
+            if denied := submitted - allowed:
+                raise PermissionDenied(f"Fields cannot be written: {', '.join(sorted(denied))}.")
+            for name, field in form.fields.items():
+                if name in resource.specs and name not in allowed:
+                    field.disabled = True
+        return form
+
+    async def _save_resource_form(self, form: ModelForm) -> Any:
+        resource = self._bound_resource()
+        if resource is None:
+            return await form.save()
+        values, sources = form._column_data()
+        for name, value in form.cleaned_data.items():
+            if name in resource.specs and "obox_files" in resource.specs[name].column.info:
+                values[name] = resource.specs[name].serialize(value)
+                sources[name] = name
+        values = {
+            name: value
+            for name, value in values.items()
+            if not form.fields[sources[name]].disabled
+            and not (
+                name in resource.specs
+                and (
+                    (spec := resource.specs[name]).column.default is not None
+                    or spec.column.server_default is not None
+                )
+                and form.add_prefix(sources[name]) not in form.data
+                and not isinstance(spec.column.type, sa.Boolean)
+            )
+        }
+        async with _session() as session:
+            form.instance = await resource._save(session, self.request.user, values, self.object)
+        return form.instance
+
     async def form_valid(self, form: Any) -> Response:
-        self.object = await form.save()
+        try:
+            self.object = await self._save_resource_form(form)
+            if self._bound_resource():
+                await form.save_m2m()
+        except BuilderValidationError as exc:
+            return await self._render_resource_errors(form, exc)
         return await super().form_valid(form)
+
+    async def _render_resource_errors(
+        self, form: ModelForm, exc: BuilderValidationError
+    ) -> Response:
+        async with _session() as session:
+            if not session.is_active:
+                raise exc
+        for field, messages in exc.errors.items():
+            for message in messages:
+                form.add_error(field if field in form.fields else None, message)
+        return await self.form_invalid(form)
 
     def get_success_url(self) -> str:
         if self.success_url:
@@ -141,6 +207,8 @@ class DeleteView(SingleObjectTemplateResponseMixin, SingleObjectMixin, FormMixin
 
     async def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         self.object = await self.get_object()
+        if resource := self._bound_resource():
+            await resource._authorize("delete", self.object, request.user)
         return self.render_to_response(await invoke(self.get_context_data, **kwargs))
 
     async def post(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -159,9 +227,12 @@ class DeleteView(SingleObjectTemplateResponseMixin, SingleObjectMixin, FormMixin
     async def form_valid(self, form: Form) -> Response:
         url = self.get_success_url()
         async with _session() as session:
-            await session.delete(self.object)
-            await session.flush()
-        return RedirectResponse(url, status_code=302)
+            if resource := self._bound_resource():
+                await resource._delete(session, self.request.user, self.object)
+            else:
+                await session.delete(self.object)
+                await session.flush()
+        return RedirectResponse(url, status_code=303)
 
     async def delete(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         self.object = await self.get_object()

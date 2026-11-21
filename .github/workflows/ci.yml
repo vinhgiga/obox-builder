@@ -122,14 +122,15 @@ jobs:
           "import obox;
           from obox.builder import ModelBuilder;
           from obox.forms import Form, ModelForm;
-          from obox.rest_framework.viewsets import ModelViewSet;
+          from obox import Resource;
+          from obox.api import ModelApi;
           from importlib.util import find_spec;
           from importlib.resources import files;
           assert obox.__version__ == '0.1.0';
           assert find_spec('obox_builder') is None;
           assert Form is not ModelForm;
           assets = files('obox');
-          assert assets.joinpath('templates/obox/admin/form.html').is_file();
+          assert assets.joinpath('templates/obox/builder/form.html').is_file();
           assert assets.joinpath('static/tabler.min.css').read_text().strip();
           assert assets.joinpath('static/ui.css').read_text().strip()"
 

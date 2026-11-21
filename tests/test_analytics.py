@@ -69,7 +69,7 @@ class Duplicate(Base):
     sale_id: Mapped[int] = mapped_column(sa.ForeignKey(Sale.id))
 
 
-STAFF = Principal(id=1, is_authenticated=True, is_staff=True, is_superuser=True)
+STAFF = Principal(id=1, is_authenticated=True, is_superuser=True)
 
 
 class Policy:
@@ -619,7 +619,7 @@ def test_datetime_keys_account_and_api_field_scope(tmp_path: Path) -> None:
             dependency = app.settings.principal_dependency
             assert dependency is not None
             app.app.dependency_overrides[dependency] = lambda: Principal(
-                id=2, is_authenticated=True, is_staff=True, is_superuser=True
+                id=2, is_authenticated=True, is_superuser=True
             )
             assert (await client.get("/admin/admin/report/_components/pivot/data")).json()[
                 "total"

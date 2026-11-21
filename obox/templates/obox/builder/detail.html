@@ -1,0 +1,13 @@
+{% extends "obox/base.html" %}
+{% block content %}
+  <h1>{{ title }}</h1>
+  <dl>
+    {% for name, value in values %}
+      <dt>{{ name }}</dt>
+      <dd>
+        {{ value }}
+      </dd>
+    {% endfor %}
+  </dl>
+  {% if change_url %}<a href="{{ change_url }}">Edit</a>{% endif %}
+{% endblock %}

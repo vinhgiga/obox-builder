@@ -69,7 +69,7 @@ class Webhooks:
             from obox.contrib._models import installed_models
 
             self.models = installed_models()
-        app.include_router(build_router(self))
+        app.include_router(build_router(self), permission="webhooks.manage_subscriptions")
 
     def secret(self, subscription: Any) -> bytes:
         key = self.signing_keys.get(subscription.key_id)

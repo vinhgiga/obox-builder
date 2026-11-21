@@ -41,7 +41,6 @@ async def application(tmp_path: Path) -> AsyncIterator[tuple[_Runtime, httpx.Asy
         return Principal(
             id=request.headers.get("actor", "1"),
             is_authenticated=True,
-            is_staff=True,
             is_superuser=True,
         )
 

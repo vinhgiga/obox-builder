@@ -54,7 +54,7 @@ class Activity:
 
     @staticmethod
     def label(model: type[Any]) -> str:
-        from obox.views.generic.detail import _model_label
+        from obox.db._identity import _model_label
 
         return ".".join(_model_label(model))
 
@@ -103,7 +103,7 @@ class Activity:
             fields = getattr(model, "__history_fields__", ())
             if fields and model not in self.fields:
                 self.track(model, fields=fields)
-        app.include_router(build_router(self))
+        app.include_router(build_router(self), permission="activity.access_history")
 
 
 from obox.contrib.activity import tracking as _tracking  # noqa: E402, F401

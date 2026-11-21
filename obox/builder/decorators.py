@@ -23,14 +23,3 @@ def action(function: Any = None, *, permissions: Any = None, description: str | 
         return method
 
     return decorate(function) if function is not None else decorate
-
-
-def register(*models: Any, site: Any = None) -> Any:
-    if site is None:
-        from obox.builder.sites import site
-
-    def decorator(cls: Any) -> Any:
-        site.register(models, cls)
-        return cls
-
-    return decorator

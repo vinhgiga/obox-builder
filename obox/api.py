@@ -4,27 +4,28 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable, Iterable, Mapping, Sequence
+from copy import copy
 from types import GenericAlias, MappingProxyType
 from typing import Annotated, Any, Generic, Literal, TypeVar, cast
 from urllib.parse import quote
-from uuid import UUID
 
 import sqlalchemy as sa
 from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.routing import RouteContext, iter_route_contexts
-from pydantic import BaseModel, Field, create_model
-from sqlalchemy.orm import InstanceState, Mapper, undefer
+from pydantic import BaseModel, Field, SkipValidation, create_model
+from sqlalchemy.orm import InstanceState
 
+from obox._async import invoke
 from obox._context import Context as Context
 from obox._dependencies import _APIContext, api_context
-from obox._exceptions import BuilderValidationError, NotFound
 from obox._query import invalid, parameters
 from obox._routes import ApiRoute
 from obox._schemas import ApiRequest as ApiRequest
 from obox._schemas import ApiResponse as ApiResponse
 from obox.core.exceptions import ImproperlyConfigured
-from obox.db._fields import ModelField, _model_value, inspect_fields, normalize
-from obox.views.generic.detail import _model_label
+from obox.db._fields import ModelField, normalize, schema
+from obox.db._identity import _model_label
+from obox.resources import Resource, resolve_resource
 
 ModelT = TypeVar("ModelT")
 RouterMethod = Literal["list", "retrieve", "create", "update", "patch", "delete"]
@@ -107,8 +108,11 @@ class ModelApi(BaseApi, Generic[ModelT]):
 
     model: type[ModelT]
     prefix: str
+    resource: type[Resource[ModelT]] | None = None
+    _resource: Resource[ModelT]
+    _generated: set[str]
     include_router_methods: Sequence[RouterMethod] | None = None
-    permissions: Mapping[RouterMethod, str | None] = MappingProxyType({})
+    permissions: Mapping[RouterMethod, str] = MappingProxyType({})
     read_schema: type[ApiResponse] | None = None
     create_schema: type[ApiRequest] | None = None
     update_schema: type[ApiRequest] | None = None
@@ -118,22 +122,80 @@ class ModelApi(BaseApi, Generic[ModelT]):
     default_limit: int = 50
     max_limit: int = 100
 
-    def build_router(self) -> APIRouter:
-        model, prefix = getattr(self, "model", None), getattr(self, "prefix", None)
-        if (
-            not isinstance(model, type)
-            or not isinstance(prefix, str)
-            or not re.fullmatch(r"/[a-zA-Z0-9_-]+(?:/[a-zA-Z0-9_-]+)*", prefix)
-        ):
-            raise ImproperlyConfigured("Define a mapped model and an absolute API prefix.")
-        specs = inspect_fields(model)
-        mapper: Mapper[Any] = sa.inspect(model)
-        pk = mapper.get_property_by_column(mapper.primary_key[0]).key
-        if pk not in specs or mapper.primary_key[0].type.python_type not in (int, str, UUID):
-            raise ImproperlyConfigured("ModelApi requires an int, str or UUID primary key.")
-        methods = tuple(
-            _ROUTES if self.include_router_methods is None else self.include_router_methods
+    def build_router(self, prefix: str | None = None) -> APIRouter:
+        binding = copy(self)
+        model = getattr(self, "model", None)
+        if self.resource is not None and model is not None:
+            raise ImproperlyConfigured("Specify either model or resource.")
+        target = self.resource or model
+        if target is None:
+            raise ImproperlyConfigured("Define a Resource or SQLAlchemy model.")
+        resource = resolve_resource(target)
+        if self.resource is None:
+            explicit_fields = tuple(
+                dict.fromkeys(
+                    name
+                    for declaration in (
+                        self.read_schema,
+                        self.create_schema,
+                        self.patch_schema,
+                        self.update_schema,
+                    )
+                    if declaration is not None
+                    for name in declaration.model_fields
+                )
+            )
+            if explicit_fields:
+                resource = type("ApiResource", (Resource,), {"fields": explicit_fields})(
+                    resource.model
+                )
+        return binding._build_router(
+            prefix if prefix is not None else getattr(self, "prefix", ""), resource
         )
+
+    def _build_router(self, prefix: str, resource: Resource[ModelT]) -> APIRouter:
+        if not re.fullmatch(r"/[a-zA-Z0-9_-]+(?:/[a-zA-Z0-9_-]+)*", prefix):
+            raise ImproperlyConfigured("Provide an absolute API prefix.")
+        self._resource, self.model = resource, resource.model
+        specs = resource.specs
+        pk = resource.pk_name
+        methods: tuple[RouterMethod, ...] = tuple(
+            self.include_router_methods
+            if self.include_router_methods is not None
+            else (action for action in _ROUTES if action != "update" or self.update_schema)
+        )
+        selected = {name: specs[name] for name in resource.readable}
+        writable = resource.writable
+        if self.read_schema is None:
+            self.read_schema = cast(
+                "type[ApiResponse]",
+                schema(f"{self.model.__name__}Read", specs, resource.readable, base=ApiResponse),
+            )
+        generated: set[str] = set()
+        self._generated = generated
+        for operation in ("create", "patch"):
+            attr = f"{operation}_schema"
+            if operation not in methods or getattr(self, attr) is not None:
+                continue
+            definition = resource._create_schema
+            fields: dict[str, Any] = {}
+            for name in writable:
+                info = definition.model_fields[name]
+                annotation: Any = info.annotation
+                if info.metadata:
+                    annotation = Annotated[annotation, *info.metadata]
+                default = ... if operation == "create" and info.is_required() else None
+                fields[name] = (Annotated[annotation, SkipValidation], default)
+            setattr(
+                self,
+                attr,
+                create_model(
+                    f"{self.model.__name__}{operation.title()}", __base__=ApiRequest, **fields
+                ),
+            )
+            generated.add(operation)
+        if "create" in methods and "create" in generated:
+            resource._check_create(writable)
         if (
             len(methods) != len(set(methods))
             or (set(methods) | self.permissions.keys()) - _ROUTES.keys()
@@ -149,14 +211,14 @@ class ModelApi(BaseApi, Generic[ModelT]):
                 raise ImproperlyConfigured(
                     "Define an ApiResponse read_schema for routes returning records."
                 )
-            names = _schema_names(read, specs)
+            names = _schema_names(read, selected)
             readable = {name: specs[name] for name in read.model_fields}
         if "list" in methods:
             self._check_list_fields(readable)
 
         router = APIRouter(prefix=prefix, tags=[prefix.rsplit("/", 1)[-1]])
         self.configure_router(router)
-        label, model_name = _model_label(model)
+        label, model_name = _model_label(self.model)
         schemas = {
             "create": self.create_schema,
             "update": self.update_schema,
@@ -175,13 +237,14 @@ class ModelApi(BaseApi, Generic[ModelT]):
                 raise ImproperlyConfigured(
                     f"Define an ApiRequest {action}_schema with strict field names."
                 )
-            write_names = _schema_names(body, specs, write=True) if body is not None else {}
-            dependency = Depends(
-                self.permission_required(
-                    self.permissions.get(action, f"{label}.{permission_action}_{model_name}")
-                )
-            )
-            name = f"{type(self).__name__}_{action}"
+            write_names = _schema_names(body, selected, write=True) if body is not None else {}
+            if not write_names.keys() <= set(writable):
+                raise ImproperlyConfigured("API fields must be writable on the Resource.")
+            permission = f"{label}.{permission_action}_{model_name}"
+            dependency = Depends(self.permission_required(permission))
+            additional = self.permissions.get(action)
+            extra = [Depends(self.permission_required(additional))] if additional else None
+            name = f"obox:api:{prefix}:{action}"
             endpoint = self._endpoint(
                 action,
                 dependency,
@@ -191,6 +254,7 @@ class ModelApi(BaseApi, Generic[ModelT]):
                 readable,
                 names,
                 "retrieve" in methods,
+                action in generated,
             )
             output: Any = read if action != "delete" else None
             if action == "list":
@@ -205,6 +269,7 @@ class ModelApi(BaseApi, Generic[ModelT]):
                 methods=[verb],
                 status_code=status,
                 response_model=output,
+                dependencies=extra,
                 name=name,
                 route_class_override=_ModelRoute,
             )
@@ -233,13 +298,8 @@ class ModelApi(BaseApi, Generic[ModelT]):
         readable: dict[str, ModelField],
         names: dict[str, str],
         has_retrieve: bool,
+        generated: bool,
     ) -> Callable[..., Any]:
-        options = [
-            undefer(getattr(self.model, name))
-            for name, spec in readable.items()
-            if "obox_files" not in spec.column.info
-        ]
-
         async def project(ctx: Context, obj: ModelT) -> ApiResponse:
             state = cast("InstanceState[ModelT]", sa.inspect(obj))
             missing = state.unloaded.intersection(readable)
@@ -253,19 +313,14 @@ class ModelApi(BaseApi, Generic[ModelT]):
             )
 
         async def lookup(ctx: Context, key: Any) -> ModelT:
-            stmt = self.get_queryset(ctx, action=action).where(pk.column == key)
-            if action != "delete":
-                stmt = stmt.options(*options)
-            if action in {"update", "patch", "delete"}:
-                stmt = stmt.with_for_update(of=self.model)
-            obj = await ctx.session.scalar(stmt)
-            if obj is None:
-                raise NotFound("Record is unavailable.")
-            return obj
+            stmt = await invoke(self.get_queryset, ctx, action=action)
+            return await self._resource._get(
+                ctx.session, stmt, key, lock=action in {"update", "patch", "delete"}
+            )
 
         def payload(request: Request, data: ApiRequest) -> dict[str, Any]:
             request.state.api_names = write_names
-            fields = data.model_fields_set if action == "patch" else write_names
+            fields = data.model_fields_set if generated or action == "patch" else write_names
             return {name: getattr(data, name) for name in fields if name in write_names}
 
         if action == "list":
@@ -286,7 +341,7 @@ class ModelApi(BaseApi, Generic[ModelT]):
                 parameters(
                     request.query_params.multi_items(), {"offset", "includeTotal", *query_fields}
                 )
-                stmt = self.get_queryset(ctx, action="list").options(*options)
+                stmt = await invoke(self.get_queryset, ctx, action="list")
                 search = getattr(params, "search", None)
                 if search:
                     stmt = stmt.where(
@@ -364,6 +419,8 @@ class ModelApi(BaseApi, Generic[ModelT]):
     def _ordering(self, raw: str | None, pk: ModelField, names: Mapping[str, str]) -> list[Any]:
         allowed = {names[name]: name for name in self.ordering_fields}
         seen: set[str] = set()
+        if raw is None:
+            return self._resource._order()
         ordering = []
         if raw is not None:
             for term in raw.split(","):
@@ -380,74 +437,11 @@ class ModelApi(BaseApi, Generic[ModelT]):
             ordering.append(pk.column.asc())
         return ordering
 
-    async def _write_values(
-        self, ctx: Context, values: dict[str, Any], obj: ModelT | None = None
-    ) -> dict[str, Any]:
-        mapper = cast("Mapper[ModelT]", sa.inspect(self.model))
-        state = cast("InstanceState[ModelT]", sa.inspect(obj)) if obj is not None else None
-        values = dict(values)
-        with ctx.session.no_autoflush:
-            for name in values.keys() & mapper.column_attrs.keys():
-                column = mapper.column_attrs[name].columns[0]
-                value = values[name]
-                if value is None and not column.nullable and not column.type.should_evaluate_none:
-                    raise BuilderValidationError({name: ["This field cannot be null."]})
-                try:
-                    values[name] = _model_value(column, value)
-                except (TypeError, ValueError) as exc:
-                    raise BuilderValidationError({name: ["Invalid model value."]}) from exc
-            for table in mapper.tables:
-                if not isinstance(table, sa.Table):
-                    continue
-                for fk in table.foreign_key_constraints:
-                    names = [mapper.get_property_by_column(key.parent).key for key in fk.elements]
-                    written = values.keys() & set(names)
-                    if not written:
-                        continue
-                    if state is not None and (
-                        missing := state.unloaded.intersection(names) - written
-                    ):
-                        await ctx.session.refresh(obj, attribute_names=list(missing))
-                    keys = [
-                        values[name] if name in values else getattr(obj, name, None)
-                        for name in names
-                    ]
-                    if (
-                        None not in keys
-                        and await ctx.session.scalar(
-                            sa.select(sa.literal(True))
-                            .where(
-                                *(
-                                    key.column == value
-                                    for key, value in zip(fk.elements, keys, strict=True)
-                                )
-                            )
-                            .limit(1)
-                        )
-                        is None
-                    ):
-                        raise BuilderValidationError(
-                            {min(written): ["Referenced record is unavailable."]}
-                        )
-            fields = [
-                name
-                for name in values.keys() & mapper.relationships.keys()
-                if "obox_files" in mapper.relationships[name].info
-            ]
-            if fields:
-                files = ctx._owner._feature("files")
-                if files is None:
-                    raise ImproperlyConfigured("Install Files before writing attachments.")
-                values = await files.resolve(self.model, values, ctx, obj)
-                if state is not None and (unloaded := state.unloaded.intersection(fields)):
-                    await ctx.session.refresh(obj, attribute_names=list(unloaded))
-        return values
-
     def configure_router(self, router: APIRouter) -> None:
         """Register extra FastAPI endpoints before the generated routes."""
 
     def get_queryset(self, ctx: Context, *, action: RouterMethod) -> sa.Select[tuple[ModelT]]:
-        return sa.select(self.model)
+        return self._resource._query(ctx.principal)
 
     async def list(
         self,
@@ -458,37 +452,23 @@ class ModelApi(BaseApi, Generic[ModelT]):
         offset: int,
         include_total: bool,
     ) -> tuple[Sequence[ModelT], bool, int | None]:
-        total = None
-        if include_total:
-            count = sa.select(sa.func.count()).select_from(queryset.order_by(None).subquery())
-            total = (await ctx.session.scalar(count)) or 0
-        rows = (await ctx.session.scalars(queryset.offset(offset).limit(limit + 1))).all()
+        total = await self._resource._count(ctx.session, queryset) if include_total else None
+        rows = await self._resource._rows(ctx.session, queryset, limit=limit + 1, offset=offset)
         return rows[:limit], len(rows) > limit, total
 
     async def retrieve(self, ctx: Context, obj: ModelT) -> ModelT:
         return obj
 
     async def create(self, ctx: Context, values: dict[str, Any]) -> ModelT:
-        values = await self._write_values(ctx, values)
-        columns = cast("Mapper[ModelT]", sa.inspect(self.model)).column_attrs
-        for name, value in values.items():
-            prop = columns.get(name)
-            if value is None and prop is not None and not prop.columns[0].type.should_evaluate_none:
-                values[name] = sa.null()
-        obj = self.model(**values)
-        ctx.session.add(obj)
-        return obj
-
-    async def _update(self, ctx: Context, obj: ModelT, values: dict[str, Any]) -> ModelT:
-        for name, value in (await self._write_values(ctx, values, obj)).items():
-            setattr(obj, name, value)
-        return obj
+        return await self._resource._save(
+            ctx.session, ctx.principal, values, validate="create" in self._generated
+        )
 
     async def update(self, ctx: Context, obj: ModelT, values: dict[str, Any]) -> ModelT:
-        return await self._update(ctx, obj, values)
+        return await self._resource._save(ctx.session, ctx.principal, values, obj)
 
     async def patch(self, ctx: Context, obj: ModelT, values: dict[str, Any]) -> ModelT:
-        return await self._update(ctx, obj, values)
+        return await self.update(ctx, obj, values)
 
     async def delete(self, ctx: Context, obj: ModelT) -> None:
-        await ctx.session.delete(obj)
+        await self._resource._delete(ctx.session, ctx.principal, obj)

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
-    <meta name="description" content="Obox administration">
+    <meta name="description" content="Obox records">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta charset="utf-8">
     <title>{{ title }}</title>
@@ -9,10 +9,13 @@
   <body>
     {% for error in form.non_field_errors() %}<p role="alert">{{ error }}</p>{% endfor %}
     {% set upload = namespace(required=form.is_multipart()) %}
-    {% for group in inline_admin_formsets %}
-      {% if group.formset.is_multipart() %}{% set upload.required = true %}{% endif %}
+    {% for group in inline_formsets %}
+      {% if group.formset.is_multipart() %}
+        {% set upload.required = true %}
+      {% endif %}
     {% endfor %}
-    <form method="post"{% if upload.required %} enctype="multipart/form-data"{% endif %}>
+    <form method="post"
+          {% if upload.required %} enctype="multipart/form-data"{% endif %}>
       <input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">
       {% for group in fieldsets %}
         <fieldset>
@@ -24,7 +27,7 @@
         {% endfor %}
         </fieldset>
       {% endfor %}
-      {% for group in inline_admin_formsets %}
+      {% for group in inline_formsets %}
         {% include group.inline.template %}
       {% endfor %}
       {% if has_change_permission %}<button type="submit">Save</button>{% endif %}

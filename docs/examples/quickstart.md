@@ -24,32 +24,20 @@ class Product(Base):
     price: Mapped[Decimal] = mapped_column(Numeric(10, 2))
 ```
 
-Declare `app/products/apps.py`:
+Add `app.products` to `INSTALLED_APPS` so Obox loads its models. In the generated
+`main.py`, import the model and add the registration after `Obox(app)`.
 
 ```python
-from obox.apps import AppConfig
+from app.products.models import Product
 
-
-class ProductsConfig(AppConfig):
-    name = "app.products"
+obox.register(Product)
 ```
 
-Add `app.products` to INSTALLED_APPS. In `app/products/admin.py`:
+This exposes the HTML collection at `/products` and REST at `/api/products`.
+For app-prefixed URLs, move the registration into `AppConfig.ready()` and use
+`self.register(Product)`.
 
-```python
-from obox.builder import ModelBuilder, register
-from .models import Product
-
-
-@register(Product)
-class ProductBuilder(ModelBuilder):
-    fields = ("name", "price")
-    list_display = ("id", "name", "price")
-    search_fields = ("name",)
-```
-
-The generated URLs already mount `path('admin/', site.urls)`. Generate a model
-migration, review it, apply it, create an administrator and start the app:
+Generate a model migration, review it, apply it and create an administrator.
 
 ```sh
 uv run alembic revision --autogenerate -m 'add product'
@@ -58,5 +46,5 @@ uv run obox createsuperuser
 uv run uvicorn main:app --reload
 ```
 
-For JSON endpoints follow the [independent REST example](apis/query-resource.md).
-For custom input follow the [ModelForm example](forms/customize-form.md).
+Sign in at `/auth/login` and open `/products`. See [Resource registration](features/register-resource.md)
+to add shared validation and [access control](../features/access-control.md) to assign model permissions.

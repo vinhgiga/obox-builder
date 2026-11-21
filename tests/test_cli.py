@@ -21,7 +21,7 @@ def test_scaffold_uses_standard_settings_and_keeps_existing_project_files(tmp_pa
     project = startproject("example", tmp_path)
     assert marker.read_text() == "# user configuration\n"
     assert (project / "settings.py").is_file()
-    assert (project / "urls.py").is_file()
+    assert not (project / "urls.py").exists()
     assert not (project / "setting.py").exists()
     for path in project.rglob("*.py"):
         compile(path.read_text(), str(path), "exec")
@@ -69,10 +69,10 @@ async def run():
     async with app.router.lifespan_context(app):
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-            assert (await client.get("/")).status_code == 302
-            assert (await client.get("/admin/")).status_code == 302
+            assert (await client.get("/")).status_code == 303
+            assert (await client.get("/admin/")).status_code == 404
             assert (await client.get("/auth/login", follow_redirects=True)).status_code == 200
-            assert (await client.get("/openapi.json")).status_code == 200
+            assert (await client.get("/openapi.json")).status_code == 404
 asyncio.run(run())
 """
     subprocess.run(  # noqa: S603 - generated project in isolated test directory

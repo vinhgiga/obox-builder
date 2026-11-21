@@ -7,9 +7,10 @@ from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import urlsplit
 
-from fastapi import APIRouter, Request, Response
+from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 
+from obox._dependencies import _RoutePermission
 from obox._exceptions import N_, BuilderValidationError, PermissionDenied
 from obox._http import read_form
 from obox._i18n import context as translation_context
@@ -260,11 +261,17 @@ def router(app: _Runtime, auth: Auth) -> APIRouter:
         response.headers["cache-control"] = "no-store"
         return response
 
+    account_policy = (
+        [Depends(_RoutePermission("auth.use_account", True, False))]
+        if app._enforce_permissions
+        else None
+    )
     routes.add_api_route(
         "/account",
         account,
         methods=["GET"],
         name=auth.account_route,
+        dependencies=account_policy,
         include_in_schema=False,
     )
     routes.add_api_route(
@@ -272,6 +279,7 @@ def router(app: _Runtime, auth: Auth) -> APIRouter:
         profile,
         methods=["GET", "POST"],
         name=auth.profile_route,
+        dependencies=account_policy,
         include_in_schema=False,
     )
     routes.add_api_route(

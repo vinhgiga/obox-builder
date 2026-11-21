@@ -46,8 +46,8 @@ class Record(Base):
     name: Mapped[str] = mapped_column(sa.String(40), unique=True)
 
 
-STAFF = Principal(id=1, is_authenticated=True, is_staff=True, is_superuser=True)
-OTHER = Principal(id=2, is_authenticated=True, is_staff=True, is_superuser=True)
+STAFF = Principal(id=1, is_authenticated=True, is_superuser=True)
+OTHER = Principal(id=2, is_authenticated=True, is_superuser=True)
 
 
 class Policy:

@@ -8,9 +8,11 @@ from typing import Any, ClassVar, cast
 
 from fastapi import Request
 from fastapi.responses import HTMLResponse, Response
+from markupsafe import escape
 from starlette.exceptions import HTTPException
 
 from obox._async import invoke
+from obox._exceptions import OboxError
 from obox.conf import settings
 from obox.core.exceptions import ImproperlyConfigured, PermissionDenied
 from obox.db import _session
@@ -20,6 +22,8 @@ async def _identify(request: Request) -> Any:
     from obox._auth import Principal
 
     runtime = getattr(request.app.state, "obox", None)
+    if getattr(request.state, "_obox_identified", False):
+        return request.scope["user"]
     resolver = runtime.settings.principal_dependency if runtime is not None else None
     if resolver is None:
         actor = request.scope.get("user", Principal())
@@ -32,26 +36,19 @@ async def _identify(request: Request) -> Any:
             else await invoke(resolver)
         )
     request.scope["user"] = actor
+    request.state._obox_identified = True
     return actor
 
 
 @asynccontextmanager
 async def _request_session(request: Request) -> AsyncIterator[None]:
     actor = await _identify(request)
-    if settings.DATABASES:
-        async with _session() as session:
-            from obox._context import Context
-
-            runtime = getattr(request.app.state, "obox", None)
-            session.info["obox._context"] = Context(
-                principal=actor,
-                session=session,
-                request=request,
-                source="ui",
-                _owner=runtime,
-                _active=True,
-                _transaction=session.sync_session.get_transaction(),
-            )
+    runtime = getattr(request.app.state, "obox", None)
+    if runtime is not None:
+        async with runtime.uow(principal=actor, request=request, source="ui"):
+            yield
+    elif settings.DATABASES:
+        async with _session():
             yield
     else:
         yield
@@ -89,15 +86,18 @@ class View:
                 async with _request_session(request):
                     from obox.middleware.csrf import _check, _set_cookie
 
-                    await _check(request, multipart=True)
+                    if not getattr(request.state, "_obox_html_csrf", False):
+                        await _check(request, multipart=True)
                     response = cast(Response, await invoke(self.dispatch, request, **self.kwargs))
                     _set_cookie(request, response)
                     return response
             except PermissionDenied:
                 return HTMLResponse("Forbidden", status_code=403)
+            except OboxError as exc:
+                return HTMLResponse(escape(str(exc)), status_code=exc.status)
             except HTTPException as exc:
                 return HTMLResponse(
-                    str(exc.detail), status_code=exc.status_code, headers=exc.headers
+                    escape(str(exc.detail)), status_code=exc.status_code, headers=exc.headers
                 )
             finally:
                 await request.close()

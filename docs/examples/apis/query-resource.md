@@ -1,38 +1,26 @@
-# Register an independent REST API
+# Publish a REST resource
 
 ```python
-from sqlalchemy import select
-from obox.rest_framework.serializers import ModelSerializer
-from obox.rest_framework.viewsets import ModelViewSet
-from obox.rest_framework.routers import SimpleRouter
-from obox.rest_framework.filters import SearchFilter, OrderingFilter
-from obox.rest_framework.permissions import IsAuthenticated
-from obox.urls import include, path
-from app.products.models import Product
+from obox.api import ModelApi
+from obox.builder import ModelBuilder
+
+from .models import Product
+from .resources import ProductResource
 
 
-class ProductSerializer(ModelSerializer):
-    class Meta:
-        model = Product
-        fields = ("id", "name", "price")
-
-
-class ProductViewSet(ModelViewSet):
-    queryset = select(Product)
-    serializer_class = ProductSerializer
-    permission_classes = (IsAuthenticated,)
-    filter_backends = (SearchFilter, OrderingFilter)
+class ProductApi(ModelApi[Product]):
+    resource = ProductResource
     search_fields = ("name",)
     ordering_fields = ("name", "price")
 
 
-router = SimpleRouter()
-router.register("products", ProductViewSet, basename="product")
-urlpatterns = [path("api/", include(router.urls))]
+class ProductBuilder(ModelBuilder):
+    api_class = ProductApi
+
+
+obox.register(ProductResource, builder=ProductBuilder, views=False)
 ```
 
-`GET /api/products/?search=note&ordering=-price` returns a JSON array by default.
-PUT validates the full writable representation; PATCH validates supplied fields.
-Errors return400 with field message lists; successful DELETE returns204.
-ModelBuilder registration is not required. For pagination set a
-PageNumberPagination subclass on pagination_class or configure REST_FRAMEWORK.
+For direct FastAPI integration, attach `ProductApi().build_router("/api/products")`.
+Model permissions apply in both layouts. Add `?search=lamp&order=price.asc`
+to search and order the results. Use `limit` and `offset` for paging.

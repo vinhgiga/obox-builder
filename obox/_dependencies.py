@@ -1,17 +1,20 @@
 """Authenticated contexts for custom FastAPI endpoints."""
 
+from __future__ import annotations
+
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
-from typing import Annotated
+from typing import Annotated, Any, cast
 
 from fastapi import Depends, Request
 from fastapi.routing import RouteContext, iter_route_contexts
 from starlette.routing import BaseRoute
 
-from obox._auth import _valid_permission, has_permission
+from obox._auth import Identity, _valid_permission, has_permission
 from obox._context import Context
 from obox._exceptions import NotAuthenticated, PermissionDenied
 from obox.core.exceptions import ImproperlyConfigured
+from obox.core.exceptions import PermissionDenied as FormPermissionDenied
 
 
 async def _api_context() -> Context:
@@ -27,13 +30,7 @@ class _APIContext:
         self, request: Request, ctx: Annotated[Context, Depends(_api_context, scope="function")]
     ) -> Context:
         principal = ctx.principal
-        if (
-            getattr(principal, "is_authenticated", False) is not True
-            or getattr(principal, "is_active", False) is not True
-        ):
-            raise NotAuthenticated("Authentication is required.")
-        if self.permission is not None and not has_permission(principal, self.permission):
-            raise PermissionDenied("This operation is not permitted.")
+        _require_permission(principal, self.permission)
         if (
             self.csrf
             and request.method not in {"GET", "HEAD", "OPTIONS", "TRACE"}
@@ -54,13 +51,63 @@ def api_context(*, permission: str | None = None, csrf: bool = False) -> _APICon
     return _APIContext(permission, csrf)
 
 
-def _api_contexts(routes: Sequence[BaseRoute | RouteContext]) -> Iterator[_APIContext]:
+def _api_contexts(
+    routes: Sequence[BaseRoute | RouteContext],
+) -> Iterator[_APIContext | _RoutePermission]:
     for route in iter_route_contexts(routes):
         pending = [getattr(route, "dependant", None)]  # codespell:ignore dependant
         while pending:
             dependency = pending.pop()
             if dependency is None:
                 continue
-            if isinstance(dependency.call, _APIContext):
+            if isinstance(dependency.call, (_APIContext, _RoutePermission)):
                 yield dependency.call
             pending.extend(dependency.dependencies)
+
+
+@dataclass(frozen=True)
+class _RoutePermission:
+    permission: str
+    html: bool
+    csrf: bool = True
+
+    async def __call__(self, request: Request) -> Identity:
+        from obox.views.generic.base import _identify
+
+        if self.html:
+            request.state.obox_html_permission = True
+        actor = await _identify(request)
+        _require_permission(actor, self.permission)
+        if (
+            self.csrf
+            and request.method not in {"GET", "HEAD", "OPTIONS", "TRACE"}
+            and getattr(request.state, "obox_bearer_principal", None) is not actor
+        ):
+            if self.html:
+                from obox.middleware.csrf import _check
+
+                try:
+                    await _check(request, multipart=True)
+                except FormPermissionDenied as exc:
+                    raise PermissionDenied(str(exc)) from exc
+                request.state._obox_html_csrf = True
+            else:
+                request.app.state.obox.csrf.validate(request, actor)
+        return cast(Identity, actor)
+
+
+def permission_required(permission: str, *, html: bool = False) -> _RoutePermission:
+    """Require an admin-assignable permission on a native FastAPI route."""
+    if not isinstance(permission, str) or not _valid_permission(permission):
+        raise ImproperlyConfigured("Use a permission such as app.view_model.")
+    return _RoutePermission(permission, html)
+
+
+def _require_permission(actor: Any, permission: str | None) -> None:
+    if (
+        getattr(actor, "is_authenticated", False) is not True
+        or getattr(actor, "is_active", False) is not True
+    ):
+        raise NotAuthenticated("Authentication is required.")
+    if permission is not None and not has_permission(actor, permission):
+        raise PermissionDenied("This operation is not permitted.")

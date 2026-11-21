@@ -12,10 +12,11 @@ import httpx
 import pytest
 import sqlalchemy as sa
 from fastapi import APIRouter, Depends, FastAPI, Request
+from obox import Resource
 from obox._auth import Principal
 from obox._config import RuntimeConfig
 from obox._runtime import _Runtime
-from obox.api import ApiRequest, ApiResponse, BaseApi, Context, ModelApi, RouterMethod
+from obox.api import ApiRequest, ApiResponse, BaseApi, Context, ModelApi
 from obox.core.exceptions import ImproperlyConfigured
 from pydantic import Field, StringConstraints
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -23,7 +24,14 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from tests.storage import database
 
 POSTS = "/api/posts"
-WRITE = frozenset({"tests.view_post", "tests.add_post", "tests.change_post", "tests.delete_post"})
+WRITE = frozenset(
+    {
+        "tests.view_post",
+        "tests.add_post",
+        "tests.change_post",
+        "tests.delete_post",
+    }
+)
 VIEWER = {"x-test-user": "viewer"}
 EDITOR = {"x-test-user": "editor"}
 OTHER = {"x-test-user": "other"}
@@ -67,8 +75,18 @@ class PostPatch(PostWrite):
     title_text: Title = Field(default_factory=str, alias="headlineText")
 
 
-class Posts(ModelApi[Post]):
+class PostResource(Resource[Post]):
     model = Post
+
+    def get_queryset(self, actor: Any) -> sa.Select[tuple[Post]]:
+        return super().get_queryset(actor).where(Post.owner_id == actor.id)
+
+    def prepare_write(self, values: dict[str, Any], obj: Post | None, actor: Any) -> dict[str, Any]:
+        return {**values, "owner_id": actor.id} if obj is None else values
+
+
+class Posts(ModelApi[Post]):
+    resource = PostResource
     prefix = "/posts"
     read_schema: type[ApiResponse] | None = PostRead
     create_schema: type[ApiRequest] | None = PostWrite
@@ -76,17 +94,15 @@ class Posts(ModelApi[Post]):
     patch_schema: type[ApiRequest] | None = PostPatch
     search_fields = ordering_fields = ("title_text",)
 
-    def get_queryset(self, ctx: Context, *, action: RouterMethod) -> sa.Select[tuple[Post]]:
-        return super().get_queryset(ctx, action=action).where(Post.owner_id == ctx.principal.id)
-
-    async def create(self, ctx: Context, values: dict[str, Any]) -> Post:
-        return await super().create(ctx, {**values, "owner_id": ctx.principal.id})
-
 
 def principal(request: Request) -> Principal:
     who = request.headers.get("x-test-user")
     if who in {"editor", "other"}:
-        return Principal(id=1 if who == "editor" else 2, is_authenticated=True, permissions=WRITE)
+        return Principal(
+            id=1 if who == "editor" else 2,
+            is_authenticated=True,
+            permissions=WRITE | {"tests.add_record", "tests.view_record"},
+        )
     if who == "viewer":
         return Principal(id=1, is_authenticated=True, permissions=frozenset({"tests.view_post"}))
     if who in {"member", "inactive"}:
@@ -291,7 +307,7 @@ def test_overrides_keep_scoped_lookup_and_rollback(tmp_path: Path) -> None:
     asyncio.run(scenario())
 
 
-def test_public_extension_auth_only_detail_and_uuid(tmp_path: Path) -> None:
+def test_custom_route_permissions_and_uuid(tmp_path: Path) -> None:
     class Record(Base):
         __tablename__ = "model_api_uuids"
         record_key: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
@@ -308,7 +324,7 @@ def test_public_extension_auth_only_detail_and_uuid(tmp_path: Path) -> None:
         model = Record
         prefix = "/records"
         include_router_methods = ("create", "retrieve")
-        permissions = MappingProxyType({"create": "tests.add_post", "retrieve": None})
+        permissions = MappingProxyType({"create": "tests.add_post"})
         read_schema = RecordRead
         create_schema = RecordWrite
 
@@ -335,7 +351,8 @@ def test_public_extension_auth_only_detail_and_uuid(tmp_path: Path) -> None:
             assert (await client.get(f"{path}/{key}")).status_code == 401
             assert (
                 await client.get(f"{path}/{key}", headers={"x-test-user": "member"})
-            ).json() == created.json()
+            ).status_code == 403
+            assert (await client.get(f"{path}/{key}", headers=EDITOR)).json() == created.json()
             assert (await client.delete(f"{path}/{key}", headers=EDITOR)).status_code == 405
             operations = runtime.app.openapi()["paths"][path + "/{id}"]
             assert list(operations) == ["get"]
@@ -352,7 +369,8 @@ def test_rejects_bad_schema_and_duplicate_routes() -> None:
         id: int
 
     class MissingBody(Posts):
-        patch_schema = None
+        update_schema = None
+        include_router_methods = ("update",)
 
     class HiddenField(Posts):
         read_schema = HiddenRead
@@ -365,7 +383,7 @@ def test_rejects_bad_schema_and_duplicate_routes() -> None:
             router.add_api_route("/{other_id}", lambda: None, methods=["GET"])
 
     for api, error in [
-        (MissingBody, "patch_schema"),
+        (MissingBody, "update_schema"),
         (HiddenField, "owner_id"),
         (ReadOnlyField, "Invalid field 'id'"),
         (Duplicate, "Duplicate API route"),

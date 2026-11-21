@@ -18,7 +18,6 @@ _TEMPLATE_FILES = {
     "main.py": "main.py.tmpl",
     "models.py": "models.py.tmpl",
     "settings.py": "settings.py.tmpl",
-    "urls.py": "urls.py.tmpl",
     "alembic.ini": "alembic.ini.tmpl",
     "migrations/env.py": "migrations/env.py.tmpl",
     "migrations/script.py.mako": "migrations/script.py.mako.tmpl",

@@ -1,20 +1,25 @@
 # Access control
 
-Core generic views leave identity and row visibility to the host application.
-AdminSite requires active staff and checks Django model permission names.
-REST uses DRF permission classes; configure IsAuthenticated explicitly when
-anonymous access is not appropriate. The DRF default remains AllowAny.
+The account management routes let administrators assign permissions to roles.
+An active superuser has all permissions. An API token is limited to its scopes.
 
-Enable `obox.contrib.auth` in INSTALLED_APPS for accounts, sessions, roles,
-password validation, admin account pages and optional API tokens. Configure
-`AUTH = {'api_tokens': True}` to expose token routes. Auth tables must be migrated.
-Create an administrator with `obox createsuperuser`.
+Each generated HTML or REST operation uses a model permission such as
+`products.view_product`, `products.add_product`, `products.change_product` or
+`products.delete_product`. A custom `Resource` can further restrict the records
+returned or the fields a user can write.
 
-Contrib resources use RBAC/Policy for action, row and field access. Source policy
-also constrains analytics, relationships, files and activity. Caller identity
-and trusted presets come from server context. Queryset restrictions and object
-permissions remain separate checks; list endpoints must enforce row scope.
+Declare a named permission on native FastAPI routes.
 
-HTML forms and authenticated REST sessions require CSRF on unsafe requests.
-See [REST](../api-spec.md) and [contrib protocol](../contrib-resource-api.md)
-for their distinct transport/error contracts.
+```python
+from fastapi import Depends
+from obox import permission_required
+
+
+@app.get("/reports", dependencies=[Depends(permission_required("reports.view_index"))])
+async def reports():
+    return {"reports": []}
+```
+
+Use `html=True` for browser views. Obox checks route permissions at startup.
+Login, logout, the login CSRF endpoint and framework static assets have their
+own access rules. Serve an OpenAPI document with a permission if needed.

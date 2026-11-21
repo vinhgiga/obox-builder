@@ -61,11 +61,10 @@ class StubBackend:
         return None
 
 
-SUPERUSER = Principal(id=1, is_authenticated=True, is_staff=True, is_superuser=True)
+SUPERUSER = Principal(id=1, is_authenticated=True, is_superuser=True)
 STAFF = Principal(
     id=2,
     is_authenticated=True,
-    is_staff=True,
     permissions=frozenset(
         f"admin.widgets.{action}" for action in ("list", "retrieve", "create", "update", "delete")
     ),
@@ -588,9 +587,7 @@ def test_self_and_last_superuser_guards() -> None:
             assert await fetch_user(app, user_id) is not None
         finally:
             await engine.dispose()
-        other, engine = await make_app(
-            Principal(id=99, is_authenticated=True, is_staff=True, is_superuser=True)
-        )
+        other, engine = await make_app(Principal(id=99, is_authenticated=True, is_superuser=True))
         try:
             user_id = await seed_user(other, "root", is_superuser=True)
             form = await post(
@@ -621,9 +618,7 @@ def test_self_and_last_superuser_guards() -> None:
 def test_delete_user_removes_role_links() -> None:
 
     async def scenario() -> None:
-        app, engine = await make_app(
-            Principal(id=99, is_authenticated=True, is_staff=True, is_superuser=True)
-        )
+        app, engine = await make_app(Principal(id=99, is_authenticated=True, is_superuser=True))
         try:
             role_id = await seed_role(app, "Editors")
             user_id = await seed_user(app, "alice", role_ids=[role_id])

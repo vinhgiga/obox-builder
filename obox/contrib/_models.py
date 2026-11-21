@@ -9,7 +9,7 @@ from obox._auth import has_permission
 from obox._exceptions import NotAuthenticated, NotFound, PermissionDenied
 from obox.apps import apps
 from obox.db import _scope
-from obox.views.generic.detail import _model_label
+from obox.db._identity import _model_label
 
 
 def installed_models() -> tuple[type[Any], ...]:

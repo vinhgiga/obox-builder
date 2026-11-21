@@ -1,18 +1,17 @@
-# Add a REST action
+# Add a custom REST route
 
 ```python
-from obox.rest_framework.decorators import action
-from obox.rest_framework.response import Response
-from app.products.views import ProductViewSet
+from fastapi import APIRouter, Depends
+from obox import permission_required
+
+router = APIRouter(prefix="/api/products")
 
 
-class ProductDetailViewSet(ProductViewSet):
-    @action(detail=True, methods=["get"])
-    async def summary(self, request, **kwargs):
-        product = await self.get_object()
-        return Response({"id": product.id, "name": product.name})
+@router.get("/summary", dependencies=[Depends(permission_required("products.view_summary"))])
+async def summary():
+    return {"title": "Product summary"}
 ```
 
-Register the viewset on SimpleRouter. The action is exposed at
-`/products/{pk}/summary/` and uses the same permissions and transaction.
-Customize CRUD through awaited perform_create/perform_update/perform_destroy hooks.
+Include the router on the host FastAPI app before registering the product CRUD
+routes so the literal summary URL is checked before the dynamic detail route.
+The permission `products.view_summary` is available to assign to roles.

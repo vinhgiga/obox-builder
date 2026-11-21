@@ -3,7 +3,7 @@
 The reference is Django 5.2 LTS and DRF 3.16.1. Obox supports the subset listed in
 [the mapping table](mapping.md). Runtime models are native SQLAlchemy models,
 requests are native Starlette/FastAPI requests, and templates use Jinja2.
-`Obox(app)` is the FastAPI adapter; `ModelBuilder` names the supported ModelAdmin subset.
+`Obox(app)` installs the FastAPI adapter. `Resource` shares model operations between HTML and REST.
 
 ## Settings and applications
 
@@ -58,11 +58,11 @@ The lifecycle is `as_view()` → `setup()` → `dispatch()` → method handler.
 lookup conversion and executes it. Context includes Django-shaped `object`,
 `object_list`, model context names, `form` and pagination values where applicable.
 The usual context/template/form hooks can be overridden. Invalid forms render
-with status 200; successful editing redirects with 302; delete uses POST after
+with status 200; successful editing redirects with 303; delete uses POST after
 confirmation. Unsupported methods return 405 and an Allow header.
 
-`path()` and `include()` mount nested URL patterns, converter values and named
-namespaces on FastAPI. Reverse links use the host request's `url_for()`.
+Mount standalone views through FastAPI and supply the permitted HTTP methods
+and permission dependency. Reverse links use the host request's `url_for()`.
 HTML unsafe methods require the `csrftoken` cookie plus `csrfmiddlewaretoken`
 or `X-CSRFToken`. Origin/referer checks apply. Jinja2 context exposes `csrf_token`.
 Generic editing views use FastAPI's request form parsing, bind multipart text and
@@ -70,29 +70,13 @@ files separately, and close uploads when the view exits. Built-in form templates
 set the encoding automatically.
 See [File forms](examples/views/index.md#file-forms) for routing and list integration.
 
-## ModelBuilder
+## Resource registration
 
-Register `(model, builder_class)` on an AdminSite or use `@register(Model)`.
-The builder accepts `form`, `fields`, `fieldsets`, `readonly_fields`,
-`list_display`, `list_filter`, `search_fields`, `ordering`, `list_per_page` and
-admin template/action options, including list_display_links. It exposes ModelAdmin-shaped form/queryset,
-save/delete, action and permission hooks.
+Register a mapped class or a `Resource` on `Obox` or in `AppConfig.ready()`.
+The registration builds the selected HTML and REST routes on FastAPI. The shared
+resource owns visibility, input validation and write policy. Builder options
+choose the form, views and API adapter. See [Resource registration](examples/features/register-resource.md).
 
-AdminSite enforces active staff access. Model permissions use
-`app_label.add_model`, `change_model`, `delete_model` and `view_model`.
-Builder querysets are Select objects; save/delete hooks are awaited. It generates
-admin HTML routes only. Changelists expose search/filter controls, actions and
-Django admin page numbering (`p=0` for the first page). See [REST](api-spec.md) for independent endpoint registration.
-
-## Optional product features
-
-`obox.contrib.resources` owns product resource declarations, policy context,
-resource services, batch/upsert, metadata, version checks and inline editing.
-Other contrib apps build on those services. Their custom methods, response
-conventions and product options do not extend the Django/DRF core contract.
-See [the resource protocol](contrib-resource-api.md) and
-[record/activity protocol](record-activity-spec.md).
-
-Feature-named tests under `tests/` cover the core. Existing product regression tests
-cover contrib. Reference tests run Django/DRF in a separate pinned environment;
-matching the documented subset does not promise full framework compatibility.
+Startup checks that routes have a permission policy. Model operations use
+`app_label.view_model`, `add_model`, `change_model` and `delete_model`.
+See [access control](features/access-control.md) for custom routes and role setup.

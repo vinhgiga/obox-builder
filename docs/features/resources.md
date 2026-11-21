@@ -1,30 +1,30 @@
-# Admin builders and product resources
+# Resources and builders
 
-ModelBuilder implements a small ModelAdmin subset for HTML administration:
+Register a mapped model to publish both HTML and REST CRUD.
 
 ```python
-from obox.builder import ModelBuilder, register
-from app.products.forms import ProductForm
-from app.products.models import Product
-
-
-@register(Product)
-class ProductBuilder(ModelBuilder):
-    form = ProductForm
-    fields = ("name", "price")
-    readonly_fields = ()
-    list_display = ("id", "name", "price")
-    search_fields = ("name",)
-    ordering = ("name",)
-    list_per_page = 100
+obox.register(Product)
 ```
 
-Use fieldsets instead of fields to group controls. Customize get_form,
-get_queryset, save_model/delete_model, actions and ModelAdmin-shaped permissions.
-Register the model explicitly: `site.register(Product, ProductBuilder)` is the
-non-decorator equivalent. No model inference or REST surface is involved.
+Declare a `Resource` for shared field selection, validation, record visibility
+and write policy. Use a `ModelBuilder` for presentation and endpoint options.
 
-The optional Resource product engine lives in `obox.contrib.resources`. It owns
-rich record editing, policy-scoped queries, metadata, batch/upsert and related
-product features. See [register a product resource](../examples/features/register-resource.md)
-and [the protocol](../contrib-resource-api.md).
+```python
+from obox.builder import ModelBuilder
+
+from .forms import ProductForm
+from .resources import ProductResource
+
+
+class ProductBuilder(ModelBuilder):
+    form = ProductForm
+    list_display = ("id", "name", "price")
+    search_fields = ("name",)
+    list_per_page = 25
+
+
+obox.register(ProductResource, builder=ProductBuilder)
+```
+
+See the [registration example](../examples/features/register-resource.md) and
+[Python reference](../reference/python-api.md).

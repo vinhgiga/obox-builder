@@ -55,7 +55,6 @@ class Identity(Protocol):
 class Principal:
     id: Any = None
     is_authenticated: bool = False
-    is_staff: bool = False
     is_active: bool = True
     username: str = ""
     is_superuser: bool = False

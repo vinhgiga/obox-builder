@@ -136,7 +136,6 @@ class ModelBackend:
             username=str(getattr(user, self.username_field)),
             is_authenticated=True,
             is_active=user.is_active,
-            is_staff=getattr(user, "is_superuser", False) is True,
             is_superuser=getattr(user, "is_superuser", False),
             roles=frozenset(role.name for role in getattr(user, "roles", ())),
             permissions=await self.get_permissions(db, user, request=request),

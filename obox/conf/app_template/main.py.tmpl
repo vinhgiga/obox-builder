@@ -1,15 +1,15 @@
 import os
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.responses import RedirectResponse
-from obox import Obox
+from obox import Obox, permission_required
 from obox.conf import settings
 
 os.environ.setdefault("OBOX_SETTINGS_MODULE", "settings")
-app = FastAPI(title=settings.PROJECT_NAME, debug=settings.DEBUG)
-Obox(app)
+app = FastAPI(title=settings.PROJECT_NAME, debug=settings.DEBUG, openapi_url=None)
+obox = Obox(app)
 
 
-@app.get("/", include_in_schema=False)
+@app.get("/", include_in_schema=False, dependencies=[Depends(permission_required("site.view_home", html=True))])
 def index() -> RedirectResponse:
-    return RedirectResponse("/admin/", status_code=302)
+    return RedirectResponse("/auth/profile", status_code=303)

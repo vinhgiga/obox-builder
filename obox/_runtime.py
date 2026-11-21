@@ -15,14 +15,16 @@ from typing import Any, TypeVar, cast
 from fastapi import APIRouter, Depends, FastAPI, Request, Response
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.routing import RouteContext, iter_route_contexts
+from markupsafe import escape
 from sqlalchemy import event
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm.exc import StaleDataError
 from starlette.exceptions import HTTPException as StarletteHTTPException
-from starlette.routing import BaseRoute, Mount
+from starlette.routing import BaseRoute, Match, Mount
 from starlette.staticfiles import StaticFiles
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from obox._auth import Permission, Principal
 from obox._catalog import CatalogConfig
@@ -31,7 +33,7 @@ from obox._components import Use
 from obox._config import RuntimeConfig
 from obox._context import Context
 from obox._database import Database
-from obox._dependencies import _api_context, _api_contexts
+from obox._dependencies import _api_context, _api_contexts, _RoutePermission
 from obox._exceptions import BuilderValidationError, OboxError, ResourceConflict
 from obox._i18n import LANGUAGES, LanguageMiddleware
 from obox._pages import Page
@@ -57,6 +59,17 @@ def _overlap(left: str, right: str) -> bool:
     )
 
 
+class _RouteAuditMiddleware:
+    def __init__(self, app: ASGIApp, *, runtime: _Runtime) -> None:
+        self.app, self.runtime = app, runtime
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "lifespan" and not self.runtime._frozen:
+            self.runtime.check(strict=True)
+            self.runtime._frozen = True
+        await self.app(scope, receive, send)
+
+
 class _Runtime:
     def __init__(
         self,
@@ -65,6 +78,7 @@ class _Runtime:
         settings: RuntimeConfig | None = None,
         features: Sequence[Any] = (),
         defer: bool = False,
+        enforce_permissions: bool = False,
     ) -> None:
         from obox._csrf import CSRF
         from obox._ui import create_templates
@@ -148,6 +162,9 @@ class _Runtime:
         self.session_factory = self.database.sessions
         self._features: dict[str, Any] = {}
         self._loading_apps = True
+        self._enforce_permissions = enforce_permissions
+        self._public_routes: set[int] = set()
+        self._resources: dict[tuple[str | None, type[Any]], type[Any]] = {}
         self._apps: dict[str, CatalogConfig] = {}
         self._pages: dict[tuple[str, str], Page] = {}
         self._components: dict[tuple[str, str], ComponentService] = {}
@@ -176,6 +193,8 @@ class _Runtime:
 
         app.router.lifespan_context = lifespan
         app.add_middleware(LanguageMiddleware, prefixes=self.ui_prefixes, routes=self._ui_routes)
+        if enforce_permissions:
+            app.add_middleware(_RouteAuditMiddleware, runtime=self)
         self.mount_static(
             f"{self.settings.ui_prefix}/_static",
             namespace="builder",
@@ -218,18 +237,17 @@ class _Runtime:
     def permissions(self) -> Mapping[str, Permission]:
         result = {}
         from obox.contrib._models import installed_models
-        from obox.views.generic.detail import _model_label
+        from obox.db._identity import _model_label
 
         for model in installed_models():
             label, model_name = _model_label(model)
             for action in ("add", "change", "delete", "view", "comment"):
                 name = f"{label}.{action}_{model_name}"
                 result[name] = Permission(name, action.title(), "model")
-        from obox.builder import site
-
-        for admin in site._registry.values():
+        for model in self._resources.values():
+            label, model_name = _model_label(model)
             for action in ("add", "change", "delete", "view"):
-                name = f"{admin.app_label}.{action}_{admin.model_name}"
+                name = f"{label}.{action}_{model_name}"
                 result[name] = Permission(name, action.title(), "model")
         for page in self._pages.values():
             if page.permission is not None:
@@ -272,6 +290,8 @@ class _Runtime:
         if not page.public and not callable(self.settings.principal_dependency):
             raise ImproperlyConfigured("Protected pages require an identity resolver.")
         config = self._apps[app_label]
+        if self._enforce_permissions:
+            page = replace(page, public=False, permission=page.permission or page.name)
         bound = replace(
             page,
             path=config.ui_path(self.settings) + (page.path or f"/{page.name}"),
@@ -321,7 +341,7 @@ class _Runtime:
                 self._conflict(candidate, other) for other in iter_route_contexts(self.app.routes)
             ):
                 raise ImproperlyConfigured(f"Page route conflicts at {candidate.path!r}.")
-        self.include_router(router, ui=True)
+        self.include_router(router, ui=True, permission=bound.permission)
         self._pages[app_label, page.name] = bound
         self.add_ui_prefix(config.ui_path(self.settings))
 
@@ -378,7 +398,10 @@ class _Runtime:
                 self._components[key] = service
         for config in self._apps.values():
             if config.components:
-                self.include_router(build_component_api(self, config.label))
+                self.include_router(
+                    build_component_api(self, config.label),
+                    permission=f"{config.label}.components.access",
+                )
             for page in config.pages:
                 self.add_page(page, app_label=config.label)
             for router in config.routers:
@@ -391,11 +414,12 @@ class _Runtime:
                 )
                 self.app.routes.append(route)
                 self._owned_routes.add(id(route))
+                self._public_routes.add(id(route))
                 self._ui_routes.append(route)
             self.add_ui_prefix(config.ui_path(self.settings))
         self.add_ui_prefix(self.settings.ui_prefix or "/")
         if self._pages:
-            self.include_router(build_catalog(self), ui=True)
+            self.include_router(build_catalog(self), ui=True, permission="site.view_home")
 
     @property
     def auth(self) -> Any:
@@ -473,6 +497,7 @@ class _Runtime:
         route = AssetMount(path, namespace=namespace, name=name, root=self.settings.static_root)
         self.app.routes.append(route)
         self._owned_routes.add(id(route))
+        self._public_routes.add(id(route))
         self._ui_routes.append(route)
 
     @staticmethod
@@ -491,11 +516,18 @@ class _Runtime:
         }
         if isinstance(error, BuilderValidationError):
             body["errors"] = error.errors
+        html = bool(getattr(request.state, "obox_html_permission", False))
+        response = (
+            HTMLResponse(escape(str(error)), status_code=error.status)
+            if html and request.headers.get("x-obox-request") != "true"
+            else JSONResponse(body, status_code=error.status, media_type="application/problem+json")
+        )
         return authentication_response(
             request,
             exc,
-            JSONResponse(body, status_code=error.status, media_type="application/problem+json"),
-            ui=any(path == prefix or path.startswith(prefix + "/") for prefix in obox.ui_prefixes),
+            response,
+            ui=html
+            or any(path == prefix or path.startswith(prefix + "/") for prefix in obox.ui_prefixes),
         )
 
     @staticmethod
@@ -513,15 +545,70 @@ class _Runtime:
             media_type="application/problem+json",
         )
 
-    def include_router(self, router: APIRouter, *, ui: bool = False, prefix: str = "") -> None:
+    def include_router(
+        self,
+        router: APIRouter,
+        *,
+        ui: bool = False,
+        prefix: str = "",
+        permission: str | None = None,
+        check_csrf: bool = False,
+    ) -> None:
         self._check_mutable()
-        self.app.include_router(router, prefix=prefix)
+        dependencies = (
+            [Depends(_RoutePermission(permission, ui, check_csrf))]
+            if self._enforce_permissions and permission
+            else None
+        )
+        self.app.include_router(router, prefix=prefix, dependencies=dependencies)
+        self.app.openapi_schema = None
         owned = {id(r.original_route) for r in iter_route_contexts(router.routes)}
         self._owned_routes.update(owned)
         if ui:
             self._ui_routes.extend(
                 r for r in iter_route_contexts(self.app.routes) if id(r.original_route) in owned
             )
+
+    def _audit_routes(self) -> None:
+        routes = list(iter_route_contexts(self.app.routes))
+        from obox.api import _check_route_conflicts
+
+        _check_route_conflicts(routes, all_routes=True)
+        for i, route in enumerate(routes):
+            if id(route.original_route) in self._public_routes:
+                continue
+            methods = route.methods or ()
+            if not methods or not any(dep.permission for dep in _api_contexts((route,))):
+                raise ImproperlyConfigured(
+                    f"Missing route permission: {', '.join(sorted(methods))} {route.path}."
+                )
+            if not route.path:
+                continue
+            generated = (route.name or "").startswith(("obox:api:", "obox:views:"))
+            dynamic = "{" in route.path
+            target = re.sub(
+                r"\{[^}:]+(?::([^}]+))?\}",
+                lambda match: {
+                    "uuid": "01234567-89ab-4def-8123-0123456789ab",
+                    "float": "1.0",
+                }.get(match[1], "1"),
+                route.path,
+            )
+            for previous in routes[:i]:
+                if not (
+                    generated or (previous.name or "").startswith(("obox:api:", "obox:views:"))
+                ):
+                    continue
+                if dynamic and "{" not in (previous.path or ""):
+                    continue
+                if any(
+                    previous.matches({"type": "http", "path": target, "method": method})[0]
+                    is Match.FULL
+                    for method in methods
+                ):
+                    raise ImproperlyConfigured(
+                        f"Route is shadowed: {route.path} by {previous.path}."
+                    )
 
     @staticmethod
     def _conflict(
@@ -554,7 +641,10 @@ class _Runtime:
 
         from obox.api import _check_route_conflicts
 
-        _check_route_conflicts(iter_route_contexts(self.app.routes))
+        if self._enforce_permissions:
+            self._audit_routes()
+        else:
+            _check_route_conflicts(iter_route_contexts(self.app.routes))
 
         diagnostics = []
         definitions = [service.definition for service in self._components.values()]
@@ -631,7 +721,10 @@ class _Runtime:
             ) from exc
 
     def context_dependency(self, source: str) -> Callable[..., Any]:
-        resolver = self.settings.principal_dependency or (lambda: Principal())
+        def request_principal(request: Request) -> Any:
+            return request.scope.get("user", Principal())
+
+        resolver = self.settings.principal_dependency or request_principal
 
         async def dependency(
             request: Request,

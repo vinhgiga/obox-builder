@@ -1,27 +1,28 @@
 # Python API
 
-| Module | Public entry points |
+| Import | Purpose |
 | --- | --- |
-| `obox` | `Obox`, `setup`, `__version__` |
-| `obox.conf` | `settings` |
-| `obox.apps` | `AppConfig`, `apps` |
-| `obox.forms` | `Form`, `ModelForm`, scalar fields, widgets, `modelform_factory` |
-| `obox.views.generic` | `View`, `TemplateView`, `ListView`, `DetailView`, `FormView`, `CreateView`, `UpdateView`, `DeleteView` |
-| `obox.urls` | `path`, `include` |
-| `obox.db.transaction` | `atomic` |
-| `obox.builder` | `ModelBuilder`, `AdminSite`, `site`, `register`, `action` |
-| `obox.rest_framework.serializers` | `Serializer`, `ModelSerializer`, scalar fields |
-| `obox.rest_framework.views/generics/viewsets` | `APIView`, `GenericAPIView`, `GenericViewSet`, `ModelViewSet` |
-| `obox.rest_framework.routers` | `SimpleRouter` |
-| `obox.rest_framework.decorators` | `action` |
-| `obox.rest_framework.permissions` | DRF-shaped permission classes |
-| `obox.rest_framework.filters/pagination` | `SearchFilter`, `OrderingFilter`, `PageNumberPagination` |
+| `from obox import Obox, Resource, permission_required, setup` | Installation, shared CRUD, route authorization and app loading |
+| `from obox.apps import AppConfig` | Installed app configuration and scoped registration |
+| `from obox.builder import ModelBuilder, TabularInline, StackedInline, action` | Generated adapter options and HTML actions |
+| `from obox.api import ModelApi, ApiRequest, ApiResponse, Context` | Native FastAPI REST adapter and schemas |
+| `from obox.forms import Form, ModelForm, modelform_factory` | Standalone and model forms |
+| `from obox.views.generic import ListView, DetailView, CreateView, UpdateView, DeleteView` | Standalone or generated HTML views |
 
-Validation/persistence are awaited. Configuration and metadata stay synchronous.
-There are no combined ModelView/ModelApi classes or generic builder model inference.
+`Obox.register(target, *, builder=None, api=True, views=True)` registers a
+mapped SQLAlchemy class or a `Resource` subclass. `AppConfig.register()` accepts
+the same arguments from `ready()` and prefixes URLs with the app's label.
 
-Product declarations live in `obox.contrib.resources`: Resource, FormOptions,
-ViewOptions, ApiOptions, Inline, Policy and RBAC. Page/Component/Use are available
-from `obox.contrib.resources.presentation`. These are product contracts, separate
-from Form/ModelForm/generic views/REST. See [mapping](../mapping.md) and
-[core contract](../core-spec.md) for behavior and limitations.
+`Resource` accepts a mapped `model`, optional Pydantic `schema`, `fields`,
+`readonly_fields` and `ordering`. Override `get_queryset(actor)`,
+`can(action, obj, actor)`, `get_writable_fields(action, obj, actor)` or
+`prepare_write(values, obj, actor)`. The write hooks receive the same inputs
+for both HTML and REST. `prepare_write` runs after input validation and can
+supply trusted server values such as an owner ID.
+
+`ModelBuilder` options include `slug`, `form`, `api_class` and
+`list_view`, `detail_view`, `create_view`, `update_view`, `delete_view`.
+
+Use `Depends(permission_required("app.action_model", html=True))` on HTML
+routes and omit `html=True` for REST routes. The dependency checks the named
+permission and handles CSRF on unsafe cookie-authenticated requests.

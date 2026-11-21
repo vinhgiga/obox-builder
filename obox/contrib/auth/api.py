@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, Request, Response
 from pydantic import AwareDatetime, Field, StrictStr, field_serializer
 
 from obox._context import Context
+from obox._dependencies import _RoutePermission
 from obox._exceptions import BuilderValidationError, NotAuthenticated, PermissionDenied
 from obox._query import parameters
 from obox._routes import ApiRoute
@@ -41,7 +42,6 @@ class CurrentUser(ApiResponse):
     id: str
     username: str
     is_active: bool
-    is_staff: bool
     is_superuser: bool
     permissions: list[str]
     roles: list[str]
@@ -85,7 +85,6 @@ def current_user(who: Any) -> CurrentUser:
         id=str(who.id),
         username=who.username,
         is_active=who.is_active,
-        is_staff=getattr(who, "is_staff", False),
         is_superuser=getattr(who, "is_superuser", False),
         permissions=sorted(permissions),
         roles=sorted(getattr(who, "roles", ())),
@@ -162,7 +161,13 @@ def build_router(app: _Runtime, auth: Auth) -> APIRouter:
         auth.set_cookie(response, auth.cookie_name, "", 0)
         return response
 
-    @router.get("/me", response_model=CurrentUser, name="obox_api_auth_me")
+    access = (
+        [Depends(_RoutePermission("auth.use_account", False, False))]
+        if app._enforce_permissions
+        else None
+    )
+
+    @router.get("/me", response_model=CurrentUser, name="obox_api_auth_me", dependencies=access)
     async def me(request: Request, who: Any = identity) -> CurrentUser:
         parameters(request.query_params.multi_items())
         return current_user(who)
@@ -188,6 +193,7 @@ def build_router(app: _Runtime, auth: Auth) -> APIRouter:
             status_code=201,
             response_model=TokenCreated,
             name="obox_api_auth_token_create",
+            dependencies=access,
         )
         async def create_token(
             request: Request, data: NewToken, ctx: Context = context
@@ -217,13 +223,20 @@ def build_router(app: _Runtime, auth: Auth) -> APIRouter:
                 **TokenRead.model_validate(row).model_dump(by_alias=False), token=token
             )
 
-        @router.get("/tokens", response_model=TokenList, name="obox_api_auth_token_list")
+        @router.get(
+            "/tokens",
+            response_model=TokenList,
+            name="obox_api_auth_token_list",
+            dependencies=access,
+        )
         async def list_tokens(request: Request, who: Any = identity) -> TokenList:
             parameters(request.query_params.multi_items())
             rows = await backend.list_api_tokens(owner(request, who))
             return TokenList(items=[TokenRead.model_validate(row) for row in rows])
 
-        @router.delete("/tokens/{id}", status_code=204, name="obox_api_auth_token_revoke")
+        @router.delete(
+            "/tokens/{id}", status_code=204, name="obox_api_auth_token_revoke", dependencies=access
+        )
         async def revoke_token(request: Request, id: UUID, who: Any = identity) -> Response:
             user_id = owner(request, who)
             app.csrf.validate(request, who)

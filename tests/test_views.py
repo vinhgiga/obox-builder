@@ -4,10 +4,10 @@ from typing import Any
 
 import httpx
 import sqlalchemy as sa
-from fastapi import FastAPI, Request
+from fastapi import APIRouter, Depends, FastAPI, Request
 from fastapi.responses import HTMLResponse
-from obox import Obox, forms
-from obox.urls import _mount, include, path
+from obox import Obox, forms, permission_required
+from obox._auth import Principal
 from obox.views.generic import (
     CreateView,
     DeleteView,
@@ -17,6 +17,7 @@ from obox.views.generic import (
     View,
 )
 
+from tests.test_builder import Actors
 from tests.test_forms_integration import Item, ItemForm, configured
 
 
@@ -37,9 +38,15 @@ def test_typed_form_view_renders_errors_and_reads_validated_attributes() -> None
 
     async def scenario() -> None:
         async with configured():
-            app = FastAPI()
+            app = FastAPI(openapi_url=None)
+            app.add_middleware(
+                Actors, actor=Principal(id=1, is_authenticated=True, is_superuser=True)
+            )
             Obox(app)
-            _mount(app, [path("contact/", ContactView.as_view())])
+            guard = [Depends(permission_required("tests.use_views", html=True))]
+            app.add_api_route(
+                "/contact/", ContactView.as_view(), methods=["GET", "POST"], dependencies=guard
+            )
             async with (
                 app.router.lifespan_context(app),
                 httpx.AsyncClient(
@@ -99,17 +106,19 @@ def test_generic_views_create_update_delete_and_queryset_contract() -> None:
 
     async def scenario() -> None:
         async with configured():
-            app = FastAPI()
-            Obox(app)
-            _mount(
-                app,
-                [
-                    path("items/", List.as_view()),
-                    path("new/", Create.as_view()),
-                    path("items/<int:pk>/", Update.as_view()),
-                    path("items/<int:pk>/delete/", Delete.as_view()),
-                ],
+            app = FastAPI(openapi_url=None)
+            app.add_middleware(
+                Actors, actor=Principal(id=1, is_authenticated=True, is_superuser=True)
             )
+            Obox(app)
+            guard = [Depends(permission_required("tests.use_views", html=True))]
+            for route, view, methods in (
+                ("/items/", List, ["GET"]),
+                ("/new/", Create, ["GET", "POST"]),
+                ("/items/{pk:int}/", Update, ["GET", "POST"]),
+                ("/items/{pk:int}/delete/", Delete, ["GET", "POST"]),
+            ):
+                app.add_api_route(route, view.as_view(), methods=methods, dependencies=guard)
             assert isinstance(List().get_queryset(), sa.Select)
             async with (
                 app.router.lifespan_context(app),
@@ -129,7 +138,7 @@ def test_generic_views_create_update_delete_and_queryset_contract() -> None:
                 created = await client.post(
                     "/new/", data={"csrfmiddlewaretoken": token[1], "name": "Alpha", "price": "1"}
                 )
-                assert created.status_code == 302
+                assert created.status_code == 303
                 assert created.headers["location"] == "/items/"
                 listing = await client.get("/items/")
                 assert "alpha" in listing.text
@@ -137,7 +146,7 @@ def test_generic_views_create_update_delete_and_queryset_contract() -> None:
                     "/items/1/",
                     data={"csrfmiddlewaretoken": token[1], "name": "Beta", "price": "2"},
                 )
-                assert updated.status_code == 302
+                assert updated.status_code == 303
                 assert (await client.get("/items/999/")).status_code == 404
                 unsupported = await client.put(
                     "/items/1/delete/", headers={"X-CSRFToken": token[1]}
@@ -147,7 +156,7 @@ def test_generic_views_create_update_delete_and_queryset_contract() -> None:
                 deleted = await client.post(
                     "/items/1/delete/", data={"csrfmiddlewaretoken": token[1]}
                 )
-                assert deleted.status_code == 302
+                assert deleted.status_code == 303
                 assert "beta" not in (await client.get("/items/")).text
 
     asyncio.run(scenario())
@@ -164,7 +173,9 @@ def test_as_view_uses_new_instances_and_preserves_path_parameters() -> None:
     async def scenario() -> None:
         async with configured():
             app = FastAPI()
-            _mount(app, [path("nested/", include([path("<int:pk>/", Counter.as_view())]))])
+            router = APIRouter()
+            router.add_api_route("/{pk:int}/", Counter.as_view(), methods=["GET", "OPTIONS"])
+            app.include_router(router, prefix="/nested")
             async with httpx.AsyncClient(
                 transport=httpx.ASGITransport(app=app), base_url="http://test"
             ) as client:
@@ -176,7 +187,7 @@ def test_as_view_uses_new_instances_and_preserves_path_parameters() -> None:
     asyncio.run(scenario())
 
 
-def test_url_defaults_namespaces_slug_and_csrf_origin_checks() -> None:
+def test_native_route_names_and_csrf_origin_checks() -> None:
     class Echo(View):
         def get(self, request: Request, **kwargs: Any) -> HTMLResponse:
             from obox.middleware.csrf import get_token
@@ -189,29 +200,17 @@ def test_url_defaults_namespaces_slug_and_csrf_origin_checks() -> None:
     async def scenario() -> None:
         async with configured():
             app = FastAPI()
-            _mount(
-                app,
-                [
-                    path(
-                        "group/",
-                        include(
-                            (
-                                [path("<slug:key>/", Echo.as_view(), {"value": 7}, name="echo")],
-                                "test",
-                            )
-                        ),
-                        {"inherited": True},
-                    )
-                ],
+            router = APIRouter(prefix="/group")
+            router.add_api_route(
+                "/{key}/", Echo.as_view(), name="test:echo", methods=["GET", "POST"]
             )
+            app.include_router(router)
             async with httpx.AsyncClient(
                 transport=httpx.ASGITransport(app=app), base_url="http://test"
             ) as client:
                 response = await client.get("/group/good-slug/")
-                assert "'value': 7" in response.text
-                assert "'inherited': True" in response.text
+                assert "good-slug" in response.text
                 assert str(app.url_path_for("test:echo", key="a")) == "/group/a/"
-                assert (await client.get("/group/bad.slug/")).status_code == 404
                 token = client.cookies["csrftoken"]
                 assert (
                     await client.post(
@@ -250,17 +249,12 @@ def test_jinja_backend_options_errors_and_standalone_template_view(tmp_path: Any
         async with configured():
             settings.TEMPLATES = [{**config, "BACKEND": "obox.template.backends.jinja2.Jinja2"}]
             app = FastAPI()
-            _mount(
-                app,
-                [
-                    path(
-                        "",
-                        TemplateView.as_view(
-                            template_name="hello.html",
-                            extra_context={"value": "<ok>", "marker": "yes"},
-                        ),
-                    )
-                ],
+            app.add_api_route(
+                "/",
+                TemplateView.as_view(
+                    template_name="hello.html", extra_context={"value": "<ok>", "marker": "yes"}
+                ),
+                methods=["GET"],
             )
             async with httpx.AsyncClient(
                 transport=httpx.ASGITransport(app=app), base_url="http://test"
@@ -296,7 +290,7 @@ def test_native_uuid_lookup_works_in_generic_views() -> None:
             assert await form.is_valid()
             record = await form.save()
             app = FastAPI()
-            _mount(app, [path("records/<uuid:pk>/", Detail.as_view())])
+            app.add_api_route("/records/{pk:uuid}/", Detail.as_view(), methods=["GET"])
             async with httpx.AsyncClient(
                 transport=httpx.ASGITransport(app=app), base_url="http://test"
             ) as client:
