@@ -10,7 +10,7 @@ from datetime import date, time
 from decimal import Decimal, localcontext
 from enum import Enum
 from types import MappingProxyType
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from pydantic import TypeAdapter, ValidationError
@@ -56,18 +56,20 @@ class MemoryRows:
             return data
         source: Iterable[Row]
         headers: Iterable[str] = ()
-        if callable(getattr(data, "itertuples", None)):
+        itertuples = getattr(data, "itertuples", None)
+        iter_rows = getattr(data, "iter_rows", None)
+        if callable(itertuples):
             columns = tuple(data.columns)
             if len(set(columns)) != len(columns):
                 raise ImproperlyConfigured("Pivot DataFrame columns must be unique.")
             headers = columns
             source = (
                 dict(zip(columns, values, strict=True))
-                for values in data.itertuples(index=False, name=None)
+                for values in cast(Iterable[tuple[Any, ...]], itertuples(index=False, name=None))
             )
-        elif callable(getattr(data, "iter_rows", None)):
+        elif callable(iter_rows):
             headers = tuple(data.columns)
-            source = data.iter_rows(named=True)
+            source = cast(Iterable[Row], iter_rows(named=True))
         elif isinstance(data, Iterable) and not isinstance(data, (str, bytes, Mapping)):
             source = data
         else:

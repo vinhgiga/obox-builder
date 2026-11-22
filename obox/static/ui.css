@@ -146,6 +146,31 @@
 .record-content {
   overflow-x: auto;
 }
+.obox-app-index-content {
+  overflow: visible;
+}
+.obox-app-index-table {
+  width: 100%;
+  table-layout: fixed;
+}
+.obox-app-index-table th,
+.obox-app-index-table td {
+  overflow-wrap: anywhere;
+}
+.obox-app-index-table th:first-child,
+.obox-app-index-table td:first-child {
+  width: 55%;
+}
+.obox-app-index-table th:last-child,
+.obox-app-index-table td:last-child {
+  width: 45%;
+}
+.obox-app-index-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
 .record-content > nav {
   display: flex;
   gap: 0.5rem;

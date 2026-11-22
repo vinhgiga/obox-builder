@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-11-22 19:26+0700\n"
+"POT-Creation-Date: 2026-11-22 20:42+0700\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -17,11 +17,11 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 2.18.0\n"
 
-#: obox/_navigation.py:74
+#: obox/_navigation.py:88
 msgid "Home"
 msgstr ""
 
-#: obox/_navigation.py:106 obox/templates/obox/app_index.html:4
+#: obox/_navigation.py:120 obox/templates/obox/app_index.html:5
 msgid "Applications"
 msgstr ""
 
@@ -37,61 +37,61 @@ msgstr ""
 msgid "Internal server error.Invalid input."
 msgstr ""
 
-#: obox/contrib/analytics/routes.py:199
+#: obox/contrib/analytics/routes.py:200
 msgid "Empty"
 msgstr ""
 
-#: obox/contrib/analytics/routes.py:200
+#: obox/contrib/analytics/routes.py:201
 msgid "Total"
 msgstr ""
 
-#: obox/contrib/analytics/routes.py:201
+#: obox/contrib/analytics/routes.py:202
 msgid "Loading…"
 msgstr ""
 
-#: obox/contrib/analytics/routes.py:202
+#: obox/contrib/analytics/routes.py:203
 #: obox/contrib/analytics/templates/obox_analytics/records.html:21
 msgid "No records found."
 msgstr ""
 
-#: obox/contrib/analytics/routes.py:203
+#: obox/contrib/analytics/routes.py:204
 msgid "Unable to load data. Try again."
 msgstr ""
 
-#: obox/contrib/analytics/routes.py:204
+#: obox/contrib/analytics/routes.py:205
 msgid "Value"
 msgstr ""
 
-#: obox/contrib/analytics/routes.py:205
+#: obox/contrib/analytics/routes.py:206
 msgid "Series"
 msgstr ""
 
-#: obox/contrib/analytics/routes.py:206
+#: obox/contrib/analytics/routes.py:207
 #: obox/contrib/analytics/templates/obox_analytics/records.html:10
 msgid "View records"
 msgstr ""
 
-#: obox/contrib/analytics/routes.py:207
+#: obox/contrib/analytics/routes.py:208
 msgid "Chart options"
 msgstr ""
 
-#: obox/contrib/analytics/routes.py:208
+#: obox/contrib/analytics/routes.py:209
 msgid "View as table"
 msgstr ""
 
-#: obox/contrib/analytics/routes.py:209
+#: obox/contrib/analytics/routes.py:210
 msgid "View as chart"
 msgstr ""
 
-#: obox/contrib/analytics/routes.py:210
+#: obox/contrib/analytics/routes.py:211
 msgid "Expand"
 msgstr ""
 
-#: obox/contrib/analytics/routes.py:211
+#: obox/contrib/analytics/routes.py:212
 msgid "Close"
 msgstr ""
 
-#: obox/contrib/analytics/routes.py:212
+#: obox/contrib/analytics/routes.py:213
 msgid "All records"
 msgstr ""
 
@@ -100,7 +100,7 @@ msgid "Back"
 msgstr ""
 
 #: obox/contrib/analytics/templates/obox_analytics/records.html:17
-#: obox/templates/obox/app_index.html:21
+#: obox/templates/obox/app_index.html:22
 msgid "Open"
 msgstr ""
 
@@ -441,7 +441,7 @@ msgstr ""
 msgid "No resources are available for your account."
 msgstr ""
 
-#: obox/templates/obox/app_index.html:5
+#: obox/templates/obox/app_index.html:6
 msgid "Data"
 msgstr ""
 
@@ -450,11 +450,11 @@ msgstr ""
 msgid "Resources"
 msgstr ""
 
-#: obox/templates/obox/app_index.html:23
+#: obox/templates/obox/app_index.html:24
 msgid "Create"
 msgstr ""
 
-#: obox/templates/obox/app_index.html:28
+#: obox/templates/obox/app_index.html:30
 msgid "No resources available."
 msgstr ""
 

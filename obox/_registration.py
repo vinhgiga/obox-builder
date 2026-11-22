@@ -43,6 +43,8 @@ class Registration:
     create_view: type[CreateView] | None
     update_view: type[UpdateView] | None
     delete_view: type[DeleteView] | None
+    view_suffix: str | None = None
+    api_suffix: str | None = None
 
     def mount(
         self,
@@ -85,9 +87,15 @@ class Registration:
             raise ImproperlyConfigured(
                 "A Resource slug must use lowercase words joined by hyphens."
             )
+        view_route = self.view_suffix if self.view_suffix is not None else slug
+        api_route = self.api_suffix if self.api_suffix is not None else slug
+        view_suffix = _route_suffix(view_route, "view")
+        api_suffix = _route_suffix(api_route, "API")
         app_path = f"/{label}" if label else ""
-        view_path = f"{view_prefix or app_path}/{slug}"
-        api_path = f"{api_prefix or runtime.settings.api_prefix + app_path}/{slug}"
+        view_base = view_prefix or app_path
+        api_base = api_prefix or runtime.settings.api_prefix + app_path
+        view_path = _join_path(view_base, view_suffix)
+        api_path = _join_path(api_base, api_suffix)
 
         if self.views:
             resource._check_create(resource.writable)
@@ -98,6 +106,17 @@ class Registration:
             runtime.include_router(ui, ui=True)
         if api is not None:
             runtime.include_router(api, app_api=api_prefix is not None)
+        if self.views and label:
+            catalog = runtime._apps.get(label)
+            if catalog is not None:
+                catalog._registered_resources.append(
+                    {
+                        "label": resource.model.__name__,
+                        "url": view_path,
+                        "view_permission": model_permission(resource.model, "view"),
+                        "add_permission": model_permission(resource.model, "add"),
+                    }
+                )
         runtime._resources[identity] = resource.model
 
     def _build_views(self, prefix: str, resource: Resource[Any]) -> APIRouter:
@@ -197,6 +216,12 @@ def app_registrations(app: AppConfig) -> list[Registration]:
             raise ImproperlyConfigured(
                 f"Use the same slug for {resource.__name__} in {app.label}.views and .apis."
             )
+        view_suffix = _declared_suffix(view) if view is not None else None
+        api_suffix = _declared_suffix(api) if api is not None else None
+        if view_suffix is None:
+            view_suffix = api_suffix
+        if api_suffix is None:
+            api_suffix = view_suffix
         registrations.append(
             Registration(
                 target=resource,
@@ -208,9 +233,28 @@ def app_registrations(app: AppConfig) -> list[Registration]:
                 create_view=view.create_view if view is not None else None,
                 update_view=view.update_view if view is not None else None,
                 delete_view=view.delete_view if view is not None else None,
+                view_suffix=view_suffix,
+                api_suffix=api_suffix,
             )
         )
     return registrations
+
+
+def _declared_suffix(adapter: type[Any]) -> str | None:
+    prefix = getattr(adapter, "prefix", None)
+    return prefix if prefix is not None else getattr(adapter, "slug", None)
+
+
+def _route_suffix(value: str, surface: str) -> str:
+    if not isinstance(value, str) or not re.fullmatch(
+        r"/?[a-zA-Z0-9_-]+(?:/[a-zA-Z0-9_-]+)*", value
+    ):
+        raise ImproperlyConfigured(f"A {surface} route prefix must be an absolute URL path suffix.")
+    return value.lstrip("/")
+
+
+def _join_path(base: str, suffix: str) -> str:
+    return f"{base.rstrip('/')}/{suffix}" if base else f"/{suffix}"
 
 
 def _slug(name: str) -> str:

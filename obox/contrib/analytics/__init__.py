@@ -164,7 +164,7 @@ class Pivot(Component):
     plugin = "analytics"
     kind = "pivot"
     query_model = ComponentQuery
-    result_model: type[ApiResponse] = PivotData
+    result_model: type[ApiResponse] | None = PivotData
     data: Any = None
     rows: str | tuple[str, ...] | list[str] = ""
     columns: str | tuple[str, ...] | list[str] | None = None

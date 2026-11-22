@@ -124,14 +124,10 @@ class DataSource:
         self, query: Any, *, ctx: Any, filter_group: Any = None, search: Any = None, **limits: Any
     ) -> Any:
         stmt = await self._aggregate_statement(query, ctx, filter_group, search)
-        engine = execute_sql if isinstance(query, PivotSpec) else execute
-        return await engine(
-            stmt,
-            self.dataset,
-            ctx.session,
-            query,
-            **{"max_rows": 200, "max_columns": 50, "max_cells": 10000, **limits},
-        )
+        bounds = {"max_rows": 200, "max_columns": 50, "max_cells": 10000, **limits}
+        if isinstance(query, PivotSpec):
+            return await execute_sql(stmt, self.dataset, ctx.session, query, **bounds)
+        return await execute(stmt, self.dataset, ctx.session, query, **bounds)
 
     async def aggregate_records(
         self,

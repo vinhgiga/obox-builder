@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
 from starlette._utils import get_route_path
 
+from obox._auth import has_permission
 from obox._context import Context
 from obox._exceptions import NotAuthenticated, NotFound
 from obox._i18n import context as translation_context
@@ -36,6 +37,19 @@ async def app_list(obox: _Runtime, request: Request, ctx: Context) -> list[dict[
             }
             for (label, _), page in obox.pages.items()
             if label == config.label and page.menu and page.permitted(ctx.principal)
+        )
+        entries.extend(
+            {
+                "label": item["label"],
+                "url": localize(request, item["url"], rooted=True),
+                "kind": "resource",
+                "list_url": localize(request, item["url"], rooted=True),
+                "add_url": localize(request, item["url"] + "/add", rooted=True)
+                if has_permission(ctx.principal, item["add_permission"])
+                else None,
+            }
+            for item in getattr(config, "_registered_resources", ())
+            if has_permission(ctx.principal, item["view_permission"])
         )
         entries.extend(await config.get_navigation(obox, request, ctx))
         if entries:

@@ -39,7 +39,11 @@ class CatalogConfig:
     ui_prefix: str | None = None
     api_prefix: str | None = None
     routers: tuple[APIRouter, ...] = ()
+    _registered_resources: list[dict[str, str]]
     _navigation: Any = None
+
+    def __init__(self) -> None:
+        self._registered_resources = []
 
     @classmethod
     def load(cls, entry: str | type[CatalogConfig] | CatalogConfig) -> CatalogConfig:
@@ -56,6 +60,7 @@ class CatalogConfig:
                 "INSTALLED_APPS must contain CatalogConfig classes or paths."
             )
         config = copy(entry)
+        config._registered_resources = []
         if not isinstance(config.name, str) or not config.name:
             raise ImproperlyConfigured("CatalogConfig.name must identify its Python package.")
         config.label = config.label or config.name.rsplit(".", 1)[-1]

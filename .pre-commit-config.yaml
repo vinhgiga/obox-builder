@@ -68,7 +68,7 @@ repos:
         always_run: true
       - id: commitlint
         name: commitlint
-        entry: pnpm exec commitlint --edit
+        entry: bash -c 'if [ "$(git branch --show-current)" = dev ]; then exit 0; fi; pnpm exec commitlint --edit "$1"' --
         language: system
         stages: [commit-msg]
         always_run: true

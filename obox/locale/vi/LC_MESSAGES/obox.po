@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  obox-builder\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-11-22 19:26+0700\n"
+"POT-Creation-Date: 2026-11-22 20:42+0700\n"
 "PO-Revision-Date: 2026-10-31 20:45+0700\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: vi\n"
@@ -18,11 +18,11 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 2.18.0\n"
 
-#: obox/_navigation.py:74
+#: obox/_navigation.py:88
 msgid "Home"
 msgstr "Trang chủ"
 
-#: obox/_navigation.py:106 obox/templates/obox/app_index.html:4
+#: obox/_navigation.py:120 obox/templates/obox/app_index.html:5
 msgid "Applications"
 msgstr "Ứng dụng"
 
@@ -38,61 +38,61 @@ msgstr ""
 msgid "Internal server error.Invalid input."
 msgstr ""
 
-#: obox/contrib/analytics/routes.py:199
+#: obox/contrib/analytics/routes.py:200
 msgid "Empty"
 msgstr "Trống"
 
-#: obox/contrib/analytics/routes.py:200
+#: obox/contrib/analytics/routes.py:201
 msgid "Total"
 msgstr "Tổng"
 
-#: obox/contrib/analytics/routes.py:201
+#: obox/contrib/analytics/routes.py:202
 msgid "Loading…"
 msgstr "Đang tải…"
 
-#: obox/contrib/analytics/routes.py:202
+#: obox/contrib/analytics/routes.py:203
 #: obox/contrib/analytics/templates/obox_analytics/records.html:21
 msgid "No records found."
 msgstr "Không có bản ghi."
 
-#: obox/contrib/analytics/routes.py:203
+#: obox/contrib/analytics/routes.py:204
 msgid "Unable to load data. Try again."
 msgstr "Không thể tải dữ liệu. Vui lòng thử lại."
 
-#: obox/contrib/analytics/routes.py:204
+#: obox/contrib/analytics/routes.py:205
 msgid "Value"
 msgstr "Giá trị"
 
-#: obox/contrib/analytics/routes.py:205
+#: obox/contrib/analytics/routes.py:206
 msgid "Series"
 msgstr "Chuỗi dữ liệu"
 
-#: obox/contrib/analytics/routes.py:206
+#: obox/contrib/analytics/routes.py:207
 #: obox/contrib/analytics/templates/obox_analytics/records.html:10
 msgid "View records"
 msgstr "Xem bản ghi"
 
-#: obox/contrib/analytics/routes.py:207
+#: obox/contrib/analytics/routes.py:208
 msgid "Chart options"
 msgstr "Tùy chọn biểu đồ"
 
-#: obox/contrib/analytics/routes.py:208
+#: obox/contrib/analytics/routes.py:209
 msgid "View as table"
 msgstr "Xem dạng bảng"
 
-#: obox/contrib/analytics/routes.py:209
+#: obox/contrib/analytics/routes.py:210
 msgid "View as chart"
 msgstr "Xem dạng biểu đồ"
 
-#: obox/contrib/analytics/routes.py:210
+#: obox/contrib/analytics/routes.py:211
 msgid "Expand"
 msgstr "Mở rộng"
 
-#: obox/contrib/analytics/routes.py:211
+#: obox/contrib/analytics/routes.py:212
 msgid "Close"
 msgstr "Đóng"
 
-#: obox/contrib/analytics/routes.py:212
+#: obox/contrib/analytics/routes.py:213
 msgid "All records"
 msgstr "Tất cả bản ghi"
 
@@ -101,7 +101,7 @@ msgid "Back"
 msgstr "Quay lại"
 
 #: obox/contrib/analytics/templates/obox_analytics/records.html:17
-#: obox/templates/obox/app_index.html:21
+#: obox/templates/obox/app_index.html:22
 msgid "Open"
 msgstr "Mở"
 
@@ -442,7 +442,7 @@ msgstr "Không tìm thấy người dùng nào."
 msgid "No resources are available for your account."
 msgstr "Không có tài nguyên nào cho tài khoản của bạn."
 
-#: obox/templates/obox/app_index.html:5
+#: obox/templates/obox/app_index.html:6
 msgid "Data"
 msgstr "Dữ liệu"
 
@@ -451,11 +451,11 @@ msgstr "Dữ liệu"
 msgid "Resources"
 msgstr "Tài nguyên"
 
-#: obox/templates/obox/app_index.html:23
+#: obox/templates/obox/app_index.html:24
 msgid "Create"
 msgstr "Thêm mới"
 
-#: obox/templates/obox/app_index.html:28
+#: obox/templates/obox/app_index.html:30
 msgid "No resources available."
 msgstr "Không có tài nguyên khả dụng."
 

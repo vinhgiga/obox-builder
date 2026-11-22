@@ -32,6 +32,7 @@ class AppConfig:
     views: ClassVar[Sequence[type[Resource[Any]] | type[ModelViewSet[Any]] | str]] = ()
     apis: ClassVar[Sequence[type[Resource[Any]] | type[ModelApi[Any]] | str]] = ()
     routers: ClassVar[Sequence[APIRouter]] = ()
+    ui_prefix: str | None = None
     view_prefix: str | None = None
     api_prefix: str | None = None
 
@@ -68,7 +69,12 @@ class AppConfig:
             package, _, name = entry.rpartition(".")
             if not package:
                 raise
-            config = getattr(import_module(package), name)
+            try:
+                config = getattr(import_module(package), name)
+            except AttributeError as config_error:
+                raise ImproperlyConfigured(
+                    f"{entry!r} is neither an installed app module nor an AppConfig class path."
+                ) from config_error
             if not isinstance(config, type) or not issubclass(config, cls):
                 raise ImproperlyConfigured(f"{entry!r} is not an AppConfig class.") from exc
             app_name = getattr(config, "name", None)

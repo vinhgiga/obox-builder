@@ -19,6 +19,7 @@ from obox._i18n import localize, translate
 from obox._page_routes import PageRoute
 from obox._routes import ApiRoute
 from obox._ui import build_navigation, filter_columns, query_options
+from obox.contrib.analytics.charts import ChartSpec
 from obox.contrib.analytics.pivot import PivotSpec
 
 if TYPE_CHECKING:
@@ -277,6 +278,7 @@ async def page_context(
                         ],
                         search_enabled=bool(readable),
                     )
+                chart = spec if isinstance(spec, ChartSpec) else None
                 legacy = spec.legacy if isinstance(spec, PivotSpec) else None
                 config[service.name] = {
                     "slug": service.name,
@@ -296,8 +298,8 @@ async def page_context(
                     )
                     if description.get("drill", False)
                     else "",
-                    "rowLabel": spec.dimension.label or spec.dimension.field
-                    if hasattr(spec, "dimension")
+                    "rowLabel": chart.dimension.label or chart.dimension.field
+                    if chart is not None
                     else legacy.rows
                     if legacy
                     else "",

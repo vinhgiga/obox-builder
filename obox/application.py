@@ -33,7 +33,10 @@ class Obox:
         apps.populate(settings.INSTALLED_APPS)
         entries = list(apps.get_app_configs())
         for entry in entries:
-            validate_app_prefix(entry.view_prefix, "view_prefix")
+            ui_prefix = entry.ui_prefix if entry.ui_prefix is not None else entry.view_prefix
+            validate_app_prefix(
+                ui_prefix, "ui_prefix" if entry.ui_prefix is not None else "view_prefix"
+            )
             catalog = CatalogConfig()
             catalog.name, catalog.label, catalog.verbose_name = (
                 entry.name,
@@ -42,7 +45,7 @@ class Obox:
             )
             catalog.components = tuple(getattr(entry, "components", ()))
             catalog.pages = tuple(getattr(entry, "pages", ()))
-            catalog.ui_prefix = getattr(entry, "ui_prefix", None)
+            catalog.ui_prefix = ui_prefix
             catalog.api_prefix = entry.api_prefix
             catalog.routers = tuple(entry.routers)
             runtime.add_app(catalog)
@@ -74,9 +77,10 @@ class Obox:
 
         app.router.lifespan_context = managed
         for entry in entries:
+            ui_prefix = entry.ui_prefix if entry.ui_prefix is not None else entry.view_prefix
             for registration in [*app_registrations(entry), *entry._registrations]:
                 registration.mount(
-                    runtime, entry.label, view_prefix=entry.view_prefix, api_prefix=entry.api_prefix
+                    runtime, entry.label, view_prefix=ui_prefix, api_prefix=entry.api_prefix
                 )
 
     def register(

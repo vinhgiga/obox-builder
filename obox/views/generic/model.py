@@ -13,6 +13,7 @@ ModelT = TypeVar("ModelT")
 class ModelViewSet(Generic[ModelT]):
     resource: type[Resource[ModelT]]
     slug: str | None = None
+    prefix: str | None = None
     list_view: type[ListView] | None = None
     detail_view: type[DetailView] | None = None
     create_view: type[CreateView] | None = None
