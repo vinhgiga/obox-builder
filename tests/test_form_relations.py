@@ -477,7 +477,7 @@ def test_generic_view_prepares_scoped_choices_and_checks_forged_post() -> None:
     async def scenario() -> None:
         async with configured():
             await seed()
-            from tests.test_builder import Actors
+            from tests.test_registered_views import Actors
 
             app = FastAPI(openapi_url=None)
             app.add_middleware(

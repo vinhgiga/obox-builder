@@ -2,21 +2,39 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from importlib import import_module
 from importlib.util import find_spec
 from pathlib import Path
 from threading import RLock
 from types import ModuleType
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from obox.core.exceptions import AppRegistryNotReady, ImproperlyConfigured
 
 if TYPE_CHECKING:
-    from obox.builder.options import ModelBuilder
-    from obox.builder.registration import Registration
+    from fastapi import APIRouter
+
+    from obox._registration import Registration
+    from obox.api import ModelApi
+    from obox.resources import Resource
+    from obox.views.generic import (
+        CreateView,
+        DeleteView,
+        DetailView,
+        ListView,
+        ModelViewSet,
+        UpdateView,
+    )
 
 
 class AppConfig:
+    views: ClassVar[Sequence[type[Resource[Any]] | type[ModelViewSet[Any]] | str]] = ()
+    apis: ClassVar[Sequence[type[Resource[Any]] | type[ModelApi[Any]] | str]] = ()
+    routers: ClassVar[Sequence[APIRouter]] = ()
+    view_prefix: str | None = None
+    api_prefix: str | None = None
+
     def __init__(self, app_name: str, app_module: ModuleType) -> None:
         self.name, self.module = app_name, app_module
         module_file = getattr(app_module, "__file__", None)
@@ -108,15 +126,32 @@ class AppConfig:
         self,
         target: type[Any],
         *,
-        builder: type[ModelBuilder] | None = None,
-        api: bool = True,
+        slug: str | None = None,
+        api: bool | type[ModelApi[Any]] = True,
         views: bool = True,
+        list_view: type[ListView] | None = None,
+        detail_view: type[DetailView] | None = None,
+        create_view: type[CreateView] | None = None,
+        update_view: type[UpdateView] | None = None,
+        delete_view: type[DeleteView] | None = None,
     ) -> None:
-        from obox.builder.registration import Registration
+        from obox._registration import Registration
 
         if not self.apps.models_ready or self.apps.ready:
             raise ImproperlyConfigured("Register app resources in AppConfig.ready().")
-        self._registrations.append(Registration(target, builder, api, views))
+        self._registrations.append(
+            Registration(
+                target,
+                slug,
+                api,
+                views,
+                list_view,
+                detail_view,
+                create_view,
+                update_view,
+                delete_view,
+            )
+        )
 
     def ready(self) -> None:
         pass

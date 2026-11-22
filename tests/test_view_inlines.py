@@ -5,27 +5,27 @@ from typing import Any
 import httpx
 import pytest
 import sqlalchemy as sa
-from fastapi import FastAPI
-from obox import Obox
+from fastapi import Depends, FastAPI
+from obox import Obox, Resource, permission_required
 from obox._auth import Principal
 from obox._exceptions import ResourceConflict
-from obox.builder import ModelBuilder, StackedInline, TabularInline
 from obox.db import _session
+from obox.views.generic import CreateView, StackedInline, TabularInline, UpdateView
 
-from tests.test_builder import Actors
 from tests.test_forms_integration import configured
 from tests.test_formsets import Author, Book, data, seed
+from tests.test_registered_views import Actors
 
 
-@pytest.mark.parametrize("layout", [TabularInline, StackedInline])
-def test_builder_inlines_save_parent_children_and_render_errors(layout: Any) -> None:
+@pytest.mark.parametrize(("layout", "direct"), [(TabularInline, False), (StackedInline, True)])
+def test_view_inlines_save_parent_children_and_render_errors(layout: Any, direct: bool) -> None:
     class Books(TabularInline):
         template = layout.template
         model = Book
         fields = ("title",)
         extra = 1
 
-    class Authors(ModelBuilder):
+    class AuthorCreate(CreateView):
         fields = ("name",)
         inlines = (Books,)
 
@@ -34,6 +34,10 @@ def test_builder_inlines_save_parent_children_and_render_errors(layout: Any) -> 
             if form.instance.name == "Roll back":
                 raise ResourceConflict("Cannot save this group.")
 
+    class AuthorUpdate(UpdateView):
+        fields = AuthorCreate.fields
+        inlines = AuthorCreate.inlines
+
     async def scenario() -> None:
         async with configured():
             app = FastAPI(openapi_url=None)
@@ -41,7 +45,22 @@ def test_builder_inlines_save_parent_children_and_render_errors(layout: Any) -> 
                 Actors,
                 actor=Principal(id=1, is_authenticated=True, is_superuser=True),
             )
-            Obox(app).register(Author, builder=Authors, api=False)
+            obox = Obox(app)
+            if direct:
+                for path, view, operation in (
+                    ("/authors/add", AuthorCreate, "add"),
+                    ("/authors/{pk}/change", AuthorUpdate, "change"),
+                ):
+                    app.add_api_route(
+                        path,
+                        view.as_view(resource=Resource(Author), success_url="/authors"),
+                        methods=["GET", "POST"],
+                        dependencies=[
+                            Depends(permission_required(f"tests.{operation}_author", html=True))
+                        ],
+                    )
+            else:
+                obox.register(Author, create_view=AuthorCreate, update_view=AuthorUpdate, api=False)
             async with httpx.AsyncClient(
                 transport=httpx.ASGITransport(app=app), base_url="http://test"
             ) as client:
@@ -100,12 +119,12 @@ def test_builder_inlines_save_parent_children_and_render_errors(layout: Any) -> 
     asyncio.run(scenario())
 
 
-def test_builder_rejects_inline_creation_without_child_add_permission() -> None:
+def test_view_rejects_inline_creation_without_child_add_permission() -> None:
     class Books(TabularInline):
         model = Book
         fields = ("title",)
 
-    class Authors(ModelBuilder):
+    class AuthorUpdate(UpdateView):
         fields = ("name",)
         inlines = (Books,)
 
@@ -121,7 +140,7 @@ def test_builder_rejects_inline_creation_without_child_add_permission() -> None:
             )
             app = FastAPI(openapi_url=None)
             app.add_middleware(Actors, actor=actor)
-            Obox(app).register(Author, builder=Authors, api=False)
+            Obox(app).register(Author, update_view=AuthorUpdate, api=False)
             async with httpx.AsyncClient(
                 transport=httpx.ASGITransport(app=app), base_url="http://test"
             ) as client:

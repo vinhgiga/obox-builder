@@ -1,6 +1,6 @@
 import asyncio
 import re
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import sqlalchemy as sa
@@ -17,8 +17,8 @@ from obox.views.generic import (
     View,
 )
 
-from tests.test_builder import Actors
 from tests.test_forms_integration import Item, ItemForm, configured
+from tests.test_registered_views import Actors
 
 
 def test_typed_form_view_renders_errors_and_reads_validated_attributes() -> None:
@@ -33,8 +33,9 @@ def test_typed_form_view_renders_errors_and_reads_validated_attributes() -> None
         form_class = Contact
         template_name = "obox/generic/form.html"
 
-        def form_valid(self, form: Contact) -> HTMLResponse:
-            return HTMLResponse(f"{form.name}:{form.rate}")
+        async def form_valid(self, form: forms.Form) -> HTMLResponse:
+            contact = cast(Contact, form)
+            return HTMLResponse(f"{contact.name}:{contact.rate}")
 
     async def scenario() -> None:
         async with configured():

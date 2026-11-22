@@ -59,6 +59,10 @@ def _overlap(left: str, right: str) -> bool:
     )
 
 
+async def _mark_app_api(request: Request) -> None:
+    request.state.obox_app_api = True
+
+
 class _RouteAuditMiddleware:
     def __init__(self, app: ASGIApp, *, runtime: _Runtime) -> None:
         self.app, self.runtime = app, runtime
@@ -405,7 +409,11 @@ class _Runtime:
             for page in config.pages:
                 self.add_page(page, app_label=config.label)
             for router in config.routers:
-                self.include_router(router, prefix=f"{self.settings.api_prefix}/{config.label}")
+                self.include_router(
+                    router,
+                    prefix=config.api_path(self.settings),
+                    app_api=config.api_prefix is not None,
+                )
             if config.has_directory("static"):
                 route = Mount(
                     config.ui_path(self.settings) + "/_static",
@@ -553,14 +561,13 @@ class _Runtime:
         prefix: str = "",
         permission: str | None = None,
         check_csrf: bool = False,
+        app_api: bool = False,
     ) -> None:
         self._check_mutable()
-        dependencies = (
-            [Depends(_RoutePermission(permission, ui, check_csrf))]
-            if self._enforce_permissions and permission
-            else None
-        )
-        self.app.include_router(router, prefix=prefix, dependencies=dependencies)
+        dependencies = [Depends(_mark_app_api)] if app_api else []
+        if self._enforce_permissions and permission:
+            dependencies.append(Depends(_RoutePermission(permission, ui, check_csrf)))
+        self.app.include_router(router, prefix=prefix, dependencies=dependencies or None)
         self.app.openapi_schema = None
         owned = {id(r.original_route) for r in iter_route_contexts(router.routes)}
         self._owned_routes.update(owned)

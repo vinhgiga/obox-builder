@@ -21,6 +21,13 @@ if TYPE_CHECKING:
     from obox._runtime import _Runtime
 
 
+def validate_app_prefix(value: str | None, field: str) -> None:
+    if value is not None and (
+        not isinstance(value, str) or not re.fullmatch(r"(?:/[a-zA-Z0-9_-]+)+", value)
+    ):
+        raise ImproperlyConfigured(f"Application {field} must be an absolute URL path.")
+
+
 class CatalogConfig:
     name: str = ""
     label: str = ""
@@ -30,6 +37,7 @@ class CatalogConfig:
     components: tuple[type[Component] | Component, ...] = ()
     pages: tuple[Page, ...] = ()
     ui_prefix: str | None = None
+    api_prefix: str | None = None
     routers: tuple[APIRouter, ...] = ()
     _navigation: Any = None
 
@@ -72,6 +80,7 @@ class CatalogConfig:
             raise ImproperlyConfigured("CatalogConfig.routers must contain APIRouter instances.")
         if any(not isinstance(dependency, str) for dependency in config.requires):
             raise ImproperlyConfigured("Application dependencies must be strings.")
+        validate_app_prefix(config.api_prefix, "api_prefix")
         try:
             package_module = import_module(config.name)
         except ImportError as exc:
@@ -92,6 +101,13 @@ class CatalogConfig:
         ):
             raise ImproperlyConfigured("Application UI prefixes must be absolute URL paths.")
         return path
+
+    def api_path(self, settings: RuntimeConfig) -> str:
+        return (
+            self.api_prefix
+            if self.api_prefix is not None
+            else (f"{settings.api_prefix}/{self.label}")
+        )
 
     def has_directory(self, directory: str) -> bool:
         return files(self.name).joinpath(directory).is_dir()

@@ -12,13 +12,15 @@ from obox.apps import apps
 from obox.conf import settings
 
 if TYPE_CHECKING:
-    from obox.builder.options import ModelBuilder
+    from obox.api import ModelApi
+    from obox.views.generic import CreateView, DeleteView, DetailView, ListView, UpdateView
 
 
 class Obox:
     def __init__(self, app: FastAPI) -> None:
-        from obox._catalog import CatalogConfig
+        from obox._catalog import CatalogConfig, validate_app_prefix
         from obox._config import RuntimeConfig
+        from obox._registration import app_registrations
         from obox._runtime import _Runtime
         from obox.db import _close
 
@@ -29,7 +31,9 @@ class Obox:
         )
         app.state._obox_adapter = self
         apps.populate(settings.INSTALLED_APPS)
-        for entry in apps.get_app_configs():
+        entries = list(apps.get_app_configs())
+        for entry in entries:
+            validate_app_prefix(entry.view_prefix, "view_prefix")
             catalog = CatalogConfig()
             catalog.name, catalog.label, catalog.verbose_name = (
                 entry.name,
@@ -39,9 +43,10 @@ class Obox:
             catalog.components = tuple(getattr(entry, "components", ()))
             catalog.pages = tuple(getattr(entry, "pages", ()))
             catalog.ui_prefix = getattr(entry, "ui_prefix", None)
-            catalog.routers = tuple(getattr(entry, "routers", ()))
+            catalog.api_prefix = entry.api_prefix
+            catalog.routers = tuple(entry.routers)
             runtime.add_app(catalog)
-        for entry in apps.get_app_configs():
+        for entry in entries:
             factory = getattr(entry, "_service_factory", None)
             feature = factory() if factory is not None else None
             if feature is not None:
@@ -68,18 +73,27 @@ class Obox:
                 await _close()
 
         app.router.lifespan_context = managed
-        for entry in apps.get_app_configs():
-            for registration in entry._registrations:
-                registration.mount(runtime, entry.label)
+        for entry in entries:
+            for registration in [*app_registrations(entry), *entry._registrations]:
+                registration.mount(
+                    runtime, entry.label, view_prefix=entry.view_prefix, api_prefix=entry.api_prefix
+                )
 
     def register(
         self,
         target: type[Any],
         *,
-        builder: type[ModelBuilder] | None = None,
-        api: bool = True,
+        slug: str | None = None,
+        api: bool | type[ModelApi[Any]] = True,
         views: bool = True,
+        list_view: type[ListView] | None = None,
+        detail_view: type[DetailView] | None = None,
+        create_view: type[CreateView] | None = None,
+        update_view: type[UpdateView] | None = None,
+        delete_view: type[DeleteView] | None = None,
     ) -> None:
-        from obox.builder.registration import Registration
+        from obox._registration import Registration
 
-        Registration(target, builder, api, views).mount(self._runtime)
+        Registration(
+            target, slug, api, views, list_view, detail_view, create_view, update_view, delete_view
+        ).mount(self._runtime)

@@ -1,18 +1,53 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
-    <meta name="description" content="Obox administration">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta charset="utf-8">
+    <meta name="description" content="Obox records">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{{ title | default("Records") }}</title>
   </head>
   <body>
+    <h1>{{ title | default("Records") }}</h1>
     {% block object_tools %}
       {% if add_url %}<a href="{{ add_url }}">Add</a>{% endif %}
     {% endblock %}
+    {% if search_fields or filters %}
+      <form method="get">
+        {% if search_fields %}<label>Search <input name="q"
+        value="{{ search_term }}"></label>{% endif %}
+        {% for name, value in filters %}<label>{{ name }} <input name="{{ name }}__exact"
+        value="{{ value }}"></label>{% endfor %}
+        <button type="submit">Search</button>
+      </form>
+    {% endif %}
+    {% if actions %}
+      <form method="post">
+        <input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">
+        <label>Action <select name="action"><option value="">---------</option>{% for name, option in actions.items() %}<option value="{{ name }}">{{ option[2] }}</option>{% endfor %}</select></label>
+        <button type="submit">Go</button>
+    {% endif %}
     <table>
-      <thead><tr>{% for field in list_display %}<th>{{ field }}</th>{% endfor %}</tr></thead>
-      <tbody>{% for row in rows %}<tr>{% for value in row %}<td>{{ value }}</td>{% endfor %}</tr>{% endfor %}</tbody>
+      <thead><tr>{% if actions %}<th>Select</th>{% endif %}{% for field in list_display %}<th>{{ field }}</th>{% endfor %}</tr></thead>
+      <tbody>
+        {% for row in rows %}
+          <tr>
+            {% if actions %}
+              <td>
+                <input type="checkbox"
+                       name="_selected_action"
+                       value="{{ row.pk }}"
+                       aria-label="Select {{ row.pk }}">
+              </td>
+            {% endif %}
+            {% for value in (row['values'] if row is mapping else row) %}
+              <td>{% if row is mapping and row.url and list_display_links and list_display[loop.index0] in list_display_links %}<a href="{{ row.url }}">{{ value }}</a>{% else %}{{ value }}{% endif %}</td>
+            {% endfor %}
+          </tr>
+        {% endfor %}
+      </tbody>
     </table>
+    {% if actions %}</form>{% endif %}
+    {% if previous_url %}<a href="{{ previous_url }}">Previous</a>{% endif %}
+    {% if next_url %}<a href="{{ next_url }}">Next</a>{% endif %}
   </body>
 </html>

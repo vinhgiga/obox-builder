@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  obox-builder\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-11-19 21:41+0700\n"
+"POT-Creation-Date: 2026-11-22 19:26+0700\n"
 "PO-Revision-Date: 2026-10-31 20:45+0700\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: vi\n"
@@ -124,7 +124,7 @@ msgstr ""
 msgid "Username"
 msgstr "Tên đăng nhập"
 
-#: obox/contrib/auth/__init__.py:279 obox/contrib/auth/apps.py:21
+#: obox/contrib/auth/__init__.py:284 obox/contrib/auth/apps.py:21
 msgid "Users and roles"
 msgstr "Người dùng và vai trò"
 

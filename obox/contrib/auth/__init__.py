@@ -112,7 +112,11 @@ class Auth:
     async def principal(self, request: Request) -> Identity:
         if self.backend is None:
             raise ImproperlyConfigured("Install Auth before using its backend.")
-        if not self.api_tokens or "authorization" not in request.headers:
+        if (
+            not self.api_tokens
+            or "authorization" not in request.headers
+            or getattr(request.state, "obox_html_permission", False)
+        ):
             return await self.backend.resolve(self.get_token(request), request=request)
         if not getattr(self, "_installed", False):
             raise ImproperlyConfigured("Install Auth before using API tokens.")
@@ -127,6 +131,7 @@ class Auth:
             or path.startswith(self._api_prefix + "/")
             or path == self._api_prefix + ":describe"
             or file_api
+            or getattr(request.state, "obox_app_api", False)
         ):
             values = request.headers.getlist("authorization")
             parts = values[0].split() if len(values) == 1 else []

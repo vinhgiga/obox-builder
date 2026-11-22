@@ -11,7 +11,6 @@ from obox import Obox, Resource, permission_required
 from obox._auth import Principal, ScopedIdentity
 from obox.api import ModelApi
 from obox.apps import AppConfig
-from obox.builder import ModelBuilder
 from obox.conf import settings
 from obox.core.exceptions import ImproperlyConfigured
 from obox.views.generic import DetailView
@@ -69,7 +68,7 @@ def authenticated_app() -> FastAPI:
             permissions=permissions,
         )
         if request.headers.get("authorization"):
-            key = actor
+            key: Principal | ScopedIdentity = actor
             if who == "scoped":
                 key = ScopedIdentity(actor, frozenset({"tests.view_item"}))
             request.state.obox_bearer_principal = key
@@ -117,7 +116,9 @@ def test_resource_validation_permissions_and_defaults_are_shared() -> None:
                     ("/items/add", {}, {**token, "name": "Alpha", "price": "2", "quantity": "3"}),
                     ("/api/items", auth, {"name": "Alpha", "price": "2", "quantity": 3}),
                 ]:
-                    payload = {"json": data} if endpoint.startswith("/api") else {"data": data}
+                    payload: dict[str, Any] = (
+                        {"json": data} if endpoint.startswith("/api") else {"data": data}
+                    )
                     assert (
                         await client.post(endpoint, headers=headers, **payload)
                     ).status_code == 403
@@ -166,7 +167,7 @@ def test_resource_validation_permissions_and_defaults_are_shared() -> None:
     asyncio.run(scenario())
 
 
-def test_app_registration_custom_builder_and_direct_adapters() -> None:
+def test_app_registration_custom_views_and_direct_adapters() -> None:
     class ItemApi(ModelApi[Item]):
         resource = Items
         include_router_methods = ("list", "retrieve")
@@ -184,24 +185,19 @@ def test_app_registration_custom_builder_and_direct_adapters() -> None:
 
             return PlainTextResponse(context["label"])
 
-    class Builder(ModelBuilder):
-        slug = "inventory"
-        api_class = ItemApi
-        detail_view = ItemDetail
-
     class Inventory(AppConfig):
         name = "tests"
         label = "tests"
 
         def ready(self) -> None:
-            self.register(Items, builder=Builder, views=False)
+            self.register(Items, slug="inventory", api=ItemApi, views=False)
 
     async def scenario() -> None:
         async with configured():
             settings.INSTALLED_APPS = [Inventory("tests", import_module("tests"))]
             app = authenticated_app()
             obox = Obox(app)
-            obox.register(Items, builder=Builder, api=False)
+            obox.register(Items, slug="inventory", detail_view=ItemDetail, api=False)
             nested = APIRouter(prefix="/custom")
             nested.add_api_route(
                 "/item/{pk}",

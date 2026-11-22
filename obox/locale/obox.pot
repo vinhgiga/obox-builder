@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-11-21 22:56+0700\n"
+"POT-Creation-Date: 2026-11-22 19:26+0700\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -123,7 +123,7 @@ msgstr ""
 msgid "Username"
 msgstr ""
 
-#: obox/contrib/auth/__init__.py:279 obox/contrib/auth/apps.py:21
+#: obox/contrib/auth/__init__.py:284 obox/contrib/auth/apps.py:21
 msgid "Users and roles"
 msgstr ""
 

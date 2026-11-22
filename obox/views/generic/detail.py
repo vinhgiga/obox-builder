@@ -11,13 +11,11 @@ from obox._async import invoke
 from obox.core.exceptions import ImproperlyConfigured
 from obox.db import _session
 from obox.db._identity import _model_label
-from obox.resources import Resource, resolve_resource
-from obox.views.generic.base import ContextMixin, TemplateResponseMixin, View
+from obox.views.generic._model import ModelContextMixin
+from obox.views.generic.base import TemplateResponseMixin, View
 
 
-class SingleObjectMixin(ContextMixin):
-    model: type[Any] | None = None
-    resource: type[Resource[Any]] | Resource[Any] | None = None
+class SingleObjectMixin(ModelContextMixin):
     queryset: Any = None
     context_object_name: str | None = None
     pk_url_kwarg = "pk"
@@ -26,13 +24,6 @@ class SingleObjectMixin(ContextMixin):
     kwargs: dict[str, Any]
     request: Request
     object: Any
-
-    def _bound_resource(self) -> Resource[Any] | None:
-        if isinstance(self.resource, type):
-            if self.model is not None:
-                raise ImproperlyConfigured("Specify either model or resource.")
-            self.resource = resolve_resource(self.resource)
-        return self.resource
 
     def get_queryset(self) -> Any:
         if resource := self._bound_resource():
@@ -47,7 +38,8 @@ class SingleObjectMixin(ContextMixin):
         query = await invoke(self.get_queryset) if queryset is None else queryset
         model = query.column_descriptions[0]["entity"]
         pk, slug = self.kwargs.get(self.pk_url_kwarg), self.kwargs.get(self.slug_url_kwarg)
-        if pk is not None and (resource := self._bound_resource()):
+        resource = self._bound_resource()
+        if pk is not None and resource is not None:
             async with _session() as session:
                 return await resource._get(
                     session, query, pk, lock=self.request.method not in {"GET", "HEAD", "OPTIONS"}
@@ -64,6 +56,8 @@ class SingleObjectMixin(ContextMixin):
             query = query.where(getattr(model, self.slug_field) == slug)
         else:
             raise AttributeError("A generic detail view requires a pk or slug.")
+        if resource is not None:
+            query = resource._load_fields(query)
         async with _session() as session:
             obj = (await session.scalars(query)).unique().one_or_none()
         if obj is None:
@@ -86,18 +80,56 @@ class SingleObjectTemplateResponseMixin(TemplateResponseMixin):
     model: type[Any] | None
     request: Request
     object: Any
+    _bound_resource: Any
 
     def get_template_names(self) -> list[str]:
         if self.template_name:
             return [self.template_name]
-        model = type(self.object) if self.object is not None else self.model
+        resource = self._bound_resource()
+        model = (
+            type(self.object)
+            if self.object is not None
+            else (resource.model if resource is not None else self.model)
+        )
         if model is None:
             raise ImproperlyConfigured("Define a template or model.")
         app, name = _model_label(model)
-        return [f"{app}/{name}{self.template_name_suffix}.html"]
+        return [
+            f"{app}/{name}{self.template_name_suffix}.html",
+            f"obox/generic/{self.template_name_suffix.removeprefix('_')}.html",
+        ]
 
 
 class DetailView(SingleObjectTemplateResponseMixin, SingleObjectMixin, View):
+    change_url: str | None = None
+
+    def get_context_data(self, **kwargs: Any) -> Any:
+        context = super().get_context_data(**kwargs)
+        model = type(self.object)
+        resource = self._bound_resource()
+        return {
+            "title": model.__name__,
+            "values": (
+                [
+                    (name, resource.specs[name].serialize(getattr(self.object, name)))
+                    for name in resource.readable
+                ]
+                if resource is not None
+                else []
+            ),
+            "change_url": self.change_url,
+            **context,
+        }
+
     async def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         self.object = await self.get_object()
+        if (
+            (resource := self._bound_resource())
+            and "update" in self.route_names
+            and self._has_model_permission(resource.model, "change")
+            and await invoke(resource.can, "update", self.object, request.user)
+        ):
+            self.change_url = self._route_url(
+                "update", pk=str(getattr(self.object, resource.pk_name))
+            )
         return self.render_to_response(await invoke(self.get_context_data, **kwargs))

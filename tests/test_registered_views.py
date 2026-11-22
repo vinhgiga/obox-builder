@@ -5,11 +5,12 @@ from typing import Any
 import httpx
 import pytest
 import sqlalchemy as sa
-from fastapi import FastAPI
-from obox import Obox, Resource
+from fastapi import Depends, FastAPI
+from obox import Obox, Resource, permission_required
 from obox._auth import Principal
-from obox.builder import ModelBuilder
 from obox.core.exceptions import ImproperlyConfigured
+from obox.db import _session
+from obox.views.generic import CreateView, DeleteView, ListView, UpdateView, action
 
 from tests.test_forms_integration import Item, ItemForm, configured
 
@@ -23,23 +24,21 @@ class Actors:
         await self.app(scope, receive, send)
 
 
-def test_builder_registration_uses_explicit_models_and_admin_names() -> None:
-
-    class Items(ModelBuilder):
-        form = ItemForm
-        fields = ("name", "price", "quantity")
-        readonly_fields = ("quantity",)
-        list_display = ("id", "name")
-
-    owner = Items(Item)
-    assert isinstance(owner.get_queryset(None), sa.Select)
-    assert "quantity" not in owner.get_form(None).base_fields
-
+def test_registration_uses_generic_views_and_preserves_route_names() -> None:
     async def scenario() -> None:
         async with configured():
             app = FastAPI(openapi_url=None)
             obox = Obox(app)
-            obox.register(Item, builder=Items)
+            for options, error in (
+                ({"api": False, "views": False}, "at least one"),
+                ({"views": False, "list_view": ListView}, "Enable views"),
+                ({"create_view": ListView}, "CreateView subclass"),
+                ({"api": ListView}, "ModelApi subclass"),
+            ):
+                kwargs: dict[str, Any] = options
+                with pytest.raises(ImproperlyConfigured, match=error):
+                    obox.register(Item, **kwargs)
+            obox.register(Item)
             with pytest.raises(ImproperlyConfigured, match="already registered"):
                 obox.register(Item, api=False)
             assert str(app.url_path_for("obox:views:/items:changelist")) == "/items"
@@ -47,22 +46,30 @@ def test_builder_registration_uses_explicit_models_and_admin_names() -> None:
     asyncio.run(scenario())
 
 
-def test_admin_ui_calls_standard_form_permission_save_and_delete_hooks() -> None:
-    events = []
+def test_registered_views_call_form_and_resource_hooks() -> None:
+    events: list[tuple[str, int | bool]] = []
 
-    class Items(ModelBuilder):
-        form = ItemForm
-        fields = ("name", "price")
+    class ItemList(ListView):
         list_display = ("id", "name")
         search_fields = ("name",)
-        fieldsets = (("Details", {"fields": ("name", "price")}),)
 
+    class RecordSave:
         async def save_model(self, request: Any, obj: Item, form: Any, change: bool) -> None:
             events.append(("save", change))
-            await super().save_model(request, obj, form, change)
+
+    class ItemCreate(RecordSave, CreateView):
+        form_class = ItemForm
+        fieldsets = (("Details", {"fields": ("name", "price", "quantity")}),)
+
+    class ItemUpdate(RecordSave, UpdateView):
+        form_class = ItemForm
+
+    class ItemDelete(DeleteView):
+        success_url = "/items"
 
     class ItemsResource(Resource[Item]):
         model = Item
+        readonly_fields = ("quantity",)
 
         async def can(self, action: str, obj: Item | None, actor: Any) -> bool:
             if action == "delete" and obj is not None:
@@ -76,7 +83,13 @@ def test_admin_ui_calls_standard_form_permission_save_and_delete_hooks() -> None
                 Actors,
                 actor=Principal(id=1, is_authenticated=True, is_superuser=True),
             )
-            Obox(app).register(ItemsResource, builder=Items)
+            Obox(app).register(
+                ItemsResource,
+                list_view=ItemList,
+                create_view=ItemCreate,
+                update_view=ItemUpdate,
+                delete_view=ItemDelete,
+            )
             async with (
                 app.router.lifespan_context(app),
                 httpx.AsyncClient(
@@ -87,6 +100,7 @@ def test_admin_ui_calls_standard_form_permission_save_and_delete_hooks() -> None
                 page = await client.get("/items/add")
                 assert page.status_code == 200
                 assert "Details" in page.text
+                assert 'name="quantity"' not in page.text
                 token = re.search(r'name="csrfmiddlewaretoken" value="([^"]+)"', page.text)
                 assert token is not None
                 data = {"csrfmiddlewaretoken": token[1], "name": "Alpha", "price": "1.00"}
@@ -97,9 +111,10 @@ def test_admin_ui_calls_standard_form_permission_save_and_delete_hooks() -> None
                 assert (
                     await client.post("/items/1/change", data={**data, "name": "Beta"})
                 ).status_code == 303
-                assert (
-                    await client.post("/items/1/delete", data={"csrfmiddlewaretoken": token[1]})
-                ).status_code == 303
+                deleted = await client.post(
+                    "/items/1/delete", data={"csrfmiddlewaretoken": token[1]}
+                )
+                assert (deleted.status_code, deleted.headers["location"]) == (303, "/items")
                 assert events == [("save", False), ("save", True), ("delete", 1)]
                 assert (await client.get("/items/1/change")).status_code == 404
 
@@ -145,21 +160,21 @@ def test_view_only_actor_sees_readonly_values_and_cannot_change() -> None:
     asyncio.run(scenario())
 
 
-def test_builder_honors_custom_form_fields_and_factory_metadata() -> None:
+def test_create_view_honors_custom_form_and_factory_metadata() -> None:
     class NameForm(ItemForm):
-        class Meta(ItemForm.Meta):
+        class Meta:
+            model = Item
             fields = ("name",)
 
-    owner = ModelBuilder(Item)
-    owner.form = NameForm
-    assert list(owner.get_form(None).base_fields) == ["name"]
+    view = CreateView(model=Item, form_class=NameForm)
+    assert list(view.get_form_class().base_fields) == ["name"]
     from obox.forms import modelform_factory
 
     renamed = modelform_factory(Item, ItemForm, labels={"name": "Custom label"})
     assert renamed.base_fields["name"].label == "Custom label"
 
 
-def test_admin_list_links_pagination_and_action_confirmation() -> None:
+def test_registered_list_links_pagination_and_action_confirmation() -> None:
     async def scenario() -> None:
         async with configured():
             for name in ("alpha", "beta", "gamma"):
@@ -167,18 +182,23 @@ def test_admin_list_links_pagination_and_action_confirmation() -> None:
                 assert await form.is_valid()
                 await form.save()
 
-            class Items(ModelBuilder):
-                fields = ("name", "price")
+            class Items(ListView):
                 list_display = ("name",)
-                list_per_page = 2
+                paginate_by = 2
                 search_fields = ("name",)
+
+            class LockedItems(Resource[Item]):
+                model = Item
+
+                async def can(self, action: str, obj: Item | None, actor: Any) -> bool:
+                    return not (action == "delete" and obj is not None and obj.name == "gamma")
 
             app = FastAPI(openapi_url=None)
             app.add_middleware(
                 Actors,
                 actor=Principal(id=1, is_authenticated=True, is_superuser=True),
             )
-            Obox(app).register(Item, builder=Items, api=False)
+            Obox(app).register(LockedItems, list_view=Items, api=False)
             async with httpx.AsyncClient(
                 transport=httpx.ASGITransport(app=app), base_url="http://test"
             ) as client:
@@ -197,9 +217,86 @@ def test_admin_list_links_pagination_and_action_confirmation() -> None:
                 confirmation = await client.post("/items", data=data)
                 assert confirmation.status_code == 200
                 assert 'name="post" value="yes"' in confirmation.text
+                denied = await client.post(
+                    "/items", data={**data, "_selected_action": ["1", "3"], "post": "yes"}
+                )
+                assert denied.status_code == 403
+                assert "alpha" in (await client.get("/items")).text
                 assert (
                     await client.post("/items", data={**data, "post": "yes"})
                 ).status_code == 303
                 assert "alpha" not in (await client.get("/items")).text
+
+    asyncio.run(scenario())
+
+
+def test_same_list_view_supports_filters_search_and_actions_on_both_routes() -> None:
+    seen = []
+
+    class VisibleItems(Resource[Item]):
+        model = Item
+
+        def get_queryset(self, actor: Any) -> sa.Select[tuple[Item]]:
+            return super().get_queryset(actor).where(Item.name != "private")
+
+    class Items(ListView):
+        list_display = ("name",)
+        list_filter = ("quantity",)
+        search_fields = ("name",)
+        paginate_by = 2
+        actions = ("select_rows",)
+
+        @action(permissions=("change",), description="Select rows")
+        async def select_rows(self, request: Any, queryset: Any) -> None:
+            async with _session() as session:
+                seen.append([item.name for item in await session.scalars(queryset)])
+
+    async def scenario() -> None:
+        async with configured():
+            ids = []
+            for name, quantity in (("alpha", 1), ("alpine", 2), ("beta", 1), ("private", 1)):
+                form = ItemForm({"name": name, "price": "1", "quantity": str(quantity)})
+                assert await form.is_valid()
+                ids.append(str((await form.save()).id))
+
+            app = FastAPI(openapi_url=None)
+            app.add_middleware(
+                Actors,
+                actor=Principal(
+                    id=1,
+                    is_authenticated=True,
+                    permissions=frozenset({"tests.view_item", "tests.change_item"}),
+                ),
+            )
+            Obox(app).register(VisibleItems, list_view=Items, api=False)
+            app.add_api_route(
+                "/inventory",
+                Items.as_view(resource=VisibleItems),
+                methods=["GET", "POST"],
+                dependencies=[Depends(permission_required("tests.view_item", html=True))],
+            )
+            async with (
+                app.router.lifespan_context(app),
+                httpx.AsyncClient(
+                    transport=httpx.ASGITransport(app=app), base_url="http://test"
+                ) as client,
+            ):
+                for path, page in (("/items", "p=1"), ("/inventory", "page=2")):
+                    first = await client.get(path)
+                    assert "alpha" in first.text
+                    assert "beta" not in first.text
+                    assert "beta" in (await client.get(f"{path}?{page}")).text
+                    filtered = f"{path}?q=alp&quantity__exact=1"
+                    result = await client.get(filtered)
+                    assert result.status_code == 200
+                    assert "alpha" in result.text
+                    assert all(name not in result.text for name in ("alpine", "beta", "private"))
+                    assert result.text.count("Select rows") == 1
+                    assert "delete_selected" not in result.text
+                    data = {"action": "select_rows", "_selected_action": ids}
+                    assert (await client.post(filtered, data=data)).status_code == 403
+                    data["csrfmiddlewaretoken"] = client.cookies["csrftoken"]
+                    assert (await client.post(filtered, data=data)).status_code == 303
+                assert seen == [["alpha"], ["alpha"]]
 
     asyncio.run(scenario())

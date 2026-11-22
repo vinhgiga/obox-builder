@@ -108,6 +108,7 @@ class ModelApi(BaseApi, Generic[ModelT]):
 
     model: type[ModelT]
     prefix: str
+    slug: str | None = None
     resource: type[Resource[ModelT]] | None = None
     _resource: Resource[ModelT]
     _generated: set[str]
