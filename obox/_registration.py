@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any, TypeVar, cast
 from fastapi import APIRouter, Depends
 
 from obox._dependencies import permission_required
-from obox._page_routes import PageRoute
+from obox._routes import UIRoute
 from obox.api import ModelApi
 from obox.core.exceptions import ImproperlyConfigured
 from obox.resources import Resource, resolve_resource
@@ -121,7 +121,7 @@ class Registration:
 
     def _build_views(self, prefix: str, resource: Resource[Any]) -> APIRouter:
         basename = f"obox:views:{prefix}"
-        router = APIRouter(prefix=prefix, include_in_schema=False, route_class=PageRoute)
+        router = APIRouter(prefix=prefix, include_in_schema=False, route_class=UIRoute)
         routes = (
             ("list", "changelist", "", ListView, self.list_view, "view"),
             ("detail", "detail", "/{pk}/view", DetailView, self.detail_view, "view"),

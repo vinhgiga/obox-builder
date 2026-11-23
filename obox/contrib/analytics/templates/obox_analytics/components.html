@@ -73,3 +73,44 @@
     {% endif %}
   {% endif %}
 {% endmacro %}
+{% macro widget(slug, item) %}
+  {% call scope(item.prefix) %}
+    <form method="get" class="analytics-filters mb-3" data-analytics-filters>
+      {% if item.search_enabled %}
+        <label>
+          {{ _("Search") }}
+          <input class="form-control"
+                 type="search"
+                 name="{{ item.prefix }}search"
+                 value="{{ request.query_params.get(item.prefix ~ 'search', '') }}">
+        </label>
+      {% endif %}
+      {% if request.query_params.get(item.prefix ~ "filter") %}
+        <input type="hidden"
+               name="{{ item.prefix }}filter"
+               value="{{ request.query_params[item.prefix ~ 'filter'] }}">
+      {% endif %}
+      {% for field in item.filters %}
+        <label>
+          {{ field.label }}
+          <select class="form-select"
+                  name="{{ item.prefix }}filter_op.{{ field.name }}"
+                  aria-label="{{ field.label }} {{ _('Filter') }}">
+            {% for operator in field.operators %}
+              <option value="{{ operator }}"
+                      {% if request.query_params.get(item.prefix ~ 'filter_op.' ~ field.name, 'is') == operator %}selected{% endif %}>{{ operator.replace('_', ' ') }}</option>
+            {% endfor %}
+          </select>
+          <input class="form-control"
+                 name="{{ item.prefix }}filter.{{ field.name }}"
+                 value="{{ request.query_params.get(item.prefix ~ 'filter.' ~ field.name, '') }}">
+        </label>
+      {% endfor %}
+      <button class="btn btn-primary" type="submit">{{ _("Apply filters") }}</button>
+      <a class="btn btn-outline-secondary"
+         href="{{ request.url.path }}"
+         data-reset>{{ _("Reset") }}</a>
+    </form>
+    {{ chart(slug, false) }}
+  {% endcall %}
+{% endmacro %}

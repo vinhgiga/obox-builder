@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import os
+import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import replace
 from decimal import Decimal
 from importlib import import_module
 from pathlib import Path
+from types import ModuleType
 from typing import Any, ClassVar, cast
 from uuid import uuid4
 
@@ -16,16 +20,17 @@ import pytest
 import sqlalchemy as sa
 from fastapi import FastAPI
 from obox._auth import Principal, ScopedIdentity
-from obox._components import Component, Use
+from obox._components import Component
 from obox._config import RuntimeConfig
 from obox._context import Context
 from obox._filters import FilterGroup
-from obox._pages import Page
+from obox._identity import get_principal
 from obox._runtime import _Runtime
 from obox._schemas import ApiRequest, ApiResponse
 from obox.apps import AppConfig
 from obox.contrib.analytics import Analytics, Bar, Pivot, Sum
 from obox.core.exceptions import ImproperlyConfigured
+from obox.routes import Route
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -69,7 +74,16 @@ class Matrix(Selection, Pivot):
     drill = True
 
 
-ACTOR = Principal(id=1, is_authenticated=True, permissions=frozenset({"tests.view_record"}))
+class ProtectedTotals(Totals):
+    name = "protected"
+    permission = "metrics.analytics.inspect"
+
+
+ACTOR = Principal(
+    id=1,
+    is_authenticated=True,
+    permissions=frozenset({"tests.view_record", "metrics.components.access"}),
+)
 ROOT = "/api/metrics/components"
 
 
@@ -78,13 +92,13 @@ async def runtime(
     tmp_path: Path,
     *,
     components: tuple[Any, ...] = (Totals, Matrix),
-    pages: tuple[Page, ...] = (),
+    routes: tuple[Route, ...] = (),
     actor: Any = ACTOR,
 ) -> AsyncIterator[tuple[_Runtime, httpx.AsyncClient]]:
 
     config = AppConfig("obox", import_module("obox"))
     config.label = "metrics"
-    config.components, config.pages = components, pages
+    config.components, config.routes = components, routes
     engine = create_async_engine(os.getenv("OBOX_TEST_DATABASE_URL", "sqlite+aiosqlite://"))
     namespace = "component_" + uuid4().hex if engine.dialect.name == "postgresql" else None
     if namespace:
@@ -131,7 +145,7 @@ def test_headless_api_and_python_service_with_crud_disabled(tmp_path: Path) -> N
 
     async def scenario() -> None:
         async with runtime(tmp_path) as (obox, client):
-            assert not obox.pages
+            assert not obox.routes
             assert not any(
                 getattr(route, "name", None) == "obox_analytics_static" for route in obox.app.routes
             )
@@ -208,6 +222,7 @@ def test_component_and_records_permissions_and_field_projection(tmp_path: Path) 
             resolver = obox.settings.principal_dependency
             assert resolver is not None
             obox.app.dependency_overrides[resolver] = lambda: actor
+            obox.app.dependency_overrides[get_principal] = lambda: actor
             description = (await client.get(ROOT + "/totals:describe")).json()
             assert "records" not in description["capabilities"]
             assert description["presentation"]["drill"] is False
@@ -225,31 +240,31 @@ def test_component_and_records_permissions_and_field_projection(tmp_path: Path) 
     asyncio.run(scenario())
 
 
-def test_page_bindings_are_private_scoped_and_independent(tmp_path: Path) -> None:
-    page = Page(
-        "report",
-        permission="metrics.pages.report",
-        components=(
-            (
-                Use(Matrix, key="all"),
-                Use(Matrix, key="east", filters={"region_name": "East"}),
-                Bar(source=Record, fields=FIELDS, x="region_name", y=Sum("amount")),
-            ),
-        ),
+def test_template_bindings_are_app_scoped_and_independent(tmp_path: Path) -> None:
+    template_dir = tmp_path / "metrics"
+    template_dir.mkdir(parents=True)
+    (template_dir / "report.html").write_text(
+        "{{ component('tests.test_components.Matrix', key='all') }}"
+        "{{ component('tests.test_components.Matrix', key='east', "
+        "filters={'region_name': 'East'}) }}"
     )
+    route = Route("/report", "metrics/report.html", permission="report")
 
     async def scenario() -> None:
-        async with runtime(tmp_path, pages=(page,)) as (obox, client):
-            local = "/admin/metrics/report/_components/"
-            assert (await client.get(local + "east/data")).status_code == 403
+        async with runtime(tmp_path, routes=(route,)) as (obox, client):
+            local = "/admin/metrics/_components/"
+            assert (await client.get(local + "east/data")).status_code == 200
+            assert (await client.get(local + "east/data")).json()["total"] == "10.01"
+            assert (await client.get("/admin/metrics/report")).status_code == 403
             assert (await client.post(ROOT + "/matrix:query", json={})).status_code == 200
             actor = replace(ACTOR, permissions=ACTOR.permissions | {"metrics.pages.report"})
             resolver = obox.settings.principal_dependency
             assert resolver is not None
             obox.app.dependency_overrides[resolver] = lambda: actor
+            obox.app.dependency_overrides[get_principal] = lambda: actor
             html = await client.get("/vi/admin/metrics/report")
             assert html.status_code == 200, html.text
-            assert local + "east/data" in html.text
+            assert "/vi" + local + "east/data" in html.text
             assert (await client.get(local + "all/data")).json()["total"] == "30.03"
             assert (await client.get(local + "east/data")).json()["total"] == "10.01"
             narrowed = await client.get(
@@ -262,6 +277,9 @@ def test_page_bindings_are_private_scoped_and_independent(tmp_path: Path) -> Non
             assert (await client.get(local + "all/data")).json()["total"] == "30.03"
             assert (await client.post(ROOT + "/component3:query", json={})).status_code == 404
             assert set(obox.components) == {("metrics", "totals"), ("metrics", "matrix")}
+            assert obox._template_components["metrics", "all"] is not obox.component(
+                "matrix", app_label="metrics"
+            )
             assert Matrix.filters == FilterGroup()
 
     asyncio.run(scenario())
@@ -356,22 +374,220 @@ def test_template_components_are_local_escaped_and_isolated(tmp_path: Path) -> N
             return {"value": '<img src=x onerror="alert(1)">', "count": len(self.state)}
 
     async def scenario() -> None:
-        async with runtime(
-            tmp_path, components=(), pages=(Page("notes", components=((Note,),)),)
-        ) as (obox, client):
-            for _ in range(2):
-                response = await client.get("/admin/metrics/notes")
-                assert response.status_code == 200, response.text
-                assert "&lt;img" in response.text
-                assert "<img src=x" not in response.text
-                assert ":1" in response.text
-            assert not obox.components
-            assert not any(
-                getattr(route, "name", None) == "obox_analytics_static" for route in obox.app.routes
-            )
-            assert Note.state == []
+        module_name = f"component_test_{uuid4().hex}"
+        module = ModuleType(module_name)
+        module.Note = Note  # type: ignore[attr-defined]
+        sys.modules[module_name] = module
+        (tmp_path / "metrics").mkdir()
+        (tmp_path / "metrics" / "notes.html").write_text(
+            f"{{{{ component('{module_name}.Note') }}}}"
+        )
+        try:
+            async with runtime(
+                tmp_path,
+                components=(),
+                routes=(Route("/notes", "metrics/notes.html"),),
+            ) as (obox, client):
+                for _ in range(2):
+                    response = await client.get("/admin/metrics/notes")
+                    assert response.status_code == 200, response.text
+                    assert "&lt;img" in response.text
+                    assert "<img src=x" not in response.text
+                    assert ":1" in response.text
+                assert not obox.components
+                assert not any(
+                    getattr(route, "name", None) == "obox_analytics_static"
+                    for route in obox.app.routes
+                )
+                assert Note.state == []
+        finally:
+            sys.modules.pop(module_name, None)
 
     asyncio.run(scenario())
+
+
+def test_template_components_scan_extends_imports_and_includes(tmp_path: Path) -> None:
+    calls: list[int] = []
+
+    class Note(Component):
+        template = "note.html"
+
+        async def get_context(self, ctx: Context) -> dict[str, int]:
+            calls.append(len(calls) + 1)
+            return {"count": calls[-1]}
+
+    module_name = f"component_scan_{uuid4().hex}"
+    module = ModuleType(module_name)
+    module.Note = Note  # type: ignore[attr-defined]
+    sys.modules[module_name] = module
+    (tmp_path / "note.html").write_text("<b>{{ count }}</b>")
+    templates = tmp_path / "metrics"
+    templates.mkdir()
+    (templates / "page.html").write_text(
+        "{% extends base_template %}"
+        "{% from 'metrics/macros.html' import show %}"
+        "{% block content %}{{ show() }}{% include 'metrics/include.html' %}{% endblock %}"
+    )
+    reference = f"{module_name}.Note"
+    (templates / "macros.html").write_text(
+        f"{{% macro show() %}}{{{{ component('{reference}') }}}}{{% endmacro %}}"
+    )
+    (templates / "include.html").write_text(f"{{{{ component('{reference}') }}}}")
+
+    async def scenario() -> None:
+        try:
+            routes = (
+                Route("/first", "metrics/page.html"),
+                Route("/second", "metrics/page.html"),
+            )
+            async with runtime(tmp_path, components=(), routes=routes) as (obox, client):
+                assert len(obox._template_components) == 1
+                first = obox._route_components["metrics", "first"][0][1]
+                second = obox._route_components["metrics", "second"][0][1]
+                assert first is second
+                page1 = await client.get("/admin/metrics/first")
+                page2 = await client.get("/admin/metrics/second")
+                assert page1.text.count("<b>1</b>") == 2
+                assert page2.text.count("<b>2</b>") == 2
+                assert calls == [1, 2]
+        finally:
+            sys.modules.pop(module_name, None)
+
+    asyncio.run(scenario())
+
+
+def test_template_component_keys_are_stable_from_literal_props(tmp_path: Path) -> None:
+    (tmp_path / "metrics").mkdir()
+    (tmp_path / "metrics" / "report.html").write_text(
+        "{{ component('tests.test_components.Matrix', filters={'region_name': 'East'}) }}"
+    )
+    route = Route("/report", "metrics/report.html")
+    normalized = json.dumps(
+        {"filters": {"region_name": "East"}}, sort_keys=True, separators=(",", ":")
+    ).encode()
+    suffix = hashlib.sha1(normalized, usedforsecurity=False).hexdigest()[:8]
+    expected = "matrixX" + suffix
+
+    async def scenario() -> None:
+        async with runtime(tmp_path, routes=(route,)) as (first, _):
+            first_name = next(iter(first._template_components))[1]
+        async with runtime(tmp_path, routes=(route,)) as (second, _):
+            second_name = next(iter(second._template_components))[1]
+        assert first_name == second_name == expected
+
+    asyncio.run(scenario())
+
+
+def test_template_component_data_requires_each_permission_layer(tmp_path: Path) -> None:
+    (tmp_path / "metrics").mkdir()
+    (tmp_path / "metrics" / "report.html").write_text(
+        "{{ component('tests.test_components.ProtectedTotals') }}"
+    )
+    route = Route("/report", "metrics/report.html")
+    actors = (
+        (Principal(), 401),
+        (Principal(is_authenticated=True, permissions=frozenset({"tests.view_record"})), 403),
+        (
+            Principal(
+                id=1,
+                is_authenticated=True,
+                permissions=frozenset({"tests.view_record", "metrics.components.access"}),
+            ),
+            403,
+        ),
+        (
+            Principal(
+                id=1,
+                is_authenticated=True,
+                permissions=frozenset(
+                    {
+                        "tests.view_record",
+                        "metrics.components.access",
+                        "metrics.analytics.inspect",
+                    }
+                ),
+            ),
+            200,
+        ),
+    )
+
+    async def scenario() -> None:
+        for actor, status in actors:
+            async with runtime(tmp_path, components=(), routes=(route,), actor=actor) as (
+                _,
+                client,
+            ):
+                response = await client.get("/admin/metrics/_components/protected/data")
+                assert response.status_code == status, response.text
+
+    asyncio.run(scenario())
+
+
+def test_template_component_call_requires_a_scanned_reference(tmp_path: Path) -> None:
+    (tmp_path / "metrics").mkdir()
+    (tmp_path / "metrics" / "empty.html").write_text("Nothing here")
+    route = Route("/empty", "metrics/empty.html")
+
+    async def scenario() -> None:
+        async with runtime(tmp_path, components=(), routes=(route,)) as (obox, _):
+            request = type("Request", (), {"state": type("State", (), {})()})()
+            template = obox.templates.env.from_string(
+                '{{ component("tests.test_components.Matrix") }}'
+            )
+            with pytest.raises(ImproperlyConfigured, match="not declared"):
+                template.render({"request": request})
+
+    asyncio.run(scenario())
+
+
+def test_nonliteral_component_call_fails_with_template_line(tmp_path: Path) -> None:
+    (tmp_path / "metrics").mkdir()
+    (tmp_path / "metrics" / "dynamic.html").write_text("first line\n{{ component(ref) }}")
+    config = AppConfig("obox", import_module("obox"))
+    config.label = "metrics"
+    config.routes = (Route("/dynamic", "metrics/dynamic.html"),)
+    obox = _Runtime(
+        FastAPI(),
+        settings=RuntimeConfig(
+            database_url="sqlite+aiosqlite://",
+            principal_dependency=lambda: ACTOR,
+            csrf_secret="a" * 32,
+            template_dirs=(tmp_path,),
+        ),
+        defer=True,
+    )
+    obox.add_app(config)
+    obox._loading_apps = False
+    obox._finish_apps()
+    with pytest.raises(ImproperlyConfigured, match=r"metrics/dynamic\.html:2"):
+        obox._bind_templates()
+    assert obox.database.engine is None
+
+
+def test_component_import_fails_before_database_startup(tmp_path: Path) -> None:
+    (tmp_path / "metrics").mkdir()
+    (tmp_path / "metrics" / "missing.html").write_text(
+        "{{ component('tests.test_components.MissingComponent') }}"
+    )
+    config = AppConfig("obox", import_module("obox"))
+    config.label = "metrics"
+    config.routes = (Route("/missing", "metrics/missing.html"),)
+    obox = _Runtime(
+        FastAPI(),
+        settings=RuntimeConfig(
+            database_url="sqlite+aiosqlite://",
+            principal_dependency=lambda: ACTOR,
+            csrf_secret="a" * 32,
+            template_dirs=(tmp_path,),
+        ),
+        defer=True,
+    )
+    obox.add_app(config)
+    obox._loading_apps = False
+    obox._finish_apps()
+    with pytest.raises(ImproperlyConfigured, match="Cannot import component"):
+        obox._bind_templates()
+    assert obox.database.engine is None
 
 
 @pytest.mark.parametrize(

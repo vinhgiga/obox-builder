@@ -1,3 +1,3 @@
-# Product pages
+# Template routes
 
-[Compose a contrib page](compose-page.md) from policy-scoped components.
+[Route a template](compose-page.md) and place policy-scoped components in its layout.

@@ -1,14 +1,20 @@
 # Analytics
 
-Enable `obox.contrib.resources` and `obox.contrib.analytics` in INSTALLED_APPS.
-Analytics reads registered Resource declarations and applies their source policy,
-field access and query budgets. Page/component registration happens through the
-owning application's ready hook. See [the chart example](../examples/components/analytics-chart.md).
+Enable `obox.contrib.analytics` in `INSTALLED_APPS`. Analytics components use a
+mapped source model and apply its source policy, field access and query budgets.
+Declare HTML routes on `AppConfig.routes`; templates place components with the
+`component()` function. See [the chart example](../examples/components/analytics-chart.md).
 
 The existing product API includes Bar, Line, Pie, Donut and Scatter charts,
 Pivot and CustomChart, with measure/axis declarations exported from
 `obox.contrib.analytics`. Supported aggregates and limits are checked against
 source model metadata. HTML and query routes share policy-scoped services.
+
+An analytics component used in a template gets app-scoped `/_components/` data
+routes. Those endpoints require `<app>.components.access` plus the component's
+permission and source policy. Add the component to `AppConfig.components` to
+publish it through the JSON API as well. The
+[route example](../examples/pages/compose-page.md) shows template composition.
 
 Analytics is optional contrib functionality. It does not add chart or pivot
 concepts to ModelBuilder or the standardized REST core. The
@@ -18,8 +24,8 @@ concepts to ModelBuilder or the standardized REST core. The
 
 `Pivot` accepts a mapped model through `source=` or an iterable of record mappings, a
 pandas DataFrame, or a Polars DataFrame through `data=`. Use `compute()` for a standalone
-result, or register the same component with Analytics to expose it on a page or through
-the component API.
+result. Reference a chart component from a route template for HTML, or list it in
+`AppConfig.components` to publish it through the JSON API.
 
 ```python
 from obox.contrib.analytics import Avg, Count, Pivot, Sum

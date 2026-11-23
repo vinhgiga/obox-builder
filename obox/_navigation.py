@@ -29,14 +29,16 @@ async def app_list(obox: _Runtime, request: Request, ctx: Context) -> list[dict[
         entries: list[dict[str, Any]] = []
         entries.extend(
             {
-                "label": translate(request, page.title or page.name),
+                "label": translate(request, route.title or str(route.name)),
                 "url": localize(
-                    request, str(request.url_for(page.route_name(label)).path), rooted=True
+                    request, str(request.url_for(route.route_name(label)).path), rooted=True
                 ),
-                "kind": "page",
+                "kind": "route",
             }
-            for (label, _), page in obox.pages.items()
-            if label == config.label and page.menu and page.permitted(ctx.principal)
+            for (label, _), route in obox.routes.items()
+            if label == config.label
+            and route.menu
+            and (route.permission is None or has_permission(ctx.principal, route.permission))
         )
         entries.extend(
             {

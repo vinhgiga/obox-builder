@@ -105,6 +105,18 @@ class OboxRoute(MethodRoute):
         await middleware(dict(scope), receive, respond)
 
 
+class UIRoute(OboxRoute):
+    async def handle(self, scope: Scope, receive: Receive, send: Send) -> None:
+        async def respond(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                headers["Cache-Control"] = "private, no-store"
+                headers.add_vary_header("Cookie, Authorization, Accept-Language")
+            await send(message)
+
+        await super().handle(scope, receive, respond)
+
+
 def _authentication_challenge(request: Request, auth: object | None) -> str:
     if getattr(auth, "api_tokens", False) and "authorization" in request.headers:
         return 'Bearer realm="obox"'

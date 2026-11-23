@@ -202,6 +202,7 @@ class View:
                         from obox._i18n import context as translation_context
                         from obox._ui import build_navigation
 
+                        request.state.obox_context = context
                         request.state.obox_template_context = {
                             **translation_context(request),
                             "site_title": runtime.app.title,
@@ -312,7 +313,16 @@ class TemplateResponseMixin:
                 backend = getattr(import_module(module), name)
             templates = Jinja2Templates(env=backend(config).env)
             self.request.app.state.templates = templates
-        context.setdefault("csrf_token", get_token(self.request))
+        if runtime is not None:
+            try:
+                context.setdefault("csrf_token", get_token(self.request))
+            except ImproperlyConfigured:
+                context.setdefault(
+                    "csrf_token",
+                    runtime.csrf.token(self.request, self.request.scope.get("user")),
+                )
+        else:
+            context.setdefault("csrf_token", get_token(self.request))
         context = {
             **getattr(self.request.state, "obox_template_context", {}),
             **context,

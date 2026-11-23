@@ -29,17 +29,17 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from obox._auth import Permission, Principal
 from obox._component_service import ComponentService
-from obox._components import Use
+from obox._components import Component, component_name
 from obox._config import RuntimeConfig
 from obox._context import Context
 from obox._database import Database
 from obox._dependencies import _api_context, _api_contexts, _RoutePermission
 from obox._exceptions import BuilderValidationError, OboxError, ResourceConflict
 from obox._i18n import LANGUAGES, LanguageMiddleware
-from obox._pages import Page
 from obox._staticfiles import AssetMount
 from obox.apps import AppConfig, validate_app_prefix
 from obox.core.exceptions import ImproperlyConfigured
+from obox.routes import Route
 
 T = TypeVar("T")
 logger = logging.getLogger(__name__)
@@ -168,9 +168,12 @@ class _Runtime:
         self._public_routes: set[int] = set()
         self._resources: dict[tuple[str | None, type[Any]], type[Any]] = {}
         self._apps: dict[str, AppConfig] = {}
-        self._pages: dict[tuple[str, str], Page] = {}
+        self._routes: dict[tuple[str, str], Route] = {}
         self._components: dict[tuple[str, str], ComponentService] = {}
-        self._page_components: dict[tuple[str, str], tuple[tuple[ComponentService, ...], ...]] = {}
+        self._template_components: dict[tuple[str, str], ComponentService] = {}
+        self._template_bindings: dict[tuple[str, str], ComponentService] = {}
+        self._route_components: dict[tuple[str, str], tuple[tuple[Any, ComponentService], ...]] = {}
+        self._route_diagnostics: list[Diagnostic] = []
         self._installation_failed = False
         self.ui_prefixes = [self.settings.ui_prefix] if self.settings.ui_prefix else []
         self._ui_routes: list[BaseRoute | RouteContext] = []
@@ -213,6 +216,7 @@ class _Runtime:
         try:
             self._loading_apps = False
             self._finish_apps()
+            self._bind_templates()
         except BaseException:
             self._installation_failed = True
             raise
@@ -234,10 +238,6 @@ class _Runtime:
             raise NotFound("Unknown component.") from exc
 
     @property
-    def pages(self) -> Mapping[tuple[str, str], Page]:
-        return MappingProxyType(self._pages)
-
-    @property
     def permissions(self) -> Mapping[str, Permission]:
         result = {}
         from obox.contrib._models import installed_models
@@ -253,20 +253,15 @@ class _Runtime:
             for action in ("add", "change", "delete", "view"):
                 name = f"{label}.{action}_{model_name}"
                 result[name] = Permission(name, action.title(), "model")
-        for page in self._pages.values():
-            if page.permission is not None:
+        for route in self._routes.values():
+            if route.permission is not None:
                 result.setdefault(
-                    page.permission,
-                    Permission(page.permission, page.title or page.name, "page"),
+                    route.permission,
+                    Permission(route.permission, route.title or cast(str, route.name), "page"),
                 )
         bindings = [
             *self._components.values(),
-            *(
-                service
-                for rows in self._page_components.values()
-                for row in rows
-                for service in row
-            ),
+            *self._template_components.values(),
         ]
         for service in bindings:
             declaration = service.definition
@@ -280,74 +275,6 @@ class _Runtime:
                 name = dependency.permission
                 result.setdefault(name, Permission(name, name.rsplit(".", 1)[-1].title(), "api"))
         return MappingProxyType(result)
-
-    def add_page(self, page: Page, *, app_label: str) -> None:
-        from obox._page_routes import build_page
-
-        self._check_mutable()
-        if not isinstance(page, Page):
-            raise ImproperlyConfigured("Register a Page declaration.")
-        if app_label not in self._apps:
-            raise ImproperlyConfigured(f"Unknown application {app_label!r}.")
-        if (app_label, page.name) in self._pages:
-            raise ImproperlyConfigured(f"Page {app_label}.{page.name} is already registered.")
-        if not page.public and not callable(self.settings.principal_dependency):
-            raise ImproperlyConfigured("Protected pages require an identity resolver.")
-        config = self._apps[app_label]
-        if self._enforce_permissions:
-            page = replace(page, public=False, permission=page.permission or page.name)
-        bound = replace(
-            page,
-            path=config.ui_path(self.settings) + (page.path or f"/{page.name}"),
-            template=page.template
-            or ("obox/components.html" if page.components else f"{app_label}/{page.name}.html"),
-            title=page.title or page.name.replace("_", " ").title(),
-            permission=f"{app_label}.pages.{page.permission}"
-            if page.permission is not None and "." not in page.permission
-            else page.permission,
-        )
-        rows = []
-        keys: set[str] = set()
-        for row in bound.components:
-            bindings = []
-            for item in row:
-                placement = item if isinstance(item, Use) else None
-                declaration = item.component if isinstance(item, Use) else item
-                key = (
-                    placement.key
-                    if placement
-                    else getattr(declaration, "name", None) or f"component{len(keys) + 1}"
-                )
-                if key in keys:
-                    raise ImproperlyConfigured(
-                        "Page component keys must be unique; use explicit Use keys."
-                    )
-                keys.add(key)
-                service = ComponentService.bind(
-                    self,
-                    declaration,
-                    app_label=app_label,
-                    name=key,
-                    page=bound,
-                    title=placement.title if placement else None,
-                    filters=placement.filters if placement else None,
-                )
-                if not service.definition.template and service.definition.plugin != "analytics":
-                    raise ImproperlyConfigured(
-                        "Page components require a template or a supported renderer."
-                    )
-                bindings.append(service)
-            rows.append(tuple(bindings))
-        self._page_components[app_label, bound.name] = tuple(rows)
-        router = build_page(self, bound, app_label)
-        for candidate in iter_route_contexts(router.routes):
-            if any(
-                self._conflict(candidate, other) for other in iter_route_contexts(self.app.routes)
-            ):
-                raise ImproperlyConfigured(f"Page route conflicts at {candidate.path!r}.")
-        self.include_router(router, ui=True, permission=bound.permission)
-        self._pages[app_label, page.name] = bound
-        self.add_ui_prefix(config.ui_path(self.settings))
 
     def add_app(self, config: AppConfig) -> None:
         self._check_mutable()
@@ -372,7 +299,7 @@ class _Runtime:
             or re.fullmatch(r"#[\da-fA-F]{6}", config.tab_bar_color) is None
         ):
             raise ImproperlyConfigured("AppConfig.tab_bar_color must be a six-digit hex color.")
-        for field in ("requires", "components", "pages", "routers"):
+        for field in ("requires", "components", "routes", "routers"):
             if not isinstance(getattr(config, field), tuple):
                 raise ImproperlyConfigured(f"AppConfig.{field} must be a tuple.")
         if any(not isinstance(router, APIRouter) for router in config.routers):
@@ -430,8 +357,6 @@ class _Runtime:
                     build_component_api(self, config.label),
                     permission=f"{config.label}.components.access",
                 )
-            for page in config.pages:
-                self.add_page(page, app_label=config.label)
             for router in config.routers:
                 self.include_router(
                     router,
@@ -450,8 +375,226 @@ class _Runtime:
                 self._ui_routes.append(route)
             self.add_ui_prefix(config.ui_path(self.settings))
         self.add_ui_prefix(self.settings.ui_prefix or "/")
-        if self._pages:
+        if any(config.routes or config._registered_resources for config in self._apps.values()):
             self.include_router(build_catalog(self), ui=True, permission="site.view_home")
+
+    def _bind_templates(self) -> None:
+        import hashlib
+        import json
+        from importlib import import_module
+
+        from fastapi import APIRouter, Depends
+
+        from obox._async import invoke
+        from obox._component_scan import ComponentUse, scan_template
+        from obox._component_ui import (
+            build_component_ui,
+            install_component_global,
+            resolve_components,
+            use_component_request,
+        )
+        from obox._dependencies import permission_required
+        from obox._i18n import translate
+        from obox.views.generic import TemplateView
+        from obox.views.generic.base import HTMLRoute
+
+        class RouteTemplateMixin:
+            _obox_runtime: _Runtime
+            _obox_app_label: str
+            _obox_route: Route
+            request: Request
+
+            async def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+                values = await invoke(cast(Any, super()).get_context_data, **kwargs)
+                if not isinstance(values, Mapping):
+                    raise ImproperlyConfigured("TemplateView context must return a mapping.")
+                request = self.request
+                context = dict(values)
+                context["title"] = translate(
+                    request,
+                    self._obox_route.title
+                    or cast(str, self._obox_route.name).replace("_", " ").title(),
+                )
+                context.update(
+                    await resolve_components(
+                        self._obox_runtime,
+                        self._obox_app_label,
+                        cast(str, self._obox_route.name),
+                        request,
+                        request.state.obox_context,
+                    )
+                )
+                return context
+
+            def get_template_names(self) -> list[str]:
+                return [self._obox_route.template]
+
+            def render_to_response(self, context: dict[str, Any], **kwargs: Any) -> Any:
+                with use_component_request(self.request):
+                    return cast(Any, super()).render_to_response(context, **kwargs)
+
+        self._route_diagnostics.clear()
+        service_signatures: dict[tuple[str, str], str] = {}
+        for app_label, config in self._apps.items():
+            for declaration in config.routes:
+                if not isinstance(declaration, Route):
+                    raise ImproperlyConfigured("AppConfig.routes must contain Route instances.")
+                name = cast(str, declaration.name)
+                route_key = (app_label, name)
+                if route_key in self._routes:
+                    raise ImproperlyConfigured(f"Route {app_label}.{name} is already registered.")
+                permission = declaration.permission
+                if permission is not None and "." not in permission:
+                    permission = f"{app_label}.pages.{permission}"
+                bound = replace(
+                    declaration,
+                    path=config.ui_path(self.settings) + declaration.path,
+                    permission=permission,
+                    title=declaration.title or name.replace("_", " ").title(),
+                )
+                scan = scan_template(
+                    self.templates.env, bound.template, base_template=self.settings.base_template
+                )
+                self._route_diagnostics.extend(
+                    Diagnostic(item.code, item.message) for item in scan.diagnostics
+                )
+                bindings: list[tuple[ComponentUse, ComponentService]] = []
+                for use in scan.uses:
+                    identity = (app_label, use.signature)
+                    service = self._template_bindings.get(identity)
+                    if service is None:
+                        module_name, separator, object_name = use.ref.rpartition(".")
+                        if not separator:
+                            raise ImproperlyConfigured(
+                                f"Component reference {use.ref!r} must be an import path."
+                            )
+                        try:
+                            declaration_obj = getattr(import_module(module_name), object_name)
+                        except (ImportError, AttributeError) as exc:
+                            raise ImproperlyConfigured(
+                                f"Cannot import component {use.ref!r} from "
+                                f"{use.template}:{use.line}."
+                            ) from exc
+                        component = (
+                            declaration_obj()
+                            if isinstance(declaration_obj, type)
+                            and issubclass(declaration_obj, Component)
+                            else declaration_obj
+                        )
+                        if not isinstance(component, Component):
+                            raise ImproperlyConfigured(
+                                f"{use.ref!r} does not refer to a Component."
+                            )
+                        declared_name = component.name or (
+                            type(component).__name__[:1].lower() + type(component).__name__[1:]
+                        )
+                        component_name(declared_name)
+                        if use.key is not None:
+                            key = use.key
+                        elif use.props:
+                            digest = hashlib.sha1(
+                                json.dumps(
+                                    use.props,
+                                    sort_keys=True,
+                                    separators=(",", ":"),
+                                    allow_nan=False,
+                                ).encode(),
+                                usedforsecurity=False,
+                            ).hexdigest()[:8]
+                            key = f"{declared_name}X{digest}"
+                        else:
+                            key = declared_name
+                        component_name(key)
+                        service = ComponentService.bind(
+                            self,
+                            declaration_obj,
+                            app_label=app_label,
+                            name=key,
+                            title=use.props.get("title"),
+                            filters=use.props.get("filters"),
+                        )
+                        if (
+                            not service.definition.template
+                            and service.definition.plugin != "analytics"
+                        ):
+                            raise ImproperlyConfigured(
+                                f"Component {use.ref!r} requires a template or analytics renderer."
+                            )
+                        key_identity = (app_label, service.name)
+                        previous = service_signatures.get(key_identity)
+                        if previous is not None and previous != use.signature:
+                            raise ImproperlyConfigured(
+                                f"Template component key {service.name!r} is already in use."
+                            )
+                        service_signatures[key_identity] = use.signature
+                        self._template_components[key_identity] = service
+                        self._template_bindings[identity] = service
+                    elif use.key is not None and use.key != service.name:
+                        raise ImproperlyConfigured(
+                            f"Component {use.ref!r} uses conflicting keys in route {name!r}."
+                        )
+                    bindings.append((use, service))
+                self._routes[route_key] = bound
+                self._route_components[route_key] = tuple(bindings)
+
+        install_component_global(self.templates.env)
+        for app_label, config in self._apps.items():
+            app_routes = [route for (label, _), route in self._routes.items() if label == app_label]
+            for route in app_routes:
+                route_name = cast(str, route.name)
+                view_base = route.view or TemplateView
+                route_view = type(
+                    (
+                        f"{app_label.title().replace('_', '')}"
+                        f"{route_name.title().replace('_', '')}TemplateView"
+                    ),
+                    (RouteTemplateMixin, view_base),
+                    {
+                        "_obox_runtime": self,
+                        "_obox_app_label": app_label,
+                        "_obox_route": route,
+                    },
+                )
+                router = APIRouter(route_class=HTMLRoute, include_in_schema=False)
+                dependencies = (
+                    [Depends(permission_required(route.permission, html=True))]
+                    if route.permission is not None
+                    else []
+                )
+                cast(Any, route_view).as_route(
+                    router,
+                    route.path,
+                    name=route.route_name(app_label),
+                    dependencies=dependencies,
+                )
+                if any(
+                    self._conflict(candidate, other)
+                    for candidate in iter_route_contexts(router.routes)
+                    for other in iter_route_contexts(self.app.routes)
+                ):
+                    raise ImproperlyConfigured(f"Route conflicts at {route.path!r}.")
+                self.include_router(router, ui=True)
+                if route.permission is None:
+                    self._public_routes.update(
+                        id(candidate.original_route)
+                        for candidate in iter_route_contexts(self.app.routes)
+                        if candidate.name == route.route_name(app_label)
+                    )
+            services = [
+                service
+                for (label, _), service in self._template_components.items()
+                if label == app_label and service.query_model is not None
+            ]
+            if services:
+                self.include_router(
+                    build_component_ui(self, app_label, services),
+                    ui=True,
+                    prefix=config.ui_path(self.settings),
+                )
+
+    @property
+    def routes(self) -> Mapping[tuple[str, str], Route]:
+        return MappingProxyType(self._routes)
 
     @property
     def auth(self) -> Any:
@@ -686,17 +829,20 @@ class _Runtime:
         else:
             _check_route_conflicts(iter_route_contexts(self.app.routes))
 
-        diagnostics = []
-        definitions = [service.definition for service in self._components.values()]
+        diagnostics = list(self._route_diagnostics)
+        definitions = [
+            *[service.definition for service in self._components.values()],
+            *[service.definition for service in self._template_components.values()],
+        ]
         names = [definition.template for definition in definitions if definition.template]
-        names.extend(page.template for page in self._pages.values() if page.template)
         for name in names:
             try:
                 self.templates.env.get_template(name)
             except TemplateNotFound:
                 diagnostics.append(Diagnostic("missing_template", f"Missing template: {name}"))
-        if strict and diagnostics:
-            raise ImproperlyConfigured("; ".join(item.message for item in diagnostics))
+        errors = [item for item in diagnostics if item.code != "dynamic_template_reference"]
+        if strict and errors:
+            raise ImproperlyConfigured("; ".join(item.message for item in errors))
         return tuple(diagnostics)
 
     @asynccontextmanager

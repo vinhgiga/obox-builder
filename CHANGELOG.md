@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Replace `Page` with `AppConfig.routes` and template-owned component placement via
+  `component("package.module.Class")`.
+- Template component data routes now live under the owning app's UI prefix and
+  require `<app>.components.access`, the component permission, and source policy.
+- Route names use the `obox_route_<app>.<name>` namespace. Update reverse calls
+  that referenced `obox_page_*` names.
+
 ## 0.1.0 — redesign
 
 Obox restarts its public contract as a small subset of Django 5.2 LTS and

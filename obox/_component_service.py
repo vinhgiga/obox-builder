@@ -25,7 +25,6 @@ from obox._components import (
 from obox._context import Context
 from obox._exceptions import BuilderValidationError, NotAuthenticated, NotFound, PermissionDenied
 from obox._filters import FilterGroup, FilterTerm
-from obox._pages import Page
 from obox._query import CONTROLS, parse_terms
 from obox.contrib.analytics.filters import _filter_tree
 from obox.contrib.analytics.source import DataSource
@@ -40,7 +39,6 @@ class ComponentService:
     _prototype: Component
     dataset: DataSource | None
     spec: Any
-    page: Page | None = None
 
     @classmethod
     def bind(
@@ -50,7 +48,6 @@ class ComponentService:
         *,
         app_label: str,
         name: str | None = None,
-        page: Page | None = None,
         title: str | None = None,
         filters: Any = None,
     ) -> ComponentService:
@@ -93,11 +90,11 @@ class ComponentService:
             and type(component).get_data is Component.get_data
         ):
             raise ImproperlyConfigured("ApiOptions components require get_data.")
-        return cls(app, app_label, component.name, component, dataset, spec, page)
+        return cls(app, app_label, component.name, component, dataset, spec)
 
     @property
     def identity(self) -> str:
-        return f"{self.app_label}.{self.page.name + '.' if self.page else ''}{self.name}"
+        return f"{self.app_label}.{self.name}"
 
     @property
     def definition(self) -> Component:
@@ -127,8 +124,6 @@ class ComponentService:
         actor = ctx.principal
         if not getattr(actor, "is_authenticated", False) or not getattr(actor, "is_active", False):
             raise NotAuthenticated("Authentication is required.")
-        if self.page is not None and not self.page.permitted(actor):
-            raise PermissionDenied("This page is not permitted.")
         definition = self._prototype
         for permission in (
             definition.permission,

@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  obox-builder\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-11-23 15:01+0700\n"
+"POT-Creation-Date: 2026-11-23 17:49+0700\n"
 "PO-Revision-Date: 2026-10-31 20:45+0700\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: vi\n"
@@ -18,79 +18,95 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 2.18.0\n"
 
-#: obox/_navigation.py:88
-msgid "Home"
-msgstr "Trang chủ"
-
-#: obox/_navigation.py:120 obox/templates/obox/app_index.html:5
-msgid "Applications"
-msgstr "Ứng dụng"
-
-#: obox/_routes.py:255
-msgid "msg"
-msgstr ""
-
-#: obox/_routes.py:267
-msgid "Internal server error.Invalid input."
-msgstr ""
-
-#: obox/contrib/analytics/routes.py:200
+#: obox/_component_ui.py:273
 msgid "Empty"
 msgstr "Trống"
 
-#: obox/contrib/analytics/routes.py:201
+#: obox/_component_ui.py:274
 msgid "Total"
 msgstr "Tổng"
 
-#: obox/contrib/analytics/routes.py:202
+#: obox/_component_ui.py:275
 msgid "Loading…"
 msgstr "Đang tải…"
 
-#: obox/contrib/analytics/routes.py:203
+#: obox/_component_ui.py:276
 #: obox/contrib/analytics/templates/obox_analytics/records.html:21
 msgid "No records found."
 msgstr "Không có bản ghi."
 
-#: obox/contrib/analytics/routes.py:204
+#: obox/_component_ui.py:277
 msgid "Unable to load data. Try again."
 msgstr "Không thể tải dữ liệu. Vui lòng thử lại."
 
-#: obox/contrib/analytics/routes.py:205
+#: obox/_component_ui.py:278
 msgid "Value"
 msgstr "Giá trị"
 
-#: obox/contrib/analytics/routes.py:206
+#: obox/_component_ui.py:279
 msgid "Series"
 msgstr "Chuỗi dữ liệu"
 
-#: obox/contrib/analytics/routes.py:207
+#: obox/_component_ui.py:280
 #: obox/contrib/analytics/templates/obox_analytics/records.html:10
 msgid "View records"
 msgstr "Xem bản ghi"
 
-#: obox/contrib/analytics/routes.py:208
+#: obox/_component_ui.py:281
 msgid "Chart options"
 msgstr "Tùy chọn biểu đồ"
 
-#: obox/contrib/analytics/routes.py:209
+#: obox/_component_ui.py:282
 msgid "View as table"
 msgstr "Xem dạng bảng"
 
-#: obox/contrib/analytics/routes.py:210
+#: obox/_component_ui.py:283
 msgid "View as chart"
 msgstr "Xem dạng biểu đồ"
 
-#: obox/contrib/analytics/routes.py:211
+#: obox/_component_ui.py:284
 msgid "Expand"
 msgstr "Mở rộng"
 
-#: obox/contrib/analytics/routes.py:212
+#: obox/_component_ui.py:285
 msgid "Close"
 msgstr "Đóng"
 
-#: obox/contrib/analytics/routes.py:213
+#: obox/_component_ui.py:286
 msgid "All records"
 msgstr "Tất cả bản ghi"
+
+#: obox/_navigation.py:90
+msgid "Home"
+msgstr "Trang chủ"
+
+#: obox/_navigation.py:122 obox/templates/obox/app_index.html:5
+msgid "Applications"
+msgstr "Ứng dụng"
+
+#: obox/_routes.py:267
+msgid "msg"
+msgstr ""
+
+#: obox/_routes.py:279
+msgid "Internal server error.Invalid input."
+msgstr ""
+
+#: obox/contrib/analytics/templates/obox_analytics/components.html:81
+msgid "Search"
+msgstr "Tìm kiếm"
+
+#: obox/contrib/analytics/templates/obox_analytics/components.html:98
+msgid "Filter"
+msgstr "Lọc"
+
+#: obox/contrib/analytics/templates/obox_analytics/components.html:109
+msgid "Apply filters"
+msgstr "Áp dụng bộ lọc"
+
+#: obox/contrib/analytics/templates/obox_analytics/components.html:112
+msgid "Reset"
+msgstr "Đặt lại"
 
 #: obox/contrib/analytics/templates/obox_analytics/records.html:3
 msgid "Back"
@@ -442,8 +458,8 @@ msgstr "Không có tài nguyên nào cho tài khoản của bạn."
 msgid "Data"
 msgstr "Dữ liệu"
 
-#: obox/templates/obox/app_index.html:11 obox/templates/obox/base.html:103
-#: obox/templates/obox/base.html:118
+#: obox/templates/obox/app_index.html:11 obox/templates/obox/base.html:109
+#: obox/templates/obox/base.html:124
 msgid "Resources"
 msgstr "Tài nguyên"
 
@@ -455,45 +471,29 @@ msgstr "Thêm mới"
 msgid "No resources available."
 msgstr "Không có tài nguyên khả dụng."
 
-#: obox/templates/obox/base.html:22
+#: obox/templates/obox/base.html:28
 msgid "Skip to content"
 msgstr "Bỏ qua nội dung"
 
-#: obox/templates/obox/base.html:53
+#: obox/templates/obox/base.html:59
 msgid "Sign out"
 msgstr "Đăng xuất"
 
-#: obox/templates/obox/base.html:58
+#: obox/templates/obox/base.html:64
 msgid "Language"
 msgstr "Ngôn ngữ"
 
-#: obox/templates/obox/base.html:75 obox/templates/obox/base.html:76
+#: obox/templates/obox/base.html:81 obox/templates/obox/base.html:82
 msgid "Browse tabs"
 msgstr "Danh sách tab"
 
-#: obox/templates/obox/base.html:98 obox/templates/obox/base.html:99
+#: obox/templates/obox/base.html:104 obox/templates/obox/base.html:105
 msgid "Search tabs"
 msgstr "Tìm tab"
 
-#: obox/templates/obox/base.html:114
+#: obox/templates/obox/base.html:120
 msgid "No tabs match your search."
 msgstr "Không tìm thấy tab phù hợp."
-
-#: obox/templates/obox/components.html:26
-msgid "Search"
-msgstr "Tìm kiếm"
-
-#: obox/templates/obox/components.html:43
-msgid "Filter"
-msgstr "Lọc"
-
-#: obox/templates/obox/components.html:54
-msgid "Apply filters"
-msgstr "Áp dụng bộ lọc"
-
-#: obox/templates/obox/components.html:57
-msgid "Reset"
-msgstr "Đặt lại"
 
 #: obox/templates/obox/index.html:11
 msgid "No applications available."

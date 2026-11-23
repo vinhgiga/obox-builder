@@ -20,11 +20,11 @@ if TYPE_CHECKING:
     from obox._components import Component
     from obox._config import RuntimeConfig
     from obox._context import Context
-    from obox._pages import Page
     from obox._registration import Registration
     from obox._runtime import _Runtime
     from obox.api import ModelApi
     from obox.resources import Resource
+    from obox.routes import Route
     from obox.views.generic import (
         CreateView,
         DeleteView,
@@ -48,7 +48,7 @@ class AppConfig:
     routers: Sequence[APIRouter] = ()
     requires: Sequence[str] = ()
     components: Sequence[type[Component] | Component] = ()
-    pages: Sequence[Page] = ()
+    routes: Sequence[Route] = ()
     tab_bar_color = "#f3f4f6"
     ui_prefix: str | None = None
     view_prefix: str | None = None
@@ -72,7 +72,7 @@ class AppConfig:
         self.routers = tuple(self.routers)
         self.requires = tuple(self.requires)
         self.components = tuple(self.components)
-        self.pages = tuple(self.pages)
+        self.routes = tuple(self.routes)
         self.models_module: ModuleType | None = None
         self.models: dict[str, type[Any]] = {}
         self.apps: Apps

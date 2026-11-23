@@ -5,7 +5,6 @@ from __future__ import annotations
 import re
 from collections.abc import Awaitable, Mapping
 from copy import deepcopy
-from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from pydantic import Field, JsonValue, PrivateAttr, StrictStr
@@ -185,20 +184,6 @@ def fixed_filters(value: FilterGroup | Mapping[str, Any]) -> FilterGroup:
     except (OboxError, TypeError, ValueError, RecursionError) as exc:
         raise ImproperlyConfigured("Invalid fixed component filters.") from exc
     return deepcopy(value)
-
-
-@dataclass(frozen=True)
-class Use:
-    component: type[Component] | Component
-    key: str
-    title: str | None = None
-    filters: FilterGroup | Mapping[str, Any] = field(default_factory=FilterGroup)
-
-    def __post_init__(self) -> None:
-        component_name(self.key)
-        if self.title is not None and (not isinstance(self.title, str) or not self.title.strip()):
-            raise ImproperlyConfigured("Placement titles must be nonempty strings.")
-        object.__setattr__(self, "filters", fixed_filters(self.filters))
 
 
 def validate_component(component: Component) -> None:

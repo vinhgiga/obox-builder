@@ -24,4 +24,5 @@ def build_runtime(
         runtime._activate(feature)
     runtime._loading_apps = False
     runtime._finish_apps()
+    runtime._bind_templates()
     return runtime

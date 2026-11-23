@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -13,24 +15,26 @@ from obox._auth import Principal
 from obox._config import RuntimeConfig
 from obox._context import Context
 from obox._dependencies import api_context
-from obox._pages import Page
 from obox.apps import AppConfig
 from obox.contrib.auth import Auth
 from obox.core.exceptions import ImproperlyConfigured
+from obox.routes import Route
+from obox.views.generic import TemplateView
 
 from tests.runtime import build_runtime
 
 
+class ContextView(TemplateView):
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        return {**super().get_context_data(**kwargs), "value": "allowed"}
+
+
 @pytest.fixture
 def configs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[AppConfig, ...]:
-    package = f"page_apps_{uuid4().hex}"
+    package = f"route_apps_{uuid4().hex}"
     root = tmp_path / package
     root.mkdir()
     (root / "__init__.py").touch()
-    declarations = (
-        Page("t1", permission="custom_action1"),
-        Page("t2", permission="custom_action1"),
-    )
     monkeypatch.syspath_prepend(str(tmp_path))
     result = []
     for label in ("first", "second"):
@@ -39,23 +43,34 @@ def configs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[AppConfig,
         (directory / "__init__.py").touch()
         templates = directory / "templates" / label
         templates.mkdir(parents=True)
-        for name in ("t1", "t2", "open", "signed_in"):
+        for name in ("t1", "t2", "missing"):
             (templates / f"{name}.html").write_text("{{ title }}:{{ value }}")
         config = AppConfig(f"{package}.{label}", import_module(f"{package}.{label}"))
-        config.pages = declarations
+        config.routes = tuple(
+            Route(
+                f"/{name}",
+                f"{label}/{name}.html",
+                permission="custom_action1",
+                view=ContextView,
+            )
+            for name in ("t1", "t2")
+        )
         result.append(config)
     return tuple(result)
 
 
-def configured(configs: tuple[AppConfig, ...], actor: Any = None) -> RuntimeConfig:
+def configured(
+    configs: tuple[AppConfig, ...], actor: Any = None, *, template_dirs: tuple[Path, ...] = ()
+) -> RuntimeConfig:
     return RuntimeConfig(
         database_url="sqlite+aiosqlite://",
         principal_dependency=actor or (lambda: Principal()),
         csrf_secret="s" * 32,
+        template_dirs=template_dirs,
     )
 
 
-def test_permissions_bind_once_without_mutating_shared_declarations(
+def test_routes_bind_once_without_mutating_shared_declarations(
     configs: tuple[AppConfig, ...],
 ) -> None:
     first, second = (
@@ -63,14 +78,13 @@ def test_permissions_bind_once_without_mutating_shared_declarations(
     )
     for label in ("first", "second"):
         for name in ("t1", "t2"):
-            bound = first.pages[label, name]
+            bound = first.routes[label, name]
             assert bound.permission == f"{label}.pages.custom_action1"
             assert bound.path == f"/admin/{label}/{name}"
-            assert second.pages[label, name] is not bound
+            assert second.routes[label, name] is not bound
     assert set(first.permissions) == {"first.pages.custom_action1", "second.pages.custom_action1"}
-    assert configs[0].pages[0] is configs[1].pages[0]
-    assert configs[0].pages[0].permission == "custom_action1"
-    assert configs[0].pages[0].path is None
+    assert configs[0].routes[0].permission == "custom_action1"
+    assert configs[0].routes[0].path == "/t1"
 
 
 @pytest.mark.parametrize(
@@ -82,7 +96,8 @@ def test_permissions_bind_once_without_mutating_shared_declarations(
         (Principal(is_authenticated=True, permissions=frozenset({"custom_action1"})), 403),
         (
             Principal(
-                is_authenticated=True, permissions=frozenset({"second.pages.custom_action1"})
+                is_authenticated=True,
+                permissions=frozenset({"second.pages.custom_action1"}),
             ),
             403,
         ),
@@ -92,20 +107,9 @@ def test_permissions_bind_once_without_mutating_shared_declarations(
         ),
     ],
 )
-def test_short_permissions_enforce_exact_grants_before_running_context(
+def test_short_route_permissions_enforce_exact_grants(
     configs: tuple[AppConfig, ...], actor: Principal, status: int
 ) -> None:
-    calls = []
-
-    def context(request: Any, ctx: Context) -> dict[str, str]:
-        calls.append(ctx.principal)
-        return {"value": "allowed"}
-
-    configs[0].pages = (
-        Page("t1", permission="custom_action1", context=context),
-        Page("t2", permission="first.pages.custom_action1", context=context),
-    )
-
     async def scenario() -> None:
         app = FastAPI()
         build_runtime(app, configured(configs, lambda: actor), app_configs=configs)
@@ -120,36 +124,25 @@ def test_short_permissions_enforce_exact_grants_before_running_context(
                 assert response.status_code == status
                 if status == 200:
                     assert "allowed" in response.text
-            if actor.is_authenticated and actor.is_active:
-                catalog = await client.get("/admin")
-                assert ('href="/admin/first"' in catalog.text) == (status == 200)
-            assert len(calls) == (2 if status == 200 else 0)
 
     asyncio.run(scenario())
 
 
-def test_page_names_paths_and_templates_do_not_define_permissions(
+def test_route_name_path_and_template_do_not_define_permission(
     configs: tuple[AppConfig, ...],
 ) -> None:
-    configs[0].pages = (
-        Page("renamed", path="/reports", template="first/t1.html", permission="export"),
-    )
+    configs[0].routes = (Route("/reports", "first/t1.html", name="renamed", permission="export"),)
     obox = build_runtime(FastAPI(), configured(configs), app_configs=configs)
-    assert obox.pages["first", "renamed"].permission == "first.pages.export"
+    assert obox.routes["first", "renamed"].permission == "first.pages.export"
     obox.check(strict=True)
 
 
-def test_public_and_authenticated_pages(configs: tuple[AppConfig, ...]) -> None:
-    configs[0].pages = (Page("open", public=True), Page("signed_in"))
-    identities = {"principal": Principal()}
+def test_routes_without_permission_are_public(configs: tuple[AppConfig, ...]) -> None:
+    configs[0].routes = (Route("/open", "first/t1.html"),)
 
     async def scenario() -> None:
         app = FastAPI()
-        build_runtime(
-            app,
-            configured(configs, lambda: identities["principal"]),
-            app_configs=configs,
-        )
+        build_runtime(app, configured(configs), app_configs=configs)
         async with (
             app.router.lifespan_context(app),
             httpx.AsyncClient(
@@ -157,9 +150,6 @@ def test_public_and_authenticated_pages(configs: tuple[AppConfig, ...]) -> None:
             ) as client,
         ):
             assert (await client.get("/admin/first/open")).status_code == 200
-            assert (await client.get("/admin/first/signed_in")).status_code == 401
-            identities["principal"] = Principal(is_authenticated=True)
-            assert (await client.get("/admin/first/signed_in")).status_code == 200
 
     asyncio.run(scenario())
 
@@ -167,32 +157,47 @@ def test_public_and_authenticated_pages(configs: tuple[AppConfig, ...]) -> None:
 @pytest.mark.parametrize(
     "permission", ["", "_private", "two..parts", "a.b.c.d", " leading", "a-b", 42]
 )
-def test_invalid_permission_declarations_fail(permission: Any) -> None:
+def test_invalid_route_permissions_fail(permission: Any) -> None:
     with pytest.raises(ImproperlyConfigured, match="permission"):
-        Page("report", permission=permission)
+        Route("/report", "report.html", permission=permission)
 
 
-def test_public_pages_cannot_require_permissions() -> None:
-    with pytest.raises(ImproperlyConfigured, match="Public pages"):
-        Page("report", public=True, permission="export")
+@pytest.mark.parametrize("path", ["report", "/", "/bad/", "/a//b", "/../secret", "/a/{id}"])
+def test_invalid_route_paths_fail(path: str) -> None:
+    with pytest.raises(ImproperlyConfigured, match="path"):
+        Route(path, "report.html")
 
 
-def test_missing_template_fails_before_opening_database(
-    configs: tuple[AppConfig, ...],
-) -> None:
-    configs[0].pages = (Page("missing"),)
+def test_missing_template_fails_before_opening_database(configs: tuple[AppConfig, ...]) -> None:
+    configs[0].routes = (Route("/missing", "first/absent.html"),)
     obox = build_runtime(FastAPI(), configured(configs), app_configs=configs)
-    with pytest.raises(ImproperlyConfigured, match="missing"):
+    with pytest.raises(ImproperlyConfigured, match=r"first/absent\.html"):
         obox.check(strict=True)
     assert obox.database.engine is None
 
 
-@pytest.mark.parametrize("field", ["routers"])
-def test_invalid_router_configuration_is_rejected(
+def test_dynamic_template_reference_is_diagnostic_not_a_startup_error(
+    configs: tuple[AppConfig, ...],
+) -> None:
+    templates = Path(configs[0].path) / "templates" / "first"
+    (templates / "dynamic.html").write_text("{% include selected_template %}")
+    configs[0].routes = (Route("/dynamic", "first/dynamic.html"),)
+    obox = build_runtime(FastAPI(), configured(configs), app_configs=configs)
+    diagnostics = obox.check(strict=True)
+    assert any(item.code == "dynamic_template_reference" for item in diagnostics)
+
+
+def test_invalid_route_view_is_rejected() -> None:
+    with pytest.raises(ImproperlyConfigured, match="TemplateView"):
+        Route("/report", "report.html", view=object)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("field", ["routers", "routes"])
+def test_invalid_app_route_configuration_is_rejected(
     configs: tuple[AppConfig, ...], field: str
 ) -> None:
-    setattr(configs[0], field, (object(),) if field == "routers" else APIRouter())
-    with pytest.raises(ImproperlyConfigured, match="routers"):
+    setattr(configs[0], field, (object(),))
+    with pytest.raises(ImproperlyConfigured, match=field):
         build_runtime(FastAPI(), configured(configs), app_configs=configs)
 
 

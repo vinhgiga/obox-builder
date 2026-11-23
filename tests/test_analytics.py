@@ -3,12 +3,14 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime
 from decimal import Decimal, localcontext
 from importlib import import_module
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 from uuid import uuid4
 
@@ -20,7 +22,6 @@ from obox._auth import Principal, ScopedIdentity
 from obox._config import RuntimeConfig
 from obox._context import Context
 from obox._filters import FilterGroup, FilterTerm
-from obox._pages import Page
 from obox._runtime import _Runtime
 from obox.apps import AppConfig
 from obox.contrib.analytics import (
@@ -40,6 +41,7 @@ from obox.contrib.analytics import (
 )
 from obox.contrib.analytics.aggregates import Aggregation, Measure
 from obox.core.exceptions import ImproperlyConfigured
+from obox.routes import Route
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -183,6 +185,7 @@ async def application(
         async with engine.begin() as conn:
             await conn.execute(sa.schema.CreateSchema(namespace))
         engine = engine.execution_options(schema_translate_map={None: namespace})
+    widget_module_name = f"analytics_widgets_{uuid4().hex}"
     try:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
@@ -220,14 +223,29 @@ async def application(
             value.filter_fields = ("distributor", "region", "amount", "occurred_on", "active")
             bound.append(value)
         widgets = tuple(bound)
+        widget_module = ModuleType(widget_module_name)
+        for widget in widgets:
+            setattr(widget_module, widget.name, widget)
+        sys.modules[widget_module_name] = widget_module
+        templates = path / "templates" / "admin"
+        templates.mkdir(parents=True, exist_ok=True)
+        source = (
+            "{% extends base_template %}{% block content %}"
+            + "".join(
+                f"{{{{ component('{widget_module_name}.{widget.name}') }}}}" for widget in widgets
+            )
+            + "{% endblock %}"
+        )
+        (templates / "report.html").write_text(source)
         config = AppConfig("obox", import_module("obox"))
         config.label = "admin"
         config.components = widgets
-        config.pages = (Page("report", title="Sales <report>", components=(widgets,)),)
+        config.routes = (Route("/report", "admin/report.html", title="Sales <report>"),)
         settings = RuntimeConfig(
             session_factory=async_sessionmaker(engine, expire_on_commit=False),
             principal_dependency=lambda: STAFF,
             csrf_secret="a" * 32,
+            template_dirs=(path / "templates",),
         )
         app = build_runtime(
             FastAPI(), settings, app_configs=(config,), features=(Analytics(**limits),)
@@ -267,6 +285,7 @@ async def application(
             ) as client:
                 yield (app, client, policy)
     finally:
+        sys.modules.pop(widget_module_name, None)
         if namespace:
             async with engine.begin() as conn:
                 await conn.execute(sa.schema.DropSchema(namespace, cascade=True))
@@ -354,13 +373,13 @@ def test_filters_weighted_average_empty_and_null(tmp_path: Path) -> None:
                 assert null.total is None
                 assert null.records == 1
             response = await client.get(
-                "/admin/admin/report/_components/fixed/data",
+                "/admin/admin/_components/fixed/data",
                 params={"fixed.filter.distributor": "A"},
             )
             assert response.json()["total"] == 2
             assert (
                 await client.get(
-                    "/admin/admin/report/_components/fixed/data",
+                    "/admin/admin/_components/fixed/data",
                     params={"fixed.filter.region": "West"},
                 )
             ).json()["records"] == 0
@@ -383,66 +402,61 @@ def test_http_page_data_records_and_permissions(tmp_path: Path) -> None:
             assert page.text.count('data-widget-view="table"') == 6
             assert "View as table" in page.text
             assert "View as chart" in page.text
+            head_end = page.text.index("</head>")
+            body_end = page.text.index("</body>")
+            assert page.text.index("analytics.css") < head_end
+            assert page.text.index("chart.umd.js") < head_end
+            assert head_end < page.text.index("analytics.js") < body_end
             localized = await client.get("/vi/admin/admin/report")
             assert localized.status_code == 200
-            assert 'data-url="/vi/admin/admin/report/_components/pivot/data"' in localized.text
+            assert 'data-url="/vi/admin/admin/_components/pivot/data"' in localized.text
             assert "Áp dụng bộ lọc" in localized.text
             assert "Xem dạng bảng" in localized.text
             assert "Xem dạng biểu đồ" in localized.text
             assert "Mở rộng" in localized.text
-            localized_data = await client.get("/vi/admin/admin/report/_components/pivot/data")
+            localized_data = await client.get("/vi/admin/admin/_components/pivot/data")
             assert localized_data.status_code == 200, localized_data.text
             assert localized_data.headers["content-language"] == "vi"
             for file in ("analytics.js", "analytics.css", "chart.umd.js", "http.js"):
                 assert (await client.get("/admin/_components/static/" + file)).status_code == 200
-            response = await client.get("/admin/admin/report/_components/pivot/data")
+            response = await client.get("/admin/admin/_components/pivot/data")
             assert response.status_code == 200, response.text
             assert response.headers["cache-control"] == "private, no-store"
             assert response.json()["total"] == "85.00"
             assert "SECRET" not in response.text
             rows = await client.get(
-                "/admin/admin/report/_components/pivot/records",
+                "/admin/admin/_components/pivot/records",
                 params={"row": '"A"', "column": '"East"', "limit": 1},
             )
             assert rows.status_code == 200, rows.text
             assert "Next" in rows.text
             assert "10.00" in rows.text
             null = await client.get(
-                "/admin/admin/report/_components/pivot/records", params={"row": "null"}
+                "/admin/admin/_components/pivot/records", params={"row": "null"}
             )
-            blank = await client.get(
-                "/admin/admin/report/_components/pivot/records", params={"row": '""'}
-            )
+            blank = await client.get("/admin/admin/_components/pivot/records", params={"row": '""'})
             assert "0.00" in null.text
             assert "-5.00" not in null.text
             assert "-5.00" in blank.text
             denied = await client.get(
-                "/admin/admin/report/_components/pivot/records", params={"row": '"B"'}
+                "/admin/admin/_components/pivot/records", params={"row": '"B"'}
             )
             assert denied.status_code == 200
             assert "/admin/admin/sales/4" not in denied.text
-            negative = await client.get("/admin/admin/report/_components/pie/data")
+            negative = await client.get("/admin/admin/_components/pie/data")
             assert negative.status_code == 422
             assert negative.json()["code"] == "negative_chart"
             assert negative.headers["cache-control"] == "private, no-store"
             policy.granted = False
-            assert (
-                await client.get("/admin/admin/report/_components/pivot/data")
-            ).status_code == 403
-            assert (
-                await client.get("/admin/admin/report/_components/pivot/records")
-            ).status_code == 403
+            assert (await client.get("/admin/admin/_components/pivot/data")).status_code == 403
+            assert (await client.get("/admin/admin/_components/pivot/records")).status_code == 403
             policy.granted, policy.hidden = (True, True)
-            assert (
-                await client.get("/admin/admin/report/_components/pivot/data")
-            ).status_code == 403
+            assert (await client.get("/admin/admin/_components/pivot/data")).status_code == 403
             policy.hidden = False
             dependency = app.settings.principal_dependency
             assert dependency is not None
             app.app.dependency_overrides[dependency] = lambda: Principal()
-            assert (
-                await client.get("/admin/admin/report/_components/pivot/data")
-            ).status_code == 401
+            assert (await client.get("/admin/admin/_components/pivot/data")).status_code == 401
 
     asyncio.run(scenario())
 
@@ -465,7 +479,7 @@ def test_rejects_invalid_queries(tmp_path: Path, params: Any) -> None:
     async def scenario() -> None:
         async with application(tmp_path) as (_, client, _):
             response = await client.get(
-                "/admin/admin/report/_components/pivot/data",
+                "/admin/admin/_components/pivot/data",
                 params={
                     key if key in {"row", "column", "offset", "limit"} else "pivot." + key: value
                     for key, value in params.items()
@@ -485,7 +499,7 @@ def test_rejects_invalid_record_queries(tmp_path: Path, params: Any) -> None:
     async def scenario() -> None:
         async with application(tmp_path) as (_, client, _):
             assert (
-                await client.get("/admin/admin/report/_components/pivot/records", params=params)
+                await client.get("/admin/admin/_components/pivot/records", params=params)
             ).status_code == 422
 
     asyncio.run(scenario())
@@ -512,7 +526,7 @@ def test_group_limits_do_not_return_partial_totals(tmp_path: Path, limits: Any) 
                 if "max_pie_groups" in limits
                 else "pivot"
             )
-            response = await client.get(f"/admin/admin/report/_components/{widget}/data")
+            response = await client.get(f"/admin/admin/_components/{widget}/data")
             assert response.status_code == 422
             assert response.json()["code"] == "aggregate_limit"
 
@@ -527,12 +541,10 @@ def test_boundaries_sorting_keys_and_masking(tmp_path: Path) -> None:
             client,
             policy,
         ):
-            assert (
-                await client.get("/admin/admin/report/_components/pivot/data")
-            ).status_code == 200
+            assert (await client.get("/admin/admin/_components/pivot/data")).status_code == 200
             assert (
                 await client.get(
-                    "/admin/admin/report/_components/pivot/data?pivot.search=A&pivot.search=B"
+                    "/admin/admin/_components/pivot/data?pivot.search=A&pivot.search=B"
                 )
             ).status_code == 422
             async with app.uow(principal=STAFF) as ctx:
@@ -553,17 +565,15 @@ def test_boundaries_sorting_keys_and_masking(tmp_path: Path) -> None:
                 obj.quantity = 9
                 obj.distributor = '<img src=x onerror="alert(1)">'
             response = await client.get(
-                "/admin/admin/report/_components/pivot/records",
+                "/admin/admin/_components/pivot/records",
                 params={"row": json.dumps('<img src=x onerror="alert(1)">')},
             )
             assert "&lt;img" in response.text
             assert "<img src=x" not in response.text
             assert "10.00" not in response.text
             policy.joined = True
-            first = await client.get("/admin/admin/report/_components/pivot/records?limit=2")
-            second = await client.get(
-                "/admin/admin/report/_components/pivot/records?limit=2&offset=2"
-            )
+            first = await client.get("/admin/admin/_components/pivot/records?limit=2")
+            second = await client.get("/admin/admin/_components/pivot/records?limit=2&offset=2")
             assert first.status_code == second.status_code == 200
             assert "10.00" in first.text
             assert "40.00" in second.text
@@ -607,12 +617,12 @@ def test_datetime_keys_account_and_api_field_scope(tmp_path: Path) -> None:
 
     async def scenario() -> None:
         async with application(tmp_path) as (app, client, policy):
-            response = await client.get("/admin/admin/report/_components/moment/data")
+            response = await client.get("/admin/admin/_components/moment/data")
             assert response.status_code == 200, response.text
             key = response.json()["categories"][0]
             assert key.endswith(("Z", "+00:00"))
             records = await client.get(
-                "/admin/admin/report/_components/moment/records",
+                "/admin/admin/_components/moment/records",
                 params={"selector": response.json()["series"][0]["points"][0]["selector"]},
             )
             assert records.status_code == 200, records.text
@@ -622,19 +632,15 @@ def test_datetime_keys_account_and_api_field_scope(tmp_path: Path) -> None:
             app.app.dependency_overrides[dependency] = lambda: Principal(
                 id=2, is_authenticated=True, is_superuser=True
             )
-            assert (await client.get("/admin/admin/report/_components/pivot/data")).json()[
+            assert (await client.get("/admin/admin/_components/pivot/data")).json()[
                 "total"
             ] == "999.00"
             policy.hidden = True
             app.app.dependency_overrides[dependency] = lambda: ScopedIdentity(
                 STAFF, frozenset({"admin.sales.list"})
             )
-            assert (
-                await client.get("/admin/admin/report/_components/pivot/data")
-            ).status_code == 403
-            assert (
-                await client.get("/admin/admin/report/_components/pivot/records")
-            ).status_code == 403
+            assert (await client.get("/admin/admin/_components/pivot/data")).status_code == 403
+            assert (await client.get("/admin/admin/_components/pivot/records")).status_code == 403
 
     asyncio.run(scenario())
 
@@ -665,7 +671,7 @@ def test_reference_component_totals_match_all_widgets(tmp_path: Path) -> None:
                     ]
                 )
             for widget in ("pivot", "bar", "region", "pie", "donut"):
-                response = await client.get(f"/admin/admin/report/_components/{widget}/data")
+                response = await client.get(f"/admin/admin/_components/{widget}/data")
                 assert response.status_code == 200, response.text
                 data = response.json()
                 assert data["records"] == 12
@@ -688,15 +694,15 @@ def test_postgres_timeout_rolls_back_and_connection_recovers(tmp_path: Path) -> 
     async def scenario() -> None:
         async with application(tmp_path, timeout_ms=20) as (_, client, policy):
             policy.slow = True
-            response = await client.get("/admin/admin/report/_components/pivot/data")
+            response = await client.get("/admin/admin/_components/pivot/data")
             assert response.status_code == 503, response.text
             assert response.json()["code"] == "aggregate_timeout"
             assert response.headers["cache-control"] == "private, no-store"
             policy.slow = False
-            response = await client.get("/admin/admin/report/_components/pivot/data")
+            response = await client.get("/admin/admin/_components/pivot/data")
             assert response.status_code == 200, response.text
             assert response.json()["total"] == "85.00"
-            response = await client.get("/admin/admin/report/_components/pivot/records")
+            response = await client.get("/admin/admin/_components/pivot/records")
             assert response.status_code == 200
 
     asyncio.run(scenario())
@@ -748,7 +754,7 @@ def test_chart_json_axes_and_widget_keys(tmp_path: Path) -> None:
         async with application(tmp_path, widgets=(chart,)) as (_, client, _):
             manifest = await client.get("/api/admin/components:describe")
             assert manifest.json()["components"][0]["name"] == "userKey"
-            response = await client.get("/admin/admin/report/_components/userKey/data")
+            response = await client.get("/admin/admin/_components/userKey/data")
             assert response.status_code == 200, response.text
             data = response.json()
             assert data["config"]["primaryAxis"]["minimum"] == -10
@@ -808,7 +814,7 @@ def test_multidimensional_sql_pivot_and_drill_match_scoped_source(tmp_path: Path
                 await ctx.session.flush()
                 ctx.session.add_all([Duplicate(sale_id=9), Duplicate(sale_id=10)])
 
-            response = await client.get("/admin/admin/report/_components/multi/data")
+            response = await client.get("/admin/admin/_components/multi/data")
             assert response.status_code == 200, response.text
             data = response.json()
             assert data["rowFields"] == ["distributor", "region"]
@@ -835,7 +841,7 @@ def test_multidimensional_sql_pivot_and_drill_match_scoped_source(tmp_path: Path
             assert data["cells"][row][column] == [1, 1, 1, 0, "5.00", "5.00", "5.00", "5.00"]
 
             records = await client.get(
-                "/admin/admin/report/_components/multi/records",
+                "/admin/admin/_components/multi/records",
                 params={
                     "row": json.dumps([["str", "C"], ["str", "North"]]),
                     "column": json.dumps([["bool", False], ["date", "2026-02-01"]]),
@@ -845,12 +851,12 @@ def test_multidimensional_sql_pivot_and_drill_match_scoped_source(tmp_path: Path
             assert "5.00" in records.text
             assert "South" not in records.text
             invalid = await client.get(
-                "/admin/admin/report/_components/multi/records", params={"row": "{}"}
+                "/admin/admin/_components/multi/records", params={"row": "{}"}
             )
             assert invalid.status_code == 422
 
             empty = await client.get(
-                "/admin/admin/report/_components/multi/data",
+                "/admin/admin/_components/multi/data",
                 params={"multi.search": "no matching row"},
             )
             assert empty.status_code == 200, empty.text
@@ -859,7 +865,7 @@ def test_multidimensional_sql_pivot_and_drill_match_scoped_source(tmp_path: Path
             assert empty.json()["total"] == [None] * len(data["values"])
 
             policy.joined = True
-            joined = await client.get("/admin/admin/report/_components/multi/data")
+            joined = await client.get("/admin/admin/_components/multi/data")
             assert joined.json() == data
             assert "SECRET" not in joined.text
 
@@ -876,7 +882,7 @@ def test_sql_pivot_without_dimensions_returns_one_grand_total(tmp_path: Path) ->
 
     async def scenario() -> None:
         async with application(tmp_path, widgets=(widget,)) as (_, client, _):
-            response = await client.get("/admin/admin/report/_components/summary/data")
+            response = await client.get("/admin/admin/_components/summary/data")
             assert response.status_code == 200, response.text
             data = response.json()
             assert data["rowFields"] == []
@@ -923,7 +929,7 @@ def test_registered_memory_pivot_supports_filters_search_and_matrix_api(tmp_path
 
     async def scenario() -> None:
         async with application(tmp_path, widgets=(widget,)) as (_, client, _):
-            response = await client.get("/admin/admin/report/_components/memory/data")
+            response = await client.get("/admin/admin/_components/memory/data")
             assert response.status_code == 200, response.text
             data = response.json()
             assert data["rowFields"] == ["distributor", "region"]
@@ -932,7 +938,7 @@ def test_registered_memory_pivot_supports_filters_search_and_matrix_api(tmp_path
             assert data["total"] == [3, 30]
 
             filtered = await client.get(
-                "/admin/admin/report/_components/memory/data",
+                "/admin/admin/_components/memory/data",
                 params={"memory.filter.region": "East"},
             )
             assert filtered.status_code == 200, filtered.text
@@ -940,7 +946,7 @@ def test_registered_memory_pivot_supports_filters_search_and_matrix_api(tmp_path
             assert filtered.json()["total"] == [2, 10]
 
             searched = await client.get(
-                "/admin/admin/report/_components/memory/data",
+                "/admin/admin/_components/memory/data",
                 params={"memory.search": "West"},
             )
             assert searched.status_code == 200, searched.text

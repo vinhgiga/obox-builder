@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-11-23 15:01+0700\n"
+"POT-Creation-Date: 2026-11-23 17:49+0700\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -17,78 +17,94 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 2.18.0\n"
 
-#: obox/_navigation.py:88
-msgid "Home"
-msgstr ""
-
-#: obox/_navigation.py:120 obox/templates/obox/app_index.html:5
-msgid "Applications"
-msgstr ""
-
-#: obox/_routes.py:255
-msgid "msg"
-msgstr ""
-
-#: obox/_routes.py:267
-msgid "Internal server error.Invalid input."
-msgstr ""
-
-#: obox/contrib/analytics/routes.py:200
+#: obox/_component_ui.py:273
 msgid "Empty"
 msgstr ""
 
-#: obox/contrib/analytics/routes.py:201
+#: obox/_component_ui.py:274
 msgid "Total"
 msgstr ""
 
-#: obox/contrib/analytics/routes.py:202
+#: obox/_component_ui.py:275
 msgid "Loading…"
 msgstr ""
 
-#: obox/contrib/analytics/routes.py:203
+#: obox/_component_ui.py:276
 #: obox/contrib/analytics/templates/obox_analytics/records.html:21
 msgid "No records found."
 msgstr ""
 
-#: obox/contrib/analytics/routes.py:204
+#: obox/_component_ui.py:277
 msgid "Unable to load data. Try again."
 msgstr ""
 
-#: obox/contrib/analytics/routes.py:205
+#: obox/_component_ui.py:278
 msgid "Value"
 msgstr ""
 
-#: obox/contrib/analytics/routes.py:206
+#: obox/_component_ui.py:279
 msgid "Series"
 msgstr ""
 
-#: obox/contrib/analytics/routes.py:207
+#: obox/_component_ui.py:280
 #: obox/contrib/analytics/templates/obox_analytics/records.html:10
 msgid "View records"
 msgstr ""
 
-#: obox/contrib/analytics/routes.py:208
+#: obox/_component_ui.py:281
 msgid "Chart options"
 msgstr ""
 
-#: obox/contrib/analytics/routes.py:209
+#: obox/_component_ui.py:282
 msgid "View as table"
 msgstr ""
 
-#: obox/contrib/analytics/routes.py:210
+#: obox/_component_ui.py:283
 msgid "View as chart"
 msgstr ""
 
-#: obox/contrib/analytics/routes.py:211
+#: obox/_component_ui.py:284
 msgid "Expand"
 msgstr ""
 
-#: obox/contrib/analytics/routes.py:212
+#: obox/_component_ui.py:285
 msgid "Close"
 msgstr ""
 
-#: obox/contrib/analytics/routes.py:213
+#: obox/_component_ui.py:286
 msgid "All records"
+msgstr ""
+
+#: obox/_navigation.py:90
+msgid "Home"
+msgstr ""
+
+#: obox/_navigation.py:122 obox/templates/obox/app_index.html:5
+msgid "Applications"
+msgstr ""
+
+#: obox/_routes.py:267
+msgid "msg"
+msgstr ""
+
+#: obox/_routes.py:279
+msgid "Internal server error.Invalid input."
+msgstr ""
+
+#: obox/contrib/analytics/templates/obox_analytics/components.html:81
+msgid "Search"
+msgstr ""
+
+#: obox/contrib/analytics/templates/obox_analytics/components.html:98
+msgid "Filter"
+msgstr ""
+
+#: obox/contrib/analytics/templates/obox_analytics/components.html:109
+msgid "Apply filters"
+msgstr ""
+
+#: obox/contrib/analytics/templates/obox_analytics/components.html:112
+msgid "Reset"
 msgstr ""
 
 #: obox/contrib/analytics/templates/obox_analytics/records.html:3
@@ -441,8 +457,8 @@ msgstr ""
 msgid "Data"
 msgstr ""
 
-#: obox/templates/obox/app_index.html:11 obox/templates/obox/base.html:103
-#: obox/templates/obox/base.html:118
+#: obox/templates/obox/app_index.html:11 obox/templates/obox/base.html:109
+#: obox/templates/obox/base.html:124
 msgid "Resources"
 msgstr ""
 
@@ -454,44 +470,28 @@ msgstr ""
 msgid "No resources available."
 msgstr ""
 
-#: obox/templates/obox/base.html:22
+#: obox/templates/obox/base.html:28
 msgid "Skip to content"
 msgstr ""
 
-#: obox/templates/obox/base.html:53
+#: obox/templates/obox/base.html:59
 msgid "Sign out"
 msgstr ""
 
-#: obox/templates/obox/base.html:58
+#: obox/templates/obox/base.html:64
 msgid "Language"
 msgstr ""
 
-#: obox/templates/obox/base.html:75 obox/templates/obox/base.html:76
+#: obox/templates/obox/base.html:81 obox/templates/obox/base.html:82
 msgid "Browse tabs"
 msgstr ""
 
-#: obox/templates/obox/base.html:98 obox/templates/obox/base.html:99
+#: obox/templates/obox/base.html:104 obox/templates/obox/base.html:105
 msgid "Search tabs"
 msgstr ""
 
-#: obox/templates/obox/base.html:114
+#: obox/templates/obox/base.html:120
 msgid "No tabs match your search."
-msgstr ""
-
-#: obox/templates/obox/components.html:26
-msgid "Search"
-msgstr ""
-
-#: obox/templates/obox/components.html:43
-msgid "Filter"
-msgstr ""
-
-#: obox/templates/obox/components.html:54
-msgid "Apply filters"
-msgstr ""
-
-#: obox/templates/obox/components.html:57
-msgid "Reset"
 msgstr ""
 
 #: obox/templates/obox/index.html:11

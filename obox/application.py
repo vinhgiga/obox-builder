@@ -53,6 +53,7 @@ class Obox:
             module, _, name = definition["BACKEND"].rpartition(".")
             backend = getattr(import_module(module), name)(definition)
             runtime.templates = Jinja2Templates(env=backend.env)
+        runtime._bind_templates()
         lifespan = app.router.lifespan_context
 
         @asynccontextmanager
