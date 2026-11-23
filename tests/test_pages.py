@@ -1,6 +1,7 @@
 import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from importlib import import_module
 from pathlib import Path
 from typing import Annotated, Any
 from uuid import uuid4
@@ -9,18 +10,19 @@ import httpx
 import pytest
 from fastapi import APIRouter, Depends, FastAPI
 from obox._auth import Principal
-from obox._catalog import CatalogConfig
 from obox._config import RuntimeConfig
 from obox._context import Context
 from obox._dependencies import api_context
 from obox._pages import Page
-from obox._runtime import _Runtime
+from obox.apps import AppConfig
 from obox.contrib.auth import Auth
 from obox.core.exceptions import ImproperlyConfigured
 
+from tests.runtime import build_runtime
+
 
 @pytest.fixture
-def configs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[type[CatalogConfig], ...]:
+def configs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[AppConfig, ...]:
     package = f"page_apps_{uuid4().hex}"
     root = tmp_path / package
     root.mkdir()
@@ -29,6 +31,7 @@ def configs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[type[Catal
         Page("t1", permission="custom_action1"),
         Page("t2", permission="custom_action1"),
     )
+    monkeypatch.syspath_prepend(str(tmp_path))
     result = []
     for label in ("first", "second"):
         directory = root / label
@@ -38,30 +41,26 @@ def configs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[type[Catal
         templates.mkdir(parents=True)
         for name in ("t1", "t2", "open", "signed_in"):
             (templates / f"{name}.html").write_text("{{ title }}:{{ value }}")
-        result.append(
-            type(
-                label.title(),
-                (CatalogConfig,),
-                {"name": f"{package}.{label}", "pages": declarations},
-            )
-        )
-    monkeypatch.syspath_prepend(str(tmp_path))
+        config = AppConfig(f"{package}.{label}", import_module(f"{package}.{label}"))
+        config.pages = declarations
+        result.append(config)
     return tuple(result)
 
 
-def configured(configs: tuple[type[CatalogConfig], ...], actor: Any = None) -> RuntimeConfig:
+def configured(configs: tuple[AppConfig, ...], actor: Any = None) -> RuntimeConfig:
     return RuntimeConfig(
         database_url="sqlite+aiosqlite://",
-        installed_apps=configs,
         principal_dependency=actor or (lambda: Principal()),
         csrf_secret="s" * 32,
     )
 
 
 def test_permissions_bind_once_without_mutating_shared_declarations(
-    configs: tuple[type[CatalogConfig], ...],
+    configs: tuple[AppConfig, ...],
 ) -> None:
-    first, second = (_Runtime(FastAPI(), settings=configured(configs)) for _ in range(2))
+    first, second = (
+        build_runtime(FastAPI(), configured(configs), app_configs=configs) for _ in range(2)
+    )
     for label in ("first", "second"):
         for name in ("t1", "t2"):
             bound = first.pages[label, name]
@@ -94,7 +93,7 @@ def test_permissions_bind_once_without_mutating_shared_declarations(
     ],
 )
 def test_short_permissions_enforce_exact_grants_before_running_context(
-    configs: tuple[type[CatalogConfig], ...], actor: Principal, status: int
+    configs: tuple[AppConfig, ...], actor: Principal, status: int
 ) -> None:
     calls = []
 
@@ -109,7 +108,7 @@ def test_short_permissions_enforce_exact_grants_before_running_context(
 
     async def scenario() -> None:
         app = FastAPI()
-        _Runtime(app, settings=configured(configs, lambda: actor))
+        build_runtime(app, configured(configs, lambda: actor), app_configs=configs)
         async with (
             app.router.lifespan_context(app),
             httpx.AsyncClient(
@@ -130,23 +129,27 @@ def test_short_permissions_enforce_exact_grants_before_running_context(
 
 
 def test_page_names_paths_and_templates_do_not_define_permissions(
-    configs: tuple[type[CatalogConfig], ...],
+    configs: tuple[AppConfig, ...],
 ) -> None:
     configs[0].pages = (
         Page("renamed", path="/reports", template="first/t1.html", permission="export"),
     )
-    obox = _Runtime(FastAPI(), settings=configured(configs))
+    obox = build_runtime(FastAPI(), configured(configs), app_configs=configs)
     assert obox.pages["first", "renamed"].permission == "first.pages.export"
     obox.check(strict=True)
 
 
-def test_public_and_authenticated_pages(configs: tuple[type[CatalogConfig], ...]) -> None:
+def test_public_and_authenticated_pages(configs: tuple[AppConfig, ...]) -> None:
     configs[0].pages = (Page("open", public=True), Page("signed_in"))
     identities = {"principal": Principal()}
 
     async def scenario() -> None:
         app = FastAPI()
-        _Runtime(app, settings=configured(configs, lambda: identities["principal"]))
+        build_runtime(
+            app,
+            configured(configs, lambda: identities["principal"]),
+            app_configs=configs,
+        )
         async with (
             app.router.lifespan_context(app),
             httpx.AsyncClient(
@@ -175,10 +178,10 @@ def test_public_pages_cannot_require_permissions() -> None:
 
 
 def test_missing_template_fails_before_opening_database(
-    configs: tuple[type[CatalogConfig], ...],
+    configs: tuple[AppConfig, ...],
 ) -> None:
     configs[0].pages = (Page("missing"),)
-    obox = _Runtime(FastAPI(), settings=configured(configs))
+    obox = build_runtime(FastAPI(), configured(configs), app_configs=configs)
     with pytest.raises(ImproperlyConfigured, match="missing"):
         obox.check(strict=True)
     assert obox.database.engine is None
@@ -186,15 +189,15 @@ def test_missing_template_fails_before_opening_database(
 
 @pytest.mark.parametrize("field", ["routers"])
 def test_invalid_router_configuration_is_rejected(
-    configs: tuple[type[CatalogConfig], ...], field: str
+    configs: tuple[AppConfig, ...], field: str
 ) -> None:
     setattr(configs[0], field, (object(),) if field == "routers" else APIRouter())
     with pytest.raises(ImproperlyConfigured, match="routers"):
-        _Runtime(FastAPI(), settings=configured(configs))
+        build_runtime(FastAPI(), configured(configs), app_configs=configs)
 
 
 def test_api_routers_preserve_dependencies_lifespan_and_security_metadata(
-    configs: tuple[type[CatalogConfig], ...],
+    configs: tuple[AppConfig, ...],
 ) -> None:
     order = []
     identities = {"principal": Principal()}
@@ -222,9 +225,10 @@ def test_api_routers_preserve_dependencies_lifespan_and_security_metadata(
 
     async def scenario() -> None:
         app = FastAPI()
-        _Runtime(
+        build_runtime(
             app,
             settings=configured(configs, lambda: identities["principal"]),
+            app_configs=configs,
             features=(Auth(admin=False, secure=False),),
         )
         schema = app.openapi()

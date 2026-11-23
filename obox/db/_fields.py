@@ -25,19 +25,10 @@ from sqlalchemy.exc import NoInspectionAvailable
 from sqlalchemy.orm import Mapper
 from sqlalchemy.sql.functions import FunctionElement
 
-from obox._exceptions import BuilderValidationError, PermissionDenied
+from obox._exceptions import BuilderValidationError
 from obox.core.exceptions import ImproperlyConfigured
 
 FieldRefs = Iterable[Any]
-
-
-def check_fields(data: Mapping[str, Any], allowed: Iterable[str], specs: Mapping[str, Any]) -> None:
-    unknown = set(data) - specs.keys()
-    if unknown:
-        raise BuilderValidationError({key: ["Unknown field."] for key in sorted(unknown)})
-    denied = set(data) - set(allowed)
-    if denied:
-        raise PermissionDenied(f"Fields cannot be written: {', '.join(sorted(denied))}.")
 
 
 FILTER_EMPTY_OPERATORS = frozenset({"is_empty", "is_not_empty"})

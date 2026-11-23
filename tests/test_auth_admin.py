@@ -2,6 +2,7 @@ import asyncio
 import re
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
+from importlib import import_module
 from typing import Any
 
 import httpx
@@ -10,6 +11,7 @@ from fastapi import FastAPI
 from obox._auth import Principal
 from obox._config import RuntimeConfig
 from obox._runtime import _Runtime
+from obox.apps import AppConfig
 from obox.contrib.auth import Auth
 from obox.contrib.auth.models import Base as AuthBase
 from obox.contrib.auth.models import Role, Session, User, user_roles
@@ -17,6 +19,8 @@ from obox.contrib.auth.passwords import hash_password, verify_password
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, selectinload
 from sqlalchemy.pool import StaticPool
+
+from tests.runtime import build_runtime
 
 
 class Base(DeclarativeBase):
@@ -77,7 +81,7 @@ async def make_app(principal: Principal = SUPERUSER, *, admin: bool = True) -> t
     async with engine.begin() as connection:
         await connection.run_sync(AuthBase.metadata.create_all)
         await connection.run_sync(Base.metadata.create_all)
-    app = _Runtime(
+    app = build_runtime(
         FastAPI(),
         settings=RuntimeConfig(
             session_factory=async_sessionmaker(engine, expire_on_commit=False),
@@ -93,7 +97,6 @@ async def make_app(principal: Principal = SUPERUSER, *, admin: bool = True) -> t
         features=(Auth(backend=StubBackend(principal), secure=False, admin=admin),),
     )
     from fastapi import APIRouter, Depends
-    from obox._catalog import CatalogConfig
     from obox._dependencies import api_context
     from obox._pages import Page
 
@@ -115,11 +118,9 @@ async def make_app(principal: Principal = SUPERUSER, *, admin: bool = True) -> t
             )
     app.include_router(router)
 
-    class Config(CatalogConfig):
-        name = "tests"
-        label = "admin"
-
-    app._apps["admin"] = Config.load(Config)
+    config = AppConfig("tests", import_module("tests"))
+    config.label = "admin"
+    app._apps["admin"] = config
     app._frozen = False
     app.add_page(Page("widgets", template="obox/index.html", title="Widgets"), app_label="admin")
     return (app, engine)

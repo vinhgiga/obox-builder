@@ -28,32 +28,12 @@ class Page(Generic[T]):
         return max(1, (self.total + self.page_size - 1) // self.page_size)
 
     @property
-    def is_paginated(self) -> bool:
-        return self.num_pages > 1
-
-    @property
     def has_next(self) -> bool:
         return self.number < self.num_pages
 
     @property
     def has_previous(self) -> bool:
         return self.number > 1
-
-    @property
-    def next_number(self) -> int | None:
-        return self.number + 1 if self.number < self.num_pages else None
-
-    @property
-    def previous_number(self) -> int | None:
-        return self.number - 1 if self.number > 1 else None
-
-    @property
-    def start_index(self) -> int:
-        return (self.number - 1) * self.page_size + 1 if self.total else 0
-
-    @property
-    def end_index(self) -> int:
-        return min(self.number * self.page_size, self.total)
 
     def __iter__(self) -> Iterator[T]:
         return iter(self.items)

@@ -160,10 +160,6 @@ def task(
     return register(function) if function is not None else register
 
 
-def registered_tasks() -> tuple[TaskDefinition, ...]:
-    return tuple(_tasks.values())
-
-
 def get_task(name: str) -> TaskDefinition:
     try:
         return _tasks[name]

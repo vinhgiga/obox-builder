@@ -61,11 +61,11 @@ class Inline:
     def has_change_permission(self, request: Any, obj: Any = None) -> bool:
         return self._permission(request, "change")
 
-    def has_delete_permission(self, request: Any, obj: Any = None) -> bool:
-        return self._permission(request, "delete")
-
     def has_view_permission(self, request: Any, obj: Any = None) -> bool:
         return self._permission(request, "view")
+
+    def has_delete_permission(self, request: Any, obj: Any = None) -> bool:
+        return self._permission(request, "delete")
 
     def get_extra(self, request: Any, obj: Any = None, **kwargs: Any) -> int:
         return self.extra

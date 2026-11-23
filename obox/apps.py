@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from importlib import import_module
+from importlib.resources import files
 from importlib.util import find_spec
 from pathlib import Path
 from threading import RLock
@@ -13,9 +15,14 @@ from typing import TYPE_CHECKING, Any, ClassVar
 from obox.core.exceptions import AppRegistryNotReady, ImproperlyConfigured
 
 if TYPE_CHECKING:
-    from fastapi import APIRouter
+    from fastapi import APIRouter, Request
 
+    from obox._components import Component
+    from obox._config import RuntimeConfig
+    from obox._context import Context
+    from obox._pages import Page
     from obox._registration import Registration
+    from obox._runtime import _Runtime
     from obox.api import ModelApi
     from obox.resources import Resource
     from obox.views.generic import (
@@ -28,10 +35,21 @@ if TYPE_CHECKING:
     )
 
 
+def validate_app_prefix(value: str | None, field: str) -> None:
+    if value is not None and (
+        not isinstance(value, str) or not re.fullmatch(r"(?:/[a-zA-Z0-9_-]+)+", value)
+    ):
+        raise ImproperlyConfigured(f"Application {field} must be an absolute URL path.")
+
+
 class AppConfig:
     views: ClassVar[Sequence[type[Resource[Any]] | type[ModelViewSet[Any]] | str]] = ()
     apis: ClassVar[Sequence[type[Resource[Any]] | type[ModelApi[Any]] | str]] = ()
-    routers: ClassVar[Sequence[APIRouter]] = ()
+    routers: Sequence[APIRouter] = ()
+    requires: Sequence[str] = ()
+    components: Sequence[type[Component] | Component] = ()
+    pages: Sequence[Page] = ()
+    tab_bar_color = "#f3f4f6"
     ui_prefix: str | None = None
     view_prefix: str | None = None
     api_prefix: str | None = None
@@ -51,10 +69,15 @@ class AppConfig:
         if not isinstance(self.label, str) or not self.label.isidentifier():
             raise ImproperlyConfigured(f"Invalid application label: {self.label!r}.")
         self.verbose_name = getattr(self, "verbose_name", self.label.replace("_", " ").title())
+        self.routers = tuple(self.routers)
+        self.requires = tuple(self.requires)
+        self.components = tuple(self.components)
+        self.pages = tuple(self.pages)
         self.models_module: ModuleType | None = None
         self.models: dict[str, type[Any]] = {}
         self.apps: Apps
         self._registrations: list[Registration] = []
+        self._registered_resources: list[dict[str, str]] = []
 
     @classmethod
     def create(cls, entry: str) -> AppConfig:
@@ -90,6 +113,7 @@ class AppConfig:
                 if isinstance(value, type)
                 and issubclass(value, cls)
                 and value is not cls
+                and value.__module__ == entry + ".apps"
                 and getattr(value, "default", True)
             ]
             candidates = list(dict.fromkeys(candidates))
@@ -161,6 +185,33 @@ class AppConfig:
 
     def ready(self) -> None:
         pass
+
+    def ui_path(self, settings: RuntimeConfig) -> str:
+        prefix = self.ui_prefix if self.ui_prefix is not None else self.view_prefix
+        path = prefix if prefix is not None else f"{settings.ui_prefix}/{self.label}"
+        if (
+            not isinstance(path, str)
+            or not path.startswith("/")
+            or path.endswith("/")
+            or any(char in path for char in "{}?#")
+        ):
+            raise ImproperlyConfigured("Application UI prefixes must be absolute URL paths.")
+        return path
+
+    def api_path(self, settings: RuntimeConfig) -> str:
+        return (
+            self.api_prefix
+            if self.api_prefix is not None
+            else f"{settings.api_prefix}/{self.label}"
+        )
+
+    def has_directory(self, directory: str) -> bool:
+        return files(self.name).joinpath(directory).is_dir()
+
+    async def get_navigation(
+        self, obox: _Runtime, request: Request, ctx: Context
+    ) -> list[dict[str, Any]]:
+        return []
 
 
 class Apps:

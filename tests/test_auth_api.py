@@ -24,6 +24,8 @@ from obox.contrib.auth.passwords import hash_password
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
+from tests.runtime import build_runtime
+
 PASSWORD = "correct horse battery staple"  # noqa: S105
 
 
@@ -43,7 +45,7 @@ async def application(
     tmp_path: Path, *, tokens: bool = True
 ) -> AsyncIterator[tuple[_Runtime, httpx.AsyncClient]]:
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'auth.sqlite3'}")
-    app = _Runtime(
+    app = build_runtime(
         FastAPI(),
         settings=RuntimeConfig(
             session_factory=async_sessionmaker(engine, expire_on_commit=False), csrf_secret="x" * 32

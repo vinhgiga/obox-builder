@@ -1,15 +1,9 @@
 """Optional activity application."""
 
-from obox.apps import AppConfig
+from obox.contrib._apps import FeatureConfig
 
 
-class ActivityConfig(AppConfig):
+class ActivityConfig(FeatureConfig):
     name = "obox.contrib.activity"
-
-    def ready(self) -> None:
-        from functools import partial
-
-        from obox.conf import settings
-        from obox.contrib.activity import Activity
-
-        self._service_factory = partial(Activity, **dict(getattr(settings, "ACTIVITY", {})))
+    feature = "Activity"
+    setting = "ACTIVITY"

@@ -1,15 +1,9 @@
 """Optional idempotency application."""
 
-from obox.apps import AppConfig
+from obox.contrib._apps import FeatureConfig
 
 
-class IdempotencyConfig(AppConfig):
+class IdempotencyConfig(FeatureConfig):
     name = "obox.contrib.idempotency"
-
-    def ready(self) -> None:
-        from functools import partial
-
-        from obox.conf import settings
-        from obox.contrib.idempotency import Idempotency
-
-        self._service_factory = partial(Idempotency, **dict(getattr(settings, "IDEMPOTENCY", {})))
+    feature = "Idempotency"
+    setting = "IDEMPOTENCY"

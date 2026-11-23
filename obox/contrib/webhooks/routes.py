@@ -7,8 +7,7 @@ import sqlalchemy as sa
 from fastapi import APIRouter, Depends, Request, Response
 
 from obox._context import Context
-from obox._filters import FilterGroup
-from obox._query import ListQuery, invalid, parameters
+from obox._query import integer, invalid, parameters
 from obox._routes import ApiRoute
 from obox._schemas import FieldError, Problem
 from obox.contrib.webhooks.models import Delivery, Event, Subscription, now
@@ -124,8 +123,7 @@ def build_router(plugin: Any) -> APIRouter:
         from obox.contrib.webhooks.worker import authorized
 
         params = parameters(request.query_params.multi_items(), {"cursor", "limit"})
-        query = ListQuery(params, FilterGroup())
-        cursor, limit = query.integer("cursor", 0), query.integer("limit", 50)
+        cursor, limit = integer(params, "cursor", 0), integer(params, "limit", 50)
         if limit is None or not 1 <= limit <= 100:
             raise invalid("limit", "Choose a limit from 1 to 100.")
         sub = await owned(plugin, id, ctx)

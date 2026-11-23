@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  obox-builder\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-11-22 20:42+0700\n"
+"POT-Creation-Date: 2026-11-23 15:01+0700\n"
 "PO-Revision-Date: 2026-10-31 20:45+0700\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: vi\n"
@@ -26,15 +26,11 @@ msgstr "Trang chủ"
 msgid "Applications"
 msgstr "Ứng dụng"
 
-#: obox/_routes.py:282
+#: obox/_routes.py:255
 msgid "msg"
 msgstr ""
 
-#: obox/_routes.py:291
-msgid "Internal server error."
-msgstr ""
-
-#: obox/_routes.py:303
+#: obox/_routes.py:267
 msgid "Internal server error.Invalid input."
 msgstr ""
 
@@ -117,16 +113,12 @@ msgstr ""
 msgid "Next"
 msgstr ""
 
-#: obox/contrib/auth/__init__.py:101
+#: obox/contrib/auth/__init__.py:102
 #: obox/contrib/auth/templates/obox/auth/user_form.html:19
 #: obox/contrib/auth/templates/obox/auth/users.html:19
 #: obox/contrib/auth/templates/obox/profile.html:14
 msgid "Username"
 msgstr "Tên đăng nhập"
-
-#: obox/contrib/auth/__init__.py:284 obox/contrib/auth/apps.py:21
-msgid "Users and roles"
-msgstr "Người dùng và vai trò"
 
 #: obox/contrib/auth/admin.py:170
 msgid "You cannot delete your own account."
@@ -220,6 +212,10 @@ msgstr ""
 #: obox/contrib/auth/authorization.py:199
 msgid "Role not found."
 msgstr ""
+
+#: obox/contrib/auth/apps.py:21
+msgid "Users and roles"
+msgstr "Người dùng và vai trò"
 
 #: obox/contrib/auth/password_validation.py:55
 msgid "This password is too similar to your personal information."
@@ -818,3 +814,6 @@ msgstr "Hiện mật khẩu"
 
 #~ msgid "Next page →"
 #~ msgstr "Trang sau →"
+
+#~ msgid "Internal server error."
+#~ msgstr ""

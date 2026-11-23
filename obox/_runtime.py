@@ -7,6 +7,7 @@ import logging
 import re
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from contextlib import AsyncExitStack, asynccontextmanager
+from copy import copy
 from dataclasses import dataclass, replace
 from inspect import isawaitable, iscoroutinefunction
 from types import MappingProxyType
@@ -27,7 +28,6 @@ from starlette.staticfiles import StaticFiles
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from obox._auth import Permission, Principal
-from obox._catalog import CatalogConfig
 from obox._component_service import ComponentService
 from obox._components import Use
 from obox._config import RuntimeConfig
@@ -38,6 +38,7 @@ from obox._exceptions import BuilderValidationError, OboxError, ResourceConflict
 from obox._i18n import LANGUAGES, LanguageMiddleware
 from obox._pages import Page
 from obox._staticfiles import AssetMount
+from obox.apps import AppConfig, validate_app_prefix
 from obox.core.exceptions import ImproperlyConfigured
 
 T = TypeVar("T")
@@ -46,10 +47,8 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class Diagnostic:
-    level: str
     code: str
     message: str
-    exposure: Mapping[str, Any] | None = None
 
 
 def _overlap(left: str, right: str) -> bool:
@@ -80,7 +79,6 @@ class _Runtime:
         app: FastAPI,
         *,
         settings: RuntimeConfig | None = None,
-        features: Sequence[Any] = (),
         defer: bool = False,
         enforce_permissions: bool = False,
     ) -> None:
@@ -169,7 +167,7 @@ class _Runtime:
         self._enforce_permissions = enforce_permissions
         self._public_routes: set[int] = set()
         self._resources: dict[tuple[str | None, type[Any]], type[Any]] = {}
-        self._apps: dict[str, CatalogConfig] = {}
+        self._apps: dict[str, AppConfig] = {}
         self._pages: dict[tuple[str, str], Page] = {}
         self._components: dict[tuple[str, str], ComponentService] = {}
         self._page_components: dict[tuple[str, str], tuple[tuple[ComponentService, ...], ...]] = {}
@@ -210,12 +208,9 @@ class _Runtime:
             name="obox_static",
         )
         app.state.obox = self
-        for plugin in features:
-            self._activate(plugin)
         if defer:
             return
         try:
-            self._load_apps()
             self._loading_apps = False
             self._finish_apps()
         except BaseException:
@@ -223,7 +218,7 @@ class _Runtime:
             raise
 
     @property
-    def apps(self) -> Mapping[str, CatalogConfig]:
+    def apps(self) -> Mapping[str, AppConfig]:
         return MappingProxyType(self._apps)
 
     @property
@@ -354,20 +349,43 @@ class _Runtime:
         self._pages[app_label, page.name] = bound
         self.add_ui_prefix(config.ui_path(self.settings))
 
-    def add_app(self, config: CatalogConfig) -> None:
+    def add_app(self, config: AppConfig) -> None:
         self._check_mutable()
         if not self._loading_apps:
             raise ImproperlyConfigured("Declare applications before app configuration is complete.")
-        config = CatalogConfig.load(config)
+        if not isinstance(config, AppConfig):
+            raise ImproperlyConfigured("Register an AppConfig instance.")
+        config = copy(config)
+        config._registered_resources = []
+        if not isinstance(config.name, str) or not config.name:
+            raise ImproperlyConfigured("AppConfig.name must identify its Python package.")
+        if (
+            not isinstance(config.label, str)
+            or re.fullmatch(r"[a-z][a-z0-9_]*", config.label) is None
+            or config.label in LANGUAGES
+        ):
+            raise ImproperlyConfigured("Application labels must be lowercase identifiers.")
+        if not isinstance(config.verbose_name, str):
+            raise ImproperlyConfigured("AppConfig.verbose_name must be a string.")
+        if (
+            not isinstance(config.tab_bar_color, str)
+            or re.fullmatch(r"#[\da-fA-F]{6}", config.tab_bar_color) is None
+        ):
+            raise ImproperlyConfigured("AppConfig.tab_bar_color must be a six-digit hex color.")
+        for field in ("requires", "components", "pages", "routers"):
+            if not isinstance(getattr(config, field), tuple):
+                raise ImproperlyConfigured(f"AppConfig.{field} must be a tuple.")
+        if any(not isinstance(router, APIRouter) for router in config.routers):
+            raise ImproperlyConfigured("AppConfig.routers must contain APIRouter instances.")
+        if any(not isinstance(dependency, str) for dependency in config.requires):
+            raise ImproperlyConfigured("Application dependencies must be strings.")
+        validate_app_prefix(config.api_prefix, "api_prefix")
         if config.label in self._apps or any(c.name == config.name for c in self._apps.values()):
             raise ImproperlyConfigured(f"Application {config.label!r} is already installed.")
         config.ui_path(self.settings)
         self._apps[config.label] = config
 
-    def _load_apps(self) -> None:
-
-        for entry in self.settings.installed_apps:
-            self.add_app(CatalogConfig.load(entry))
+    def _check_apps(self) -> None:
         for config in self._apps.values():
             for dependency in config.requires:
                 if dependency not in self._apps and dependency not in self._features:
@@ -392,6 +410,7 @@ class _Runtime:
         from obox._navigation import build_catalog
         from obox._ui import create_templates
 
+        self._check_apps()
         if self.settings.templates is None:
             self.templates.env.loader = create_templates(
                 self.settings, tuple(self._apps.values())
@@ -675,9 +694,7 @@ class _Runtime:
             try:
                 self.templates.env.get_template(name)
             except TemplateNotFound:
-                diagnostics.append(
-                    Diagnostic("error", "missing_template", f"Missing template: {name}")
-                )
+                diagnostics.append(Diagnostic("missing_template", f"Missing template: {name}"))
         if strict and diagnostics:
             raise ImproperlyConfigured("; ".join(item.message for item in diagnostics))
         return tuple(diagnostics)

@@ -55,11 +55,5 @@ class RuleViolation(DomainError):
         super().__init__(message, code=code)
 
 
-class BatchOperationError(DomainError):
-    def __init__(self, index: int, error: Exception) -> None:
-        self.index, self.error = index, error
-        super().__init__(str(error))
-
-
 class InvalidQuery(DomainError):
     code = "invalid_query"

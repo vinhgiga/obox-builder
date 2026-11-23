@@ -16,12 +16,14 @@ from obox._runtime import _Runtime
 from obox.contrib.auth import Auth, Base, ModelBackend, Session, User
 from obox.contrib.auth.passwords import hash_password
 
+from tests.runtime import build_runtime
+
 PASSWORD = "correct horse battery staple"  # noqa: S105 - test fixture
 
 
 def make_app(path: Path, max_age: int | None = None) -> _Runtime:
     auth = Auth(secure=False) if max_age is None else Auth(secure=False, max_age=max_age)
-    return _Runtime(
+    return build_runtime(
         FastAPI(),
         settings=RuntimeConfig(database_url=f"sqlite+aiosqlite:///{path}", csrf_secret="x" * 32),
         features=[auth],

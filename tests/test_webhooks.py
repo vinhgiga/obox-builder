@@ -35,6 +35,8 @@ from obox.core.exceptions import ImproperlyConfigured
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
+from tests.runtime import build_runtime
+
 
 class Base(DeclarativeBase):
     pass
@@ -100,7 +102,7 @@ async def application(
     )
     policy = Policy()
     try:
-        app = _Runtime(
+        app = build_runtime(
             FastAPI(),
             settings=RuntimeConfig(
                 session_factory=async_sessionmaker(engine, expire_on_commit=False),
@@ -678,7 +680,7 @@ def test_worker_cli_loads_factory_and_prunes_with_host_lifecycle(
                     active_key="v1",
                     resolve_principal=lambda *_: STAFF,
                 )
-                obox = _Runtime(
+                obox = build_runtime(
                     FastAPI(),
                     settings=RuntimeConfig(
                         session_factory=app.session_factory,

@@ -5,7 +5,7 @@
 {% block heading_class %}visually-hidden{% endblock %}
 {% block content_class %}grid-content{% endblock %}
 {% block content %}
-  {% set record_count = paginator.count if paginator else rows|length %}
+  {% set record_count = page_obj.total if page_obj else rows|length %}
   {% set active_filter_count = namespace(value=0) %}
   {% for name, value in filters %}
     {% if value %}
@@ -494,7 +494,7 @@
                    data-row-height="compact"
                    data-wrap-headers="false"
                    data-list-key="{{ request.url.path }}"
-                   data-page-offset="{{ ((page_obj.number - 1) * paginator.per_page) if paginator else 0 }}"
+                   data-page-offset="{{ ((page_obj.number - 1) * page_obj.page_size) if page_obj else 0 }}"
                    data-page-count="{{ rows|length }}"
                    data-total-count="{{ record_count }}">
         {% else %}
@@ -504,7 +504,7 @@
                  data-row-height="compact"
                  data-wrap-headers="false"
                  data-list-key="{{ request.url.path }}"
-                 data-page-offset="{{ ((page_obj.number - 1) * paginator.per_page) if paginator else 0 }}"
+                 data-page-offset="{{ ((page_obj.number - 1) * page_obj.page_size) if page_obj else 0 }}"
                  data-page-count="{{ rows|length }}"
                  data-total-count="{{ record_count }}">
         {% endif %}
@@ -531,7 +531,7 @@
             {% set row_label = row_values[0] if row_values else row_id %}
             <tr{% if actions %} data-selectable{% endif %} data-grid-row>
               <td class="row-number">
-                <span class="row-index">{{ loop.index + ((page_obj.number - 1) * paginator.per_page if paginator else 0) }}</span>
+                <span class="row-index">{{ loop.index + ((page_obj.number - 1) * page_obj.page_size if page_obj else 0) }}</span>
                 {% if actions %}
                   <input class="grid-select row-select form-check-input"
                          type="checkbox"

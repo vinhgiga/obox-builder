@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from functools import cached_property
 from typing import Any, Generic, Literal, TypeVar, cast
 from uuid import UUID
 
@@ -21,7 +20,6 @@ from obox.core.pagination import ListResult, Page
 from obox.core.principal import ANONYMOUS, Identity
 from obox.db import _scope
 from obox.db._fields import _model_value, inspect_fields, normalize, schema
-from obox.services import BaseService
 
 ModelT = TypeVar("ModelT")
 WriteAction = Literal["create", "update", "delete"]
@@ -34,7 +32,6 @@ class Resource(Generic[ModelT]):
     schema: type[BaseModel] | None = None
     create_schema: type[BaseModel] | None = None
     update_schema: type[BaseModel] | None = None
-    service_class: type[BaseService] | None = None
     load_options: Sequence[Any] = ()
     page_size: int | None = None
     lookup_field: str | None = None
@@ -68,11 +65,6 @@ class Resource(Generic[ModelT]):
             raise ImproperlyConfigured("Choose a mapped lookup field.")
         if self.page_size is not None and (type(self.page_size) is not int or self.page_size < 1):
             raise ImproperlyConfigured("Choose a positive page size.")
-        if self.service_class is not None and (
-            not isinstance(self.service_class, type)
-            or not issubclass(self.service_class, BaseService)
-        ):
-            raise ImproperlyConfigured("service_class must extend BaseService.")
         exposed = {name: field for name, field in self.specs.items() if field.exposed}
         self.readable = (
             normalize(self.fields, self.model, exposed)
@@ -85,6 +77,12 @@ class Resource(Generic[ModelT]):
         self.writable = tuple(
             name for name in self.readable if not self.specs[name].readonly and name not in readonly
         )
+        if self.update_schema is not None:
+            if not isinstance(self.update_schema, type) or not issubclass(
+                self.update_schema, BaseModel
+            ):
+                raise ImproperlyConfigured("Resource.update_schema must be a Pydantic model.")
+            normalize(self.update_schema.model_fields, self.model, dict.fromkeys(self.writable))
         if (self.create_schema or self.schema) is not None:
             declaration = self.create_schema or self.schema
             if not isinstance(declaration, type) or not issubclass(declaration, BaseModel):
@@ -92,7 +90,6 @@ class Resource(Generic[ModelT]):
             normalize(declaration.model_fields, self.model, dict.fromkeys(self.writable))
             names = set(declaration.model_fields)
             if isinstance(self.update_schema, type) and issubclass(self.update_schema, BaseModel):
-                normalize(self.update_schema.model_fields, self.model, dict.fromkeys(self.writable))
                 names.update(self.update_schema.model_fields)
             self.writable = tuple(name for name in self.writable if name in names)
         self._create_schema = (
@@ -111,12 +108,6 @@ class Resource(Generic[ModelT]):
         ):
             raise ImproperlyConfigured("Ordering must be a sequence of field names.")
         normalize((term.removeprefix("-") for term in self.ordering), self.model, exposed)
-        if self.update_schema is not None:
-            if not isinstance(self.update_schema, type) or not issubclass(
-                self.update_schema, BaseModel
-            ):
-                raise ImproperlyConfigured("Resource.update_schema must be a Pydantic model.")
-            normalize(self.update_schema.model_fields, self.model, dict.fromkeys(self.writable))
         sa.select(self.model).options(*self.load_options)
 
     @classmethod
@@ -132,12 +123,6 @@ class Resource(Generic[ModelT]):
         if self.session is None:
             raise ImproperlyConfigured("Bind the Resource to an active session.")
         return self.session
-
-    @cached_property
-    def service(self) -> BaseService:
-        if self.service_class is None:
-            raise ImproperlyConfigured("Define service_class before using resource.service.")
-        return self.service_class(self._session(), self.principal)
 
     def get_schema(self, action: str) -> type[BaseModel]:
         return (

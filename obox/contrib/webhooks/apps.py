@@ -1,15 +1,9 @@
 """Optional webhooks application."""
 
-from obox.apps import AppConfig
+from obox.contrib._apps import FeatureConfig
 
 
-class WebhooksConfig(AppConfig):
+class WebhooksConfig(FeatureConfig):
     name = "obox.contrib.webhooks"
-
-    def ready(self) -> None:
-        from functools import partial
-
-        from obox.conf import settings
-        from obox.contrib.webhooks import Webhooks
-
-        self._service_factory = partial(Webhooks, **dict(getattr(settings, "WEBHOOKS", {})))
+    feature = "Webhooks"
+    setting = "WEBHOOKS"

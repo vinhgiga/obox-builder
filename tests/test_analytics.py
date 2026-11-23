@@ -7,6 +7,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime
 from decimal import Decimal, localcontext
+from importlib import import_module
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -16,12 +17,12 @@ import pytest
 import sqlalchemy as sa
 from fastapi import FastAPI
 from obox._auth import Principal, ScopedIdentity
-from obox._catalog import CatalogConfig
 from obox._config import RuntimeConfig
 from obox._context import Context
 from obox._filters import FilterGroup, FilterTerm
 from obox._pages import Page
 from obox._runtime import _Runtime
+from obox.apps import AppConfig
 from obox.contrib.analytics import (
     Analytics,
     Avg,
@@ -41,6 +42,8 @@ from obox.contrib.analytics.aggregates import Aggregation, Measure
 from obox.core.exceptions import ImproperlyConfigured
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+from tests.runtime import build_runtime
 
 
 class Base(DeclarativeBase):
@@ -185,10 +188,6 @@ async def application(
             await conn.run_sync(Base.metadata.create_all)
         policy = Policy()
 
-        class Config(CatalogConfig):
-            name = "obox"
-            label = "admin"
-
         def get_queryset(self: Any, ctx: Context) -> Any:
             stmt = sa.select(Sale).where(Sale.account_id == ctx.principal.id)
             if policy.slow:
@@ -221,16 +220,18 @@ async def application(
             value.filter_fields = ("distributor", "region", "amount", "occurred_on", "active")
             bound.append(value)
         widgets = tuple(bound)
+        config = AppConfig("obox", import_module("obox"))
+        config.label = "admin"
+        config.components = widgets
+        config.pages = (Page("report", title="Sales <report>", components=(widgets,)),)
         settings = RuntimeConfig(
             session_factory=async_sessionmaker(engine, expire_on_commit=False),
             principal_dependency=lambda: STAFF,
             csrf_secret="a" * 32,
-            installed_apps=(Config,),
         )
-        config = Config
-        config.components = widgets
-        config.pages = (Page("report", title="Sales <report>", components=(widgets,)),)
-        app = _Runtime(FastAPI(), settings=settings, features=(Analytics(**limits),))
+        app = build_runtime(
+            FastAPI(), settings, app_configs=(config,), features=(Analytics(**limits),)
+        )
         async with app.app.router.lifespan_context(app.app):
             async with app.uow(principal=STAFF) as ctx:
                 values = [

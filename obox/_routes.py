@@ -19,7 +19,6 @@ from starlette.routing import Match, NoMatchFound
 from starlette.types import Message, Receive, Scope, Send
 
 from obox._exceptions import (
-    BatchOperationError,
     BuilderValidationError,
     NotAuthenticated,
     NotFound,
@@ -36,8 +35,6 @@ from obox._schemas import FieldError, Problem
 
 
 def error_status(exc: Exception) -> int:
-    if isinstance(exc, BatchOperationError):
-        return error_status(exc.error)
     if isinstance(exc, HTTPException):
         return exc.status_code
     if isinstance(exc, RequestValidationError | BuilderValidationError | RuleViolation):
@@ -187,9 +184,6 @@ def accepts_json(value: str, media_type: str = "application/json") -> bool:
 
 
 async def api_problem(request: Request, exc: Exception) -> Response:
-    batch_index = None
-    if isinstance(exc, BatchOperationError):
-        batch_index, exc = exc.index, exc.error
     query_body = getattr(request.state, "query_body", False)
     record_write = getattr(request.state, "record_write", False)
     trace_id = getattr(request.state, "trace_id", uuid4().hex)
@@ -227,20 +221,6 @@ async def api_problem(request: Request, exc: Exception) -> Response:
                     )
             elif location:
                 location[0] = names.get(location[0], location[0])
-            if batch_index is not None:
-                location = [
-                    "operations",
-                    str(batch_index),
-                    *(
-                        ["ifMatch"]
-                        if name == "If-Match"
-                        else ["mergeOn"]
-                        if name == "merge_on"
-                        else ["data", *location]
-                        if location
-                        else []
-                    ),
-                ]
             pointer = "#" + "".join(
                 "/" + part.replace("~", "~0").replace("/", "~1") for part in location
             )
@@ -262,13 +242,6 @@ async def api_problem(request: Request, exc: Exception) -> Response:
     elif isinstance(exc, RequestValidationError):
         for error in exc.errors():
             location = [str(part) for part in error["loc"][1:]]
-            if (
-                request.url.path.endswith(":batchWrite")
-                and len(location) > 2
-                and location[0] == "operations"
-                and location[2] in {"create", "update", "delete", "upsert"}
-            ):
-                del location[2]
             errors.append(
                 FieldError(
                     field=".".join(location) if location else "__all__",
@@ -282,15 +255,6 @@ async def api_problem(request: Request, exc: Exception) -> Response:
                     detail=translate(request, error["msg"]),
                 )
             )
-    if batch_index is not None and not errors:
-        errors.append(
-            FieldError(
-                field=f"operations.{batch_index}",
-                pointer=f"#/operations/{batch_index}",
-                code=code,
-                detail=translate(request, "Internal server error." if status == 500 else str(exc)),
-            )
-        )
     if status == 500:
         logging.getLogger(__name__).error("ApiOptions request %s failed", trace_id, exc_info=exc)
     response = JSONResponse(
@@ -342,9 +306,6 @@ class ApiRoute(MethodRoute):
         scope["state"] = dict(scope.get("state", {}))
         request = Request(scope)
         request.state.query_body = request.method == "POST" and self.path.endswith(":query")
-        request.state.action_write = (
-            request.method == "POST" and ":" in self.path and not self.path.endswith(":query")
-        )
         request.state.record_write = (
             request.method in {"POST", "PUT", "PATCH", "DELETE"} and not request.state.query_body
         )

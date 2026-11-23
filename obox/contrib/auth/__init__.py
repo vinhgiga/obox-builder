@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from importlib import import_module
 from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import urlencode
 
@@ -12,7 +13,6 @@ from starlette._utils import get_route_path
 from starlette.routing import NoMatchFound
 
 from obox._auth import Identity, Principal
-from obox._context import Context
 from obox._exceptions import N_
 from obox._i18n import localize
 from obox.contrib.auth.authorization import Authorization
@@ -33,6 +33,7 @@ from obox.contrib.auth.passwords import hash_password
 from obox.core.exceptions import ImproperlyConfigured
 
 if TYPE_CHECKING:
+    from obox._context import Context
     from obox._runtime import _Runtime
 
 __all__ = [
@@ -194,9 +195,6 @@ class Auth:
     def logout_url(self, request: Request) -> str:
         return self._url(request, self.logout_route)
 
-    def account_url(self, request: Request) -> str:
-        return self._url(request, self.account_route)
-
     def profile_url(self, request: Request) -> str:
         for route in (self.profile_route, self.account_route):
             try:
@@ -229,18 +227,6 @@ class Auth:
 
     async def create_role(self, name: str, *, permissions: Sequence[str] = (), ctx: Context) -> Any:
         return await self.authorization.create_role(name, permissions=permissions, ctx=ctx)
-
-    async def grant_permissions(self, role_id: Any, *permissions: str, ctx: Context) -> None:
-        await self.authorization.change_permissions(role_id, permissions, grant=True, ctx=ctx)
-
-    async def revoke_permissions(self, role_id: Any, *permissions: str, ctx: Context) -> None:
-        await self.authorization.change_permissions(role_id, permissions, grant=False, ctx=ctx)
-
-    async def add_roles(self, user_id: Any, *role_ids: Any, ctx: Context) -> None:
-        await self.authorization.change_roles(user_id, role_ids, add=True, ctx=ctx)
-
-    async def remove_roles(self, user_id: Any, *role_ids: Any, ctx: Context) -> None:
-        await self.authorization.change_roles(user_id, role_ids, add=False, ctx=ctx)
 
     def _attach(self, app: _Runtime) -> None:
         if getattr(self, "_installed", False):
@@ -275,14 +261,9 @@ class Auth:
                     self.get_admin_router(app), ui=True, permission="auth.manage_access"
                 )
                 self._admin_installed = True
-                from obox._catalog import CatalogConfig
                 from obox.contrib.auth.apps import AuthConfig
 
-                config = CatalogConfig()
-                config.name = "obox.contrib.auth"
-                config.label = "auth"
-                config.verbose_name = N_("Users and roles")
-                config._navigation = AuthConfig.get_navigation.__get__(config)
+                config = AuthConfig("obox.contrib.auth", import_module("obox.contrib.auth"))
                 config.ui_prefix = self.prefix
                 if "auth" in app.apps:
                     app._apps["auth"] = config

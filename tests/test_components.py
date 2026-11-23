@@ -6,6 +6,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import replace
 from decimal import Decimal
+from importlib import import_module
 from pathlib import Path
 from typing import Any, ClassVar, cast
 from uuid import uuid4
@@ -15,7 +16,6 @@ import pytest
 import sqlalchemy as sa
 from fastapi import FastAPI
 from obox._auth import Principal, ScopedIdentity
-from obox._catalog import CatalogConfig
 from obox._components import Component, Use
 from obox._config import RuntimeConfig
 from obox._context import Context
@@ -23,10 +23,13 @@ from obox._filters import FilterGroup
 from obox._pages import Page
 from obox._runtime import _Runtime
 from obox._schemas import ApiRequest, ApiResponse
+from obox.apps import AppConfig
 from obox.contrib.analytics import Analytics, Bar, Pivot, Sum
 from obox.core.exceptions import ImproperlyConfigured
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+from tests.runtime import build_runtime
 
 
 class Base(DeclarativeBase):
@@ -79,11 +82,9 @@ async def runtime(
     actor: Any = ACTOR,
 ) -> AsyncIterator[tuple[_Runtime, httpx.AsyncClient]]:
 
-    class Config(CatalogConfig):
-        name = "obox"
-        label = "metrics"
-
-    Config.components, Config.pages = (components, pages)
+    config = AppConfig("obox", import_module("obox"))
+    config.label = "metrics"
+    config.components, config.pages = components, pages
     engine = create_async_engine(os.getenv("OBOX_TEST_DATABASE_URL", "sqlite+aiosqlite://"))
     namespace = "component_" + uuid4().hex if engine.dialect.name == "postgresql" else None
     if namespace:
@@ -100,15 +101,15 @@ async def runtime(
                 Record(id=3, tenant_id=2, region_name="SECRET", amount=Decimal("999")),
             ]
         )
-    obox = _Runtime(
+    obox = build_runtime(
         FastAPI(),
         settings=RuntimeConfig(
             session_factory=async_sessionmaker(engine, expire_on_commit=False),
-            installed_apps=(Config,),
             principal_dependency=lambda: actor,
             csrf_secret="a" * 32,
             template_dirs=(tmp_path,),
         ),
+        app_configs=(config,),
         features=(Analytics(),),
     )
     try:
@@ -389,20 +390,19 @@ def test_invalid_components_fail_before_database_startup(
     tmp_path: Path, component: Component
 ) -> None:
 
-    class Config(CatalogConfig):
-        name = "obox"
-        label = "metrics"
-        components = (component,)
+    config = AppConfig("obox", import_module("obox"))
+    config.label = "metrics"
+    config.components = (component,)
 
     def build() -> None:
-        obox = _Runtime(
+        obox = build_runtime(
             FastAPI(),
             settings=RuntimeConfig(
                 database_url="sqlite+aiosqlite://",
-                installed_apps=(Config,),
                 principal_dependency=lambda: ACTOR,
                 csrf_secret="a" * 32,
             ),
+            app_configs=(config,),
             features=(Analytics(),),
         )
         assert obox.database.engine is None

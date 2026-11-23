@@ -8,11 +8,11 @@ from fastapi import Request
 from fastapi.templating import Jinja2Templates
 from jinja2 import ChoiceLoader, Environment, FileSystemLoader, PackageLoader, select_autoescape
 
-from obox._catalog import CatalogConfig
 from obox._config import RuntimeConfig
 from obox._context import Context
 from obox._exceptions import BuilderValidationError
 from obox._filters import parse_filter
+from obox.apps import AppConfig
 
 
 async def build_navigation(app: Any, request: Request, ctx: Context) -> Any:
@@ -21,9 +21,7 @@ async def build_navigation(app: Any, request: Request, ctx: Context) -> Any:
     return await navigation(app, request, ctx)
 
 
-def create_templates(
-    settings: RuntimeConfig, apps: Sequence[CatalogConfig] = ()
-) -> Jinja2Templates:
+def create_templates(settings: RuntimeConfig, apps: Sequence[AppConfig] = ()) -> Jinja2Templates:
     if settings.templates is not None:
         return settings.templates
     env = Environment(

@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 from fastapi import FastAPI
 
-from obox.apps import apps
+from obox.apps import apps, validate_app_prefix
 from obox.conf import settings
 
 if TYPE_CHECKING:
@@ -18,7 +18,6 @@ if TYPE_CHECKING:
 
 class Obox:
     def __init__(self, app: FastAPI) -> None:
-        from obox._catalog import CatalogConfig, validate_app_prefix
         from obox._config import RuntimeConfig
         from obox._registration import app_registrations
         from obox._runtime import _Runtime
@@ -37,18 +36,7 @@ class Obox:
             validate_app_prefix(
                 ui_prefix, "ui_prefix" if entry.ui_prefix is not None else "view_prefix"
             )
-            catalog = CatalogConfig()
-            catalog.name, catalog.label, catalog.verbose_name = (
-                entry.name,
-                entry.label,
-                entry.verbose_name,
-            )
-            catalog.components = tuple(getattr(entry, "components", ()))
-            catalog.pages = tuple(getattr(entry, "pages", ()))
-            catalog.ui_prefix = ui_prefix
-            catalog.api_prefix = entry.api_prefix
-            catalog.routers = tuple(entry.routers)
-            runtime.add_app(catalog)
+            runtime.add_app(entry)
         for entry in entries:
             factory = getattr(entry, "_service_factory", None)
             feature = factory() if factory is not None else None

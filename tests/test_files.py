@@ -16,6 +16,7 @@ from obox.contrib.files import IMAGES, File, Files, attachments
 from obox.contrib.files.models import Base as FileBase
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
+from tests.runtime import build_runtime
 from tests.storage import database
 
 
@@ -45,7 +46,7 @@ async def application(tmp_path: Path) -> AsyncIterator[tuple[_Runtime, httpx.Asy
         )
 
     async with database(tmp_path / "files.sqlite3", (FileBase.metadata, Base.metadata)) as factory:
-        app = _Runtime(
+        app = build_runtime(
             FastAPI(),
             settings=RuntimeConfig(
                 session_factory=factory, principal_dependency=principal, csrf_secret="x" * 32

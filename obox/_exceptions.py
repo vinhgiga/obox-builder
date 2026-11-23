@@ -1,9 +1,6 @@
 """Shared domain errors and runtime gettext markers."""
 
 from obox.core.domain import (
-    BatchOperationError as BatchOperationError,
-)
-from obox.core.domain import (
     BuilderValidationError as BuilderValidationError,
 )
 from obox.core.domain import (

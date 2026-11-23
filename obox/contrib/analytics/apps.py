@@ -1,15 +1,9 @@
 """Optional analytics application."""
 
-from obox.apps import AppConfig
+from obox.contrib._apps import FeatureConfig
 
 
-class AnalyticsConfig(AppConfig):
+class AnalyticsConfig(FeatureConfig):
     name = "obox.contrib.analytics"
-
-    def ready(self) -> None:
-        from functools import partial
-
-        from obox.conf import settings
-        from obox.contrib.analytics import Analytics
-
-        self._service_factory = partial(Analytics, **dict(getattr(settings, "ANALYTICS", {})))
+    feature = "Analytics"
+    setting = "ANALYTICS"

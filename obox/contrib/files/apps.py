@@ -1,17 +1,14 @@
 """Optional files application."""
 
-from obox.apps import AppConfig
+from typing import Any
+
+from obox.contrib._apps import FeatureConfig
 
 
-class FilesConfig(AppConfig):
+class FilesConfig(FeatureConfig):
     name = "obox.contrib.files"
+    feature = "Files"
+    setting = "FILES"
 
-    def ready(self) -> None:
-        from functools import partial
-
-        from obox.conf import settings
-        from obox.contrib.files import Files
-
-        self._service_factory = partial(
-            Files, **{"root": settings.MEDIA_ROOT, **dict(getattr(settings, "FILES", {}))}
-        )
+    def get_options(self, settings: Any) -> dict[str, Any]:
+        return {"root": settings.MEDIA_ROOT, **super().get_options(settings)}

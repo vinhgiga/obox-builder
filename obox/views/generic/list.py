@@ -13,7 +13,6 @@ from obox._async import invoke
 from obox._http import read_form
 from obox.core.domain import InvalidQuery
 from obox.core.exceptions import ImproperlyConfigured, PermissionDenied
-from obox.core.pagination import Page
 from obox.db import _session
 from obox.db._identity import _model_label
 from obox.db.query import (
@@ -29,32 +28,6 @@ from obox.resources import resolve_resource
 from obox.views.generic._model import ModelContextMixin
 from obox.views.generic.base import TemplateResponseMixin, TemplateView, View
 from obox.views.generic.decorators import action
-
-
-class _Page:
-    def __init__(self, page: Page[Any]) -> None:
-        self.object_list, self.number = page.items, page.number
-        from types import SimpleNamespace
-
-        self.paginator = SimpleNamespace(
-            count=page.total, per_page=page.page_size, num_pages=page.num_pages
-        )
-
-    def has_next(self) -> bool:
-        return bool(self.number < self.paginator.num_pages)
-
-    def has_previous(self) -> bool:
-        return self.number > 1
-
-    def next_page_number(self) -> int:
-        if not self.has_next():
-            raise ValueError("That page contains no results")
-        return self.number + 1
-
-    def previous_page_number(self) -> int:
-        if not self.has_previous():
-            raise ValueError("That page number is less than 1")
-        return self.number - 1
 
 
 class ListView(TemplateResponseMixin, ModelContextMixin, View):
@@ -295,9 +268,8 @@ class ListView(TemplateResponseMixin, ModelContextMixin, View):
         context = {
             "object_list": self.object_list,
             self.context_object_name or model.__name__.lower() + "_list": self.object_list,
-            "is_paginated": page is not None and page.paginator.num_pages > 1,
+            "is_paginated": page is not None and page.num_pages > 1,
             "page_obj": page,
-            "paginator": page.paginator if page is not None else None,
             "title": model.__name__,
             "list_display": columns,
             "rows": self._rows(model, columns) if columns or self.actions else [],
@@ -314,12 +286,8 @@ class ListView(TemplateResponseMixin, ModelContextMixin, View):
             "filter_config": filter_config,
             "sort_config": sort_config,
             "group_config": group_config,
-            "previous_url": self._page_url(page.previous_page_number())
-            if page and page.has_previous()
-            else None,
-            "next_url": self._page_url(page.next_page_number())
-            if page and page.has_next()
-            else None,
+            "previous_url": self._page_url(page.number - 1) if page and page.has_previous else None,
+            "next_url": self._page_url(page.number + 1) if page and page.has_next else None,
             "add_url": self.add_url,
         }
         return cast(dict[str, Any], super().get_context_data(**{**context, **kwargs}))
@@ -357,7 +325,7 @@ class ListView(TemplateResponseMixin, ModelContextMixin, View):
                 except (TypeError, ValueError) as exc:
                     raise HTTPException(404, "Invalid page.") from exc
                 page = await bound.paginate(number, page_size=self.paginate_by, queryset=query)
-                self.object_list, self._page = page.items, _Page(page)
+                self.object_list, self._page = page.items, page
             else:
                 self.object_list = (await bound.list(queryset=query)).items
         if not self.allow_empty and not self.object_list:

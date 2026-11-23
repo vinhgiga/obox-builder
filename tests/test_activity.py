@@ -10,13 +10,13 @@ import sqlalchemy as sa
 from fastapi import FastAPI
 from obox._auth import Principal
 from obox._config import RuntimeConfig
-from obox._runtime import _Runtime
 from obox.contrib.activity import Activity
 from obox.contrib.activity.models import Base as HistoryBase
 from obox.contrib.activity.models import Event
 from obox.core.exceptions import ImproperlyConfigured
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
+from tests.runtime import build_runtime
 from tests.storage import database
 
 
@@ -49,7 +49,7 @@ class History(Activity):
 async def runtime(path: Path) -> AsyncIterator[Any]:
     async with database(path / "history.sqlite3", (Base.metadata, HistoryBase.metadata)) as factory:
         history = History(models={Entry: ("name", "private_note")})
-        app = _Runtime(
+        app = build_runtime(
             FastAPI(),
             settings=RuntimeConfig(
                 session_factory=factory, principal_dependency=lambda: ACTOR, csrf_secret="x" * 32

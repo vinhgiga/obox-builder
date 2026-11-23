@@ -438,17 +438,14 @@ class ModelApi(BaseApi, Generic[ModelT]):
         if raw is None:
             return list(self._resource.get_ordering())
         ordering = []
-        if raw is not None:
-            for term in raw.split(","):
-                alias, separator, direction = term.partition(".")
-                name = allowed.get(alias)
-                if name is None or name in seen or (separator and direction not in {"asc", "desc"}):
-                    raise invalid("order", "Use unique sortable fields with .asc or .desc.")
-                seen.add(name)
-                column = getattr(self.model, name)
-                ordering.append(
-                    (column.desc() if direction == "desc" else column.asc()).nulls_last()
-                )
+        for term in raw.split(","):
+            alias, separator, direction = term.partition(".")
+            name = allowed.get(alias)
+            if name is None or name in seen or (separator and direction not in {"asc", "desc"}):
+                raise invalid("order", "Use unique sortable fields with .asc or .desc.")
+            seen.add(name)
+            column = getattr(self.model, name)
+            ordering.append((column.desc() if direction == "desc" else column.asc()).nulls_last())
         if pk.name not in seen:
             ordering.append(pk.column.asc())
         return ordering

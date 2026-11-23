@@ -23,7 +23,6 @@ from obox.core import (
     RuleViolation,
 )
 from obox.core.exceptions import ImproperlyConfigured
-from obox.services import BaseService
 from obox.views.generic import CreateView, View
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, selectinload
@@ -64,27 +63,9 @@ class EntryInput(BaseModel):
         return self
 
 
-class EntryService(BaseService):
-    async def create(self, data: dict[str, Any]) -> Entry:
-        entry = Entry(**data, owner_id=self.principal.id)
-        self.session.add(entry)
-        await self.session.flush()
-        if entry.name == "blocked":
-            raise RuleViolation("quota_exceeded", "Quota exceeded.")
-        if entry.name == "commit-failure":
-
-            def fail_commit(session: Any) -> None:
-                if not session.in_nested_transaction():
-                    raise sa.exc.IntegrityError("commit", {}, ValueError("conflict"))
-
-            sa.event.listen(self.session.sync_session, "before_commit", fail_commit)
-        return entry
-
-
 class Entries(Resource[Entry]):
     model = Entry
     schema = EntryInput
-    service_class = EntryService
     readonly_fields = ("owner_id",)
     fields = ("id", "name", "amount", "owner_id", "payload")
     ordering = ("name",)
@@ -94,9 +75,19 @@ class Entries(Resource[Entry]):
         return super().get_queryset().where(Entry.owner_id == self.principal.id)
 
     async def perform_create(self, data: dict[str, Any]) -> Entry:
-        service = self.service
-        assert isinstance(service, EntryService)
-        return await service.create(data)
+        entry = Entry(**data, owner_id=self.principal.id)
+        self._session().add(entry)
+        await self._session().flush()
+        if entry.name == "blocked":
+            raise RuleViolation("quota_exceeded", "Quota exceeded.")
+        if entry.name == "commit-failure":
+
+            def fail_commit(session: Any) -> None:
+                if not session.in_nested_transaction():
+                    raise sa.exc.IntegrityError("commit", {}, ValueError("conflict"))
+
+            sa.event.listen(self._session().sync_session, "before_commit", fail_commit)
+        return entry
 
 
 @pytest.mark.parametrize("page_size", [1, 2])
@@ -145,19 +136,12 @@ def test_resource_scope_unique_pagination_and_eager_loading(tmp_path: Path, page
     asyncio.run(scenario())
 
 
-def test_resource_crud_partial_validation_savepoint_and_service_lifetime(tmp_path: Path) -> None:
+def test_resource_crud_partial_validation_and_savepoint(tmp_path: Path) -> None:
     async def scenario() -> None:
         async with database(tmp_path / "resource.sqlite3", (Base.metadata,)) as sessions:
             declaration = Entries()
             async with sessions.begin() as session:
-                system = declaration.bind(session, SYSTEM)
-                assert system.service.principal is SYSTEM
-                actor = Principal(id=1)
-                first = declaration.bind(session, actor)
-                assert first.service is first.service
-                other = declaration.bind(session, Principal(id=2))
-                assert first.service is not other.service
-                assert first.service.principal is actor
+                first = declaration.bind(session, SYSTEM)
                 entry = await first.create(EntryInput(name="limited", amount=2))
                 with pytest.raises(BuilderValidationError):
                     await first.update(entry, {"amount": 3}, partial=True)
@@ -181,7 +165,7 @@ def test_resource_crud_partial_validation_savepoint_and_service_lifetime(tmp_pat
 
 @pytest.mark.parametrize("surface", ["html", "api"])
 @pytest.mark.parametrize(("name", "status"), [("ok", 0), ("blocked", 0), ("commit-failure", 409)])
-def test_adapters_share_service_rules_and_transaction_boundary(
+def test_adapters_share_resource_rules_and_transaction_boundary(
     tmp_path: Path, surface: str, name: str, status: int
 ) -> None:
     async def principal(request: Request) -> Principal:

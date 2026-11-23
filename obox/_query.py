@@ -2,19 +2,12 @@
 
 from __future__ import annotations
 
-import base64
-import binascii
-import hashlib
-import hmac
-import json
 import operator
 import re
 from collections.abc import Iterable
-from dataclasses import dataclass, field
 from typing import Any
 
 import sqlalchemy as sa
-from pydantic import TypeAdapter
 
 from obox._exceptions import BuilderValidationError
 from obox._filters import (
@@ -211,108 +204,13 @@ def condition(builder: Any, readable: set[str], term: FilterTerm, dialect: str) 
     return sa.not_(result) if negate else result
 
 
-@dataclass
-class ListQuery:
-    params: dict[str, str]
-    filters: FilterGroup
-    order: list[tuple[str, bool, bool]] = field(default_factory=list)
-
-    def integer(self, name: str, default: int | None = None) -> int | None:
-        raw = self.params.get(name)
-        if raw is None:
-            return default
-        if not re.fullmatch(r"[0-9]+", raw):
-            raise invalid(name, "Use a nonnegative integer.")
-        try:
-            return int(raw)
-        except ValueError as exc:
-            raise invalid(name, "Invalid integer.") from exc
-
-    def ordering(self, builder: Any, readable: set[str]) -> list[Any]:
-        self.order.clear()
-        raw = self.params.get("order")
-        terms = (
-            raw.split(",")
-            if raw is not None
-            else [
-                key.removeprefix("-") + (".desc" if key.startswith("-") else ".asc")
-                for key in builder.ordering
-                if key.removeprefix("-") in readable or key.removeprefix("-") == builder.pk_name
-            ]
-        )
-        for term in terms:
-            parts = term.split(".")
-            name, modifiers = parts[0], parts[1:]
-            if raw is not None and (name not in builder.sort_fields or name not in readable):
-                raise invalid("order", "Sorting this field is not permitted.", "unknown_field")
-            direction = modifiers.pop(0) if modifiers and modifiers[0] in {"asc", "desc"} else "asc"
-            nulls = (
-                modifiers.pop(0)
-                if modifiers and modifiers[0] in {"nullsfirst", "nullslast"}
-                else ("nullsfirst" if direction == "desc" else "nullslast")
-            )
-            if modifiers or name in {item[0] for item in self.order}:
-                raise invalid("order", "Invalid or duplicate sort term.")
-            self.order.append((name, direction == "desc", nulls == "nullsfirst"))
-        if builder.pk_name not in {item[0] for item in self.order}:
-            self.order.append((builder.pk_name, False, False))
-        return [
-            (column.desc() if desc else column.asc()).nulls_first()
-            if first
-            else (column.desc() if desc else column.asc()).nulls_last()
-            for name, desc, first in self.order
-            for column in (getattr(builder.model, name),)
-        ]
-
-    def fingerprint(self, builder: Any) -> str:
-        payload = [builder.route_key, self.filters.to_dict(), self.params.get("search"), self.order]
-        return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
-
-    def cursor(self, builder: Any, secret: bytes, values: list[Any] | None = None) -> Any:
-        key = hmac.digest(secret, b"obox.cursor", "sha256")
-        if values is not None:
-            data = TypeAdapter[Any](Any).dump_json([self.fingerprint(builder), values])
-            payload = base64.urlsafe_b64encode(data).rstrip(b"=")
-            return (payload + b"." + hmac.digest(key, payload, "sha256").hex().encode()).decode()
-        try:
-            payload, signature = self.params["cursor"].encode("ascii").split(b".")
-            if not hmac.compare_digest(
-                signature, hmac.digest(key, payload, "sha256").hex().encode()
-            ):
-                raise ValueError
-            fingerprint, values = json.loads(
-                base64.b64decode(
-                    payload + b"=" * (-len(payload) % 4), altchars=b"-_", validate=True
-                )
-            )
-            if (
-                fingerprint != self.fingerprint(builder)
-                or not isinstance(values, list)
-                or len(values) != len(self.order)
-            ):
-                raise ValueError
-            parsed = validate(
-                schema("Cursor", builder.specs, (name for name, _, _ in self.order)),
-                dict(zip((name for name, _, _ in self.order), values, strict=True)),
-            )
-        except (ValueError, TypeError, UnicodeError, binascii.Error, BuilderValidationError) as exc:
-            raise invalid("cursor", "Invalid cursor or changed query.", "invalid_cursor") from exc
-        conditions = []
-        prefix: list[Any] = []
-        for name, desc, first in self.order:
-            column, last = getattr(builder.model, name), parsed[name]
-            comparable = (
-                sa.cast(column, sa.Integer)
-                if isinstance(builder.specs[name].column.type, sa.Boolean)
-                else column
-            )
-            comparison = int(last) if isinstance(last, bool) else last
-            if last is None:
-                after = column.is_not(None) if first else sa.false()
-            else:
-                after = comparable < comparison if desc else comparable > comparison
-                if not first:
-                    after = sa.or_(after, column.is_(None))
-            conditions.append(sa.and_(*prefix, after))
-            prefix.append(column == last)
-        return sa.or_(*conditions)
+def integer(params: dict[str, str], name: str, default: int | None = None) -> int | None:
+    raw = params.get(name)
+    if raw is None:
+        return default
+    if not re.fullmatch(r"[0-9]+", raw):
+        raise invalid(name, "Use a nonnegative integer.")
+    try:
+        return int(raw)
+    except ValueError as exc:
+        raise invalid(name, "Invalid integer.") from exc
