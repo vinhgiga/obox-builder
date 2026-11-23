@@ -6,6 +6,7 @@ from obox import forms
 from obox.core.exceptions import ImproperlyConfigured
 from obox.db import _session
 from obox.db.transaction import atomic
+from pydantic import BaseModel
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from tests.test_forms_integration import Base, configured
@@ -113,7 +114,7 @@ def test_inline_unsaved_parent_duplicates_and_custom_clean() -> None:
     class UniqueBooks(forms.BaseInlineFormSet):
         def clean(self) -> None:
             super().clean()
-            if any(form.cleaned_data.get("title") == "Rejected" for form in self.forms):
+            if any(form.validated_data.get("title") == "Rejected" for form in self.forms):
                 raise forms.ValidationError("Choose another title.")
 
     custom = forms.inlineformset_factory(Author, Book, fields=("title",), formset=UniqueBooks)
@@ -142,8 +143,11 @@ def test_inline_unsaved_parent_duplicates_and_custom_clean() -> None:
 
 
 def test_formset_management_limits_ordering_and_deleted_invalid_rows() -> None:
-    class Contact(forms.Form):
+    class ContactInput(BaseModel):
         name: str
+
+    class Contact(forms.Form[ContactInput]):
+        schema = ContactInput
 
     contacts = forms.formset_factory(
         Contact,
@@ -172,7 +176,7 @@ def test_formset_management_limits_ordering_and_deleted_invalid_rows() -> None:
             )
         )
         assert await valid.is_valid(), valid.errors
-        assert [form.cleaned_data["name"] for form in valid.ordered_forms] == ["First", "Last"]
+        assert [form.validated_data["name"] for form in valid.ordered_forms] == ["First", "Last"]
         assert len(valid.deleted_forms) == 1
         empty = contacts(data({}, prefix="form"))
         assert not await empty.is_valid()
@@ -254,8 +258,11 @@ def test_tampered_management_never_validates(management: dict[str, str]) -> None
 
 
 def test_integer_zero_extra_form_is_changed_and_saved_data_is_retained() -> None:
-    class Count(forms.Form):
+    class CountInput(BaseModel):
         value: int
+
+    class Count(forms.Form[CountInput]):
+        schema = CountInput
 
     async def scenario() -> None:
         bound = forms.formset_factory(Count)(data({"value": "0"}, prefix="form"))

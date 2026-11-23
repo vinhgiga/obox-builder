@@ -149,19 +149,19 @@ class Registration:
                         else ("delete_selected", *list_view.actions)
                     ),
                 )
-            methods = ["GET", "HEAD"] if role == "detail" else ["GET", "HEAD", "POST"]
-            router.add_api_route(
+            view.as_route(
+                router,
                 path,
-                view.as_view(**options),
-                methods=methods,
                 name=route_names[role],
+                initkwargs=options,
                 dependencies=[
                     Depends(
-                        permission_required(model_permission(resource.model, permission), html=True)
+                        permission_required(
+                            model_permission(resource.model, permission),
+                            html=True,
+                        )
                     )
                 ],
-                response_model=None,
-                include_in_schema=False,
             )
         return router
 

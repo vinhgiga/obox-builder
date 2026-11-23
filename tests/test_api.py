@@ -78,11 +78,11 @@ class PostPatch(PostWrite):
 class PostResource(Resource[Post]):
     model = Post
 
-    def get_queryset(self, actor: Any) -> sa.Select[tuple[Post]]:
-        return super().get_queryset(actor).where(Post.owner_id == actor.id)
+    def get_queryset(self) -> sa.Select[tuple[Post]]:
+        return super().get_queryset().where(Post.owner_id == self.principal.id)
 
     def prepare_write(self, values: dict[str, Any], obj: Post | None, actor: Any) -> dict[str, Any]:
-        return {**values, "owner_id": actor.id} if obj is None else values
+        return {**values, "owner_id": self.principal.id} if obj is None else values
 
 
 class Posts(ModelApi[Post]):

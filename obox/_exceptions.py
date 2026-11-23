@@ -1,63 +1,39 @@
-"""Errors shared by services and HTTP adapters."""
+"""Shared domain errors and runtime gettext markers."""
 
-from __future__ import annotations
+from obox.core.domain import (
+    BatchOperationError as BatchOperationError,
+)
+from obox.core.domain import (
+    BuilderValidationError as BuilderValidationError,
+)
+from obox.core.domain import (
+    DomainError,
+)
+from obox.core.domain import (
+    NotAuthenticated as NotAuthenticated,
+)
+from obox.core.domain import (
+    NotFound as NotFound,
+)
+from obox.core.domain import (
+    PermissionDenied as PermissionDenied,
+)
+from obox.core.domain import (
+    PreconditionFailed as PreconditionFailed,
+)
+from obox.core.domain import (
+    PreconditionRequired as PreconditionRequired,
+)
+from obox.core.domain import (
+    ResourceConflict as ResourceConflict,
+)
+from obox.core.domain import (
+    RuleViolation as RuleViolation,
+)
 
-from collections.abc import Mapping
+OboxError = DomainError
 
 
 def N_(message: str) -> str:  # noqa: N802
     """Mark a runtime message for gettext extraction."""
     return message
-
-
-class OboxError(Exception):
-    status = 400
-
-
-class NotAuthenticated(OboxError):
-    status = 401
-
-
-class PermissionDenied(OboxError):
-    status = 403
-
-
-class NotFound(OboxError):
-    status = 404
-
-
-class ResourceConflict(OboxError):
-    status = 409
-
-
-class PreconditionFailed(OboxError):
-    status = 412
-    code = "precondition_failed"
-
-
-class PreconditionRequired(OboxError):
-    status = 428
-    code = "precondition_required"
-
-
-class BuilderValidationError(OboxError):
-    status = 422
-
-    def __init__(
-        self,
-        errors: Mapping[str, list[str]],
-        *,
-        code: str = "validation_error",
-        field_code: str | None = None,
-    ) -> None:
-        self.code = code
-        self.field_code = field_code
-        self.errors = dict(errors)
-        super().__init__("Invalid input.")
-
-
-class BatchOperationError(OboxError):
-    def __init__(self, index: int, error: Exception) -> None:
-        self.index, self.error = index, error
-        self.status = getattr(error, "status", 500)
-        super().__init__(str(error))

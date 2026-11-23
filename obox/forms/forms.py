@@ -1,27 +1,40 @@
-"""Bound forms with declarative fields and asynchronous validation."""
+"""Schema-backed HTML forms with request-local controls and cached validation."""
 
 from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from copy import deepcopy
 from enum import Enum
 from html import escape
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Generic, cast, get_origin
 
 from markupsafe import Markup
-from starlette.datastructures import UploadFile
+from pydantic import BaseModel
+from pydantic import ValidationError as SchemaValidationError
+from starlette.datastructures import FormData
+from typing_extensions import TypeVar
 
 from obox._async import invoke
-from obox.core.exceptions import NON_FIELD_ERRORS, ValidationError
-from obox.forms.declarative import MISSING, TypedField, collect_fields
-from obox.forms.fields import ChoiceField, Field, JSONField
+from obox.core.exceptions import NON_FIELD_ERRORS, ImproperlyConfigured, ValidationError
+from obox.forms._schema import MISSING, fields_schema, kind, schema_fields
+from obox.forms.fields import (
+    BooleanField,
+    CharField,
+    ChoiceField,
+    DateTimeField,
+    Field,
+    FileField,
+    JSONField,
+)
 from obox.forms.widgets import FileInput
+
+S = TypeVar("S", bound=BaseModel, default=BaseModel)
 
 
 class BoundField:
-    def __init__(self, form: Form, field: Field, name: str) -> None:
+    def __init__(self, form: Form[Any], field: Field, name: str) -> None:
         self.form, self.field, self.name = form, field, name
         self.label = field.label or name.replace("_", " ").capitalize()
         self.html_name = form.add_prefix(name)
@@ -51,7 +64,7 @@ class BoundField:
         if isinstance(self.field, ChoiceField):
             self.field.widget.choices = self.field.choices
         value = self.value()
-        if (isinstance(self.field, JSONField) or getattr(self.field, "is_json", False)) and (
+        if isinstance(self.field, JSONField) and (
             not self.form.is_bound or self.field.disabled or not isinstance(value, str)
         ):
             value = json.dumps(value, ensure_ascii=False)
@@ -67,68 +80,90 @@ class BoundField:
         return bool(self.field.widget.input_type == "hidden")
 
 
-class Form:
+class Form(Generic[S]):
+    schema: type[BaseModel] | None = None
     base_fields: ClassVar[dict[str, Field]] = {}
     declared_fields: ClassVar[dict[str, Field]] = {}
+    field_options: ClassVar[Mapping[str, Field]] = {}
+    widgets: ClassVar[Mapping[str, Any]] = {}
+    labels: ClassVar[Mapping[str, str]] = {}
+    help_texts: ClassVar[Mapping[str, str]] = {}
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
-        fields = cls._collect_fields()
-        cls.declared_fields = fields
-        cls.base_fields = fields
+        cls.declared_fields = cls._collect_fields()
+        cls.base_fields = cls.declared_fields
 
     @classmethod
     def _collect_fields(cls) -> dict[str, Field]:
-        reserved = set(vars(Form)) | {
-            "is_bound",
-            "data",
-            "files",
-            "initial",
-            "prefix",
-            "fields",
-            "cleaned_data",
-            "errors",
-            "empty_permitted",
-            "use_required_attribute",
-        }
-        return collect_fields(cls, Form, reserved)
+        if cls.schema is not None and (
+            not isinstance(cls.schema, type) or not issubclass(cls.schema, BaseModel)
+        ):
+            raise ImproperlyConfigured("Define a Pydantic form schema.")
+        fields = schema_fields(cls.schema) if cls.schema is not None else {}
+        for parent in reversed(cls.__mro__):
+            fields.update(getattr(parent, "field_options", {}))
+        return fields
 
     def __init__(
         self,
         data: Mapping[str, Any] | None = None,
         files: Mapping[str, Any] | None = None,
         *,
+        schema: type[S] | None = None,
         initial: Mapping[str, Any] | None = None,
         prefix: str | None = None,
         empty_permitted: bool = False,
     ) -> None:
-        self.is_bound = data is not None or files is not None
+        chosen = schema or self.schema
+        if chosen is not None and (
+            not isinstance(chosen, type) or not issubclass(chosen, BaseModel)
+        ):
+            raise ImproperlyConfigured("Define a Pydantic form schema.")
+        self._schema = cast(
+            type[S], chosen or fields_schema(type(self).__name__ + "Input", self.base_fields)
+        )
+        controls = (
+            {**schema_fields(self._schema), **self.base_fields} if schema else self.base_fields
+        )
+        if hasattr(type(self), "Meta") and self.base_fields:
+            controls = {name: controls[name] for name in self.base_fields}
+        self.fields = deepcopy(controls)
+        for name, widget in self.widgets.items():
+            if name not in self.fields:
+                raise ImproperlyConfigured(f"Unknown form field: {name!r}.")
+            self.fields[name].widget = widget() if isinstance(widget, type) else deepcopy(widget)
+        for name, field in self.fields.items():
+            field.label = self.labels.get(name, field.label)
+            field.help_text = self.help_texts.get(name, field.help_text)
         self.data, self.files = data if data is not None else {}, files or {}
+        self.is_bound = data is not None or files is not None
         self.initial, self.prefix = dict(initial or {}), prefix
-        self.empty_permitted = empty_permitted
-        self.use_required_attribute = True
-        self.fields = deepcopy(self.base_fields)
-        self.cleaned_data: dict[str, Any] = {}
+        self.empty_permitted, self.use_required_attribute = empty_permitted, True
+        self.cleaned_data: S | None = None
+        self.validated_data: dict[str, Any] = {}
         self.errors: dict[str, list[str]] = {}
         self._error_codes: dict[str, list[str | None]] = {}
+        self.error_details: list[dict[str, Any]] = []
         self._validated = False
         self._validation_lock = asyncio.Lock()
         self._defaults: dict[str, Any] = {}
-        self._values: dict[str, Any] | None = None
 
-    def _default_value(self, name: str, field: TypedField) -> Any:
-        if not field.has_default:
-            return MISSING
-        if name not in self._defaults:
-            self._defaults[name] = field.get_default()
-        return self._defaults[name]
+    @classmethod
+    def from_formdata(cls, schema: type[S], formdata: FormData, **kwargs: Any) -> Form[S]:
+        files = {key: value for key, value in formdata.multi_items() if hasattr(value, "filename")}
+        return cls(formdata, files, schema=schema, **kwargs)
 
     def _initial_value(self, name: str, field: Field) -> Any:
         if name in self.initial:
             return self.initial[name]
-        if isinstance(field, TypedField) and field.initial is MISSING:
-            value = self._default_value(name, field)
-            return None if value is MISSING else value
+        if field.initial is not None:
+            return field.initial
+        info = self._schema.model_fields.get(name)
+        if info is not None and not info.is_required():
+            if name not in self._defaults:
+                self._defaults[name] = info.get_default(call_default_factory=True)
+            return self._defaults[name]
         return field.initial
 
     def add_prefix(self, field_name: str) -> str:
@@ -137,17 +172,24 @@ class Form:
     def __getitem__(self, name: str) -> BoundField:
         return BoundField(self, self.fields[name], name)
 
-    def __iter__(self) -> Any:
+    def __iter__(self) -> Iterator[BoundField]:
         return (self[name] for name in self.fields)
 
     def _data_value(self, name: str, field: Field) -> Any:
         key = self.add_prefix(name)
         if isinstance(field.widget, FileInput):
-            return self.files.get(key)
+            return self.files.get(key, self.data.get(key))
         getlist = getattr(self.data, "getlist", None)
         if getattr(field.widget, "allow_multiple_selected", False) and getlist is not None:
             return getlist(key)
-        return self.data.get(key, MISSING if isinstance(field, TypedField) else None)
+        return self.data.get(key, MISSING)
+
+    def value(self, name: str, default: Any = "") -> Any:
+        value = self[name].value()
+        return default if value is None else value
+
+    def errors_for(self, name: str) -> list[str]:
+        return self.errors.get(name, [])
 
     def is_multipart(self) -> bool:
         return any(
@@ -155,7 +197,6 @@ class Form:
         )
 
     async def prepare(self) -> None:
-        """Load asynchronous choices before rendering a form."""
         for field in self.fields.values():
             prepare = getattr(field, "prepare", None)
             if prepare is not None:
@@ -168,27 +209,26 @@ class Form:
             if field.disabled:
                 continue
             initial, value = self._initial_value(name, field), self._data_value(name, field)
+            if value is MISSING:
+                value = None
             has_changed = getattr(field, "has_changed", None)
             if has_changed is not None:
-                if has_changed(initial, value):
-                    changed.append(name)
-                continue
-            prepare = getattr(field, "prepare_value", None)
-            if prepare is not None:
-                initial, value = prepare(initial), prepare(value)
-            try:
-                converter = field.converter if isinstance(field, TypedField) else field
-                if prepare is None:
-                    initial = converter.to_python(None if initial is MISSING else initial)
-                    value = converter.to_python(None if value is MISSING else value)
-                if isinstance(initial, (list, tuple)) and isinstance(value, (list, tuple)):
-                    different = {str(item) for item in initial} != {str(item) for item in value}
-                else:
-                    different = ("" if initial in field.empty_values else str(initial)) != (
-                        "" if value in field.empty_values else str(value)
-                    )
-            except (ValidationError, TypeError, ValueError):
-                different = True
+                different = has_changed(initial, value)
+            else:
+                prepare = getattr(field, "prepare_value", None)
+                if prepare:
+                    initial, value = prepare(initial), prepare(value)
+                try:
+                    if prepare is None:
+                        initial, value = field.to_python(initial), field.to_python(value)
+                    if isinstance(initial, (list, tuple)) and isinstance(value, (list, tuple)):
+                        different = {str(item) for item in initial} != {str(item) for item in value}
+                    else:
+                        different = ("" if initial in field.empty_values else str(initial)) != (
+                            "" if value in field.empty_values else str(value)
+                        )
+                except (ValidationError, TypeError, ValueError):
+                    different = True
             if different:
                 changed.append(name)
         return changed
@@ -206,66 +246,114 @@ class Form:
         await self._full_clean()
 
     async def _full_clean(self) -> None:
-        self._validated, self._values = False, None
-        self.errors, self.cleaned_data, self._error_codes = {}, {}, {}
+        self.cleaned_data, self.validated_data = None, {}
+        self.errors, self._error_codes, self.error_details = {}, {}, []
+        self._validated = False
         if not self.is_bound or (self.empty_permitted and not self.has_changed()):
             self._validated = True
             return
+        data, resolved = {}, {}
         for name, field in self.fields.items():
             value = (
                 self._initial_value(name, field)
                 if field.disabled
                 else self._data_value(name, field)
             )
+            info = self._schema.model_fields.get(name)
             try:
-                if value is MISSING and isinstance(field, TypedField):
-                    value = self._default_value(name, field)
-                self.cleaned_data[name] = await invoke(field.clean, value)
-                method = getattr(self, f"clean_{name}", None)
-                if method is not None:
-                    self.cleaned_data[name] = await invoke(
-                        method,
-                        *([self.cleaned_data[name]] if isinstance(field, TypedField) else []),
-                    )
-                if isinstance(field, TypedField):
-                    self.cleaned_data[name] = field.validate(self.cleaned_data[name], strict=True)
-            except ValidationError as exc:
+                if info is None or hasattr(field, "queryset") or isinstance(field, FileField):
+                    value = await field.clean(None if value is MISSING else value)
+                    resolved[name] = value
+                    if info is None:
+                        self.validated_data[name] = value
+                        continue
+                    prepare_value = getattr(field, "prepare_value", None)
+                    if prepare_value is not None and info.annotation is not Any:
+                        value = prepare_value(value)
+                elif value is MISSING:
+                    if isinstance(field, BooleanField):
+                        value = False
+                    elif not info.is_required():
+                        value = self._initial_value(name, field)
+                    else:
+                        continue
+                elif value == "" and kind(info.annotation)[1]:
+                    value = None
+                elif isinstance(field, (BooleanField, DateTimeField, JSONField)) or (
+                    isinstance(field, CharField) and field.strip
+                ):
+                    value = field.to_python(value)
+                if isinstance(field, ChoiceField) and not hasattr(field, "queryset"):
+                    if isinstance(value, Enum):
+                        value = value.value
+                    value = await field.clean(value)
+                    value = next((key for key, _ in field.choices if str(key) == value), value)
+                if (
+                    info is not None
+                    and get_origin(kind(info.annotation)[0]) is list
+                    and isinstance(value, str)
+                ):
+                    value = json.loads(value)
+                data[name] = value
+            except (ValidationError, ValueError) as exc:
                 self.add_error(name, exc)
-        try:
-            cleaned = await invoke(self.clean)
-            if cleaned is not None:
-                self.cleaned_data = cleaned
-        except ValidationError as exc:
-            self.add_error(None, exc)
-        for name, field in self.fields.items():
-            if name in self.errors:
-                self.cleaned_data.pop(name, None)
-            elif isinstance(field, TypedField):
-                try:
-                    self.cleaned_data[name] = field.validate(
-                        self.cleaned_data.get(name, MISSING), strict=True
-                    )
-                except ValidationError as exc:
-                    self.add_error(name, exc)
-        await self._post_clean()
-        if not self.errors:
-            values = {
+        data.update(
+            {
                 name: value
-                for name, value in self.cleaned_data.items()
-                if isinstance(self.fields.get(name), TypedField)
+                for name, value in self.initial.items()
+                if name in self._schema.model_fields and name not in self.fields
             }
-            # Uploaded streams have a request-owned lifetime and cannot be copied.
-            uploads = {
-                id(value): value for value in values.values() if isinstance(value, UploadFile)
-            }
-            self._values = deepcopy(values, uploads)
+        )
+        try:
+            parsed = self._schema.model_validate(data, by_name=True, by_alias=False)
+            if not self.errors:
+                self.cleaned_data = parsed
+                self.validated_data.update(
+                    {name: getattr(parsed, name) for name in self._schema.model_fields}
+                )
+                self.validated_data.update(resolved)
+        except SchemaValidationError as exc:
+            self.error_details = [
+                dict(error)
+                for error in exc.errors(
+                    include_input=False, include_context=False, include_url=False
+                )
+            ]
+            for error in self.error_details:
+                error_field = str(error["loc"][0]) if error["loc"] else None
+                if error_field is not None and error_field in self.errors:
+                    continue
+                code = {
+                    "missing": "required",
+                    "greater_than_equal": "min_value",
+                    "less_than_equal": "max_value",
+                    "greater_than": "min_value",
+                    "less_than": "max_value",
+                    "decimal_max_digits": "max_digits",
+                    "decimal_max_places": "max_decimal_places",
+                    "decimal_whole_digits": "max_whole_digits",
+                    "enum": "invalid_choice",
+                    "literal_error": "invalid_choice",
+                    "string_too_short": "min_length",
+                    "string_too_long": "max_length",
+                }.get(
+                    error["type"],
+                    "invalid"
+                    if error["type"].endswith(("_parsing", "_type", "_from_float"))
+                    or error["type"] == "finite_number"
+                    else error["type"],
+                )
+                message = "This field is required." if code == "required" else error["msg"]
+                self.add_error(
+                    error_field if error_field in self.fields else None,
+                    ValidationError(message, code=code),
+                )
+        if self.cleaned_data is not None:
+            await self._post_clean()
         self._validated = True
 
     async def _post_clean(self) -> None:
         pass
-
-    def clean(self) -> dict[str, Any]:
-        return self.cleaned_data
 
     def add_error(self, field: str | None, error: Any) -> None:
         error = error if isinstance(error, ValidationError) else ValidationError(error)
@@ -277,10 +365,10 @@ class Form:
         for name, messages in errors.items():
             if name != NON_FIELD_ERRORS and name not in self.fields:
                 raise ValueError(f"{type(self).__name__!r} has no field named {name!r}.")
-            self._values = None
             self.errors.setdefault(name, []).extend(messages)
             self._error_codes.setdefault(name, []).append(error.code)
-            self.cleaned_data.pop(name, None)
+            self.validated_data.pop(name, None)
+        self.cleaned_data = None
 
     def non_field_errors(self) -> list[str]:
         return self.errors.get(NON_FIELD_ERRORS, [])

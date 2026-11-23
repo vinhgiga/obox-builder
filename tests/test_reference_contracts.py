@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 from obox import forms
+from pydantic import BaseModel, ConfigDict, Field
 
 REFERENCE = os.environ.get("OBOX_REFERENCE_PYTHON")
 
@@ -15,9 +16,13 @@ REFERENCE = os.environ.get("OBOX_REFERENCE_PYTHON")
     not REFERENCE, reason="Set OBOX_REFERENCE_PYTHON to the isolated reference Python"
 )
 def test_supported_validation_contract_matches_django() -> None:
-    class ContactForm(forms.Form):
-        name: str = forms.field(max_length=5)
+    class ContactInput(BaseModel):
+        model_config = ConfigDict(str_strip_whitespace=True)
+        name: str = Field(min_length=1, max_length=5)
         age: int | None = None
+
+    class ContactForm(forms.Form[ContactInput]):
+        schema = ContactInput
 
     inputs: list[dict[str, Any]] = [
         {},
@@ -41,7 +46,23 @@ def test_supported_validation_contract_matches_django() -> None:
         for data in inputs:
             obj = ContactForm(data=data)
             valid = await obj.is_valid()
-            results.append({"valid": valid, "errors": obj.errors, "data": obj.cleaned_data})
+            results.append(
+                {
+                    "valid": valid,
+                    "fields": sorted(obj.errors),
+                    "data": obj.cleaned_data.model_dump()
+                    if valid and obj.cleaned_data is not None
+                    else None,
+                }
+            )
         return results
 
-    assert asyncio.run(scenario()) == json.loads(expected.stdout)
+    reference = json.loads(expected.stdout)
+    assert asyncio.run(scenario()) == [
+        {
+            "valid": item["valid"],
+            "fields": sorted(item["errors"]),
+            "data": item["data"] if item["valid"] else None,
+        }
+        for item in reference
+    ]

@@ -19,7 +19,7 @@ class Inline:
     max_num: int | None = None
     can_delete = True
     template = "obox/generic/stacked.html"
-    form: type[ModelForm] = ModelForm
+    form: type[ModelForm[Any]] = ModelForm
     fields: Any = None
     exclude: Any = None
     readonly_fields: Sequence[str] = ()
@@ -125,7 +125,7 @@ async def prepare_inlines(
     parent_model: type[Any],
     request: Any,
     obj: Any,
-    form: ModelForm,
+    form: ModelForm[Any],
 ) -> list[dict[str, Any]]:
     groups: list[dict[str, Any]] = []
     prefixes: dict[str, int] = {}

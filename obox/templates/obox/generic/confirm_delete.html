@@ -23,6 +23,9 @@
     <h2 class="h3 alert-title">Are you sure?</h2>
     <div>Are you sure you want to delete <strong>{{ object_label }}</strong>?</div>
   </div>
+  {% for error in form.non_field_errors() %}
+    <div class="alert alert-danger" role="alert">{{ error }}</div>
+  {% endfor %}
   <form method="post" class="submit-row mt-4">
     <input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">
     <button class="btn btn-danger" type="submit">Confirm delete</button>

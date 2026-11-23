@@ -53,7 +53,7 @@ def test_view_inlines_save_parent_children_and_render_errors(layout: Any, direct
                 ):
                     app.add_api_route(
                         path,
-                        view.as_view(resource=Resource(Author), success_url="/authors"),
+                        view.as_view(resource=Resource(model=Author), success_url="/authors"),
                         methods=["GET", "POST"],
                         dependencies=[
                             Depends(permission_required(f"tests.{operation}_author", html=True))
@@ -87,7 +87,8 @@ def test_view_inlines_save_parent_children_and_render_errors(layout: Any, direct
                         **data({"title": "Will roll back"}, {}),
                     },
                 )
-                assert failed.status_code == 409
+                assert failed.status_code == 200
+                assert "Cannot save this group." in failed.text
                 async with _session() as session:
                     assert await session.scalar(sa.select(sa.func.count()).select_from(Author)) == 0
                     assert await session.scalar(sa.select(sa.func.count()).select_from(Book)) == 0

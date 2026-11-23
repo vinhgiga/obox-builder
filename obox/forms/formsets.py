@@ -8,10 +8,11 @@ from functools import cached_property
 from typing import Any, ClassVar
 
 from markupsafe import Markup
+from pydantic import BaseModel
+from pydantic import Field as SchemaField
 
 from obox._async import invoke
 from obox.core.exceptions import ValidationError
-from obox.forms.declarative import field
 from obox.forms.fields import BooleanField, IntegerField
 from obox.forms.forms import Form
 from obox.forms.widgets import CheckboxInput, HiddenInput, NumberInput
@@ -25,15 +26,20 @@ DELETION_FIELD_NAME = "DELETE"
 DEFAULT_MAX_NUM = 1000
 
 
-class ManagementForm(Form):
-    TOTAL_FORMS: int = field(HiddenInput, ge=0)
-    INITIAL_FORMS: int = field(HiddenInput, ge=0)
-    MIN_NUM_FORMS: int | None = field(HiddenInput, default=None)
-    MAX_NUM_FORMS: int | None = field(HiddenInput, default=None)
+class ManagementInput(BaseModel):
+    TOTAL_FORMS: int = SchemaField(ge=0)
+    INITIAL_FORMS: int = SchemaField(ge=0)
+    MIN_NUM_FORMS: int | None = None
+    MAX_NUM_FORMS: int | None = None
+
+
+class ManagementForm(Form[ManagementInput]):
+    schema = ManagementInput
+    widgets = dict.fromkeys(ManagementInput.model_fields, HiddenInput)
 
 
 class BaseFormSet:
-    form: type[Form] = Form
+    form: type[Form[Any]] = Form
     extra = 1
     min_num = 0
     max_num = DEFAULT_MAX_NUM
@@ -111,7 +117,7 @@ class BaseFormSet:
     def get_form_kwargs(self, index: int | None) -> dict[str, Any]:
         return self.form_kwargs.copy()
 
-    def _construct_form(self, index: int | None, **kwargs: Any) -> Form:
+    def _construct_form(self, index: int | None, **kwargs: Any) -> Form[Any]:
         options: dict[str, Any] = {
             **self.get_form_kwargs(index),
             "prefix": self.add_prefix("__prefix__" if index is None else index),
@@ -128,22 +134,22 @@ class BaseFormSet:
         return form
 
     @cached_property
-    def forms(self) -> list[Form]:
+    def forms(self) -> list[Form[Any]]:
         return [self._construct_form(index) for index in range(self.total_form_count())]
 
     @property
-    def initial_forms(self) -> list[Form]:
+    def initial_forms(self) -> list[Form[Any]]:
         return self.forms[: self.initial_form_count()]
 
     @property
-    def extra_forms(self) -> list[Form]:
+    def extra_forms(self) -> list[Form[Any]]:
         return self.forms[self.initial_form_count() :]
 
     @property
-    def empty_form(self) -> Form:
+    def empty_form(self) -> Form[Any]:
         return self._construct_form(None)
 
-    def add_fields(self, form: Form, index: int | None) -> None:
+    def add_fields(self, form: Form[Any], index: int | None) -> None:
         if self.can_order:
             initial = index + 1 if index is not None and index < self.initial_form_count() else None
             form.fields[ORDERING_FIELD_NAME] = IntegerField(
@@ -161,10 +167,10 @@ class BaseFormSet:
                 widget=self.deletion_widget,
             )
 
-    def __iter__(self) -> Iterator[Form]:
+    def __iter__(self) -> Iterator[Form[Any]]:
         return iter(self.forms)
 
-    def __getitem__(self, index: int) -> Form:
+    def __getitem__(self, index: int) -> Form[Any]:
         return self.forms[index]
 
     def __len__(self) -> int:
@@ -181,17 +187,17 @@ class BaseFormSet:
         for form in self.forms:
             await form.prepare()
 
-    def _should_delete_form(self, form: Form) -> bool:
-        return self.can_delete and bool(form.cleaned_data.get(DELETION_FIELD_NAME))
+    def _should_delete_form(self, form: Form[Any]) -> bool:
+        return self.can_delete and bool(form.validated_data.get(DELETION_FIELD_NAME))
 
     @property
-    def deleted_forms(self) -> list[Form]:
+    def deleted_forms(self) -> list[Form[Any]]:
         return (
             [form for form in self.forms if self._should_delete_form(form)] if self._valid() else []
         )
 
     @property
-    def ordered_forms(self) -> list[Form]:
+    def ordered_forms(self) -> list[Form[Any]]:
         if not self.can_order or not self._valid():
             raise AttributeError("ordered_forms is available on valid ordered formsets.")
         return sorted(
@@ -202,8 +208,8 @@ class BaseFormSet:
                 if not self._should_delete_form(form)
             ),
             key=lambda form: (
-                form.cleaned_data.get(ORDERING_FIELD_NAME) is None,
-                form.cleaned_data.get(ORDERING_FIELD_NAME) or 0,
+                form.validated_data.get(ORDERING_FIELD_NAME) is None,
+                form.validated_data.get(ORDERING_FIELD_NAME) or 0,
             ),
         )
 
@@ -211,7 +217,7 @@ class BaseFormSet:
     def cleaned_data(self) -> list[dict[str, Any]]:
         if not self._valid():
             raise AttributeError("cleaned_data is available after successful validation.")
-        return [form.cleaned_data for form in self.forms]
+        return [form.validated_data for form in self.forms]
 
     def _valid(self) -> bool:
         return (
@@ -282,7 +288,7 @@ class BaseFormSet:
 
 
 def formset_factory(
-    form: type[Form],
+    form: type[Form[Any]],
     formset: type[BaseFormSet] = BaseFormSet,
     *,
     extra: int = 1,

@@ -11,6 +11,7 @@ from obox._async import invoke
 from obox.core.exceptions import ImproperlyConfigured
 from obox.db import _session
 from obox.db._identity import _model_label
+from obox.resources import resolve_resource
 from obox.views.generic._model import ModelContextMixin
 from obox.views.generic.base import TemplateResponseMixin, View
 
@@ -23,11 +24,23 @@ class SingleObjectMixin(ModelContextMixin):
     slug_field = "slug"
     kwargs: dict[str, Any]
     request: Request
-    object: Any
+    object: Any = None
+
+    def check(self) -> None:
+        super().check()
+        if (
+            getattr(self, "action", "retrieve") != "create"
+            and self.model is None
+            and self.resource is None
+            and self.queryset is None
+            and type(self).get_queryset is SingleObjectMixin.get_queryset
+            and type(self).get_object is SingleObjectMixin.get_object
+        ):
+            raise ImproperlyConfigured("Define model, resource or queryset.")
 
     def get_queryset(self) -> Any:
         if resource := self._bound_resource():
-            return resource._query(self.request.user)
+            return resource.get_queryset()
         if self.queryset is not None:
             return self.queryset._generate()
         if self.model is not None:
@@ -41,8 +54,11 @@ class SingleObjectMixin(ModelContextMixin):
         resource = self._bound_resource()
         if pk is not None and resource is not None:
             async with _session() as session:
-                return await resource._get(
-                    session, query, pk, lock=self.request.method not in {"GET", "HEAD", "OPTIONS"}
+                return await resource.bind(session, self.request.user).get_object(
+                    pk,
+                    queryset=query,
+                    action=getattr(self, "action", "retrieve"),
+                    for_update=self.request.method not in {"GET", "HEAD", "OPTIONS"},
                 )
         if pk is not None:
             column = sa.inspect(model).primary_key[0]
@@ -63,6 +79,12 @@ class SingleObjectMixin(ModelContextMixin):
         if obj is None:
             raise HTTPException(404, "Not found.")
         return obj
+
+    async def _restore_object(self) -> None:
+        if self.object is not None:
+            async with _session() as session:
+                resource = self._bound_resource() or resolve_resource(type(self.object))
+                self.object = await resource.bind(session, self.request.user).reload(self.object)
 
     def get_context_object_name(self, obj: Any) -> str:
         return self.context_object_name or type(obj).__name__.lower()

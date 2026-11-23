@@ -115,7 +115,7 @@ def test_registered_views_call_form_and_resource_hooks() -> None:
                     "/items/1/delete", data={"csrfmiddlewaretoken": token[1]}
                 )
                 assert (deleted.status_code, deleted.headers["location"]) == (303, "/items")
-                assert events == [("save", False), ("save", True), ("delete", 1)]
+                assert events == [("save", False), ("save", True), ("delete", 1), ("delete", 1)]
                 assert (await client.get("/items/1/change")).status_code == 404
 
     asyncio.run(scenario())
@@ -236,8 +236,8 @@ def test_same_list_view_supports_filters_search_and_actions_on_both_routes() -> 
     class VisibleItems(Resource[Item]):
         model = Item
 
-        def get_queryset(self, actor: Any) -> sa.Select[tuple[Item]]:
-            return super().get_queryset(actor).where(Item.name != "private")
+        def get_queryset(self) -> sa.Select[tuple[Item]]:
+            return super().get_queryset().where(Item.name != "private")
 
     class Items(ListView):
         list_display = ("name",)

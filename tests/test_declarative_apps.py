@@ -66,7 +66,7 @@ def test_installed_app_exposes_shared_resource_views_and_api() -> None:
                 created = await client.post("/inventory/items/add", data={**data, "price": "2.00"})
                 assert (created.status_code, created.headers["location"]) == (
                     303,
-                    "http://test/inventory/items",
+                    "/inventory/items",
                 )
                 listing = await client.get("/api/inventory/items")
                 assert [item["name"] for item in listing.json()["items"]] == ["alpha"]
@@ -152,7 +152,7 @@ def test_custom_viewset_api_and_native_router_use_application_prefixes() -> None
                         "price": "2.00",
                     },
                 )
-                assert created.headers["location"] == "http://test" + root
+                assert created.headers["location"] == root
                 rest = await client.get("/service/inventory/stock-items")
                 row = rest.json()["items"][0]
                 assert (await client.get(f"{root}/{row['id']}/view")).text == "alpha"

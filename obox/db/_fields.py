@@ -150,7 +150,15 @@ def inspect_fields(model: type[Any]) -> dict[str, ModelField]:
         if column.nullable:
             annotation = annotation | None
         readonly = bool(
-            column.primary_key
+            (
+                column.primary_key
+                and (
+                    column.default is not None
+                    or column.server_default is not None
+                    or column.identity is not None
+                    or (isinstance(column.type, sa.Integer) and column.autoincrement is not False)
+                )
+            )
             or column is mapper.version_id_col
             or column.computed is not None
             or column.identity is not None

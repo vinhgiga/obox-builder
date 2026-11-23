@@ -13,7 +13,6 @@ import sqlalchemy as sa
 from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.routing import RouteContext, iter_route_contexts
 from pydantic import BaseModel, Field, SkipValidation, create_model
-from sqlalchemy.orm import InstanceState
 
 from obox._async import invoke
 from obox._context import Context as Context
@@ -25,6 +24,7 @@ from obox._schemas import ApiResponse as ApiResponse
 from obox.core.exceptions import ImproperlyConfigured
 from obox.db._fields import ModelField, normalize, schema
 from obox.db._identity import _model_label
+from obox.db.query import search_query
 from obox.resources import Resource, resolve_resource
 
 ModelT = TypeVar("ModelT")
@@ -118,10 +118,22 @@ class ModelApi(BaseApi, Generic[ModelT]):
     create_schema: type[ApiRequest] | None = None
     update_schema: type[ApiRequest] | None = None
     patch_schema: type[ApiRequest] | None = None
+    dependencies: Sequence[Any] = ()
     search_fields: Sequence[str] = ()
     ordering_fields: Sequence[str] = ()
     default_limit: int = 50
     max_limit: int = 100
+
+    @classmethod
+    def as_router(cls, prefix: str | None = None) -> APIRouter:
+        return cls().build_router(prefix)
+
+    def get_resource(self, ctx: Context) -> Resource[ModelT]:
+        resources = ctx.session.info.setdefault("obox.resources", {})
+        key = id(self._resource)
+        if key not in resources:
+            resources[key] = self._resource.bind(ctx.session, ctx.principal)
+        return cast(Resource[ModelT], resources[key])
 
     def build_router(self, prefix: str | None = None) -> APIRouter:
         binding = copy(self)
@@ -148,7 +160,7 @@ class ModelApi(BaseApi, Generic[ModelT]):
             )
             if explicit_fields:
                 resource = type("ApiResource", (Resource,), {"fields": explicit_fields})(
-                    resource.model
+                    model=resource.model
                 )
         return binding._build_router(
             prefix if prefix is not None else getattr(self, "prefix", ""), resource
@@ -178,9 +190,11 @@ class ModelApi(BaseApi, Generic[ModelT]):
             attr = f"{operation}_schema"
             if operation not in methods or getattr(self, attr) is not None:
                 continue
-            definition = resource._create_schema
+            definition = resource.get_schema("create" if operation == "create" else "update")
             fields: dict[str, Any] = {}
             for name in writable:
+                if name not in definition.model_fields:
+                    continue
                 info = definition.model_fields[name]
                 annotation: Any = info.annotation
                 if info.metadata:
@@ -217,7 +231,9 @@ class ModelApi(BaseApi, Generic[ModelT]):
         if "list" in methods:
             self._check_list_fields(readable)
 
-        router = APIRouter(prefix=prefix, tags=[prefix.rsplit("/", 1)[-1]])
+        router = APIRouter(
+            prefix=prefix, tags=[prefix.rsplit("/", 1)[-1]], dependencies=list(self.dependencies)
+        )
         self.configure_router(router)
         label, model_name = _model_label(self.model)
         schemas = {
@@ -302,10 +318,7 @@ class ModelApi(BaseApi, Generic[ModelT]):
         generated: bool,
     ) -> Callable[..., Any]:
         async def project(ctx: Context, obj: ModelT) -> ApiResponse:
-            state = cast("InstanceState[ModelT]", sa.inspect(obj))
-            missing = state.unloaded.intersection(readable)
-            if missing:
-                await ctx.session.refresh(obj, attribute_names=list(missing))
+            await self.get_resource(ctx).ensure_loaded(obj, tuple(readable))
             schema = cast("type[ApiResponse]", self.read_schema)
             return schema.model_validate(
                 {name: spec.serialize(getattr(obj, name)) for name, spec in readable.items()},
@@ -315,8 +328,15 @@ class ModelApi(BaseApi, Generic[ModelT]):
 
         async def lookup(ctx: Context, key: Any) -> ModelT:
             stmt = await invoke(self.get_queryset, ctx, action=action)
-            return await self._resource._get(
-                ctx.session, stmt, key, lock=action in {"update", "patch", "delete"}
+            return await self.get_resource(ctx).get_object(
+                key,
+                queryset=stmt,
+                action="destroy"
+                if action == "delete"
+                else "update"
+                if action == "patch"
+                else action,
+                for_update=action in {"update", "patch", "delete"},
             )
 
         def payload(request: Request, data: ApiRequest) -> dict[str, Any]:
@@ -345,13 +365,8 @@ class ModelApi(BaseApi, Generic[ModelT]):
                 stmt = await invoke(self.get_queryset, ctx, action="list")
                 search = getattr(params, "search", None)
                 if search:
-                    stmt = stmt.where(
-                        sa.or_(
-                            *(
-                                getattr(self.model, name).icontains(search, autoescape=True)
-                                for name in self.search_fields
-                            )
-                        )
+                    stmt = search_query(
+                        stmt, self.model, self.search_fields, search, split_words=False
                     )
                 stmt = stmt.order_by(None).order_by(
                     *self._ordering(getattr(params, "order", None), pk, names)
@@ -421,7 +436,7 @@ class ModelApi(BaseApi, Generic[ModelT]):
         allowed = {names[name]: name for name in self.ordering_fields}
         seen: set[str] = set()
         if raw is None:
-            return self._resource._order()
+            return list(self._resource.get_ordering())
         ordering = []
         if raw is not None:
             for term in raw.split(","):
@@ -442,7 +457,7 @@ class ModelApi(BaseApi, Generic[ModelT]):
         """Register extra FastAPI endpoints before the generated routes."""
 
     def get_queryset(self, ctx: Context, *, action: RouterMethod) -> sa.Select[tuple[ModelT]]:
-        return self._resource._query(ctx.principal)
+        return self.get_resource(ctx).get_queryset()
 
     async def list(
         self,
@@ -453,23 +468,30 @@ class ModelApi(BaseApi, Generic[ModelT]):
         offset: int,
         include_total: bool,
     ) -> tuple[Sequence[ModelT], bool, int | None]:
-        total = await self._resource._count(ctx.session, queryset) if include_total else None
-        rows = await self._resource._rows(ctx.session, queryset, limit=limit + 1, offset=offset)
-        return rows[:limit], len(rows) > limit, total
+        result = await self.get_resource(ctx).list(
+            queryset=queryset,
+            limit=limit,
+            offset=offset,
+            include_total=include_total,
+        )
+        return result.items, result.has_more, result.total
 
     async def retrieve(self, ctx: Context, obj: ModelT) -> ModelT:
         return obj
 
     async def create(self, ctx: Context, values: dict[str, Any]) -> ModelT:
-        return await self._resource._save(
-            ctx.session, ctx.principal, values, validate="create" in self._generated
+        return await self.get_resource(ctx).create(
+            values,
+            validate="create" in self._generated
+            or self._resource.schema is not None
+            or self._resource.create_schema is not None,
         )
 
     async def update(self, ctx: Context, obj: ModelT, values: dict[str, Any]) -> ModelT:
-        return await self._resource._save(ctx.session, ctx.principal, values, obj)
+        return await self.get_resource(ctx).update(obj, values, partial=True)
 
     async def patch(self, ctx: Context, obj: ModelT, values: dict[str, Any]) -> ModelT:
         return await self.update(ctx, obj, values)
 
     async def delete(self, ctx: Context, obj: ModelT) -> None:
-        await self._resource._delete(ctx.session, ctx.principal, obj)
+        await self.get_resource(ctx).destroy(obj)

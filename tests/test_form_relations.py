@@ -13,6 +13,7 @@ from obox.core.exceptions import ImproperlyConfigured
 from obox.db import _session
 from obox.db.transaction import atomic
 from obox.views.generic import CreateView
+from pydantic import BaseModel
 from sqlalchemy.orm import Mapped, mapped_column, relationship, selectinload, with_loader_criteria
 from starlette.datastructures import FormData
 
@@ -111,8 +112,11 @@ async def seed() -> None:
 
 
 def test_unbound_model_form_and_missing_bound_values_need_no_database() -> None:
-    class Contact(forms.Form):
+    class ContactInput(BaseModel):
         name: str
+
+    class Contact(forms.Form[ContactInput]):
+        schema = ContactInput
 
     async def scenario() -> None:
         form = ProductForm()
@@ -194,9 +198,9 @@ def test_create_edit_and_clear_relationships_without_implicit_async_io() -> None
                 {"name": "First", "category": "1", "featured": "1", "tags": ["1", "2", "1"]}
             )
             assert await form.is_valid()
-            assert isinstance(form.cleaned_data["category"], Category)
-            assert [tag.id for tag in form.cleaned_data["tags"]] == [1, 2]
-            assert form.cleaned_data["featured"] is form.cleaned_data["tags"][0]
+            assert isinstance(form.validated_data["category"], Category)
+            assert [tag.id for tag in form.validated_data["tags"]] == [1, 2]
+            assert form.validated_data["featured"] is form.validated_data["tags"][0]
             product = await form.save()
             assert product.category_id == product.category.id == 1
             assert [tag.id for tag in product.tags] == [1, 2]
@@ -312,7 +316,7 @@ def test_prefix_repeated_post_values_disabled_initials_and_field_isolation() -> 
             )
             form.fields["category"].disabled = True
             assert await form.is_valid()
-            assert form.cleaned_data["category"].id == 1
+            assert form.validated_data["category"].id == 1
             rendered = str(form["tags"])
             assert "multiple" in rendered
             assert 'name="p-tags"' in rendered
@@ -344,7 +348,7 @@ def test_declared_model_choices_preserve_select_limits_and_return_model_objects(
                 session.add_all([ManualKey(code="a", label="A"), ManualKey(code="b", label="B")])
             valid = KeyForm({"key": "a"})
             assert await valid.is_valid()
-            assert valid.cleaned_data["key"].code == "a"
+            assert valid.validated_data["key"].code == "a"
             assert not await KeyForm({"key": "b"}).is_valid()
 
     asyncio.run(scenario())

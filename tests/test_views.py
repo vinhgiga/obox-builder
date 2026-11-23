@@ -16,18 +16,24 @@ from obox.views.generic import (
     UpdateView,
     View,
 )
+from pydantic import BaseModel, Field, field_validator
 
 from tests.test_forms_integration import Item, ItemForm, configured
 from tests.test_registered_views import Actors
 
 
 def test_typed_form_view_renders_errors_and_reads_validated_attributes() -> None:
-    class Contact(forms.Form):
+    class ContactInput(BaseModel):
         name: str
-        rate: int = forms.field(ge=1, le=5)
+        rate: int = Field(ge=1, le=5)
 
-        async def clean_name(self, value: str) -> str:
+        @field_validator("name")
+        @classmethod
+        def uppercase(cls, value: str) -> str:
             return value.upper()
+
+    class Contact(forms.Form[ContactInput]):
+        schema = ContactInput
 
     class ContactView(FormView):
         form_class = Contact
@@ -35,7 +41,8 @@ def test_typed_form_view_renders_errors_and_reads_validated_attributes() -> None
 
         async def form_valid(self, form: forms.Form) -> HTMLResponse:
             contact = cast(Contact, form)
-            return HTMLResponse(f"{contact.name}:{contact.rate}")
+            assert contact.cleaned_data is not None
+            return HTMLResponse(f"{contact.cleaned_data.name}:{contact.cleaned_data.rate}")
 
     async def scenario() -> None:
         async with configured():

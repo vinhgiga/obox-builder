@@ -290,7 +290,7 @@ class DateTimeField(_TypedField):
 
     def to_python(self, value: Any) -> Any:
         result = super().to_python(value)
-        if result is not None and result.tzinfo is None and settings.USE_TZ:
+        if result is not None and result.tzinfo is None and settings.configured and settings.USE_TZ:
             result = result.replace(tzinfo=ZoneInfo(settings.TIME_ZONE))
         return result
 

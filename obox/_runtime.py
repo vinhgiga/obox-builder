@@ -181,6 +181,11 @@ class _Runtime:
         self.csrf = CSRF(self.settings.csrf_secret)
         self.templates = create_templates(self.settings)
         app.dependency_overrides.setdefault(_api_context, self.context_dependency("api"))
+        from obox._identity import get_principal
+
+        self._provided_principal = self.settings.principal_dependency
+        if self._provided_principal is not None:
+            app.dependency_overrides.setdefault(get_principal, self._provided_principal)
         original_lifespan = app.router.lifespan_context
 
         @asynccontextmanager
@@ -487,6 +492,13 @@ class _Runtime:
             if self.settings.principal_dependency is not None
             else principal_dependency,
         )
+        from obox._identity import get_principal
+
+        provided = self.app.dependency_overrides.get(get_principal)
+        if provided is None or provided is self._provided_principal:
+            self._provided_principal = self.settings.principal_dependency
+            if self._provided_principal is not None:
+                self.app.dependency_overrides[get_principal] = self._provided_principal
         if _api_context in self.app.dependency_overrides:
             self.app.dependency_overrides[_api_context] = self.context_dependency("api")
 
@@ -510,7 +522,7 @@ class _Runtime:
 
     @staticmethod
     async def _problem(request: Request, exc: Exception) -> Response:
-        from obox._routes import authentication_response
+        from obox._routes import authentication_response, error_status
 
         obox = request.app.state.obox
         path = request.scope.get("obox_path", "")
@@ -518,7 +530,7 @@ class _Runtime:
         body: dict[str, Any] = {
             "type": "about:blank",
             "title": type(error).__name__,
-            "status": error.status,
+            "status": error_status(error),
             "detail": str(error),
             "instance": request.url.path,
         }
@@ -526,9 +538,11 @@ class _Runtime:
             body["errors"] = error.errors
         html = bool(getattr(request.state, "obox_html_permission", False))
         response = (
-            HTMLResponse(escape(str(error)), status_code=error.status)
+            HTMLResponse(escape(str(error)), status_code=error_status(error))
             if html and request.headers.get("x-obox-request") != "true"
-            else JSONResponse(body, status_code=error.status, media_type="application/problem+json")
+            else JSONResponse(
+                body, status_code=error_status(error), media_type="application/problem+json"
+            )
         )
         return authentication_response(
             request,

@@ -41,8 +41,8 @@ class Items(Resource[Item]):
     schema = ItemInput
     ordering = ("-name",)
 
-    def get_queryset(self, actor: Any) -> sa.Select[tuple[Item]]:
-        return super().get_queryset(actor).where(Item.name != "private")
+    def get_queryset(self) -> sa.Select[tuple[Item]]:
+        return super().get_queryset().where(Item.name != "private")
 
     async def can(self, action: str, obj: Item | None, actor: Any) -> bool:
         return action != "delete" or actor.is_superuser
@@ -127,7 +127,7 @@ def test_resource_validation_permissions_and_defaults_are_shared() -> None:
                 )
                 assert (created.status_code, created.headers["location"]) == (
                     303,
-                    "http://test/items",
+                    "/items",
                 )
                 stored = (await client.get("/api/items/1")).json()
                 assert stored["name"] == "alpha"

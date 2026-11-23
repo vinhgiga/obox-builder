@@ -133,6 +133,7 @@ reportMissingTypeStubs = false
 [tool.importlinter]
 root_package = "obox"
 include_external_packages = true
+exclude_type_checking_imports = true
 
 [[tool.importlinter.contracts]]
 name = "Analytical and history execution do not depend on HTTP or rendering"
@@ -140,3 +141,16 @@ type = "forbidden"
 source_modules = ["obox.contrib.analytics.query", "obox.contrib.activity.tracking"]
 forbidden_modules = ["fastapi", "jinja2", "obox._runtime"]
 allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "Domain operations are independent of HTTP and rendering"
+type = "forbidden"
+source_modules = ["obox.core", "obox.resources", "obox.services"]
+forbidden_modules = ["fastapi", "starlette", "jinja2"]
+
+[[tool.importlinter.contracts]]
+name = "HTML and REST adapters are independent"
+type = "independence"
+modules = ["obox.views", "obox.api"]
+# App registration composes both surfaces during application setup.
+ignore_imports = ["obox.apps -> obox._registration"]

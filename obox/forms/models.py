@@ -6,11 +6,14 @@ from collections.abc import Mapping
 from typing import Any, cast
 
 import sqlalchemy as sa
-from sqlalchemy.orm import MANYTOMANY, MANYTOONE, NO_VALUE, selectinload
+from sqlalchemy.orm import MANYTOMANY, MANYTOONE, NO_VALUE, attributes, selectinload
 
+from obox.core.domain import BuilderValidationError
 from obox.core.exceptions import ImproperlyConfigured, ValidationError
+from obox.core.principal import ANONYMOUS
 from obox.db import _scope, _session
 from obox.db._fields import _model_value
+from obox.forms._schema import schema_fields
 from obox.forms.fields import (
     BooleanField,
     CharField,
@@ -25,10 +28,11 @@ from obox.forms.fields import (
     TimeField,
     UUIDField,
 )
-from obox.forms.forms import Form
+from obox.forms.forms import Form, S
 from obox.forms.formsets import BaseFormSet, formset_factory
 from obox.forms.relations import ModelChoiceField, ModelMultipleChoiceField
 from obox.forms.widgets import HiddenInput
+from obox.resources import Resource
 
 
 def _editable_relationship(relation: Any) -> bool:
@@ -192,7 +196,7 @@ def fields_for_model(
     return result
 
 
-class ModelForm(Form):
+class ModelForm(Form[S]):
     @classmethod
     def _collect_fields(cls) -> dict[str, Field]:
         fields: dict[str, Field] = {}
@@ -228,14 +232,27 @@ class ModelForm(Form):
             labels=getattr(meta, "labels", None),
             help_texts=getattr(meta, "help_texts", None),
         )
+        if cls.schema is not None:
+            controls = schema_fields(cls.schema)
+            for name in generated:
+                if name in controls and not isinstance(generated[name], ModelChoiceField):
+                    generated[name] = controls[name]
         if names is not None:
             generated = {
                 name: declared[name] if name in declared else generated[name]
                 for name in names
                 if name in declared or name in generated
             }
-        generated.update(declared)
+        generated.update(cls.declared_fields)
         _check_relationship_columns(sa.inspect(model), generated)
+        for name, field in generated.items():
+            field.label = getattr(meta, "labels", {}).get(name, field.label)
+            field.help_text = getattr(meta, "help_texts", {}).get(name, field.help_text)
+            widget = getattr(meta, "widgets", {}).get(name)
+            if widget is not None:
+                from copy import deepcopy
+
+                field.widget = widget() if isinstance(widget, type) else deepcopy(widget)
         cls.base_fields = generated
 
     def __init__(
@@ -247,26 +264,36 @@ class ModelForm(Form):
         initial: Mapping[str, Any] | None = None,
         prefix: str | None = None,
         empty_permitted: bool = False,
+        resource: Resource[Any] | None = None,
+        schema: type[S] | None = None,
     ) -> None:
+        self.resource = resource
         meta = getattr(self, "Meta", None)
         model = getattr(meta, "model", None)
         if model is None:
             raise ValueError("ModelForm has no model class specified.")
         self.instance = model() if instance is None else instance
         state = sa.inspect(self.instance)
+        input_schema = schema or self.schema
         values = {
             name: state.attrs[name].loaded_value
-            for name in self.base_fields
+            for name in set(self.base_fields)
+            | set(input_schema.model_fields if input_schema else ())
             if name in state.attrs and state.attrs[name].loaded_value is not NO_VALUE
         }
         if instance is None:
-            values = {name: field.initial for name, field in self.base_fields.items()}
+            values = {
+                name: field.initial
+                for name, field in self.base_fields.items()
+                if field.initial is not None
+            }
         super().__init__(
             data,
             files,
             initial={**values, **(initial or {})},
             prefix=prefix,
             empty_permitted=empty_permitted,
+            schema=schema,
         )
         for field in self.fields.values():
             if hasattr(field, "owner_model"):
@@ -316,10 +343,12 @@ class ModelForm(Form):
     def _column_data(self) -> tuple[dict[str, Any], dict[str, str]]:
         mapper = sa.inspect(type(self.instance))
         values = {
-            name: value for name, value in self.cleaned_data.items() if name in mapper.column_attrs
+            name: value
+            for name, value in self.validated_data.items()
+            if name in self.fields and name in mapper.column_attrs
         }
         sources = {name: name for name in values}
-        for name, value in self.cleaned_data.items():
+        for name, value in self.validated_data.items():
             if name in mapper.relationships:
                 relation = mapper.relationships[name]
                 if relation.direction is MANYTOONE:
@@ -334,55 +363,22 @@ class ModelForm(Form):
         return values, sources
 
     async def _post_clean(self) -> None:
-        mapper = sa.inspect(type(self.instance))
         values, sources = self._column_data()
-        constraints = [
-            tuple(column.key for column in constraint.columns)
-            for constraint in mapper.local_table.constraints
-            if isinstance(constraint, (sa.UniqueConstraint, sa.PrimaryKeyConstraint))
-        ]
-        foreign = [
-            (name, key)
-            for name, prop in mapper.column_attrs.items()
-            for key in prop.columns[0].foreign_keys
-            if name in values and values[name] is not None and sources[name] == name
-        ]
-        relevant = [
-            names
-            for names in constraints
-            if all(name in values and values[name] is not None for name in names)
-        ]
-        if not relevant and not foreign:
-            return
         async with _session() as session:
-            with session.no_autoflush:
-                for name, key in foreign:
-                    found = await session.scalar(
-                        sa.select(key.column).where(key.column == values[name]).limit(1)
-                    )
-                    if found is None:
-                        self.add_error(
-                            name,
-                            "Select a valid choice. "
-                            "That choice is not one of the available choices.",
-                        )
-                for names in relevant:
-                    query = sa.select(mapper.primary_key[0]).where(
-                        *(
-                            getattr(type(self.instance), name)
-                            == _model_value(mapper.column_attrs[name].columns[0], values[name])
-                            for name in names
-                        )
-                    )
-                    pk = mapper.get_property_by_column(mapper.primary_key[0]).key
-                    if not sa.inspect(self.instance).transient:
-                        query = query.where(mapper.primary_key[0] != getattr(self.instance, pk))
-                    if await session.scalar(query.limit(1)) is not None:
-                        labels = " and ".join(name.replace("_", " ") for name in names)
-                        self.add_error(
-                            sources[names[0]] if len(names) == 1 else None,
-                            f"{type(self.instance).__name__} with this {labels} already exists.",
-                        )
+            resource = self._resource(session)
+            try:
+                await resource.validate_constraints(values, self.instance, unique=True)
+            except BuilderValidationError as exc:
+                for name, messages in exc.errors.items():
+                    target = sources.get(name, name)
+                    self.add_error(target if target in self.fields else None, messages)
+
+    def _resource(self, session: Any) -> Resource[Any]:
+        ctx = session.info.get("obox._context")
+        principal = ctx.principal if ctx is not None else ANONYMOUS
+        if self.resource is not None:
+            return self.resource.bind(session, principal)
+        return Resource(session, principal, model=type(self.instance))
 
     async def _validate_save(self) -> None:
         if not self._validated:
@@ -395,7 +391,7 @@ class ModelForm(Form):
 
     def _assign_fields(self, session: Any = None) -> None:
         mapper = sa.inspect(type(self.instance))
-        for name, value in self.cleaned_data.items():
+        for name, value in self.validated_data.items():
             if name not in mapper.attrs:
                 continue
             column = mapper.column_attrs[name].columns[0] if name in mapper.column_attrs else None
@@ -434,61 +430,99 @@ class ModelForm(Form):
 
     async def save(self, commit: bool = True) -> Any:
         await self._validate_save()
-        if commit:
-            async with _session() as session:
-                session.add(self.instance)
-                with session.no_autoflush:
-                    await session.run_sync(self._assign_fields)
-                await session.flush()
-                await self.save_m2m()
-        else:
+        if not commit:
             self._assign_fields()
+            return self.instance
+        async with _session() as session:
+            resource = self._resource(session)
+            values, sources = self._column_data()
+            for name in self.validated_data:
+                if (
+                    name in self.fields
+                    and name in resource.specs
+                    and "obox_files" in resource.specs[name].column.info
+                ):
+                    values[name] = (
+                        getattr(self.cleaned_data, name)
+                        if self.cleaned_data is not None and hasattr(self.cleaned_data, name)
+                        else resource.specs[name].serialize(self.validated_data[name])
+                    )
+                    sources[name] = name
+            original = self.instance
+            declared_schema = resource.schema or resource.create_schema or resource.update_schema
+            values = {
+                name: value
+                for name, value in values.items()
+                if not self.fields[sources[name]].disabled
+                and not (name in resource.specs and resource.specs[name].readonly)
+                and not (
+                    declared_schema is None
+                    and name in resource.specs
+                    and (
+                        resource.specs[name].column.default is not None
+                        or resource.specs[name].column.server_default is not None
+                    )
+                    and self.add_prefix(sources[name]) not in self.data
+                    and not isinstance(resource.specs[name].column.type, sa.Boolean)
+                )
+            }
+            # The form's schema has already validated this payload once.
+            validate = self._schema is not resource.get_schema(
+                "create" if sa.inspect(self.instance).transient else "update"
+            )
+            if self.resource is None:
+                validate = False
+            if sa.inspect(self.instance).transient:
+                self.instance = await resource.create(
+                    values, validate=validate, instance=self.instance
+                )
+            else:
+                self.instance = await resource.update(
+                    self.instance, values, partial=True, validate=validate
+                )
+            await self.save_m2m()
+            if original is not self.instance and sa.inspect(original).identity is not None:
+                state = sa.inspect(self.instance)
+                for name in set(state.mapper.attrs.keys()) - state.unloaded:
+                    attributes.set_committed_value(original, name, getattr(self.instance, name))
+                self.instance = original
         return self.instance
 
     async def save_m2m(self) -> None:
-        """Persist selected collections after the instance has been flushed."""
         await self._validate_save()
         if sa.inspect(self.instance).identity is None:
             raise ValueError("Save the instance before calling save_m2m().")
         mapper = sa.inspect(type(self.instance))
-        collections = {
-            name: value
-            for name, value in self.cleaned_data.items()
-            if name in mapper.relationships and mapper.relationships[name].secondary is not None
-        }
-        if not collections:
-            return
-        async with _session() as session:
-            session.add(self.instance)
-            with session.no_autoflush:
-                missing = [
-                    name for name in collections if name in sa.inspect(self.instance).unloaded
-                ]
-                if missing:
-                    await session.refresh(self.instance, missing)
-
-                def assign(sync_session: Any) -> None:
-                    for name, values in collections.items():
-                        setattr(
-                            self.instance,
-                            name,
-                            [sync_session.merge(value, load=False) for value in values],
-                        )
-
-                await session.run_sync(assign)
-            await session.flush()
+        collections = {}
+        for name, value in self.validated_data.items():
+            if name not in self.fields or name not in mapper.relationships:
+                continue
+            relation = mapper.relationships[name]
+            if "obox_files" in relation.info:
+                continue
+            if (
+                value is None
+                and self.add_prefix(name) not in self.data
+                and any(local.default is not None for _, local in relation.synchronize_pairs)
+            ):
+                continue
+            collections[name] = value
+        if collections:
+            async with _session() as session:
+                await self._resource(session).save_related(self.instance, collections)
 
 
 def modelform_factory(
     model: type[Any],
-    form: type[ModelForm] = ModelForm,
+    form: type[ModelForm[Any]] = ModelForm,
     *,
     fields: Any = None,
     exclude: Any = None,
     widgets: Any = None,
     labels: Any = None,
     help_texts: Any = None,
-) -> type[ModelForm]:
+    schema: Any = None,
+) -> type[ModelForm[Any]]:
     base_meta = getattr(form, "Meta", object)
     options = {"model": model}
     options.update(
@@ -505,7 +539,10 @@ def modelform_factory(
         }
     )
     meta = type("Meta", (base_meta,), options)
-    return type(model.__name__ + "Form", (form,), {"Meta": meta})
+    attrs = {"Meta": meta}
+    if schema is not None:
+        attrs["schema"] = schema
+    return type(model.__name__ + "Form", (form,), attrs)
 
 
 class _IdentityField(Field):
@@ -566,7 +603,7 @@ class BaseModelFormSet(BaseFormSet):
         self.changed_objects: list[tuple[Any, list[str]]] = []
         self.deleted_objects: list[Any] = []
         self.new_objects: list[Any] = []
-        self.saved_forms: list[ModelForm] = []
+        self.saved_forms: list[ModelForm[Any]] = []
         super().__init__(data, files, **kwargs)
 
     def get_queryset(self) -> Any:
@@ -587,7 +624,7 @@ class BaseModelFormSet(BaseFormSet):
     def initial_form_count(self) -> int:
         return super().initial_form_count() if self.is_bound else len(self._objects or {})
 
-    def _construct_form(self, index: int | None, **kwargs: Any) -> ModelForm:
+    def _construct_form(self, index: int | None, **kwargs: Any) -> ModelForm[Any]:
         if self._objects is None and index is not None:
             raise ValueError("Await formset.prepare() before accessing model forms.")
         if index is not None and index < self.initial_form_count():
@@ -597,9 +634,9 @@ class BaseModelFormSet(BaseFormSet):
                 else list(self._objects or {})[index]
             )
             kwargs["instance"] = (self._objects or {}).get(identity)
-        return cast(ModelForm, super()._construct_form(index, **kwargs))
+        return cast(ModelForm[Any], super()._construct_form(index, **kwargs))
 
-    def add_fields(self, form: Form, index: int | None) -> None:
+    def add_fields(self, form: Form[Any], index: int | None) -> None:
         super().add_fields(form, index)
         if self.pk_name not in form.fields:
             form.fields[self.pk_name] = _IdentityField(
@@ -622,8 +659,8 @@ class BaseModelFormSet(BaseFormSet):
         seen: dict[tuple[str, ...], set[Any]] = {names: set() for names in constraints}
         duplicates = False
         identities: set[Any] = set()
-        for form in cast(list[ModelForm], self.forms):
-            if form.errors or self._should_delete_form(form) or not form.cleaned_data:
+        for form in cast(list[ModelForm[Any]], self.forms):
+            if form.errors or self._should_delete_form(form) or not form.validated_data:
                 continue
             state = sa.inspect(form.instance)
             if state.identity is not None:
@@ -649,17 +686,19 @@ class BaseModelFormSet(BaseFormSet):
             self.errors = [form.errors for form in self.forms if not self._should_delete_form(form)]
             raise ValidationError("Please correct the duplicate data in the forms.")
 
-    async def save_new(self, form: ModelForm, commit: bool = True) -> Any:
+    async def save_new(self, form: ModelForm[Any], commit: bool = True) -> Any:
         return await form.save(commit=commit)
 
-    async def save_existing(self, form: ModelForm, instance: Any, commit: bool = True) -> Any:
+    async def save_existing(self, form: ModelForm[Any], instance: Any, commit: bool = True) -> Any:
         return await form.save(commit=commit)
 
     async def delete_existing(self, obj: Any, commit: bool = True) -> None:
         if commit:
             async with _session() as session:
-                await session.delete(obj)
-                await session.flush()
+                ctx = session.info.get("obox._context")
+                await Resource(
+                    session, ctx.principal if ctx else ANONYMOUS, model=self.model
+                ).destroy(obj)
 
     async def save(self, commit: bool = True) -> list[Any]:
         if not await self.is_valid():
@@ -673,7 +712,7 @@ class BaseModelFormSet(BaseFormSet):
 
         async def persist() -> list[Any]:
             saved = []
-            for form in cast(list[ModelForm], self.forms):
+            for form in cast(list[ModelForm[Any]], self.forms):
                 existing = sa.inspect(form.instance).identity is not None
                 if self._should_delete_form(form):
                     if existing:
@@ -751,7 +790,7 @@ class BaseInlineFormSet(BaseModelFormSet):
     def initial_form_count(self) -> int:
         return 0 if self.save_as_new else super().initial_form_count()
 
-    def add_fields(self, form: Form, index: int | None) -> None:
+    def add_fields(self, form: Form[Any], index: int | None) -> None:
         super().add_fields(form, index)
         mapper = sa.inspect(self.model)
         name = next(
@@ -772,14 +811,14 @@ class BaseInlineFormSet(BaseModelFormSet):
         )
         form.initial[name] = getattr(self.instance, self.to_field, None)
 
-    async def save_new(self, form: ModelForm, commit: bool = True) -> Any:
+    async def save_new(self, form: ModelForm[Any], commit: bool = True) -> Any:
         value = getattr(self.instance, self.to_field, None)
         if value is None and commit:
             raise ValueError("Save the parent instance before saving its inline forms.")
         setattr(form.instance, self.fk_name, value)
         for name, field in form.fields.items():
             if isinstance(field, InlineForeignKeyField):
-                form.cleaned_data[name] = self.instance if field.relationship else value
+                form.validated_data[name] = self.instance if field.relationship else value
         result = await super().save_new(form, commit)
         if not commit:
             relation = next(
@@ -798,7 +837,7 @@ class BaseInlineFormSet(BaseModelFormSet):
 
 def modelformset_factory(
     model: type[Any],
-    form: type[ModelForm] = ModelForm,
+    form: type[ModelForm[Any]] = ModelForm,
     *,
     formset: type[BaseModelFormSet] = BaseModelFormSet,
     fields: Any = None,
@@ -854,7 +893,7 @@ def _get_foreign_key(parent_model: type[Any], model: type[Any], fk_name: str | N
 def inlineformset_factory(
     parent_model: type[Any],
     model: type[Any],
-    form: type[ModelForm] = ModelForm,
+    form: type[ModelForm[Any]] = ModelForm,
     *,
     formset: type[BaseInlineFormSet] = BaseInlineFormSet,
     fk_name: str | None = None,

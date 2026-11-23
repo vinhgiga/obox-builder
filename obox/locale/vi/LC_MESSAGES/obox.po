@@ -26,15 +26,15 @@ msgstr "Trang chủ"
 msgid "Applications"
 msgstr "Ứng dụng"
 
-#: obox/_routes.py:263
+#: obox/_routes.py:282
 msgid "msg"
 msgstr ""
 
-#: obox/_routes.py:272
+#: obox/_routes.py:291
 msgid "Internal server error."
 msgstr ""
 
-#: obox/_routes.py:284
+#: obox/_routes.py:303
 msgid "Internal server error.Invalid input."
 msgstr ""
 

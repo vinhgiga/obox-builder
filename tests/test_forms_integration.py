@@ -13,6 +13,7 @@ from obox.conf import settings
 from obox.core.exceptions import ImproperlyConfigured
 from obox.db import _close, _factory, _session
 from obox.db.transaction import atomic
+from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -30,14 +31,24 @@ class Item(Base):
     quantity: Mapped[int] = mapped_column(default=1)
 
 
-class ItemForm(forms.ModelForm):
+class ItemInput(BaseModel):
+    name: str = Field(min_length=1, max_length=10)
+    price: Decimal
+    quantity: int = 1
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str) -> str:
+        return value.strip().lower()
+
+
+class ItemForm(forms.ModelForm[ItemInput]):
+    schema = ItemInput
+
     class Meta:
         model = Item
         fields = ("name", "price", "quantity")
         labels: ClassVar[dict[str, str]] = {"name": "Title"}
-
-    def clean_name(self) -> str:
-        return self.cleaned_data["name"].lower()
 
 
 @asynccontextmanager
@@ -88,20 +99,25 @@ async def configured() -> AsyncIterator[None]:
 
 
 def test_form_bound_validation_order_errors_and_per_instance_fields() -> None:
-    class Contact(forms.Form):
-        name: str = forms.field(max_length=5)
+    class ContactInput(BaseModel):
+        name: str = Field(min_length=1, max_length=5)
         age: int | None = None
 
-        def clean_name(self, value: str) -> str:
+        @field_validator("name")
+        @classmethod
+        def clean_name(cls, value: str) -> str:
             if value == "bad":
-                raise forms.ValidationError("Rejected")
-            return value.upper()
+                raise ValueError("Rejected")
+            return value.strip().upper()
 
-        def clean(self) -> dict[str, Any]:
-            values = super().clean()
-            if values.get("age") == 1:
-                self.add_error("age", "Too young")
-            return values
+        @model_validator(mode="after")
+        def check_age(self) -> "ContactInput":
+            if self.age == 1:
+                raise ValueError("Too young")
+            return self
+
+    class Contact(forms.Form[ContactInput]):
+        schema = ContactInput
 
     async def scenario() -> None:
         assert not await Contact().is_valid()
@@ -110,11 +126,11 @@ def test_form_bound_validation_order_errors_and_per_instance_fields() -> None:
         assert missing.errors == {"name": ["This field is required."]}
         valid = Contact({"name": " ok ", "unknown": "ignored"})
         assert await valid.is_valid()
-        assert valid.cleaned_data == {"name": "OK", "age": None}
+        assert valid.validated_data == {"name": "OK", "age": None}
         rejected = Contact({"name": "bad", "age": "1"})
         assert not await rejected.is_valid()
-        assert rejected.errors == {"name": ["Rejected"], "age": ["Too young"]}
-        assert rejected.cleaned_data == {}
+        assert "Rejected" in rejected.errors["name"][0]
+        assert rejected.validated_data == {}
         first, second = Contact(), Contact()
         first.fields["name"].required = False
         assert second.fields["name"].required
@@ -128,7 +144,7 @@ def test_model_form_validates_without_saving_and_supports_commit_false() -> None
         async with configured():
             form = ItemForm({"name": " ALPHA ", "price": "2.50"})
             assert await form.is_valid()
-            assert form.cleaned_data["name"] == "alpha"
+            assert form.validated_data["name"] == "alpha"
             assert form.fields["name"].label == "Title"
             async with _session() as session:
                 assert await session.scalar(sa.select(sa.func.count()).select_from(Item)) == 0
@@ -170,8 +186,8 @@ def test_model_form_preserves_legacy_declarations_overrides_and_clean_hooks() ->
         async with configured():
             form = Custom({"name": " ABC ", "price": "2.00", "extra": "kept"})
             assert await form.is_valid()
-            assert form.cleaned_data["name"] == "abc"
-            assert form.cleaned_data["extra"] == "kept"
+            assert form.validated_data["name"] == "abc"
+            assert form.validated_data["extra"] == "kept"
             assert "extra" not in Removed.base_fields
             assert not await Custom({"name": "ABCDE", "price": "2.00"}).is_valid()
 
@@ -227,21 +243,38 @@ def test_manual_primary_key_uniqueness_and_validation_preserves_instance() -> No
 def test_prefix_disabled_fields_error_codes_and_widgets_escape_values() -> None:
     validated = []
 
-    class Profile(forms.Form):
-        name: str = forms.field(forms.Textarea)
-        accepted: bool = forms.field(
-            default=False, disabled=True, initial=True, validators=[validated.append]
-        )
-        password: str = forms.field(forms.PasswordInput)
+    class ProfileInput(BaseModel):
+        name: str
+        accepted: bool = False
+        password: str
+
+        @field_validator("accepted")
+        @classmethod
+        def track(cls, value: bool) -> bool:
+            validated.append(value)
+            return value
+
+    class Profile(forms.Form[ProfileInput]):
+        schema = ProfileInput
+        widgets: ClassVar[dict[str, Any]] = {
+            "name": forms.Textarea,
+            "password": forms.PasswordInput,
+        }
+        field_options: ClassVar[dict[str, Any]] = {
+            "accepted": forms.BooleanField(disabled=True, initial=True, required=False)
+        }
 
     async def scenario() -> None:
         form = Profile({"p-name": "<script>", "p-password": "secret"}, prefix="p")
         assert await form.is_valid()
-        assert form.cleaned_data["accepted"] is True
+        assert form.validated_data["accepted"] is True
         assert validated == [True]
 
-        class Payload(forms.Form):
+        class PayloadInput(BaseModel):
             payload: dict[str, str]
+
+        class Payload(forms.Form[PayloadInput]):
+            schema = PayloadInput
 
         rendered = str(Payload(initial={"payload": {"key": "value"}})["payload"])
         assert "&quot;key&quot;: &quot;value&quot;" in rendered
@@ -253,7 +286,7 @@ def test_prefix_disabled_fields_error_codes_and_widgets_escape_values() -> None:
         form.add_error("name", forms.ValidationError("Reserved", code="reserved"))
         assert form.has_error("name", "reserved")
         assert not form.has_error("name", "required")
-        assert "name" not in form.cleaned_data
+        assert "name" not in form.validated_data
 
     asyncio.run(scenario())
 

@@ -25,7 +25,12 @@ def _scope(query: Any, model: type[Any]) -> Any:
         return query
     pk = sa.inspect(model).primary_key[0]
     identities = query.with_only_columns(pk, maintain_column_froms=True)
-    return sa.select(model).where(pk.in_(identities))
+    return (
+        sa.select(model)
+        .where(pk.in_(identities))
+        .options(*query._with_options)
+        .order_by(*query._order_by_clauses)
+    )
 
 
 def _url() -> str:

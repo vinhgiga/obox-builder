@@ -2,52 +2,107 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from typing import Any, ClassVar, cast
 
-from fastapi import Request
+from fastapi import APIRouter, Depends, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, Response
 from markupsafe import escape
+from starlette.datastructures import MutableHeaders
 from starlette.exceptions import HTTPException
+from starlette.types import Message, Receive, Scope, Send
 
 from obox._async import invoke
 from obox._exceptions import OboxError
+from obox._identity import _identify
+from obox._routes import MethodRoute, error_status
 from obox.conf import settings
 from obox.core.exceptions import ImproperlyConfigured, PermissionDenied
-from obox.db import _session
+from obox.db import _current, _session
 
 
-async def _identify(request: Request) -> Any:
-    from obox._auth import Principal
+async def _html_error(request: Request, exc: Exception) -> Response:
+    from jinja2 import TemplateNotFound
 
     runtime = getattr(request.app.state, "obox", None)
-    if getattr(request.state, "_obox_identified", False):
-        return request.scope["user"]
-    resolver = runtime.settings.principal_dependency if runtime is not None else None
-    if resolver is None:
-        actor = request.scope.get("user", Principal())
+    status = 403 if isinstance(exc, PermissionDenied) else error_status(exc)
+    if runtime is not None and isinstance(exc, OboxError):
+        request.state.obox_html_permission = True
+        response = await runtime._problem(request, exc)
     else:
-        from inspect import signature
-
-        actor = (
-            await invoke(resolver, request)
-            if signature(resolver).parameters
-            else await invoke(resolver)
+        detail = exc.detail if isinstance(exc, HTTPException) else str(exc)
+        if isinstance(exc, PermissionDenied) and not detail:
+            detail = "Forbidden"
+        response = HTMLResponse(
+            escape("Invalid input." if isinstance(exc, RequestValidationError) else str(detail)),
+            status_code=status,
+            headers=exc.headers if isinstance(exc, HTTPException) else None,
         )
-    request.scope["user"] = actor
-    request.state._obox_identified = True
-    return actor
+    templates = (
+        runtime.templates if runtime is not None else getattr(request.app.state, "templates", None)
+    )
+    if (
+        templates is not None
+        and status in {403, 404}
+        and request.headers.get("x-obox-request") != "true"
+    ):
+        name = f"{status}.html"
+        try:
+            templates.env.get_template(name)
+        except TemplateNotFound:
+            pass
+        else:
+            return cast(
+                Response,
+                templates.TemplateResponse(
+                    request=request,
+                    name=name,
+                    status_code=status,
+                    context={
+                        **getattr(request.state, "obox_template_context", {}),
+                        "principal": request.scope.get("user"),
+                    },
+                ),
+            )
+    return cast(Response, response)
+
+
+class HTMLRoute(MethodRoute):
+    """Translate failures including function-scoped dependency teardown."""
+
+    async def handle(self, scope: Scope, receive: Receive, send: Send) -> None:
+        started = False
+
+        async def respond(message: Message) -> None:
+            nonlocal started
+            if message["type"] == "http.response.start":
+                started = True
+                headers = MutableHeaders(scope=message)
+                headers["Cache-Control"] = "private, no-store"
+                headers.add_vary_header("Cookie, Authorization, Accept-Language")
+            elif scope["method"] == "HEAD" and message["type"] == "http.response.body":
+                message = {**message, "body": b""}
+            await send(message)
+
+        try:
+            await super().handle(scope, receive, respond)
+        except (OboxError, PermissionDenied, HTTPException, RequestValidationError) as exc:
+            if started:
+                raise
+            response = await _html_error(Request(scope, receive), exc)
+            await response(scope, receive, respond)
 
 
 @asynccontextmanager
 async def _request_session(request: Request) -> AsyncIterator[Any]:
-    actor = await _identify(request)
+    actor = request.scope.get("user")
     runtime = getattr(request.app.state, "obox", None)
     if runtime is not None:
         async with runtime.uow(principal=actor, request=request, source="ui") as context:
             yield context
-    elif settings.DATABASES:
+    elif settings.configured and settings.DATABASES:
         async with _session():
             yield None
     else:
@@ -55,6 +110,11 @@ async def _request_session(request: Request) -> AsyncIterator[Any]:
 
 
 class View:
+    session: Any
+    principal: Any
+    dependencies: ClassVar[Sequence[Any]] = ()
+    principal_dependency: Any = None
+    csrf_protect = True
     http_method_names: ClassVar[list[str]] = [
         "get",
         "post",
@@ -73,17 +133,70 @@ class View:
         self.args: tuple[Any, ...]
         self.kwargs: dict[str, Any]
 
+    def check(self) -> None:
+        """Validate effective configuration before accepting requests."""
+
+    @classmethod
+    def as_route(
+        cls,
+        router: APIRouter,
+        path: str,
+        *,
+        name: str,
+        initkwargs: dict[str, Any] | None = None,
+        dependencies: Sequence[Any] = (),
+    ) -> None:
+        options = initkwargs or {}
+        endpoint = cls.as_view(**options)
+        methods = cls(**options)._allowed_methods()
+        if "GET" in methods and "HEAD" not in methods:
+            methods.append("HEAD")
+        router.add_api_route(
+            path,
+            endpoint,
+            name=name,
+            methods=methods,
+            dependencies=[*cls.dependencies, *dependencies],
+            response_model=None,
+            include_in_schema=False,
+            route_class_override=HTMLRoute,
+        )
+
+    def reverse(self, name: str, **params: Any) -> str:
+        path = str(self.request.app.url_path_for(name, **params))
+        return str(self.request.scope.get("root_path", "")).rstrip("/") + path
+
+    def redirect(self, name_or_path: str, **params: Any) -> Response:
+        from starlette.responses import RedirectResponse
+
+        return RedirectResponse(
+            name_or_path if name_or_path.startswith("/") else self.reverse(name_or_path, **params),
+            status_code=303,
+        )
+
     @classmethod
     def as_view(cls, **initkwargs: Any) -> Any:
         for key in initkwargs:
             if key in cls.http_method_names or not hasattr(cls, key):
                 raise TypeError(f"{cls.__name__}.as_view() received an invalid keyword {key!r}.")
 
-        async def view(request: Request) -> Response:
+        cls(**initkwargs).check()
+        principal_dependency = cls.principal_dependency or _identify
+
+        async def view(
+            request: Request, principal: Any = Depends(principal_dependency)
+        ) -> Response:
+            request.scope["user"] = principal
+            request.state._obox_identified = True
             self = cls(**initkwargs)
             self.setup(request, **request.path_params)
             try:
                 async with _request_session(request) as context:
+                    current = _current.get()
+                    self.session = (
+                        context.session if context is not None else current[1] if current else None
+                    )
+                    self.principal = request.user
                     runtime = getattr(request.app.state, "obox", None)
                     if runtime is not None and context is not None:
                         from obox._i18n import context as translation_context
@@ -100,19 +213,13 @@ class View:
                         }
                     from obox.middleware.csrf import _check, _set_cookie
 
-                    if not getattr(request.state, "_obox_html_csrf", False):
+                    if self.csrf_protect and not getattr(request.state, "_obox_html_csrf", False):
                         await _check(request, multipart=True)
                     response = cast(Response, await invoke(self.dispatch, request, **self.kwargs))
                     _set_cookie(request, response)
                     return response
-            except PermissionDenied:
-                return HTMLResponse("Forbidden", status_code=403)
-            except OboxError as exc:
-                return HTMLResponse(escape(str(exc)), status_code=exc.status)
-            except HTTPException as exc:
-                return HTMLResponse(
-                    escape(str(exc.detail)), status_code=exc.status_code, headers=exc.headers
-                )
+            except (PermissionDenied, OboxError, HTTPException, RequestValidationError) as exc:
+                return await _html_error(request, exc)
             finally:
                 await request.close()
 
@@ -149,16 +256,34 @@ class View:
 
 
 class ContextMixin:
+    def check(self) -> None:
+        """Cooperate with other view configuration checks."""
+
     extra_context: dict[str, Any] | None = None
 
     def get_context_data(self, **kwargs: Any) -> Any:
-        return {"view": self, **kwargs, **(self.extra_context or {})}
+        return {
+            "view": self,
+            "principal": getattr(self, "principal", None),
+            **kwargs,
+            **(self.extra_context or {}),
+        }
 
 
 class TemplateResponseMixin:
     template_name: str | None = None
     content_type: str | None = None
     request: Request
+
+    def check(self) -> None:
+        check = getattr(super(), "check", None)
+        if check is not None:
+            check()
+        if (
+            type(self).get_template_names is TemplateResponseMixin.get_template_names
+            and not self.template_name
+        ):
+            raise ImproperlyConfigured("Define template_name or override get_template_names().")
 
     def get_template_names(self) -> list[str]:
         if self.template_name is None:
@@ -173,6 +298,8 @@ class TemplateResponseMixin:
         runtime = getattr(self.request.app.state, "obox", None)
         if runtime is not None:
             templates = runtime.templates
+        elif hasattr(self.request.app.state, "templates"):
+            templates = self.request.app.state.templates
         else:
             from importlib import import_module
 
@@ -184,6 +311,7 @@ class TemplateResponseMixin:
                 module, _, name = config["BACKEND"].rpartition(".")
                 backend = getattr(import_module(module), name)
             templates = Jinja2Templates(env=backend(config).env)
+            self.request.app.state.templates = templates
         context.setdefault("csrf_token", get_token(self.request))
         context = {
             **getattr(self.request.state, "obox_template_context", {}),

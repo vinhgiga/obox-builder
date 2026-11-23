@@ -1,7 +1,6 @@
 """Typed forms and model forms with awaitable validation and saving."""
 
 from obox.core.exceptions import ValidationError
-from obox.forms.declarative import field
 from obox.forms.fields import (
     BooleanField,
     CharField,
@@ -78,7 +77,6 @@ __all__ = [
     "ValidationError",
     "Widget",
     "all_valid",
-    "field",
     "fields_for_model",
     "formset_factory",
     "inlineformset_factory",

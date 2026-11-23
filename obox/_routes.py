@@ -22,11 +22,40 @@ from obox._exceptions import (
     BatchOperationError,
     BuilderValidationError,
     NotAuthenticated,
+    NotFound,
     OboxError,
+    PermissionDenied,
+    PreconditionFailed,
+    PreconditionRequired,
+    ResourceConflict,
+    RuleViolation,
 )
 from obox._i18n import negotiate, request_target, translate
 from obox._query import invalid
 from obox._schemas import FieldError, Problem
+
+
+def error_status(exc: Exception) -> int:
+    if isinstance(exc, BatchOperationError):
+        return error_status(exc.error)
+    if isinstance(exc, HTTPException):
+        return exc.status_code
+    if isinstance(exc, RequestValidationError | BuilderValidationError | RuleViolation):
+        return 422
+    for error, status in (
+        (NotAuthenticated, 401),
+        (PermissionDenied, 403),
+        (NotFound, 404),
+        (ResourceConflict, 409),
+        (PreconditionFailed, 412),
+        (PreconditionRequired, 428),
+    ):
+        if isinstance(exc, error):
+            return status
+    if isinstance(exc, OboxError):
+        return 503 if exc.code == "aggregate_timeout" else 400
+
+    return 500
 
 
 def allow_header(scope: Scope) -> str:
@@ -164,17 +193,7 @@ async def api_problem(request: Request, exc: Exception) -> Response:
     query_body = getattr(request.state, "query_body", False)
     record_write = getattr(request.state, "record_write", False)
     trace_id = getattr(request.state, "trace_id", uuid4().hex)
-    status = (
-        exc.status
-        if isinstance(exc, OboxError)
-        else (
-            exc.status_code
-            if isinstance(exc, HTTPException)
-            else 422
-            if isinstance(exc, RequestValidationError)
-            else 500
-        )
-    )
+    status = error_status(exc)
     if isinstance(exc, RequestValidationError) and any(
         error["type"] == "json_invalid" for error in exc.errors()
     ):

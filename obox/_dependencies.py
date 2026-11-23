@@ -13,6 +13,7 @@ from starlette.routing import BaseRoute
 from obox._auth import Identity, _valid_permission, has_permission
 from obox._context import Context
 from obox._exceptions import NotAuthenticated, PermissionDenied
+from obox._identity import _identify
 from obox.core.exceptions import ImproperlyConfigured
 from obox.core.exceptions import PermissionDenied as FormPermissionDenied
 
@@ -71,12 +72,9 @@ class _RoutePermission:
     html: bool
     csrf: bool = True
 
-    async def __call__(self, request: Request) -> Identity:
-        from obox.views.generic.base import _identify
-
+    async def __call__(self, request: Request, actor: Any = Depends(_identify)) -> Identity:
         if self.html:
             request.state.obox_html_permission = True
-        actor = await _identify(request)
         _require_permission(actor, self.permission)
         if (
             self.csrf

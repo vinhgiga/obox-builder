@@ -341,7 +341,6 @@ class Pivot(Component):
 
 
 class AggregateTimeout(OboxError):
-    status = 503
     code = "aggregate_timeout"
 
 
