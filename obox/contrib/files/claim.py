@@ -10,10 +10,9 @@ from sqlalchemy.orm import Mapper, object_session
 from sqlalchemy.orm.attributes import set_committed_value
 from sqlalchemy.orm.base import NO_VALUE
 
-from obox._exceptions import BuilderValidationError
 from obox.contrib.files.fields import changed, initialized
 from obox.contrib.files.models import File
-from obox.core.exceptions import ImproperlyConfigured
+from obox.core.exceptions import BuilderValidationError, ImproperlyConfigured
 
 
 def synchronize(
@@ -27,7 +26,7 @@ def synchronize(
     if not rules:
         return
     session = object_session(target)
-    ctx = session.info.get("obox._context") if session is not None else None
+    ctx = session.info.get("obox.runtime.context") if session is not None else None
     if ctx is None or ctx._owner._feature("files") is None:
         raise ImproperlyConfigured(
             "Modify file fields inside an _Runtime unit of work with Files installed."

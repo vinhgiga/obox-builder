@@ -14,13 +14,12 @@ from starlette.datastructures import MutableHeaders
 from starlette.exceptions import HTTPException
 from starlette.types import Message, Receive, Scope, Send
 
-from obox._async import invoke
-from obox._exceptions import OboxError
-from obox._identity import _identify
-from obox._routes import MethodRoute, error_status
 from obox.conf import settings
-from obox.core.exceptions import ImproperlyConfigured, PermissionDenied
-from obox.db import _current, _session
+from obox.core.async_utils import invoke
+from obox.core.exceptions import ImproperlyConfigured, OboxError, PermissionDenied
+from obox.db.session import _current, _session
+from obox.web.identity import _identify
+from obox.web.routes import MethodRoute, error_status
 
 
 async def _html_error(request: Request, exc: Exception) -> Response:
@@ -199,8 +198,8 @@ class View:
                     self.principal = request.user
                     runtime = getattr(request.app.state, "obox", None)
                     if runtime is not None and context is not None:
-                        from obox._i18n import context as translation_context
-                        from obox._ui import build_navigation
+                        from obox.web.i18n import context as translation_context
+                        from obox.web.ui import build_navigation
 
                         request.state.obox_context = context
                         request.state.obox_template_context = {

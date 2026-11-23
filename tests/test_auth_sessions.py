@@ -11,10 +11,10 @@ import httpx
 import pytest
 import sqlalchemy as sa
 from fastapi import FastAPI
-from obox._config import RuntimeConfig
-from obox._runtime import _Runtime
 from obox.contrib.auth import Auth, Base, ModelBackend, Session, User
 from obox.contrib.auth.passwords import hash_password
+from obox.runtime.config import RuntimeConfig
+from obox.runtime.runtime import _Runtime
 
 from tests.runtime import build_runtime
 

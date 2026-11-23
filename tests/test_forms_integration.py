@@ -11,7 +11,8 @@ import sqlalchemy as sa
 from obox import forms
 from obox.conf import settings
 from obox.core.exceptions import ImproperlyConfigured
-from obox.db import _close, _factory, _session
+from obox.db.engine import _close, _factory
+from obox.db.session import _session
 from obox.db.transaction import atomic
 from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy.engine import make_url

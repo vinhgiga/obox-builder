@@ -5,11 +5,11 @@ from typing import Any
 import sqlalchemy as sa
 from pydantic import TypeAdapter, ValidationError
 
-from obox._auth import has_permission
-from obox._exceptions import NotAuthenticated, NotFound, PermissionDenied
 from obox.apps import apps
-from obox.db import _scope
-from obox.db._identity import _model_label
+from obox.core.exceptions import NotAuthenticated, NotFound, PermissionDenied
+from obox.core.principal import has_permission
+from obox.db.identity import _model_label
+from obox.db.query import _scope
 
 
 def installed_models() -> tuple[type[Any], ...]:

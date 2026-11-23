@@ -13,13 +13,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstanceState, Mapper, selectinload, undefer
 from sqlalchemy.sql.elements import UnaryExpression
 
-from obox._async import invoke
-from obox._exceptions import BuilderValidationError, NotFound, PermissionDenied, ResourceConflict
-from obox.core.exceptions import ImproperlyConfigured
+from obox.core.async_utils import invoke
+from obox.core.exceptions import (
+    BuilderValidationError,
+    ImproperlyConfigured,
+    NotFound,
+    PermissionDenied,
+    ResourceConflict,
+)
 from obox.core.pagination import ListResult, Page
 from obox.core.principal import ANONYMOUS, Identity
-from obox.db import _scope
-from obox.db._fields import _model_value, inspect_fields, normalize, schema
+from obox.db.fields import _model_value, inspect_fields, normalize, schema
+from obox.db.query import _scope
 
 ModelT = TypeVar("ModelT")
 WriteAction = Literal["create", "update", "delete"]
@@ -611,7 +616,7 @@ class Resource(Generic[ModelT]):
                 if "obox_files" in mapper.relationships[name].info
             ]
             if files:
-                ctx = session.info.get("obox._context")
+                ctx = session.info.get("obox.runtime.context")
                 feature = ctx._owner._feature("files") if ctx is not None else None
                 if feature is None:
                     raise ImproperlyConfigured("Install Files before writing attachments.")

@@ -10,9 +10,9 @@ from typing import Any, Literal
 
 import sqlalchemy as sa
 
-from obox._exceptions import BuilderValidationError
 from obox.contrib.analytics.aggregates import Aggregation, Measure, State, encode, exceeded
-from obox.core.exceptions import ImproperlyConfigured
+from obox.core.config import require_positive_integers
+from obox.core.exceptions import BuilderValidationError, ImproperlyConfigured
 
 Member = tuple[str, Any]
 Path = tuple[Member, ...]
@@ -139,8 +139,9 @@ def measure_label(value: Measure) -> str:
 
 class Matrix:
     def __init__(self, spec: PivotSpec, *, max_rows: int, max_columns: int, max_cells: int) -> None:
-        if any(type(limit) is not int or limit < 1 for limit in (max_rows, max_columns, max_cells)):
-            raise ImproperlyConfigured("Pivot limits must be positive integers.")
+        require_positive_integers(
+            (max_rows, max_columns, max_cells), "Pivot limits must be positive integers."
+        )
         if len(spec.values) > max_cells:
             raise exceeded()
         self.spec = spec

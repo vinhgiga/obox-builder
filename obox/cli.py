@@ -115,7 +115,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     arguments = parser.parse_args(argv)
     try:
         if arguments.command == "collectstatic":
-            from obox._assets import collect_assets
+            from obox.web.assets import collect_assets
 
             manifest = collect_assets(Path(__file__).parent, arguments.directory.expanduser())
             print(json.dumps(manifest, sort_keys=True))

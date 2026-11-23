@@ -15,11 +15,11 @@ from typing import Any
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from obox._config import RuntimeConfig
-from obox._database import Database
 from obox.contrib.jobs.models import Task, TaskAttempt, utcnow
 from obox.contrib.jobs.services import enqueue, retry, revoke
 from obox.contrib.jobs.worker import Worker, shutdown
+from obox.db.engine import Database
+from obox.runtime.config import RuntimeConfig
 
 
 def add_parser(commands: Any) -> None:
@@ -138,7 +138,7 @@ async def _run(arguments: argparse.Namespace, sessions: async_sessionmaker[Async
 
 
 async def run(arguments: argparse.Namespace) -> None:
-    from obox.db import _close
+    from obox.db.engine import _close
 
     try:
         await _run_command(arguments)

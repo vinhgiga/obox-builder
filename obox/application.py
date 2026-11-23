@@ -18,10 +18,10 @@ if TYPE_CHECKING:
 
 class Obox:
     def __init__(self, app: FastAPI) -> None:
-        from obox._config import RuntimeConfig
-        from obox._registration import app_registrations
-        from obox._runtime import _Runtime
-        from obox.db import _close
+        from obox.db.engine import _close
+        from obox.runtime.config import RuntimeConfig
+        from obox.runtime.registration import app_registrations
+        from obox.runtime.runtime import _Runtime
 
         config = RuntimeConfig.from_settings()
         self.app = app
@@ -85,7 +85,7 @@ class Obox:
         update_view: type[UpdateView] | None = None,
         delete_view: type[DeleteView] | None = None,
     ) -> None:
-        from obox._registration import Registration
+        from obox.runtime.registration import Registration
 
         Registration(
             target, slug, api, views, list_view, detail_view, create_view, update_view, delete_view

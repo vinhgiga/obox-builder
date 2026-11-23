@@ -12,8 +12,8 @@ from typing import Any, Literal
 import sqlalchemy as sa
 from pydantic_core import to_jsonable_python
 
-from obox._exceptions import BuilderValidationError
-from obox.core.exceptions import ImproperlyConfigured
+from obox.core.config import require_positive_integers
+from obox.core.exceptions import BuilderValidationError, ImproperlyConfigured
 
 Operation = Literal["count", "count_numbers", "sum", "avg", "min", "max"]
 
@@ -175,11 +175,9 @@ async def execute(
     max_columns: int,
     max_cells: int,
 ) -> AggregateResult:
-    if any(
-        isinstance(limit, bool) or not isinstance(limit, int) or limit < 1
-        for limit in (max_rows, max_columns, max_cells)
-    ):
-        raise ImproperlyConfigured("Aggregation limits must be positive integers.")
+    require_positive_integers(
+        (max_rows, max_columns, max_cells), "Aggregation limits must be positive integers."
+    )
     names = tuple(dict.fromkeys(query.fields))
     selected = [getattr(builder.model, name).label(name) for name in names]
     scope = (

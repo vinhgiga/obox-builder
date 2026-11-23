@@ -5,7 +5,8 @@ from typing import Annotated, Literal
 
 from pydantic import Field, JsonValue, StrictStr, field_serializer, field_validator
 
-from obox._schemas import (
+from obox.db.fields import _validate_text
+from obox.web.schemas import (
     ApiRequest,
     ApiResponse,
     Page,
@@ -13,7 +14,6 @@ from obox._schemas import (
     normalize_datetime,
     normalize_optional_datetime,
 )
-from obox.db._fields import _validate_text
 
 
 class Actor(ApiResponse):

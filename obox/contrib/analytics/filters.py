@@ -4,17 +4,16 @@ from typing import Any
 
 import sqlalchemy as sa
 
-from obox._exceptions import BuilderValidationError
-from obox._filters import FilterGroup, FilterTerm
-from obox._query import condition
-from obox.db._fields import FILTER_EMPTY_OPERATORS, FILTER_OPERATORS, schema, validate
+from obox.core.exceptions import BuilderValidationError
+from obox.db.fields import FILTER_EMPTY_OPERATORS, FILTER_OPERATORS, schema, validate
+from obox.db.filters import FilterGroup, FilterTerm, compile_condition, compile_filter
 
 
 def _filter_condition(
     builder: Any, readable: set[str], field: str, op: str, value: Any, dialect: str = ""
 ) -> Any:
     if op.startswith("pg."):
-        return condition(builder, readable, FilterTerm(field, op, value), dialect)
+        return compile_condition(builder, readable, FilterTerm(field, op, value), dialect)
     if field not in builder.filter_fields or field not in readable:
         raise BuilderValidationError({field: ["Filtering this field is not permitted."]})
     column = getattr(builder.model, field)
@@ -53,14 +52,7 @@ def _filter_condition(
 def _filter_tree(
     builder: Any, readable: set[str], node: FilterGroup | FilterTerm, dialect: str
 ) -> Any | None:
-    if isinstance(node, FilterTerm):
-        return _filter_condition(builder, readable, node.field, node.op, node.value, dialect)
-    children = [
-        condition
-        for child in node.children
-        if (condition := _filter_tree(builder, readable, child, dialect)) is not None
-    ]
-    if not children:
-        return None
-    result = (sa.and_ if node.conjunction.removeprefix("not.") == "and" else sa.or_)(*children)
-    return sa.not_(result) if node.conjunction.startswith("not.") else result
+    return compile_filter(
+        node,
+        lambda term: _filter_condition(builder, readable, term.field, term.op, term.value, dialect),
+    )[1]

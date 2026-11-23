@@ -10,9 +10,9 @@ from urllib.parse import urlsplit
 from fastapi import Request
 from fastapi.responses import Response
 
-from obox._http import form_media_type, read_form
 from obox.conf import settings
 from obox.core.exceptions import PermissionDenied
+from obox.web.http import form_media_type, read_form
 
 _CHARS = string.ascii_letters + string.digits
 

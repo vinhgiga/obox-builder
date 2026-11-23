@@ -18,11 +18,6 @@ import httpx
 import pytest
 import sqlalchemy as sa
 from fastapi import FastAPI
-from obox._auth import Principal, ScopedIdentity
-from obox._config import RuntimeConfig
-from obox._context import Context
-from obox._filters import FilterGroup, FilterTerm
-from obox._runtime import _Runtime
 from obox.apps import AppConfig
 from obox.contrib.analytics import (
     Analytics,
@@ -41,7 +36,12 @@ from obox.contrib.analytics import (
 )
 from obox.contrib.analytics.aggregates import Aggregation, Measure
 from obox.core.exceptions import ImproperlyConfigured
+from obox.core.principal import Principal, ScopedIdentity
+from obox.db.filters import FilterGroup, FilterTerm
 from obox.routes import Route
+from obox.runtime.config import RuntimeConfig
+from obox.runtime.context import Context
+from obox.runtime.runtime import _Runtime
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 

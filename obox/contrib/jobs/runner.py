@@ -14,7 +14,8 @@ from importlib import import_module
 from pathlib import Path
 from typing import Any
 
-from obox.contrib.jobs.registry import TaskRequest, _request, encode_json, get_task
+from obox.contrib.jobs.contracts import encode_json
+from obox.contrib.jobs.registry import TaskRequest, _request, get_task
 
 
 def error_trace(exc: BaseException) -> str:

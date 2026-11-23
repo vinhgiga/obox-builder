@@ -4,9 +4,8 @@ from decimal import Decimal, localcontext
 from typing import Any, cast
 
 import pytest
-from obox._exceptions import BuilderValidationError
 from obox.contrib.analytics import Avg, Count, CountNumbers, Max, Min, Pivot, Sum
-from obox.core.exceptions import ImproperlyConfigured
+from obox.core.exceptions import BuilderValidationError, ImproperlyConfigured
 
 SALES = [
     {"category": "fpt", "code": "FPT001", "status": "OK", "channel": "web", "amount": 10},

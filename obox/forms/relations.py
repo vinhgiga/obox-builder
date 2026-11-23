@@ -9,9 +9,9 @@ import sqlalchemy as sa
 from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy.orm import Mapper
 
-from obox._async import invoke
+from obox.core.async_utils import invoke
 from obox.core.exceptions import ImproperlyConfigured, ValidationError
-from obox.db import _session
+from obox.db.session import _session
 from obox.forms.fields import ChoiceField, _type_adapter
 from obox.forms.widgets import SelectMultiple
 

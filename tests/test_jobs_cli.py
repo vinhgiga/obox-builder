@@ -8,7 +8,7 @@ import pytest
 import sqlalchemy as sa
 from obox.conf import settings
 from obox.contrib.jobs import cli
-from obox.db import _factory
+from obox.db.engine import _factory
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 

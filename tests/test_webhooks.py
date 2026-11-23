@@ -20,18 +20,17 @@ import httpx
 import pytest
 import sqlalchemy as sa
 from fastapi import FastAPI, Request
-from obox._auth import Principal, ScopedIdentity
-from obox._config import RuntimeConfig
-from obox._context import Context
-from obox._exceptions import PermissionDenied
-from obox._runtime import _Runtime
 from obox.contrib.webhooks import Webhooks
 from obox.contrib.webhooks.cli import run
 from obox.contrib.webhooks.models import Base as WebhookBase
 from obox.contrib.webhooks.models import Delivery, Event, Subscription, now
 from obox.contrib.webhooks.transport import destination, resolve
 from obox.contrib.webhooks.worker import Worker
-from obox.core.exceptions import ImproperlyConfigured
+from obox.core.exceptions import ImproperlyConfigured, PermissionDenied
+from obox.core.principal import Principal, ScopedIdentity
+from obox.runtime.config import RuntimeConfig
+from obox.runtime.context import Context
+from obox.runtime.runtime import _Runtime
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -121,7 +120,7 @@ async def application(
 
         plugin.has_permission = allowed
         from fastapi import APIRouter, Depends
-        from obox._routes import ApiRoute
+        from obox.web.routes import ApiRoute
 
         router = APIRouter(prefix="/api/admin/records", route_class=ApiRoute)
         dependency = Depends(app.context_dependency("api"))

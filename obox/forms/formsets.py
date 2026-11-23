@@ -11,7 +11,7 @@ from markupsafe import Markup
 from pydantic import BaseModel
 from pydantic import Field as SchemaField
 
-from obox._async import invoke
+from obox.core.async_utils import invoke
 from obox.core.exceptions import ValidationError
 from obox.forms.fields import BooleanField, IntegerField
 from obox.forms.forms import Form

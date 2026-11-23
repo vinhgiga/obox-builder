@@ -17,14 +17,14 @@ from obox.core.exceptions import AppRegistryNotReady, ImproperlyConfigured
 if TYPE_CHECKING:
     from fastapi import APIRouter, Request
 
-    from obox._components import Component
-    from obox._config import RuntimeConfig
-    from obox._context import Context
-    from obox._registration import Registration
-    from obox._runtime import _Runtime
     from obox.api import ModelApi
+    from obox.components.declarations import Component
     from obox.resources import Resource
     from obox.routes import Route
+    from obox.runtime.config import RuntimeConfig
+    from obox.runtime.context import Context
+    from obox.runtime.registration import Registration
+    from obox.runtime.runtime import _Runtime
     from obox.views.generic import (
         CreateView,
         DeleteView,
@@ -165,7 +165,7 @@ class AppConfig:
         update_view: type[UpdateView] | None = None,
         delete_view: type[DeleteView] | None = None,
     ) -> None:
-        from obox._registration import Registration
+        from obox.runtime.registration import Registration
 
         if not self.apps.models_ready or self.apps.ready:
             raise ImproperlyConfigured("Register app resources in AppConfig.ready().")

@@ -3,9 +3,9 @@ from typing import Any, ClassVar
 
 from fastapi import Request
 
-from obox._auth import has_permission
 from obox.core.exceptions import ImproperlyConfigured
-from obox.db._identity import _model_label
+from obox.core.principal import has_permission
+from obox.db.identity import _model_label
 from obox.resources import Resource, resolve_resource
 from obox.views.generic.base import ContextMixin
 

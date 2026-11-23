@@ -10,11 +10,8 @@ import sqlalchemy as sa
 from fastapi import APIRouter, Depends, FastAPI, Request
 from fastapi.responses import HTMLResponse
 from obox import Resource
-from obox._config import RuntimeConfig
-from obox._runtime import _Runtime
 from obox.api import ModelApi
 from obox.core import (
-    SYSTEM,
     BuilderValidationError,
     NotFound,
     PermissionDenied,
@@ -23,6 +20,8 @@ from obox.core import (
     RuleViolation,
 )
 from obox.core.exceptions import ImproperlyConfigured
+from obox.runtime.config import RuntimeConfig
+from obox.runtime.runtime import _Runtime
 from obox.views.generic import CreateView, View
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, selectinload
@@ -141,7 +140,7 @@ def test_resource_crud_partial_validation_and_savepoint(tmp_path: Path) -> None:
         async with database(tmp_path / "resource.sqlite3", (Base.metadata,)) as sessions:
             declaration = Entries()
             async with sessions.begin() as session:
-                first = declaration.bind(session, SYSTEM)
+                first = declaration.bind(session, Principal(id=1))
                 entry = await first.create(EntryInput(name="limited", amount=2))
                 with pytest.raises(BuilderValidationError):
                     await first.update(entry, {"amount": 3}, partial=True)

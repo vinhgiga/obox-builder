@@ -15,12 +15,16 @@ from fastapi import Request
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import selectinload
 
-from obox._auth import Identity, Principal, ScopedIdentity, _valid_permission
-from obox._exceptions import BuilderValidationError, NotAuthenticated, NotFound
 from obox.contrib.auth.models import APIToken, APITokenMixin, Session, User
 from obox.contrib.auth.password_validation import PasswordValidator, get_password_validators
 from obox.contrib.auth.passwords import hash_password, verify_password
-from obox.core.exceptions import ImproperlyConfigured
+from obox.core.exceptions import (
+    BuilderValidationError,
+    ImproperlyConfigured,
+    NotAuthenticated,
+    NotFound,
+)
+from obox.core.principal import Identity, Principal, ScopedIdentity, _valid_permission
 
 
 class Backend(Protocol):

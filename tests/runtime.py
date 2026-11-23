@@ -4,9 +4,9 @@ from collections.abc import Sequence
 from typing import Any
 
 from fastapi import FastAPI
-from obox._config import RuntimeConfig
-from obox._runtime import _Runtime
 from obox.apps import AppConfig
+from obox.runtime.config import RuntimeConfig
+from obox.runtime.runtime import _Runtime
 
 
 def build_runtime(

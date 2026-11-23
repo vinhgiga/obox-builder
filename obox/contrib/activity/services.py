@@ -1,24 +1,28 @@
 """Authorized row history and author-owned comments."""
 
+from __future__ import annotations
+
 import base64
 import binascii
 import hashlib
 import hmac
 import json
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 import sqlalchemy as sa
 
-from obox._async import invoke
-from obox._conditional import check_match
-from obox._context import Context
-from obox._exceptions import NotFound, PermissionDenied
-from obox._query import invalid
-from obox.contrib.activity import Activity
+from obox.components.query import invalid
 from obox.contrib.activity.models import Comment, Event
 from obox.contrib.activity.schemas import CommentRead
+from obox.core.async_utils import invoke
+from obox.core.exceptions import NotFound, PermissionDenied
+from obox.runtime.context import Context
+from obox.web.conditional import check_match
+
+if TYPE_CHECKING:
+    from obox.contrib.activity.apps import Activity
 
 
 async def identity(activity: Activity, ids: set[str], ctx: Context) -> dict[Any, Any]:

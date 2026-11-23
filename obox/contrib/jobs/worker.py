@@ -21,9 +21,11 @@ from typing import Any
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from obox.contrib.jobs.contracts import NAME_RE
 from obox.contrib.jobs.models import Task, TaskAttempt, utcnow
 from obox.contrib.jobs.presence import presence
-from obox.contrib.jobs.registry import NAME_RE, get_task
+from obox.contrib.jobs.registry import get_task
+from obox.core.config import require_positive_integers
 from obox.core.exceptions import ImproperlyConfigured
 
 logger = logging.getLogger("obox.jobs")
@@ -320,8 +322,7 @@ class Worker:
     ) -> None:
         if not queues or any(not NAME_RE.fullmatch(queue) for queue in queues):
             raise ImproperlyConfigured("Select at least one valid queue.")
-        if isinstance(concurrency, bool) or not isinstance(concurrency, int) or concurrency < 1:
-            raise ImproperlyConfigured("Worker concurrency must be a positive integer.")
+        require_positive_integers((concurrency,), "Worker concurrency must be a positive integer.")
         if any(not math.isfinite(value) or value <= 0 for value in (lease_seconds, poll_interval)):
             raise ImproperlyConfigured("Worker intervals must be finite and positive.")
         bind = sessions.kw.get("bind")

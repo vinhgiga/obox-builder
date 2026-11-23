@@ -102,7 +102,7 @@ nav:
       - CLI: reference/cli.md
       - Resource API overview: reference/api.md
       - REST contract: api-spec.md
-      - Contrib resource protocol: contrib-resource-api.md
+      - Component query filters: component-query.md
       - Record and activity API: record-activity-spec.md
       - Core design specification: core-spec.md
       - Analytics design specification: extension-spec.md

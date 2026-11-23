@@ -4,10 +4,9 @@ from typing import Any
 
 import sqlalchemy as sa
 
-from obox._exceptions import BuilderValidationError
 from obox.contrib.files.models import File
-from obox.core.exceptions import ValidationError
-from obox.db import _session
+from obox.core.exceptions import BuilderValidationError, ValidationError
+from obox.db.session import _session
 from obox.forms.relations import ModelMultipleChoiceField
 
 
@@ -18,7 +17,7 @@ class AttachmentField(ModelMultipleChoiceField):
 
     async def _scope(self) -> None:
         async with _session() as session:
-            ctx = session.info.get("obox._context")
+            ctx = session.info.get("obox.runtime.context")
             if ctx is None or ctx._owner is None:
                 raise ValidationError("Attachment forms require an authenticated file context.")
             files = ctx._owner._feature("files")

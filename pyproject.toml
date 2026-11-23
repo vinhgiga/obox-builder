@@ -153,4 +153,22 @@ name = "HTML and REST adapters are independent"
 type = "independence"
 modules = ["obox.views", "obox.api"]
 # App registration composes both surfaces during application setup.
-ignore_imports = ["obox.apps -> obox._registration"]
+ignore_imports = ["obox.apps -> obox.runtime.registration"]
+
+[[tool.importlinter.contracts]]
+name = "Contrib app modules follow inward dependencies"
+type = "layers"
+containers = ["obox.contrib.*"]
+layers = [
+    "(apps)",
+    "(routes) | (api) | (views) | (cli)",
+    "(services) | (service)",
+    "(schemas)",
+    "(models)",
+]
+
+[[tool.importlinter.contracts]]
+name = "Contrib app modules are acyclic siblings"
+type = "acyclic_siblings"
+ancestors = ["obox.contrib.*"]
+depth = 0

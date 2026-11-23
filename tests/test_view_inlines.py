@@ -7,9 +7,9 @@ import pytest
 import sqlalchemy as sa
 from fastapi import Depends, FastAPI
 from obox import Obox, Resource, permission_required
-from obox._auth import Principal
-from obox._exceptions import ResourceConflict
-from obox.db import _session
+from obox.core.exceptions import ResourceConflict
+from obox.core.principal import Principal
+from obox.db.session import _session
 from obox.views.generic import CreateView, StackedInline, TabularInline, UpdateView
 
 from tests.test_forms_integration import configured

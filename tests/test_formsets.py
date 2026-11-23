@@ -4,7 +4,7 @@ import pytest
 import sqlalchemy as sa
 from obox import forms
 from obox.core.exceptions import ImproperlyConfigured
-from obox.db import _session
+from obox.db.session import _session
 from obox.db.transaction import atomic
 from pydantic import BaseModel
 from sqlalchemy.orm import Mapped, mapped_column, relationship

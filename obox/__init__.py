@@ -1,8 +1,8 @@
 """Model-driven forms, views and APIs for FastAPI and SQLAlchemy."""
 
-from obox._dependencies import permission_required as permission_required
 from obox.application import Obox as Obox
 from obox.resources import Resource as Resource
+from obox.web.dependencies import permission_required as permission_required
 
 __version__ = "0.1.0"
 

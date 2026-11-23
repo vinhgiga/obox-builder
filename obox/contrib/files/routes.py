@@ -16,13 +16,6 @@ from fastapi.responses import FileResponse, JSONResponse
 from starlette.exceptions import HTTPException
 from starlette.requests import ClientDisconnect
 
-from obox._exceptions import (
-    BuilderValidationError,
-    NotAuthenticated,
-    NotFound,
-    ResourceConflict,
-)
-from obox._routes import ApiRoute
 from obox.contrib.files.models import File
 from obox.contrib.files.rules import IMAGES, VIDEOS, sniff
 from obox.contrib.files.schemas import (
@@ -33,10 +26,17 @@ from obox.contrib.files.schemas import (
     ReorderFiles,
     UploadCreated,
 )
+from obox.core.exceptions import (
+    BuilderValidationError,
+    NotAuthenticated,
+    NotFound,
+    ResourceConflict,
+)
+from obox.web.routes import ApiRoute
 
 if TYPE_CHECKING:
-    from obox._context import Context
-    from obox.contrib.files import Files
+    from obox.contrib.files.feature import Files
+    from obox.runtime.context import Context
 
 CHUNK = 8 * 1024**2
 PREVIEW = set(IMAGES.values()) | set(VIDEOS.values())

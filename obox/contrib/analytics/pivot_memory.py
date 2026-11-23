@@ -15,11 +15,10 @@ from uuid import UUID
 
 from pydantic import TypeAdapter, ValidationError
 
-from obox._exceptions import BuilderValidationError
-from obox._filters import FilterGroup, FilterTerm
 from obox.contrib.analytics.aggregates import State
 from obox.contrib.analytics.pivot import Matrix, Member, PivotSpec, member
-from obox.core.exceptions import ImproperlyConfigured
+from obox.core.exceptions import BuilderValidationError, ImproperlyConfigured
+from obox.db.filters import FilterGroup, FilterTerm
 
 Row = Mapping[str, Any]
 Predicate = Callable[[Row], bool]

@@ -1,14 +1,12 @@
 """JSON adapter for the read-only activity plugin."""
 
-from typing import Any
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Depends, Request, Response
 
-from obox._context import Context
-from obox._query import invalid, parameters
-from obox._routes import ApiRoute
-from obox._schemas import FieldError, Problem
-from obox.contrib.activity import Activity
+from obox.components.query import invalid, parameters
 from obox.contrib.activity.schemas import (
     ActivityPage,
     CommentInput,
@@ -16,6 +14,12 @@ from obox.contrib.activity.schemas import (
     CommentRead,
 )
 from obox.contrib.activity.services import comment, comment_etag, comment_row, read
+from obox.runtime.context import Context
+from obox.web.routes import ApiRoute
+from obox.web.schemas import FieldError, Problem
+
+if TYPE_CHECKING:
+    from obox.contrib.activity.apps import Activity
 
 
 class ActivityRoute(ApiRoute):

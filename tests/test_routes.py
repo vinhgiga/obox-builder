@@ -11,15 +11,16 @@ from uuid import uuid4
 import httpx
 import pytest
 from fastapi import APIRouter, Depends, FastAPI
-from obox._auth import Principal
-from obox._config import RuntimeConfig
-from obox._context import Context
-from obox._dependencies import api_context
 from obox.apps import AppConfig
 from obox.contrib.auth import Auth
-from obox.core.exceptions import ImproperlyConfigured
+from obox.core.exceptions import ImproperlyConfigured, PermissionDenied
+from obox.core.principal import Principal
 from obox.routes import Route
+from obox.runtime.config import RuntimeConfig
+from obox.runtime.context import Context
 from obox.views.generic import TemplateView
+from obox.web.csrf import PermissionDenied as CSRFPermissionDenied
+from obox.web.dependencies import api_context
 
 from tests.runtime import build_runtime
 
@@ -27,6 +28,15 @@ from tests.runtime import build_runtime
 class ContextView(TemplateView):
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         return {**super().get_context_data(**kwargs), "value": "allowed"}
+
+
+def test_permission_denied_is_one_shared_exception() -> None:
+    from obox.core import PermissionDenied as CorePermissionDenied
+    from obox.core.exceptions import PermissionDenied as DomainPermissionDenied
+
+    assert CorePermissionDenied is DomainPermissionDenied is CSRFPermissionDenied
+    with pytest.raises(PermissionDenied):
+        raise CSRFPermissionDenied("denied")
 
 
 @pytest.fixture

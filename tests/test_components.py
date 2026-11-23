@@ -19,18 +19,18 @@ import httpx
 import pytest
 import sqlalchemy as sa
 from fastapi import FastAPI
-from obox._auth import Principal, ScopedIdentity
-from obox._components import Component
-from obox._config import RuntimeConfig
-from obox._context import Context
-from obox._filters import FilterGroup
-from obox._identity import get_principal
-from obox._runtime import _Runtime
-from obox._schemas import ApiRequest, ApiResponse
 from obox.apps import AppConfig
+from obox.components.declarations import Component
 from obox.contrib.analytics import Analytics, Bar, Pivot, Sum
 from obox.core.exceptions import ImproperlyConfigured
+from obox.core.principal import Principal, ScopedIdentity
+from obox.db.filters import FilterGroup
 from obox.routes import Route
+from obox.runtime.config import RuntimeConfig
+from obox.runtime.context import Context
+from obox.runtime.runtime import _Runtime
+from obox.web.identity import get_principal
+from obox.web.schemas import ApiRequest, ApiResponse
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 

@@ -11,14 +11,19 @@ import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
-from obox._async import invoke
-from obox._context import Context
-from obox._exceptions import NotAuthenticated, NotFound, PermissionDenied, ResourceConflict
-from obox._query import invalid
+from obox.components.query import invalid
 from obox.contrib.webhooks.models import Delivery, Event, Subscription, now
 from obox.contrib.webhooks.schemas import ChangeNotification
 from obox.contrib.webhooks.transport import destination
-from obox.core.exceptions import ImproperlyConfigured
+from obox.core.async_utils import invoke
+from obox.core.exceptions import (
+    ImproperlyConfigured,
+    NotAuthenticated,
+    NotFound,
+    PermissionDenied,
+    ResourceConflict,
+)
+from obox.runtime.context import Context
 
 
 def aware(value: datetime) -> datetime:
@@ -42,7 +47,7 @@ def actor(ctx: Context) -> str:
 
 
 def resource(plugin: Any, slug: str) -> Any:
-    from obox.db._identity import _model_label
+    from obox.db.identity import _model_label
 
     for model in plugin.models:
         if ".".join(_model_label(model)) == slug:
@@ -113,7 +118,7 @@ async def create(plugin: Any, data: Any, ctx: Context) -> Subscription:
 
 
 async def record(plugin: Any, action: str, obj: Any, ctx: Context) -> None:
-    from obox.db._identity import _model_label
+    from obox.db.identity import _model_label
 
     if action not in {"create", "update"}:
         return

@@ -12,27 +12,27 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import selectinload
 from starlette.datastructures import FormData
 
-from obox._auth import Identity
-from obox._exceptions import (
-    N_,
+from obox.contrib.auth.models import Role, User
+from obox.contrib.auth.password_validation import get_password_validators
+from obox.contrib.auth.passwords import hash_password
+from obox.core.exceptions import (
     BuilderValidationError,
     NotAuthenticated,
     NotFound,
     PermissionDenied,
 )
-from obox._http import read_form
-from obox._i18n import context as translation_context
-from obox._i18n import translate
-from obox._routes import OboxRoute
-from obox._ui import build_navigation
-from obox.contrib.auth.models import Role, User
-from obox.contrib.auth.password_validation import get_password_validators
-from obox.contrib.auth.passwords import hash_password
+from obox.core.principal import Identity
+from obox.forms import modelform_factory
+from obox.web.http import read_form
+from obox.web.i18n import N_, translate
+from obox.web.i18n import context as translation_context
+from obox.web.routes import OboxRoute
+from obox.web.ui import build_navigation
 
 if TYPE_CHECKING:
-    from obox._context import Context
-    from obox._runtime import _Runtime
-    from obox.contrib.auth import Auth
+    from obox.contrib.auth.apps import Auth
+    from obox.runtime.context import Context
+    from obox.runtime.runtime import _Runtime
 
 ACTIONS = ("list", "retrieve", "create", "update", "delete")
 MAX_LENGTH = 150
@@ -177,6 +177,9 @@ def admin_error(request: Request, code: str) -> str:
 def router(app: _Runtime, auth: Auth) -> APIRouter:
     routes = APIRouter(prefix=auth.prefix, route_class=OboxRoute)
     password_validators = get_password_validators(app.settings.auth_password_validators)
+    user_form_class = modelform_factory(
+        user_model(auth), fields=("username", "email", "first_name", "last_name", "department")
+    )
 
     async def superuser(request: Request) -> Identity:
         principal = await auth.principal(request)
@@ -296,7 +299,16 @@ def router(app: _Runtime, auth: Auth) -> APIRouter:
                 )
 
             form = await form_data(request, principal, multiple=frozenset({"role_ids"}))
-            errors: dict[str, list[str]] = {}
+            user_form = user_form_class(form, instance=user)
+            await user_form.is_valid()
+            errors: dict[str, list[str]] = dict(user_form.errors)
+            for name, messages in errors.items():
+                if name == "username" and any("already exists" in message for message in messages):
+                    errors[name] = [N_("This username is already taken.")]
+                elif name in user_form.fields:
+                    limit = getattr(user_form.fields[name], "max_length", None)
+                    if limit and any("at most" in message for message in messages):
+                        errors[name] = [N_(f"Use at most {limit} characters.")]
             username = str(form.get("username", "")).strip()
             email = str(form.get("email", "")).strip()
             first_name = str(form.get("first_name", "")).strip()
@@ -305,26 +317,6 @@ def router(app: _Runtime, auth: Auth) -> APIRouter:
             password = str(form.get("password", ""))
             confirmation = str(form.get("confirm_password", ""))
             is_active = form.get("is_active") == "1"
-
-            if not username:
-                errors["username"] = [N_("This field is required.")]
-            elif len(username) > MAX_LENGTH:
-                errors["username"] = [N_("Use at most 150 characters.")]
-            else:
-                current = user.id if user is not None else -1
-                exists = await ctx.session.scalar(
-                    sa.select(model.id).where(model.username == username, model.id != current)
-                )
-                if exists is not None:
-                    errors["username"] = [N_("This username is already taken.")]
-            if len(email) > EMAIL_MAX_LENGTH:
-                errors["email"] = [N_("Use at most 254 characters.")]
-            if len(first_name) > MAX_LENGTH:
-                errors["first_name"] = [N_("Use at most 150 characters.")]
-            if len(last_name) > MAX_LENGTH:
-                errors["last_name"] = [N_("Use at most 150 characters.")]
-            if len(department) > MAX_LENGTH:
-                errors["department"] = [N_("Use at most 150 characters.")]
 
             requested: set[int] = set()
             role_error = False

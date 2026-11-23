@@ -8,9 +8,8 @@ from importlib import import_module
 from pathlib import Path
 from typing import Any
 
-from obox._runtime import _Runtime
-from obox.contrib.webhooks import Webhooks
 from obox.contrib.webhooks.worker import Worker
+from obox.runtime.runtime import _Runtime
 
 
 def add_parser(commands: Any) -> None:
@@ -35,7 +34,11 @@ async def run(arguments: argparse.Namespace) -> None:
     if not isinstance(obox, _Runtime):
         raise ValueError("The application must install the Webhooks plugin.")
     plugin = obox._feature("webhooks")
-    if not isinstance(plugin, Webhooks):
+    if (
+        plugin is None
+        or getattr(plugin, "name", None) != "webhooks"
+        or not callable(getattr(plugin, "prune", None))
+    ):
         raise ValueError("The application must install the Webhooks plugin.")
     async with obox.app.router.lifespan_context(obox.app):
         if arguments.action == "prune":

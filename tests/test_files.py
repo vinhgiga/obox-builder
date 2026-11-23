@@ -9,11 +9,11 @@ import httpx
 import pytest
 import sqlalchemy as sa
 from fastapi import FastAPI, Request
-from obox._auth import Principal
-from obox._config import RuntimeConfig
-from obox._runtime import _Runtime
 from obox.contrib.files import IMAGES, File, Files, attachments
 from obox.contrib.files.models import Base as FileBase
+from obox.core.principal import Principal
+from obox.runtime.config import RuntimeConfig
+from obox.runtime.runtime import _Runtime
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from tests.runtime import build_runtime

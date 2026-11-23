@@ -8,11 +8,11 @@ from typing import Any, cast
 import sqlalchemy as sa
 from sqlalchemy.orm import MANYTOMANY, MANYTOONE, NO_VALUE, attributes, selectinload
 
-from obox.core.domain import BuilderValidationError
-from obox.core.exceptions import ImproperlyConfigured, ValidationError
+from obox.core.exceptions import BuilderValidationError, ImproperlyConfigured, ValidationError
 from obox.core.principal import ANONYMOUS
-from obox.db import _scope, _session
-from obox.db._fields import _model_value
+from obox.db.fields import _model_value
+from obox.db.query import _scope
+from obox.db.session import _session
 from obox.forms._schema import schema_fields
 from obox.forms.fields import (
     BooleanField,
@@ -374,7 +374,7 @@ class ModelForm(Form[S]):
                     self.add_error(target if target in self.fields else None, messages)
 
     def _resource(self, session: Any) -> Resource[Any]:
-        ctx = session.info.get("obox._context")
+        ctx = session.info.get("obox.runtime.context")
         principal = ctx.principal if ctx is not None else ANONYMOUS
         if self.resource is not None:
             return self.resource.bind(session, principal)
@@ -695,7 +695,7 @@ class BaseModelFormSet(BaseFormSet):
     async def delete_existing(self, obj: Any, commit: bool = True) -> None:
         if commit:
             async with _session() as session:
-                ctx = session.info.get("obox._context")
+                ctx = session.info.get("obox.runtime.context")
                 await Resource(
                     session, ctx.principal if ctx else ANONYMOUS, model=self.model
                 ).destroy(obj)

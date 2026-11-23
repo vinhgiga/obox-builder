@@ -8,12 +8,12 @@ import httpx
 import pytest
 import sqlalchemy as sa
 from fastapi import FastAPI
-from obox._auth import Principal
-from obox._config import RuntimeConfig
 from obox.contrib.activity import Activity
 from obox.contrib.activity.models import Base as HistoryBase
 from obox.contrib.activity.models import Event
 from obox.core.exceptions import ImproperlyConfigured
+from obox.core.principal import Principal
+from obox.runtime.config import RuntimeConfig
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from tests.runtime import build_runtime

@@ -3,9 +3,9 @@ from typing import Any
 
 import sqlalchemy as sa
 
-from obox._async import invoke
-from obox._auth import has_permission
+from obox.core.async_utils import invoke
 from obox.core.exceptions import PermissionDenied
+from obox.core.principal import has_permission
 from obox.forms import BaseInlineFormSet, ModelForm, inlineformset_factory
 from obox.views.generic._model import model_permission
 

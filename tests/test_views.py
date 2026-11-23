@@ -7,7 +7,7 @@ import sqlalchemy as sa
 from fastapi import APIRouter, Depends, FastAPI, Request
 from fastapi.responses import HTMLResponse
 from obox import Obox, forms, permission_required
-from obox._auth import Principal
+from obox.core.principal import Principal
 from obox.views.generic import (
     CreateView,
     DeleteView,

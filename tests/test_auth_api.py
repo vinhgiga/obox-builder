@@ -12,15 +12,15 @@ import httpx
 import pytest
 import sqlalchemy as sa
 from fastapi import APIRouter, Depends, FastAPI
-from obox._config import RuntimeConfig
-from obox._context import Context
-from obox._exceptions import NotFound
-from obox._routes import ApiRoute
-from obox._runtime import _Runtime
 from obox.api import BaseApi
 from obox.contrib.auth import APIToken, Auth, Role, User
 from obox.contrib.auth.models import Base as AuthBase
 from obox.contrib.auth.passwords import hash_password
+from obox.core.exceptions import NotFound
+from obox.runtime.config import RuntimeConfig
+from obox.runtime.context import Context
+from obox.runtime.runtime import _Runtime
+from obox.web.routes import ApiRoute
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 

@@ -9,8 +9,8 @@ from typing import TYPE_CHECKING
 
 from starlette.concurrency import run_in_threadpool
 
-from obox._exceptions import BuilderValidationError
 from obox.contrib.auth.password_validation import PasswordValidator, validate_password
+from obox.core.exceptions import BuilderValidationError
 
 if TYPE_CHECKING:
     from pwdlib import PasswordHash

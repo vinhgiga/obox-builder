@@ -12,9 +12,11 @@ retry, revoke and retention cleanup. Workers run as separate host processes.
 `obox.contrib.webhooks` stores subscriptions/deliveries and sends signed requests
 with bounded retries. Configure WEBHOOKS with signing keys and trusted identity/
 destination controls. `obox.contrib.idempotency` stores caller-scoped receipts
-for supported resource creates/batch writes. Both require their model tables in
-host migrations and are product extensions rather than REST CRUD requirements.
+when host code invokes its receipt service. It is retained as an opt-in helper;
+it is not automatically applied to `ModelApi` routes. Include the feature's
+model tables in host migrations and call `prune()` from a maintenance job to
+remove expired receipts.
 
-Analytics, files and activity reuse contrib resource services and policies.
-Product redesign is deferred; v0.1 updates only their integration with the new
-namespace/settings/AppConfig lifecycle.
+Analytics, files and activity integrate with shared model permissions and
+runtime context. Activity capture and comment endpoints are described in the
+[record activity contract](../record-activity-spec.md).

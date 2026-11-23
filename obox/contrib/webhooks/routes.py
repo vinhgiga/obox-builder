@@ -6,10 +6,7 @@ from uuid import UUID
 import sqlalchemy as sa
 from fastapi import APIRouter, Depends, Request, Response
 
-from obox._context import Context
-from obox._query import integer, invalid, parameters
-from obox._routes import ApiRoute
-from obox._schemas import FieldError, Problem
+from obox.components.query import integer, invalid, parameters
 from obox.contrib.webhooks.models import Delivery, Event, Subscription, now
 from obox.contrib.webhooks.schemas import (
     Deliveries,
@@ -20,6 +17,9 @@ from obox.contrib.webhooks.schemas import (
     Subscriptions,
 )
 from obox.contrib.webhooks.services import actor, create, owned
+from obox.runtime.context import Context
+from obox.web.routes import ApiRoute
+from obox.web.schemas import FieldError, Problem
 
 
 class WebhookRoute(ApiRoute):

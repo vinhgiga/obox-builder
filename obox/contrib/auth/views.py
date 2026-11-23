@@ -10,19 +10,18 @@ from urllib.parse import urlsplit
 from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from obox._dependencies import _RoutePermission
-from obox._exceptions import N_, BuilderValidationError, PermissionDenied
-from obox._http import read_form
-from obox._i18n import context as translation_context
-from obox._i18n import localize, translate
-from obox._routes import OboxRoute, _authentication_challenge
-from obox._ui import build_navigation
-from obox.core.exceptions import ImproperlyConfigured
+from obox.core.exceptions import BuilderValidationError, ImproperlyConfigured, PermissionDenied
+from obox.web.dependencies import _RoutePermission
+from obox.web.http import read_form
+from obox.web.i18n import N_, localize, translate
+from obox.web.i18n import context as translation_context
+from obox.web.routes import OboxRoute, _authentication_challenge
+from obox.web.ui import build_navigation
 
 if TYPE_CHECKING:
-    from obox._context import Context
-    from obox._runtime import _Runtime
-    from obox.contrib.auth import Auth
+    from obox.contrib.auth.apps import Auth
+    from obox.runtime.context import Context
+    from obox.runtime.runtime import _Runtime
 
 
 def safe_redirect_url(request: Request, target: str) -> str | None:

@@ -13,11 +13,11 @@ import pytest
 import sqlalchemy as sa
 from fastapi import APIRouter, Depends, FastAPI, Request
 from obox import Resource
-from obox._auth import Principal
-from obox._config import RuntimeConfig
-from obox._runtime import _Runtime
 from obox.api import ApiRequest, ApiResponse, BaseApi, Context, ModelApi
 from obox.core.exceptions import ImproperlyConfigured
+from obox.core.principal import Principal
+from obox.runtime.config import RuntimeConfig
+from obox.runtime.runtime import _Runtime
 from pydantic import Field, StringConstraints
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 

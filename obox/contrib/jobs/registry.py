@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import inspect
-import json
 import math
-import re
 from collections.abc import Callable, Sequence
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -19,7 +17,7 @@ if TYPE_CHECKING:
 
     from obox.contrib.jobs.models import Task
 
-NAME_RE = re.compile(r"^[a-zA-Z0-9_][a-zA-Z0-9_.:-]{0,154}$")
+from obox.contrib.jobs.contracts import NAME_RE
 
 
 @dataclass(frozen=True)
@@ -38,13 +36,6 @@ _request: ContextVar[TaskRequest] = ContextVar("obox.jobs.request")
 def current_task() -> TaskRequest:
     """Return execution metadata; ``id`` is stable across retries."""
     return _request.get()
-
-
-def encode_json(value: Any) -> str:
-    encoded = json.dumps(value, allow_nan=False, ensure_ascii=False, separators=(",", ":"))
-    if len(encoded.encode("utf-8")) > 1_048_576:
-        raise ValueError("Task data exceeds 1 MiB.")
-    return encoded
 
 
 @dataclass(frozen=True)
@@ -76,11 +67,11 @@ class TaskDefinition:
         queue: str | None = None,
         dedup_key: str | None = None,
     ) -> Task:
-        from obox.contrib.jobs.services import enqueue
+        from obox.contrib.jobs.queue import enqueue
 
         return await enqueue(
             db,
-            self.name,
+            self,
             args=args,
             kwargs=kwargs,
             eta=eta,

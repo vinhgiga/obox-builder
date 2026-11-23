@@ -8,9 +8,9 @@ import pytest
 import sqlalchemy as sa
 from fastapi import Depends, FastAPI
 from obox import Obox, forms, permission_required
-from obox._auth import Principal
 from obox.core.exceptions import ImproperlyConfigured
-from obox.db import _session
+from obox.core.principal import Principal
+from obox.db.session import _session
 from obox.db.transaction import atomic
 from obox.views.generic import CreateView
 from pydantic import BaseModel

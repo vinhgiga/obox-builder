@@ -1,10 +1,10 @@
 # REST and product APIs
 
-Use the [serializer → viewset → router example](../examples/apis/query-resource.md)
-for standardized REST endpoints. Default URLs have a trailing slash; serializer
-names and types control input/output. Validation errors are400 and DELETE is204.
-Pagination is disabled until explicitly configured.
+Use the [ModelApi example](../examples/apis/query-resource.md) for standardized
+REST endpoints. Routes use explicit request and response schemas, enforce the
+shared `Resource` policy, and follow the defaults in the
+[REST contract](../api-spec.md).
 
-Enable contrib resources for custom resource queries, metadata, batch/upsert,
-ETag-based concurrency and inline editor APIs. Those product endpoints retain
-[their own protocol](../contrib-resource-api.md), independently of REST registration.
+Components expose a separate typed JSON query API. Template-rendered component
+data routes also accept the filter grammar documented in
+[component query filters](../component-query.md).

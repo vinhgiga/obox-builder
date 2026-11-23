@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from obox.db import _current, _session
+from obox.db.session import _current, _session
 
 
 @asynccontextmanager

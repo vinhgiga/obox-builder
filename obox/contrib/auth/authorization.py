@@ -8,20 +8,20 @@ from typing import TYPE_CHECKING, Any
 import sqlalchemy as sa
 from sqlalchemy.orm import selectinload
 
-from obox._auth import _valid_permission
-from obox._context import Context
-from obox._exceptions import (
-    N_,
+from obox.core.exceptions import (
     BuilderValidationError,
+    ImproperlyConfigured,
     NotAuthenticated,
     NotFound,
     PermissionDenied,
 )
-from obox.core.exceptions import ImproperlyConfigured
+from obox.core.principal import _valid_permission
+from obox.runtime.context import Context
+from obox.web.i18n import N_
 
 if TYPE_CHECKING:
-    from obox._runtime import _Runtime
-    from obox.contrib.auth import Auth
+    from obox.contrib.auth.apps import Auth
+    from obox.runtime.runtime import _Runtime
 
 
 class Authorization:

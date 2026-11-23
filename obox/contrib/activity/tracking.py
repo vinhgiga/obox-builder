@@ -6,9 +6,9 @@ import sqlalchemy as sa
 from sqlalchemy import event
 from sqlalchemy.orm import NO_VALUE, Mapper, Session, object_session
 
-from obox._schemas import json_value
 from obox.contrib.activity.models import Event
 from obox.core.exceptions import ImproperlyConfigured
+from obox.web.schemas import json_value
 
 
 def context(session: Any) -> Any:
@@ -17,7 +17,7 @@ def context(session: Any) -> Any:
     configured = session.info.get("obox.history")
     if configured is not None:
         return configured
-    ctx = session.info.get("obox._context")
+    ctx = session.info.get("obox.runtime.context")
     if ctx is None or ctx._owner is None:
         return None
     activity = ctx._owner._feature("activity")

@@ -6,8 +6,8 @@ import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from obox._auth import _valid_permission
 from obox.core.exceptions import ImproperlyConfigured
+from obox.core.principal import _valid_permission
 
 if TYPE_CHECKING:
     from obox.views.generic import TemplateView

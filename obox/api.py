@@ -14,18 +14,18 @@ from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.routing import RouteContext, iter_route_contexts
 from pydantic import BaseModel, Field, SkipValidation, create_model
 
-from obox._async import invoke
-from obox._context import Context as Context
-from obox._dependencies import _APIContext, api_context
-from obox._query import invalid, parameters
-from obox._routes import ApiRoute
-from obox._schemas import ApiRequest as ApiRequest
-from obox._schemas import ApiResponse as ApiResponse
+from obox.components.query import invalid, parameters
+from obox.core.async_utils import invoke
 from obox.core.exceptions import ImproperlyConfigured
-from obox.db._fields import ModelField, normalize, schema
-from obox.db._identity import _model_label
+from obox.db.fields import ModelField, normalize, schema
+from obox.db.identity import _model_label
 from obox.db.query import search_query
 from obox.resources import Resource, resolve_resource
+from obox.runtime.context import Context as Context
+from obox.web.dependencies import _APIContext, api_context
+from obox.web.routes import ApiRoute
+from obox.web.schemas import ApiRequest as ApiRequest
+from obox.web.schemas import ApiResponse as ApiResponse
 
 ModelT = TypeVar("ModelT")
 RouterMethod = Literal["list", "retrieve", "create", "update", "patch", "delete"]

@@ -8,8 +8,8 @@ from collections.abc import Mapping, Sequence
 from difflib import SequenceMatcher
 from typing import Any, Protocol, cast
 
-from obox._exceptions import N_, BuilderValidationError
-from obox.core.exceptions import ImproperlyConfigured
+from obox.core.exceptions import BuilderValidationError, ImproperlyConfigured
+from obox.web.i18n import N_
 
 
 class PasswordValidator(Protocol):

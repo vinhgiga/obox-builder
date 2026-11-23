@@ -8,11 +8,11 @@ import pytest
 import sqlalchemy as sa
 from fastapi import APIRouter, Depends, FastAPI, Request
 from obox import Obox, Resource, permission_required
-from obox._auth import Principal, ScopedIdentity
 from obox.api import ModelApi
 from obox.apps import AppConfig
 from obox.conf import settings
 from obox.core.exceptions import ImproperlyConfigured
+from obox.core.principal import Principal, ScopedIdentity
 from obox.views.generic import DetailView
 from pydantic import BaseModel, Field, field_validator, model_validator
 

@@ -4,8 +4,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 
-from obox._exceptions import BuilderValidationError
-from obox.core.exceptions import ImproperlyConfigured
+from obox.core.exceptions import BuilderValidationError, ImproperlyConfigured
 
 IMAGES = {
     ".jpg": "image/jpeg",

@@ -11,18 +11,22 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Request, Response
 from pydantic import AwareDatetime, Field, StrictStr, field_serializer
 
-from obox._context import Context
-from obox._dependencies import _RoutePermission
-from obox._exceptions import BuilderValidationError, NotAuthenticated, PermissionDenied
-from obox._query import parameters
-from obox._routes import ApiRoute
-from obox._schemas import ApiRequest, ApiResponse
+from obox.components.query import parameters
 from obox.contrib.auth.backends import TokenBackend
-from obox.core.exceptions import ImproperlyConfigured
+from obox.core.exceptions import (
+    BuilderValidationError,
+    ImproperlyConfigured,
+    NotAuthenticated,
+    PermissionDenied,
+)
+from obox.runtime.context import Context
+from obox.web.dependencies import _RoutePermission
+from obox.web.routes import ApiRoute
+from obox.web.schemas import ApiRequest, ApiResponse
 
 if TYPE_CHECKING:
-    from obox._runtime import _Runtime
-    from obox.contrib.auth import Auth
+    from obox.contrib.auth.apps import Auth
+    from obox.runtime.runtime import _Runtime
 
 
 class AuthRoute(ApiRoute):
@@ -207,7 +211,7 @@ def build_router(app: _Runtime, auth: Auth) -> APIRouter:
                 raise BuilderValidationError(
                     {"scopes": ["Choose unique, exposed permission scopes."]}
                 )
-            from obox._auth import has_permission
+            from obox.core.principal import has_permission
 
             for scope in data.scopes:
                 if not has_permission(ctx.principal, scope):

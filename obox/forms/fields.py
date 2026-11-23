@@ -16,8 +16,8 @@ from pydantic import TypeAdapter
 from pydantic import ValidationError as PydanticValidationError
 from starlette.datastructures import UploadFile
 
-from obox._async import invoke
 from obox.conf import settings
+from obox.core.async_utils import invoke
 from obox.core.exceptions import ValidationError
 from obox.forms.widgets import CheckboxInput, FileInput, NumberInput, Select, Textarea, TextInput
 

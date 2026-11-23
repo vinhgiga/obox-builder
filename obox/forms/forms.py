@@ -16,7 +16,7 @@ from pydantic import ValidationError as SchemaValidationError
 from starlette.datastructures import FormData
 from typing_extensions import TypeVar
 
-from obox._async import invoke
+from obox.core.async_utils import invoke
 from obox.core.exceptions import NON_FIELD_ERRORS, ImproperlyConfigured, ValidationError
 from obox.forms._schema import MISSING, fields_schema, kind, schema_fields
 from obox.forms.fields import (

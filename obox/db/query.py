@@ -9,7 +9,22 @@ from typing import Any
 
 import sqlalchemy as sa
 
-from obox.core.domain import InvalidQuery, PermissionDenied
+from obox.core.exceptions import BuilderValidationError, InvalidQuery, PermissionDenied
+from obox.db.filters import FilterGroup, FilterTerm, compile_filter, parse_filter
+
+
+def _scope(query: Any, model: type[Any]) -> Any:
+    """Preserve a limited selection before applying additional conditions."""
+    if not query._has_row_limiting_clause:
+        return query
+    pk = sa.inspect(model).primary_key[0]
+    identities = query.with_only_columns(pk, maintain_column_froms=True)
+    return (
+        sa.select(model)
+        .where(pk.in_(identities))
+        .options(*query._with_options)
+        .order_by(*query._order_by_clauses)
+    )
 
 
 def _column(model: type[Any], name: str) -> Any | None:
@@ -49,40 +64,17 @@ def _filter_expression(
     model: type[Any],
     data: Any,
     allowed: set[str],
-    *,
-    depth: int = 0,
-    budget: list[int] | None = None,
 ) -> tuple[dict[str, Any], Any | None, int]:
-    if budget is None:
-        budget = [0]
-    if depth > 4 or not isinstance(data, dict):
-        raise InvalidQuery("Invalid filter query.")
-    conjunction = data.get("conjunction", "and")
-    if conjunction not in {"and", "or"}:
-        raise InvalidQuery("Invalid filter query.")
-    children = data.get("children", [])
-    if not isinstance(children, list):
-        raise InvalidQuery("Invalid filter query.")
-    clean_children: list[dict[str, Any]] = []
-    expressions: list[Any] = []
-    count = 0
-    for child in children:
-        budget[0] += 1
-        if budget[0] > 50:
-            raise InvalidQuery("Too many filter conditions.")
-        if isinstance(child, dict) and isinstance(child.get("children"), list):
-            clean, expression, nested_count = _filter_expression(
-                model, child, allowed, depth=depth + 1, budget=budget
-            )
-            if nested_count and expression is not None:
-                clean_children.append(clean)
-                expressions.append(expression)
-                count += nested_count
-            continue
-        if not isinstance(child, dict):
-            raise InvalidQuery("Invalid filter query.")
-        name, op = child.get("field"), child.get("op", "is")
-        if not isinstance(name, str) or name not in allowed or not isinstance(op, str):
+    try:
+        tree = parse_filter(json.dumps(data))
+    except (TypeError, ValueError, RecursionError, BuilderValidationError) as exc:
+        raise InvalidQuery("Invalid filter query.") from exc
+    if tree is None:
+        return {"conjunction": "and", "children": []}, None, 0
+
+    def compile_term(term: FilterTerm) -> Any | None:
+        name, op, raw = term.field, term.op, term.value
+        if name not in allowed:
             raise InvalidQuery("Invalid filter field.")
         column = _column(model, name)
         if column is None:
@@ -90,55 +82,61 @@ def _filter_expression(
         kind = _field_kind(column)
         if op not in _filter_operators(kind):
             raise InvalidQuery("Invalid filter operator.")
-        raw = child.get("value", "")
         if op not in {"is_empty", "is_not_empty"} and (raw is None or str(raw).strip() == ""):
-            continue
+            return None
         if op in {"is_empty", "is_not_empty"}:
             empty = column.is_(None)
             if isinstance(column.type, sa.String) and not isinstance(column.type, sa.Enum):
                 empty = sa.or_(empty, column == "")
-            expression = empty if op == "is_empty" else sa.not_(empty)
-        else:
-            try:
-                if kind == "boolean":
-                    if str(raw).lower() not in {"true", "false", "1", "0"}:
-                        raise ValueError
-                    value: Any = str(raw).lower() in {"true", "1"}
-                elif kind == "date":
-                    value = date.fromisoformat(str(raw))
-                elif kind == "datetime":
-                    value = datetime.fromisoformat(str(raw))
-                elif kind == "time":
-                    value = time.fromisoformat(str(raw))
-                else:
-                    python_type = column.type.python_type
-                    value = python_type(raw) if python_type is not str else str(raw)
-            except (AttributeError, TypeError, ValueError) as exc:
-                raise InvalidQuery("Invalid filter value.") from exc
-            if op == "contains":
-                expression = column.icontains(str(raw), autoescape=True)
-            elif op == "does_not_contain":
-                expression = sa.and_(
-                    column.is_not(None), sa.not_(column.icontains(str(raw), autoescape=True))
-                )
-            elif op == "is":
-                expression = column == value
-            elif op == "is_not":
-                expression = sa.and_(column.is_not(None), column != value)
+            return empty if op == "is_empty" else sa.not_(empty)
+        try:
+            if kind == "boolean":
+                if str(raw).lower() not in {"true", "false", "1", "0"}:
+                    raise ValueError
+                value: Any = str(raw).lower() in {"true", "1"}
+            elif kind == "date":
+                value = date.fromisoformat(str(raw))
+            elif kind == "datetime":
+                value = datetime.fromisoformat(str(raw))
+            elif kind == "time":
+                value = time.fromisoformat(str(raw))
             else:
-                expression = {
-                    "gt": column > value,
-                    "gte": column >= value,
-                    "lt": column < value,
-                    "lte": column <= value,
-                }[op]
-        clean_children.append({"field": name, "op": op, "value": str(raw)})
-        expressions.append(expression)
-        count += 1
-    clean_group = {"conjunction": conjunction, "children": clean_children}
-    if not expressions:
-        return clean_group, None, 0
-    return clean_group, (sa.and_ if conjunction == "and" else sa.or_)(*expressions), count
+                python_type = column.type.python_type
+                value = python_type(raw) if python_type is not str else str(raw)
+        except (AttributeError, TypeError, ValueError) as exc:
+            raise InvalidQuery("Invalid filter value.") from exc
+        if op == "contains":
+            return column.icontains(str(raw), autoescape=True)
+        if op == "does_not_contain":
+            return sa.and_(
+                column.is_not(None), sa.not_(column.icontains(str(raw), autoescape=True))
+            )
+        if op == "is":
+            return column == value
+        if op == "is_not":
+            return sa.and_(column.is_not(None), column != value)
+        return {
+            "gt": column > value,
+            "gte": column >= value,
+            "lt": column < value,
+            "lte": column <= value,
+        }[op]
+
+    clean, expression, count = compile_filter(tree, compile_term)
+
+    def as_dict(node: FilterGroup | FilterTerm) -> dict[str, Any]:
+        if isinstance(node, FilterTerm):
+            return {"field": node.field, "op": node.op, "value": str(node.value)}
+        return {
+            "conjunction": node.conjunction,
+            "children": [as_dict(child) for child in node.children],
+        }
+
+    return (
+        as_dict(clean) if clean is not None else {"conjunction": tree.conjunction, "children": []},
+        expression,
+        count,
+    )
 
 
 def _parse_order(value: str, allowed: set[str], *, maximum: int) -> list[dict[str, Any]]:

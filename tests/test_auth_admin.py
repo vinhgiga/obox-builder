@@ -8,15 +8,15 @@ from typing import Any
 import httpx
 import sqlalchemy as sa
 from fastapi import FastAPI
-from obox._auth import Principal
-from obox._config import RuntimeConfig
-from obox._runtime import _Runtime
 from obox.apps import AppConfig
 from obox.contrib.auth import Auth
 from obox.contrib.auth.models import Base as AuthBase
 from obox.contrib.auth.models import Role, Session, User, user_roles
 from obox.contrib.auth.passwords import hash_password, verify_password
+from obox.core.principal import Principal
 from obox.routes import Route
+from obox.runtime.config import RuntimeConfig
+from obox.runtime.runtime import _Runtime
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, selectinload
 from sqlalchemy.pool import StaticPool
@@ -102,7 +102,7 @@ async def make_app(principal: Principal = SUPERUSER, *, admin: bool = True) -> t
         features=(Auth(backend=StubBackend(principal), secure=False, admin=admin),),
     )
     from fastapi import APIRouter, Depends
-    from obox._dependencies import api_context
+    from obox.web.dependencies import api_context
 
     # Host-defined permissions remain available without registering CRUD resources.
     router = APIRouter()

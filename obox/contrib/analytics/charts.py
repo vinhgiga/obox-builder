@@ -10,12 +10,12 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import sqlalchemy as sa
 
-from obox._filters import FilterGroup, FilterTerm
 from obox.contrib.analytics.aggregates import FieldCount, Measure
 from obox.core.exceptions import ImproperlyConfigured
+from obox.db.filters import FilterGroup, FilterTerm
 
 if TYPE_CHECKING:
-    from obox._context import Context
+    from obox.runtime.context import Context
 
 Kind = Literal["bar", "line", "scatter", "pie", "donut"]
 KINDS = {"bar", "line", "scatter", "pie", "donut"}

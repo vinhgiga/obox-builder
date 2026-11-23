@@ -14,11 +14,11 @@ from typing import Any
 import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError, OperationalError
 
-from obox._config import RuntimeConfig
-from obox._database import Database
-from obox._exceptions import BuilderValidationError
 from obox.contrib.auth.models import User
 from obox.contrib.auth.password_validation import PasswordValidator, get_password_validators
+from obox.core.exceptions import BuilderValidationError
+from obox.db.engine import Database
+from obox.runtime.config import RuntimeConfig
 
 
 def add_parser(commands: Any) -> None:
@@ -179,7 +179,7 @@ async def _run_command(arguments: argparse.Namespace) -> None:
 
 
 async def run(arguments: argparse.Namespace) -> None:
-    from obox.db import _close
+    from obox.db.engine import _close
 
     try:
         await _run_command(arguments)
