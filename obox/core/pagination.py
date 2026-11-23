@@ -15,6 +15,15 @@ class ListResult(Generic[T]):
     has_more: bool = False
     total: int | None = None
 
+    def __post_init__(self) -> None:
+        if (
+            type(self.offset) is not int
+            or self.offset < 0
+            or (self.limit is not None and (type(self.limit) is not int or self.limit < 1))
+            or (self.total is not None and (type(self.total) is not int or self.total < 0))
+        ):
+            raise ValueError("Invalid result window or total.")
+
 
 @dataclass(frozen=True)
 class Page(Generic[T]):
@@ -22,6 +31,17 @@ class Page(Generic[T]):
     number: int
     page_size: int
     total: int
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.number) is not int
+            or self.number < 1
+            or type(self.page_size) is not int
+            or self.page_size < 1
+            or type(self.total) is not int
+            or self.total < 0
+        ):
+            raise ValueError("Invalid page number, page size or total.")
 
     @property
     def num_pages(self) -> int:

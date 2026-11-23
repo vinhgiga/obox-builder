@@ -68,6 +68,14 @@ def schema_fields(schema: type[BaseModel]) -> dict[str, Field]:
             "label": info.title,
             "help_text": info.description or "",
         }
+        # An unchecked HTML checkbox is omitted from a form submission and
+        # means False, even when the underlying Pydantic boolean is required.
+        # Pydantic still validates the resulting value (including Literal[True]).
+        if annotation is bool or (
+            get_origin(annotation) is Literal
+            and all(isinstance(value, bool) for value in get_args(annotation))
+        ):
+            options["required"] = False
         field: Field
         if get_origin(annotation) is Literal and all(
             isinstance(value, bool) for value in get_args(annotation)

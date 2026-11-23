@@ -249,6 +249,8 @@ class FloatField(Field):
 
 class JSONField(Field):
     widget = Textarea
+    # Empty arrays and objects are legitimate JSON values, not missing input.
+    empty_values = (None, "")
 
     def to_python(self, value: Any) -> Any:
         if value in self.empty_values:

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
+from copy import deepcopy
 from typing import Any, cast
 
 import sqlalchemy as sa
@@ -99,6 +100,24 @@ def fields_for_model(
     labels: Any = None,
     help_texts: Any = None,
 ) -> dict[str, Field]:
+    if (
+        fields is not None
+        and fields != "__all__"
+        and (
+            isinstance(fields, str)
+            or not isinstance(fields, Sequence)
+            or not all(isinstance(name, str) for name in fields)
+        )
+    ):
+        raise TypeError("fields must be a sequence of field names or '__all__'.")
+    if exclude is not None and (
+        isinstance(exclude, str)
+        or not isinstance(exclude, Sequence)
+        or not all(isinstance(name, str) for name in exclude)
+    ):
+        raise TypeError("exclude must be a sequence of field names.")
+    if fields not in (None, "__all__") and len(fields) != len(set(fields)):
+        raise ImproperlyConfigured("Form field names must be unique.")
     mapper = sa.inspect(model)
     relationships = {
         relation.key: relation
@@ -221,7 +240,9 @@ class ModelForm(Form[S]):
             raise ImproperlyConfigured("A ModelForm requires Meta.fields or Meta.exclude.")
         if isinstance(selected, str) and selected != "__all__":
             raise TypeError("Meta.fields cannot be a string. Use a list or tuple.")
-        declared = cls.declared_fields
+        # Inherited declared Field instances belong to the parent class.
+        # Subclass Meta labels/widgets must not mutate the parent's controls.
+        declared = deepcopy(cls.declared_fields)
         names = selected if selected != "__all__" and selected is not None else None
         automatic = [name for name in names if name not in declared] if names is not None else names
         generated = fields_for_model(
@@ -243,15 +264,13 @@ class ModelForm(Form[S]):
                 for name in names
                 if name in declared or name in generated
             }
-        generated.update(cls.declared_fields)
+        generated.update(declared)
         _check_relationship_columns(sa.inspect(model), generated)
         for name, field in generated.items():
             field.label = getattr(meta, "labels", {}).get(name, field.label)
             field.help_text = getattr(meta, "help_texts", {}).get(name, field.help_text)
             widget = getattr(meta, "widgets", {}).get(name)
             if widget is not None:
-                from copy import deepcopy
-
                 field.widget = widget() if isinstance(widget, type) else deepcopy(widget)
         cls.base_fields = generated
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from copy import copy
 from typing import Any, Generic, Literal, TypeVar, cast
 from uuid import UUID
 
@@ -58,14 +59,14 @@ class Resource(Generic[ModelT]):
             raise ImproperlyConfigured("Define a mapped model on the Resource.")
         self.specs = inspect_fields(self.model)
         mapper = cast("Mapper[ModelT]", sa.inspect(self.model))
+        if len(mapper.primary_key) != 1:
+            raise ImproperlyConfigured("Resources require one primary key.")
         self.pk = mapper.primary_key[0]
         self.pk_name = mapper.get_property_by_column(self.pk).key
         if self.pk_name not in self.specs or self.specs[
             self.pk_name
         ].column.type.python_type not in (int, str, UUID):
             raise ImproperlyConfigured("Resources require an int, str or UUID primary key.")
-        if len(mapper.primary_key) != 1:
-            raise ImproperlyConfigured("Resources require one primary key.")
         if self.lookup_field is not None and self.lookup_field not in self.specs:
             raise ImproperlyConfigured("Choose a mapped lookup field.")
         if self.page_size is not None and (type(self.page_size) is not int or self.page_size < 1):
@@ -122,6 +123,15 @@ class Resource(Generic[ModelT]):
     def bind(self, session: AsyncSession, principal: Identity) -> Resource[ModelT]:
         if self.session is session and self.principal is principal:
             return self
+        if type(self) is Resource:
+            # The base Resource has no request-local state besides these two
+            # attributes. Reuse the compiled field/schema definitions instead
+            # of reconstructing Pydantic models for every request.
+            bound = copy(self)
+            bound.session, bound.principal = session, principal
+            return bound
+        # Custom Resource constructors may initialize request-local state;
+        # preserve their lifecycle rather than copying arbitrary attributes.
         return type(self)(session, principal, model=self.model)
 
     def _session(self) -> AsyncSession:
@@ -219,7 +229,11 @@ class Resource(Generic[ModelT]):
         offset: int = 0,
         include_total: bool = False,
     ) -> ListResult[ModelT]:
-        if offset < 0 or (limit is not None and limit < 1):
+        if (
+            type(offset) is not int
+            or offset < 0
+            or (limit is not None and (type(limit) is not int or limit < 1))
+        ):
             raise ValueError("Use a positive limit and nonnegative offset.")
         await self.check_permission("list")
         query = self._query(queryset)
@@ -242,9 +256,9 @@ class Resource(Generic[ModelT]):
         queryset: Any = None,
     ) -> Page[ModelT]:
         size = page_size if page_size is not None else self.page_size
-        if size is not None and size < 1:
+        if size is not None and (type(size) is not int or size < 1):
             raise ImproperlyConfigured("Choose a positive page size.")
-        if number < 1:
+        if type(number) is not int or number < 1:
             raise NotFound("Invalid page.")
         result = await self.list(
             queryset=queryset,

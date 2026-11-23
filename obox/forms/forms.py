@@ -6,12 +6,16 @@ import asyncio
 import json
 from collections.abc import Iterator, Mapping
 from copy import deepcopy
+from datetime import date, datetime, time
+from decimal import Decimal
 from enum import Enum
+from functools import cache
 from html import escape
 from typing import Any, ClassVar, Generic, cast, get_origin
+from uuid import UUID
 
 from markupsafe import Markup
-from pydantic import BaseModel
+from pydantic import BaseModel, Strict, TypeAdapter
 from pydantic import ValidationError as SchemaValidationError
 from starlette.datastructures import FormData
 from typing_extensions import TypeVar
@@ -23,7 +27,6 @@ from obox.forms.fields import (
     BooleanField,
     CharField,
     ChoiceField,
-    DateTimeField,
     Field,
     FileField,
     JSONField,
@@ -31,6 +34,11 @@ from obox.forms.fields import (
 from obox.forms.widgets import FileInput
 
 S = TypeVar("S", bound=BaseModel, default=BaseModel)
+
+
+@cache
+def _strict_type_adapter(python_type: type[Any]) -> TypeAdapter[Any]:
+    return TypeAdapter(python_type)
 
 
 class BoundField:
@@ -158,6 +166,10 @@ class Form(Generic[S]):
         if name in self.initial:
             return self.initial[name]
         if field.initial is not None:
+            if callable(field.initial):
+                if name not in self._defaults:
+                    self._defaults[name] = field.initial()
+                return self._defaults[name]
             return field.initial
         info = self._schema.model_fields.get(name)
         if info is not None and not info.is_required():
@@ -260,8 +272,11 @@ class Form(Generic[S]):
                 else self._data_value(name, field)
             )
             info = self._schema.model_fields.get(name)
+            cleaned_by_field = (
+                info is None or hasattr(field, "queryset") or isinstance(field, FileField)
+            )
             try:
-                if info is None or hasattr(field, "queryset") or isinstance(field, FileField):
+                if cleaned_by_field:
                     value = await field.clean(None if value is MISSING else value)
                     resolved[name] = value
                     if info is None:
@@ -270,30 +285,64 @@ class Form(Generic[S]):
                     prepare_value = getattr(field, "prepare_value", None)
                     if prepare_value is not None and info.annotation is not Any:
                         value = prepare_value(value)
-                elif value is MISSING:
-                    if isinstance(field, BooleanField):
-                        value = False
-                    elif not info.is_required():
-                        value = self._initial_value(name, field)
-                    else:
-                        continue
-                elif value == "" and kind(info.annotation)[1]:
-                    value = None
-                elif isinstance(field, (BooleanField, DateTimeField, JSONField)) or (
-                    isinstance(field, CharField) and field.strip
+                if info is None:
+                    continue
+                if not cleaned_by_field:
+                    if value is MISSING:
+                        if isinstance(field, BooleanField):
+                            value = False
+                        elif not info.is_required():
+                            value = self._initial_value(name, field)
+                        else:
+                            continue
+                    elif value == "" and kind(info.annotation)[1]:
+                        value = None
+                python_type = kind(info.annotation)[0]
+                strict = next(
+                    (metadata.strict for metadata in info.metadata if isinstance(metadata, Strict)),
+                    self._schema.model_config.get("strict", False),
+                )
+                if (
+                    strict
+                    and value is not None
+                    and python_type
+                    in (
+                        str,
+                        int,
+                        float,
+                        bool,
+                        Decimal,
+                        date,
+                        datetime,
+                        time,
+                        UUID,
+                    )
                 ):
-                    value = field.to_python(value)
+                    try:
+                        _strict_type_adapter(python_type).validate_python(value, strict=True)
+                    except SchemaValidationError:
+                        # Keep the original input so model validation reports
+                        # the strict type error instead of accepting coercion.
+                        data[name] = value
+                        continue
+                if get_origin(kind(info.annotation)[0]) is list and isinstance(value, str):
+                    value = json.loads(value)
                 if isinstance(field, ChoiceField) and not hasattr(field, "queryset"):
                     if isinstance(value, Enum):
                         value = value.value
                     value = await field.clean(value)
                     value = next((key for key, _ in field.choices if str(key) == value), value)
-                if (
-                    info is not None
-                    and get_origin(kind(info.annotation)[0]) is list
-                    and isinstance(value, str)
-                ):
-                    value = json.loads(value)
+                elif not cleaned_by_field:
+                    # Explicit Field validators and required flags must run even
+                    # when a Pydantic schema supplies the type conversion.
+                    value = await field.clean(value)
+                    if (
+                        value == ""
+                        and not field.required
+                        and isinstance(field, CharField)
+                        and kind(info.annotation)[1]
+                    ):
+                        value = None
                 data[name] = value
             except (ValidationError, ValueError) as exc:
                 self.add_error(name, exc)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from copy import deepcopy
 from typing import Any, ClassVar, cast
 
 from fastapi import Request
@@ -61,7 +62,9 @@ class FormMixin(ContextMixin):
             raise ImproperlyConfigured("No URL to redirect to. Provide a success_url.")
 
     def get_initial(self) -> dict[str, Any]:
-        return self.initial.copy()
+        # Class-level defaults may contain nested, mutable values. Never share
+        # them between requests or with a form that normalizes its input.
+        return deepcopy(self.initial)
 
     def get_prefix(self) -> str | None:
         return self.prefix

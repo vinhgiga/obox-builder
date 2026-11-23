@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field, SkipValidation, create_model
 from obox.components.query import invalid, parameters
 from obox.core.async_utils import invoke
 from obox.core.exceptions import ImproperlyConfigured
+from obox.core.principal import _valid_permission
 from obox.db.fields import ModelField, normalize, schema
 from obox.db.identity import _model_label
 from obox.db.query import search_query
@@ -130,7 +131,9 @@ class ModelApi(BaseApi, Generic[ModelT]):
 
     def get_resource(self, ctx: Context) -> Resource[ModelT]:
         resources = ctx.session.info.setdefault("obox.resources", {})
-        key = id(self._resource)
+        # A session may be reused with a different identity. The resource's
+        # authorization hooks must never see a previous request's principal.
+        key = (id(self._resource), id(ctx.principal))
         if key not in resources:
             resources[key] = self._resource.bind(ctx.session, ctx.principal)
         return cast(Resource[ModelT], resources[key])
@@ -169,14 +172,36 @@ class ModelApi(BaseApi, Generic[ModelT]):
     def _build_router(self, prefix: str, resource: Resource[ModelT]) -> APIRouter:
         if not re.fullmatch(r"/[a-zA-Z0-9_-]+(?:/[a-zA-Z0-9_-]+)*", prefix):
             raise ImproperlyConfigured("Provide an absolute API prefix.")
-        self._resource, self.model = resource, resource.model
-        specs = resource.specs
-        pk = resource.pk_name
+        if self.include_router_methods is not None and (
+            isinstance(self.include_router_methods, str)
+            or not isinstance(self.include_router_methods, Sequence)
+        ):
+            raise ImproperlyConfigured("Choose a sequence of ModelApi methods.")
         methods: tuple[RouterMethod, ...] = tuple(
             self.include_router_methods
             if self.include_router_methods is not None
             else (action for action in _ROUTES if action != "update" or self.update_schema)
         )
+        if not all(isinstance(action, str) and action in _ROUTES for action in methods) or len(
+            methods
+        ) != len(set(methods)):
+            raise ImproperlyConfigured("Use unique, supported ModelApi method names.")
+        if not isinstance(self.permissions, Mapping) or any(
+            action not in _ROUTES
+            or not isinstance(permission, str)
+            or not _valid_permission(permission)
+            for action, permission in self.permissions.items()
+        ):
+            raise ImproperlyConfigured("Use supported ModelApi permission method names and values.")
+        if (
+            type(self.default_limit) is not int
+            or type(self.max_limit) is not int
+            or not 1 <= self.default_limit <= self.max_limit < 2**31 - 1
+        ):
+            raise ImproperlyConfigured("Choose positive API page limits in ascending order.")
+        self._resource, self.model = resource, resource.model
+        specs = resource.specs
+        pk = resource.pk_name
         selected = {name: specs[name] for name in resource.readable}
         writable = resource.writable
         if self.read_schema is None:
@@ -211,14 +236,6 @@ class ModelApi(BaseApi, Generic[ModelT]):
             generated.add(operation)
         if "create" in methods and "create" in generated:
             resource._check_create(writable)
-        if (
-            len(methods) != len(set(methods))
-            or (set(methods) | self.permissions.keys()) - _ROUTES.keys()
-        ):
-            raise ImproperlyConfigured("Use unique, supported ModelApi method names.")
-        if not 1 <= self.default_limit <= self.max_limit < 2**31 - 1:
-            raise ImproperlyConfigured("Choose positive API page limits in ascending order.")
-
         read = self.read_schema if set(methods) - {"delete"} else None
         names, readable = {}, {}
         if set(methods) - {"delete"}:
@@ -294,8 +311,15 @@ class ModelApi(BaseApi, Generic[ModelT]):
         return router
 
     def _check_list_fields(self, readable: Mapping[str, ModelField]) -> None:
-        if not all(isinstance(name, str) for name in (*self.search_fields, *self.ordering_fields)):
-            raise ImproperlyConfigured("Use Python field names for search and ordering.")
+        if any(
+            isinstance(fields, str)
+            or not isinstance(fields, Sequence)
+            or not all(isinstance(name, str) for name in fields)
+            for fields in (self.search_fields, self.ordering_fields)
+        ):
+            raise ImproperlyConfigured(
+                "Use sequences of Python field names for search and ordering."
+            )
         for name in normalize(self.search_fields, self.model, readable):
             if not isinstance(readable[name].column.type, sa.String) or isinstance(
                 readable[name].column.type, sa.Enum
