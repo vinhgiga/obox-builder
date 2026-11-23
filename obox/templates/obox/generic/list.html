@@ -1,53 +1,598 @@
-<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="description" content="Obox records">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{{ title | default("Records") }}</title>
-  </head>
-  <body>
-    <h1>{{ title | default("Records") }}</h1>
-    {% block object_tools %}
-      {% if add_url %}<a href="{{ add_url }}">Add</a>{% endif %}
-    {% endblock %}
-    {% if search_fields or filters %}
-      <form method="get">
-        {% if search_fields %}<label>Search <input name="q"
-        value="{{ search_term }}"></label>{% endif %}
-        {% for name, value in filters %}<label>{{ name }} <input name="{{ name }}__exact"
-        value="{{ value }}"></label>{% endfor %}
-        <button type="submit">Search</button>
-      </form>
+{% extends base_template|default("obox/base.html") %}
+{% block body_class %}page grid-layout{% endblock %}
+{% block main_class %}grid-page{% endblock %}
+{% block page_container_class %}grid-page-container{% endblock %}
+{% block heading_class %}visually-hidden{% endblock %}
+{% block content_class %}grid-content{% endblock %}
+{% block content %}
+  {% set record_count = paginator.count if paginator else rows|length %}
+  {% set active_filter_count = namespace(value=0) %}
+  {% for name, value in filters %}
+    {% if value %}
+      {% set active_filter_count.value = active_filter_count.value + 1 %}
     {% endif %}
+  {% endfor %}
+  {% set fallback = namespace(fields=[]) %}
+  {% for field in list_display %}
+    {% if field is string %}
+      {% set fallback.fields = fallback.fields + [{"name": field, "label": field.replace('_', ' ').capitalize(), "kind": "text", "choices": [], "operators": ["contains", "does_not_contain", "is", "is_not", "is_empty", "is_not_empty"]}] %}
+    {% endif %}
+  {% endfor %}
+  {% set filter_ui_config = filter_config|default({"fields": fallback.fields, "filter": {"conjunction": "and", "children": []}, "fallback": true}) %}
+  {% set sort_ui_config = sort_config|default({"fields": fallback.fields, "sort": [], "fallback": true}) %}
+  {% set group_ui_config = group_config|default({"fields": fallback.fields, "group": [], "fallback": true}) %}
+  <script type="application/json" data-list-filter-config>{{ filter_ui_config|tojson }}</script>
+  <script type="application/json" data-list-sort-config>{{ sort_ui_config|tojson }}</script>
+  <script type="application/json" data-list-group-config>{{ group_ui_config|tojson }}</script>
+  <div class="grid-toolbar">
+    <div class="grid-view-label">
+      <button class="grid-menu-toggle"
+              type="button"
+              aria-label="Open view menu"
+              title="View menu">
+        <svg viewBox="0 0 24 24"
+             fill="none"
+             stroke="currentColor"
+             stroke-width="1.5"
+             aria-hidden="true">
+          <path d="M5 7h14M5 12h14M5 17h14" />
+        </svg>
+      </button>
+      <span class="grid-view-icon" aria-hidden="true">▦</span>
+      <strong>Grid view</strong>
+      <span aria-hidden="true">⌄</span>
+    </div>
     {% if actions %}
-      <form method="post">
-        <input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">
-        <label>Action <select name="action"><option value="">---------</option>{% for name, option in actions.items() %}<option value="{{ name }}">{{ option[2] }}</option>{% endfor %}</select></label>
-        <button type="submit">Go</button>
+      <div class="grid-bulk-actions" data-bulk-controls hidden>
+        <label class="visually-hidden" for="grid-bulk-action">Choose a bulk action</label>
+        <select class="form-select form-select-sm"
+                id="grid-bulk-action"
+                name="action"
+                form="bulk-action-form"
+                data-bulk-action>
+          <option value="">Choose an action</option>
+          {% for name, option in actions.items() %}<option value="{{ name }}">{{ option[2] }}</option>{% endfor %}
+        </select>
+        <button class="btn btn-primary btn-sm"
+                type="submit"
+                form="bulk-action-form"
+                data-bulk-submit
+                disabled>Run</button>
+      </div>
     {% endif %}
-    <table>
-      <thead><tr>{% if actions %}<th>Select</th>{% endif %}{% for field in list_display %}<th>{{ field }}</th>{% endfor %}</tr></thead>
-      <tbody>
-        {% for row in rows %}
-          <tr>
-            {% if actions %}
-              <td>
-                <input type="checkbox"
-                       name="_selected_action"
-                       value="{{ row.pk }}"
-                       aria-label="Select {{ row.pk }}">
-              </td>
-            {% endif %}
-            {% for value in (row['values'] if row is mapping else row) %}
-              <td>{% if row is mapping and row.url and list_display_links and list_display[loop.index0] in list_display_links %}<a href="{{ row.url }}">{{ value }}</a>{% else %}{{ value }}{% endif %}</td>
+    <div class="grid-tools" role="toolbar" aria-label="Grid view tools">
+      <details class="field-menu" data-field-menu>
+        <summary>
+          <svg class="field-menu-icon"
+               viewBox="0 0 24 24"
+               fill="none"
+               stroke="currentColor"
+               stroke-width="1.5"
+               aria-hidden="true">
+            <path d="m3 3 18 18M10.6 10.7a2 2 0 0 0 2.7 2.7M9.9 5.2A9.7 9.7 0 0 1 12 5c5 0 9 4.5 9 7a11.8 11.8 0 0 1-2.2 2.6M6.6 6.6C4 8.2 3 10.2 3 12c0 2.5 4 7 9 7 1 0 2-.2 2.9-.5" />
+          </svg>
+          Hide fields
+        </summary>
+        <div class="field-menu-panel">
+          <label class="visually-hidden" for="field-menu-search">Find a field</label>
+          <input class="form-control form-control-sm"
+                 id="field-menu-search"
+                 type="search"
+                 placeholder="Find a field"
+                 data-field-search>
+          <div class="field-menu-list" role="group" aria-label="Fields">
+            {% for field in list_display %}
+              {% set label = field.replace('_', ' ').capitalize() if field is string else field.short_description|default('Field', true) %}
+              {% set field_key = field if field is string else field.__name__|default(loop.index|string) %}
+              {% set field_kind = namespace(value='text') %}
+              {% for spec in filter_ui_config.fields %}
+                {% if spec.name == field_key %}
+                  {% set field_kind.value = spec.kind %}
+                {% endif %}
+              {% endfor %}
+              <div class="field-menu-option"
+                   data-field-option
+                   data-field-key="{{ field_key }}"
+                   data-field-label="{{ label|lower }}"
+                   data-field-display="{{ label }}"
+                   data-field-kind="{{ field_kind.value }}">
+                <label class="field-menu-toggle">
+                  <input class="form-check-input"
+                         type="checkbox"
+                         checked
+                         data-field-toggle="{{ field_key }}"
+                         aria-label="Show {{ label }}">
+                  <span><span class="field-type-icon" aria-hidden="true">{% if field_kind.value in ["date", "datetime", "time"] %}▦{% elif field_kind.value == "number" %}#{% elif field_kind.value in ["choice", "boolean"] %}⊙{% else %}≡{% endif %}</span>{{ label }}</span>
+                  <span class="field-switch" aria-hidden="true"><span>&#8203;</span></span>
+                </label>
+                <button class="field-menu-handle"
+                        type="button"
+                        draggable="true"
+                        data-field-reorder="{{ field_key }}"
+                        aria-label="Reorder {{ label }}"
+                        aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
+                        title="Drag to reorder (Alt+Up/Down)">
+                  <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                    <circle cx="9" cy="6" r="1.5" /><circle cx="15" cy="6" r="1.5" /><circle cx="9" cy="12" r="1.5" /><circle cx="15" cy="12" r="1.5" /><circle cx="9" cy="18" r="1.5" /><circle cx="15" cy="18" r="1.5" />
+                  </svg>
+                </button>
+              </div>
             {% endfor %}
-          </tr>
+            <p class="field-menu-empty" data-field-empty hidden>No fields found.</p>
+          </div>
+          <div class="field-menu-actions">
+            <button class="field-menu-action btn btn-outline-secondary btn-sm"
+                    type="button"
+                    data-hide-all>Hide all</button>
+            <button class="field-menu-action btn btn-outline-secondary btn-sm"
+                    type="button"
+                    data-show-all>Show all</button>
+          </div>
+        </div>
+      </details>
+      <details class="field-menu filter-menu" data-filter-menu>
+        <summary>
+          <svg class="field-menu-icon"
+               viewBox="0 0 24 24"
+               fill="none"
+               stroke="currentColor"
+               stroke-width="1.5"
+               aria-hidden="true">
+            <path d="M4 5h16l-6.5 7.5V19l-3 1.5v-8z" />
+          </svg>
+          Filter
+          <span class="filter-count"
+                data-filter-count{% if not active_filter_count.value %}
+                hidden{% endif %}>{{ active_filter_count.value }}</span>
+        </summary>
+        <div class="field-menu-panel filter-menu-panel">
+          <p class="filter-title">Filter</p>
+          <p class="filter-subtitle">In this view, show records that match</p>
+          <label class="filter-root-join">
+            <span>Where</span><select class="form-select form-select-sm"
+        data-filter-conjunction
+        aria-label="Match conditions">
+              <option value="and">All conditions</option>
+              <option value="or">Any condition</option>
+            </select>
+          </label>
+          <div class="filter-conditions" data-filter-conditions></div>
+          <div class="filter-actions">
+            <button class="filter-apply btn btn-primary btn-sm"
+                    type="button"
+                    data-filter-apply>Apply</button>
+            <button class="filter-reset btn btn-outline-secondary btn-sm"
+                    type="button"
+                    data-filter-reset>Reset</button>
+          </div>
+        </div>
+        <template data-filter-row-template>
+          <div class="filter-condition" data-filter-row>
+            <select class="form-select form-select-sm"
+                    data-filter-field
+                    aria-label="Filter field">
+              {% for field in filter_ui_config.fields %}<option value="{{ field.name }}">{{ field.label }}</option>{% endfor %}
+            </select>
+            <select class="form-select form-select-sm"
+                    data-filter-op
+                    aria-label="Filter operator">
+              <option value="contains">contains</option>
+              <option value="does_not_contain">does not contain</option>
+              <option value="is">is</option>
+              <option value="is_not">is not</option>
+              <option value="is_empty">is empty</option>
+              <option value="is_not_empty">is not empty</option>
+            </select>
+            <input class="form-control form-control-sm"
+                   type="text"
+                   data-filter-value
+                   aria-label="Filter value">
+            <button class="filter-remove"
+                    type="button"
+                    data-filter-remove
+                    aria-label="Remove condition"
+                    title="Remove condition">
+              <svg viewBox="0 0 24 24"
+                   fill="none"
+                   stroke="currentColor"
+                   stroke-width="1.5"
+                   aria-hidden="true">
+                <path d="M5 12h14" />
+              </svg>
+            </button>
+          </div>
+        </template>
+        <div hidden data-filter-server-fields>
+          {% for name, value in filters %}
+            <span data-filter-server-field="{{ name }}"
+                  data-filter-server-value="{{ value }}"></span>
+          {% endfor %}
+        </div>
+      </details>
+      <details class="field-menu group-menu" data-group-menu>
+        <summary>
+          <svg class="field-menu-icon"
+               viewBox="0 0 24 24"
+               fill="none"
+               stroke="currentColor"
+               stroke-width="1.5"
+               aria-hidden="true">
+            <path d="M4 6h16M4 12h12M4 18h8" />
+          </svg>
+          Group
+          <span class="filter-count" data-group-count hidden>1</span>
+        </summary>
+        <div class="field-menu-panel sort-menu-panel">
+          <div class="sort-title group-menu-title">
+            <div class="sort-title">
+              <p class="filter-title">Group by</p>
+              <span class="sort-help"
+                    title="Group records by one or more fields. Fields higher in the list take priority.">?</span>
+            </div>
+            <div class="group-bulk-controls" data-group-bulk-controls hidden>
+              <button class="group-bulk-action"
+                      type="button"
+                      data-group-collapse-all>Collapse all</button>
+              <button class="group-bulk-action"
+                      type="button"
+                      data-group-expand-all>Expand all</button>
+            </div>
+          </div>
+          <div class="sort-rows" data-group-rows></div>
+          <div class="sort-picker" data-group-picker>
+            <div class="sort-search">
+              <svg viewBox="0 0 24 24"
+                   fill="none"
+                   stroke="currentColor"
+                   stroke-width="1.5"
+                   aria-hidden="true">
+                <circle cx="11" cy="11" r="7" />
+                <path d="m20 20-3.5-3.5" />
+              </svg><input class="form-control form-control-sm"
+       type="search"
+       placeholder="Find a field"
+       aria-label="Find a field to group by"
+       autocomplete="off"
+       data-group-search>
+            </div>
+            <div class="sort-fields" data-group-fields>
+              {% for field in group_ui_config.fields %}<button class="sort-field"
+        type="button"
+        data-grid-group-choice="{{ field.name }}"
+        data-grid-field-kind="{{ field.kind }}"
+        data-grid-option-label="{{ field.label|lower }}"><span class="toolbar-icon" aria-hidden="true">{% if field.kind in ["date", "datetime", "time"] %}▦{% elif field.kind == "number" %}#{% elif field.kind in ["choice", "boolean"] %}⊙{% else %}≡{% endif %}</span><span>{{ field.label }}</span></button>{% endfor %}
+            </div>
+          </div>
+          <button class="sort-add btn btn-link btn-sm"
+                  type="button"
+                  data-group-add>＋ Add subgroup</button>
+          <div class="sort-footer">
+            <button class="sort-cancel btn btn-outline-secondary btn-sm"
+                    type="button"
+                    data-group-cancel>Cancel</button><button class="sort-apply btn btn-primary btn-sm"
+        type="button"
+        data-group-apply>Apply</button>
+          </div>
+        </div>
+      </details>
+      <details class="field-menu sort-menu" data-sort-menu>
+        <summary>
+          <svg class="field-menu-icon"
+               viewBox="0 0 24 24"
+               fill="none"
+               stroke="currentColor"
+               stroke-width="1.5"
+               aria-hidden="true">
+            <path d="M8 4v16m-3-3 3 3 3-3M16 20V4m-3 3 3-3 3 3" />
+          </svg>
+          Sort
+          <span class="filter-count" data-sort-count hidden>1</span>
+        </summary>
+        <div class="field-menu-panel sort-menu-panel">
+          <div class="sort-title">
+            <p class="filter-title">Sort by</p>
+            <span class="sort-help"
+                  title="Sort records by one or more fields. Fields higher in the list take priority.">?</span>
+          </div>
+          <div class="sort-rows" data-sort-rows></div>
+          <div class="sort-picker" data-sort-picker>
+            <div class="sort-search">
+              <svg viewBox="0 0 24 24"
+                   fill="none"
+                   stroke="currentColor"
+                   stroke-width="1.5"
+                   aria-hidden="true">
+                <circle cx="11" cy="11" r="7" />
+                <path d="m20 20-3.5-3.5" />
+              </svg><input class="form-control form-control-sm"
+       type="search"
+       placeholder="Find a field"
+       aria-label="Find a field to sort by"
+       autocomplete="off"
+       data-sort-search>
+            </div>
+            <div class="sort-fields" data-sort-fields>
+              {% for field in sort_ui_config.fields %}<button class="sort-field"
+        type="button"
+        data-grid-sort-choice="{{ field.name }}"
+        data-grid-field-kind="{{ field.kind }}"
+        data-grid-option-label="{{ field.label|lower }}"><span class="toolbar-icon" aria-hidden="true">{% if field.kind in ["date", "datetime", "time"] %}▦{% elif field.kind == "number" %}#{% elif field.kind in ["choice", "boolean"] %}⊙{% else %}≡{% endif %}</span><span>{{ field.label }}</span></button>{% endfor %}
+            </div>
+          </div>
+          <button class="sort-add btn btn-link btn-sm"
+                  type="button"
+                  data-sort-add>＋ Add another sort</button>
+          <div class="sort-footer">
+            <button class="sort-cancel btn btn-outline-secondary btn-sm"
+                    type="button"
+                    data-sort-cancel>Cancel</button><button class="sort-apply btn btn-primary btn-sm"
+        type="button"
+        data-sort-apply>Apply</button>
+          </div>
+        </div>
+      </details>
+      <details class="field-menu">
+        <summary>
+          <svg class="field-menu-icon"
+               viewBox="0 0 24 24"
+               fill="none"
+               stroke="currentColor"
+               stroke-width="1.5"
+               aria-hidden="true">
+            <path d="M12 3a9 9 0 1 0 0 18h1.5a2.5 2.5 0 0 0 1.4-4.6 1.5 1.5 0 0 1 .8-2.7H18a3 3 0 0 0 3-3c0-4.3-4-7.7-9-7.7Z" />
+            <circle cx="7.5" cy="10" r="1" /><circle cx="10.5" cy="6.5" r="1" /><circle cx="15" cy="7" r="1" />
+          </svg>Color
+        </summary>
+        <div class="field-menu-panel grid-option-panel">
+          <p class="filter-title">Row color</p>
+          <div class="grid-color-options" role="group" aria-label="Row color">
+            {% for name, color in [('Default', 'default'), ('Blue', 'blue'), ('Green', 'green'), ('Yellow', 'yellow'), ('Red', 'red')] %}
+              <button class="grid-color-option"
+                      type="button"
+                      data-grid-color="{{ color }}"
+                      aria-label="{{ name }}"
+                      title="{{ name }}"><span aria-hidden="true">&#8203;</span></button>
+            {% endfor %}
+          </div>
+        </div>
+      </details>
+      <span class="badge bg-azure-lt text-azure grid-team">
+        <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+          <path d="M8 1.5 9.4 6.6 14.5 8l-5.1 1.4L8 14.5l-1.4-5.1L1.5 8l5.1-1.4L8 1.5Z" />
+        </svg>Team</span>
+        <details class="field-menu row-height-menu" data-row-height-panel>
+          <summary aria-label="Row height" title="Row height">
+            <svg class="field-menu-icon"
+                 viewBox="0 0 24 24"
+                 fill="none"
+                 stroke="currentColor"
+                 stroke-width="1.5"
+                 aria-hidden="true">
+              <path d="M6 4v16M3 7l3-3 3 3M3 17l3 3 3-3M13 6h8M13 12h8M13 18h8" />
+            </svg>
+          </summary>
+          <div class="field-menu-panel row-height-menu-panel">
+            <div class="row-height-options" role="group" aria-label="Row height">
+              {% for value, label, path in [('compact', 'Short', 'M3 6h11M3 12h11M3 18h11'), ('medium', 'Medium', 'M3 3h11v6H3zM3 15h11M3 21h11'), ('tall', 'Tall', 'M3 3h11v12H3zM3 21h11'), ('extra-tall', 'Extra Tall', 'M3 3h11v18H3z')] %}
+                <button class="row-height-option"
+                        type="button"
+                        data-row-height-choice="{{ value }}"
+                        aria-pressed="{{ 'true' if value == 'compact' else 'false' }}">
+                  <svg class="row-height-icon"
+                       viewBox="0 0 24 24"
+                       fill="none"
+                       stroke="currentColor"
+                       stroke-width="1.5"
+                       stroke-linecap="round"
+                       stroke-linejoin="round"
+                       aria-hidden="true">
+                    <path d="{{ path }}M20 4v16m-2-2 2 2 2-2M18 6l2-2 2 2" />
+                  </svg><span>{{ label }}</span><span class="row-height-check"
+      aria-hidden="true">✓</span>
+                </button>
+              {% endfor %}
+            </div>
+            <div class="row-height-divider"></div>
+            <button class="row-height-option"
+                    type="button"
+                    data-wrap-headers
+                    aria-pressed="false">
+              <svg class="row-height-icon"
+                   viewBox="0 0 24 24"
+                   fill="none"
+                   stroke="currentColor"
+                   stroke-width="1.5"
+                   stroke-linecap="round"
+                   stroke-linejoin="round"
+                   aria-hidden="true">
+                <path d="M4 6h16M4 12h10a3 3 0 1 1 0 6H8m3-3-3 3 3 3M4 18h4" />
+              </svg><span>Wrap headers</span><span class="row-height-check"
+      aria-hidden="true">✓</span>
+            </button>
+          </div>
+        </details>
+        <details class="field-menu share-menu">
+          <summary>
+            <svg class="field-menu-icon"
+                 viewBox="0 0 24 24"
+                 fill="none"
+                 stroke="currentColor"
+                 stroke-width="1.5"
+                 aria-hidden="true">
+              <path d="M14 4h6v6M20 4l-9 9" />
+              <path d="M18 13v5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h5" />
+            </svg>Share and sync
+          </summary>
+          <div class="field-menu-panel share-menu-panel">
+            <p class="filter-title">Share this view</p>
+            <button class="share-menu-item" type="button" data-share-grid>
+              <svg viewBox="0 0 24 24"
+                   fill="none"
+                   stroke="currentColor"
+                   stroke-width="1.5"
+                   aria-hidden="true">
+                <path d="M10 13a5 5 0 0 0 7.1 0l3-3a5 5 0 0 0-7.1-7.1l-1.7 1.7M14 11a5 5 0 0 0-7.1 0l-3 3A5 5 0 0 0 9 21.1l1.7-1.7" />
+              </svg><span data-share-label>Copy view link</span>
+            </button>
+            <p class="share-menu-note">Copies the current view URL.</p>
+          </div>
+        </details>
+        <button class="grid-search-toggle"
+                type="button"
+                data-search-toggle
+                aria-expanded="false"
+                aria-controls="grid-search"
+                aria-label="Search records"
+                title="Search records">
+          <svg viewBox="0 0 24 24"
+               fill="none"
+               stroke="currentColor"
+               stroke-width="1.5"
+               aria-hidden="true">
+            <circle cx="11" cy="11" r="7" />
+            <path d="m20 20-3.5-3.5" />
+          </svg>
+        </button>
+      </div>
+      <form method="get"
+            class="grid-search"
+            id="grid-search"
+            data-search-panel
+            role="search"
+            aria-label="Search records"
+            hidden>
+        {% for name, value in filters %}
+          {% if value %}<input type="hidden" name="{{ name }}__exact" value="{{ value }}">{% endif %}
         {% endfor %}
-      </tbody>
-    </table>
-    {% if actions %}</form>{% endif %}
-    {% if previous_url %}<a href="{{ previous_url }}">Previous</a>{% endif %}
-    {% if next_url %}<a href="{{ next_url }}">Next</a>{% endif %}
-  </body>
-</html>
+        <input class="form-control form-control-sm"
+               type="search"
+               name="q"
+               value="{{ search_term }}"
+               data-search-input
+               placeholder="Search records"
+               aria-label="Search records"
+               autocomplete="off">
+        <button class="btn btn-primary btn-sm" type="submit">Search</button>
+        <button class="grid-search-button"
+                type="button"
+                data-search-close
+                aria-label="Close search"
+                title="Close search">×</button>
+      </form>
+    </div>
+    <div class="grid-body">
+      <div class="grid-scroll"
+           role="region"
+           aria-label="{{ title }} records"
+           tabindex="0">
+        {% if actions %}
+          <form id="bulk-action-form" method="post" data-bulk-form>
+            <input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">
+            <table class="table table-vcenter record-grid"
+                   data-list-table
+                   data-server-filtering="{{ 'false' if filter_ui_config.fallback|default(false) else 'true' }}"
+                   data-row-height="compact"
+                   data-wrap-headers="false"
+                   data-list-key="{{ request.url.path }}"
+                   data-page-offset="{{ ((page_obj.number - 1) * paginator.per_page) if paginator else 0 }}"
+                   data-page-count="{{ rows|length }}"
+                   data-total-count="{{ record_count }}">
+        {% else %}
+          <table class="table table-vcenter record-grid"
+                 data-list-table
+                 data-server-filtering="{{ 'false' if filter_ui_config.fallback|default(false) else 'true' }}"
+                 data-row-height="compact"
+                 data-wrap-headers="false"
+                 data-list-key="{{ request.url.path }}"
+                 data-page-offset="{{ ((page_obj.number - 1) * paginator.per_page) if paginator else 0 }}"
+                 data-page-count="{{ rows|length }}"
+                 data-total-count="{{ record_count }}">
+        {% endif %}
+        <thead>
+          <tr>
+            <th scope="col" class="row-number">
+              {% if actions %}<input class="grid-select form-check-input"
+       type="checkbox"
+       data-select-all
+       aria-label="Select all records on this page">{% else %}<span aria-hidden="true">#</span>{% endif %}
+            </th>
+            {% for field in list_display %}
+              {% set field_key = field if field is string else field.__name__|default(loop.index|string) %}
+              <th scope="col" data-list-column="{{ field_key }}">{{ field.replace('_', ' ').capitalize() if field is string else field.short_description|default('Field', true) }}</th>
+            {% endfor %}
+            {% if add_url %}<th class="grid-add-column" aria-label="Add field"><button type="button" aria-label="Add field" title="Add field">＋</button></th>{% endif %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+            {% set row_values = row['values'] if row is mapping else row %}
+            {% set row_id = row.pk if row is mapping else none %}
+            {% set row_url = row.url if row is mapping else none %}
+            {% set row_label = row_values[0] if row_values else row_id %}
+            <tr{% if actions %} data-selectable{% endif %} data-grid-row>
+              <td class="row-number">
+                <span class="row-index">{{ loop.index + ((page_obj.number - 1) * paginator.per_page if paginator else 0) }}</span>
+                {% if actions %}
+                  <input class="grid-select row-select form-check-input"
+                         type="checkbox"
+                         name="_selected_action"
+                         value="{{ row_id }}"
+                         form="bulk-action-form"
+                         data-row-select
+                         aria-label="Select record {{ row_label }}">
+                {% endif %}
+              </td>
+              {% for value in row_values %}
+                {% set field = list_display[loop.index0] if loop.index0 < list_display|length else loop.index0 %}
+                {% set field_key = field if field is string else field.__name__|default(loop.index|string) %}
+                <td data-list-column="{{ field_key }}" title="{{ value }}">
+                  <div class="cell-value">
+                    {% if row_url and (list_display_links is none or field in list_display_links) %}<a href="{{ row_url }}">{{ value }}</a>{% else %}{{ value }}{% endif %}
+                  </div>
+                </td>
+              {% endfor %}
+              {% if add_url %}<td class="grid-add-column"></td>{% endif %}
+            </tr>
+          {% else %}
+            <tr>
+              <td class="grid-empty"
+                  colspan="{{ list_display|length + (1 if actions else 0) + (1 if add_url else 0) }}">No records.</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% if actions %}</form>{% endif %}
+    </div>
+    {% if add_url %}
+      <a class="grid-add" href="{{ add_url }}">
+        <span class="grid-add-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"
+               fill="none"
+               stroke="currentColor"
+               stroke-width="1.5">
+            <path d="M12 5v14M5 12h14" />
+          </svg>
+        </span>
+        <span>Add {{ title }}</span>
+      </a>
+    {% endif %}
+  </div>
+  <footer class="grid-footer">
+    <div class="grid-footer-actions">
+      <span data-selection-status
+            data-page-count="{{ rows|length }}"
+            data-total-count="{{ record_count }}">{{ record_count }} records</span>
+      {% if actions %}<button class="grid-selection-link"
+        type="button"
+        data-clear-selection
+        hidden>Clear selection</button>{% endif %}
+    </div>
+    <div class="grid-pagination">
+      {% if previous_url %}<a href="{{ previous_url }}" aria-label="Previous page">‹</a>{% endif %}
+      {% if next_url %}<a href="{{ next_url }}" aria-label="Next page">›</a>{% endif %}
+    </div>
+  </footer>
+{% endblock %}
+{% block scripts %}
+  <script src="{{ request.url_for('obox_static', path='list.js') }}"></script>
+{% endblock %}

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Sequence
+from datetime import date, datetime, time
 from typing import Any, cast
 
 import sqlalchemy as sa
@@ -44,6 +46,149 @@ class _Page:
         return self.number - 1
 
 
+def _column(model: type[Any], name: str) -> Any | None:
+    """Return a mapped scalar column for a directly addressable model field."""
+    attribute = getattr(model, name, None)
+    property_ = getattr(attribute, "property", None)
+    columns = getattr(property_, "columns", None)
+    return columns[0] if columns else None
+
+
+def _field_kind(column: Any) -> str:
+    type_ = column.type
+    if isinstance(type_, sa.Enum):
+        return "choice"
+    if isinstance(type_, sa.Boolean):
+        return "boolean"
+    if isinstance(type_, sa.Integer | sa.Numeric | sa.Float):
+        return "number"
+    if isinstance(type_, sa.DateTime):
+        return "datetime"
+    if isinstance(type_, sa.Date):
+        return "date"
+    if isinstance(type_, sa.Time):
+        return "time"
+    return "text"
+
+
+def _filter_operators(kind: str) -> list[str]:
+    if kind == "text":
+        return ["contains", "does_not_contain", "is", "is_not", "is_empty", "is_not_empty"]
+    if kind in {"number", "date", "datetime", "time"}:
+        return ["is", "is_not", "gt", "gte", "lt", "lte", "is_empty", "is_not_empty"]
+    return ["is", "is_not", "is_empty", "is_not_empty"]
+
+
+def _filter_expression(
+    model: type[Any],
+    data: Any,
+    allowed: set[str],
+    *,
+    depth: int = 0,
+    budget: list[int] | None = None,
+) -> tuple[dict[str, Any], Any | None, int]:
+    if budget is None:
+        budget = [0]
+    if depth > 4 or not isinstance(data, dict):
+        raise HTTPException(400, "Invalid filter query.")
+    conjunction = data.get("conjunction", "and")
+    if conjunction not in {"and", "or"}:
+        raise HTTPException(400, "Invalid filter query.")
+    children = data.get("children", [])
+    if not isinstance(children, list):
+        raise HTTPException(400, "Invalid filter query.")
+    clean_children: list[dict[str, Any]] = []
+    expressions: list[Any] = []
+    count = 0
+    for child in children:
+        budget[0] += 1
+        if budget[0] > 50:
+            raise HTTPException(400, "Too many filter conditions.")
+        if isinstance(child, dict) and isinstance(child.get("children"), list):
+            clean, expression, nested_count = _filter_expression(
+                model, child, allowed, depth=depth + 1, budget=budget
+            )
+            if nested_count and expression is not None:
+                clean_children.append(clean)
+                expressions.append(expression)
+                count += nested_count
+            continue
+        if not isinstance(child, dict):
+            raise HTTPException(400, "Invalid filter query.")
+        name, op = child.get("field"), child.get("op", "is")
+        if not isinstance(name, str) or name not in allowed or not isinstance(op, str):
+            raise HTTPException(400, "Invalid filter field.")
+        column = _column(model, name)
+        if column is None:
+            raise HTTPException(400, "Invalid filter field.")
+        kind = _field_kind(column)
+        if op not in _filter_operators(kind):
+            raise HTTPException(400, "Invalid filter operator.")
+        raw = child.get("value", "")
+        if op not in {"is_empty", "is_not_empty"} and (raw is None or str(raw).strip() == ""):
+            continue
+        if op in {"is_empty", "is_not_empty"}:
+            empty = column.is_(None)
+            if isinstance(column.type, sa.String) and not isinstance(column.type, sa.Enum):
+                empty = sa.or_(empty, column == "")
+            expression = empty if op == "is_empty" else sa.not_(empty)
+        else:
+            try:
+                if kind == "boolean":
+                    if str(raw).lower() not in {"true", "false", "1", "0"}:
+                        raise ValueError
+                    value: Any = str(raw).lower() in {"true", "1"}
+                elif kind == "date":
+                    value = date.fromisoformat(str(raw))
+                elif kind == "datetime":
+                    value = datetime.fromisoformat(str(raw))
+                elif kind == "time":
+                    value = time.fromisoformat(str(raw))
+                else:
+                    python_type = column.type.python_type
+                    value = python_type(raw) if python_type is not str else str(raw)
+            except (AttributeError, TypeError, ValueError) as exc:
+                raise HTTPException(400, "Invalid filter value.") from exc
+            if op == "contains":
+                expression = column.icontains(str(raw), autoescape=True)
+            elif op == "does_not_contain":
+                expression = sa.and_(
+                    column.is_not(None), sa.not_(column.icontains(str(raw), autoescape=True))
+                )
+            elif op == "is":
+                expression = column == value
+            elif op == "is_not":
+                expression = sa.and_(column.is_not(None), column != value)
+            else:
+                expression = {
+                    "gt": column > value,
+                    "gte": column >= value,
+                    "lt": column < value,
+                    "lte": column <= value,
+                }[op]
+        clean_children.append({"field": name, "op": op, "value": str(raw)})
+        expressions.append(expression)
+        count += 1
+    clean_group = {"conjunction": conjunction, "children": clean_children}
+    if not expressions:
+        return clean_group, None, 0
+    return clean_group, (sa.and_ if conjunction == "and" else sa.or_)(*expressions), count
+
+
+def _parse_order(value: str, allowed: set[str], *, maximum: int) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for raw in value.split(","):
+        if not raw:
+            continue
+        name = raw[1:] if raw.startswith("-") else raw
+        if name not in allowed or name in seen or len(result) >= maximum:
+            raise HTTPException(400, "Invalid field ordering.")
+        seen.add(name)
+        result.append({"field": name, "descending": raw.startswith("-")})
+    return result
+
+
 class ListView(TemplateResponseMixin, ModelContextMixin, View):
     queryset: Any = None
     context_object_name: str | None = None
@@ -64,6 +209,30 @@ class ListView(TemplateResponseMixin, ModelContextMixin, View):
     def get_ordering(self) -> Any:
         return self.ordering
 
+    def _queryable_fields(self, model: type[Any]) -> set[str]:
+        return {
+            name
+            for name in self.get_list_display()
+            if isinstance(name, str) and _column(model, name) is not None
+        }
+
+    def _filter_field_options(self, model: type[Any]) -> list[dict[str, Any]]:
+        options = []
+        for name in self.get_list_display():
+            if not isinstance(name, str) or (column := _column(model, name)) is None:
+                continue
+            kind = _field_kind(column)
+            options.append(
+                {
+                    "name": name,
+                    "label": name.replace("_", " ").capitalize(),
+                    "kind": kind,
+                    "choices": list(column.type.enums) if isinstance(column.type, sa.Enum) else [],
+                    "operators": _filter_operators(kind),
+                }
+            )
+        return options
+
     def get_queryset(self) -> Any:
         if resource := self._bound_resource():
             query = resource._query(self.request.user).order_by(*resource._order())
@@ -74,6 +243,7 @@ class ListView(TemplateResponseMixin, ModelContextMixin, View):
         else:
             raise ImproperlyConfigured("Define model, queryset, or get_queryset().")
         model = query.column_descriptions[0]["entity"]
+        queryable = self._queryable_fields(model)
         if resource is None and (ordering := self.get_ordering()):
             names = (ordering,) if isinstance(ordering, str) else ordering
             query = query.order_by(
@@ -103,6 +273,35 @@ class ListView(TemplateResponseMixin, ModelContextMixin, View):
             query = query.where(column == value)
         if self.search_fields:
             query = self.get_search_results(query, self.request.query_params.get("q", ""))
+        raw_filter = self.request.query_params.get("filter")
+        if raw_filter:
+            try:
+                filter_data = json.loads(raw_filter)
+            except (TypeError, ValueError) as exc:
+                raise HTTPException(400, "Invalid filter query.") from exc
+            _, expression, _ = _filter_expression(model, filter_data, queryable)
+            if expression is not None:
+                query = query.where(expression)
+
+        # Group keys take precedence; explicit sort keys break ties within each group.
+        group_terms = _parse_order(self.request.query_params.get("group", ""), queryable, maximum=3)
+        if "ordering" in self.request.query_params or group_terms:
+            sort_terms = _parse_order(
+                self.request.query_params.get("ordering", ""), queryable, maximum=5
+            )
+            terms = []
+            seen: set[str] = set()
+            for term in [*group_terms, *sort_terms]:
+                if term["field"] in seen:
+                    continue
+                seen.add(term["field"])
+                column = getattr(model, term["field"])
+                terms.append(column.desc() if term["descending"] else column.asc())
+            mapper = sa.inspect(model)
+            primary_name = mapper.get_property_by_column(mapper.primary_key[0]).key
+            if primary_name not in seen:
+                terms.append(getattr(model, primary_name).asc())
+            query = query.order_by(None).order_by(*terms)
         return query
 
     def get_list_display(self) -> Sequence[Any]:
@@ -228,6 +427,37 @@ class ListView(TemplateResponseMixin, ModelContextMixin, View):
     def get_context_data(self, **kwargs: Any) -> Any:
         model = self.model or self._list_model
         columns = self.get_list_display()
+        queryable = self._queryable_fields(model)
+        filter_config: dict[str, Any] = {
+            "fields": self._filter_field_options(model),
+            "filter": {"conjunction": "and", "children": []},
+        }
+        raw_filter = self.request.query_params.get("filter")
+        if raw_filter:
+            try:
+                filter_data = json.loads(raw_filter)
+                cleaned, _, _ = _filter_expression(model, filter_data, queryable)
+                filter_config["filter"] = cleaned
+            except (TypeError, ValueError, HTTPException):
+                filter_config["filter"] = {"conjunction": "and", "children": []}
+        exact_terms = [
+            {"field": name, "op": "is", "value": value}
+            for name, value in self.request.query_params.items()
+            for name in [name.removesuffix("__exact")]
+            if name in self.get_list_filter() and value != "" and name in queryable
+        ]
+        if exact_terms:
+            filter_config["filter"]["children"].extend(exact_terms)
+        sort_config = {
+            "fields": filter_config["fields"],
+            "sort": _parse_order(
+                self.request.query_params.get("ordering", ""), queryable, maximum=5
+            ),
+        }
+        group_config = {
+            "fields": filter_config["fields"],
+            "group": _parse_order(self.request.query_params.get("group", ""), queryable, maximum=3),
+        }
         page = self._page
         context = {
             "object_list": self.object_list,
@@ -248,6 +478,9 @@ class ListView(TemplateResponseMixin, ModelContextMixin, View):
                 (name, self.request.query_params.get(name + "__exact", ""))
                 for name in self.get_list_filter()
             ],
+            "filter_config": filter_config,
+            "sort_config": sort_config,
+            "group_config": group_config,
             "previous_url": self._page_url(page.previous_page_number())
             if page and page.has_previous()
             else None,

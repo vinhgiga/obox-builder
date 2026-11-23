@@ -41,17 +41,17 @@ async def _identify(request: Request) -> Any:
 
 
 @asynccontextmanager
-async def _request_session(request: Request) -> AsyncIterator[None]:
+async def _request_session(request: Request) -> AsyncIterator[Any]:
     actor = await _identify(request)
     runtime = getattr(request.app.state, "obox", None)
     if runtime is not None:
-        async with runtime.uow(principal=actor, request=request, source="ui"):
-            yield
+        async with runtime.uow(principal=actor, request=request, source="ui") as context:
+            yield context
     elif settings.DATABASES:
         async with _session():
-            yield
+            yield None
     else:
-        yield
+        yield None
 
 
 class View:
@@ -83,7 +83,21 @@ class View:
             self = cls(**initkwargs)
             self.setup(request, **request.path_params)
             try:
-                async with _request_session(request):
+                async with _request_session(request) as context:
+                    runtime = getattr(request.app.state, "obox", None)
+                    if runtime is not None and context is not None:
+                        from obox._i18n import context as translation_context
+                        from obox._ui import build_navigation
+
+                        request.state.obox_template_context = {
+                            **translation_context(request),
+                            "site_title": runtime.app.title,
+                            "base_template": runtime.settings.base_template,
+                            "navigation": await build_navigation(runtime, request, context),
+                            "principal": context.principal,
+                            "auth": runtime.auth,
+                            "csrf": runtime.csrf.token(request, context.principal),
+                        }
                     from obox.middleware.csrf import _check, _set_cookie
 
                     if not getattr(request.state, "_obox_html_csrf", False):
@@ -171,6 +185,10 @@ class TemplateResponseMixin:
                 backend = getattr(import_module(module), name)
             templates = Jinja2Templates(env=backend(config).env)
         context.setdefault("csrf_token", get_token(self.request))
+        context = {
+            **getattr(self.request.state, "obox_template_context", {}),
+            **context,
+        }
         names = self.get_template_names()
         template = templates.env.select_template(names)
         return cast(

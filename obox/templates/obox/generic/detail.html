@@ -1,13 +1,21 @@
-{% extends "obox/base.html" %}
+{% extends base_template|default("obox/base.html") %}
 {% block content %}
-  <h1>{{ title }}</h1>
-  <dl>
-    {% for name, value in values %}
-      <dt>{{ name }}</dt>
-      <dd>
-        {{ value }}
-      </dd>
-    {% endfor %}
-  </dl>
-  {% if change_url %}<a href="{{ change_url }}">Edit</a>{% endif %}
+  {% set routes = view.route_names|default({}) %}
+  <nav class="d-flex flex-wrap gap-2 mb-4" aria-label="Record actions">
+    {% if routes.get("list") %}<a class="btn btn-outline-secondary btn-sm"
+   href="{{ request.url_for(routes['list']) }}">Back to list</a>{% endif %}
+    {% if change_url %}<a class="btn btn-primary btn-sm" href="{{ change_url }}">Edit</a>{% endif %}
+  </nav>
+  {% if values %}
+    <dl class="row mb-0">
+      {% for name, value in values %}
+        <dt class="col-sm-3 py-2 text-secondary fw-normal">{{ name.replace('_', ' ').capitalize() }}</dt>
+        <dd class="col-sm-9 py-2 mb-0 border-bottom">
+          {{ value if value is not none and value != '' else '—' }}
+        </dd>
+      {% endfor %}
+    </dl>
+  {% else %}
+    <div class="alert alert-info mb-0" role="status">No fields are available to display.</div>
+  {% endif %}
 {% endblock %}

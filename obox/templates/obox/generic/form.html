@@ -1,13 +1,19 @@
-<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta name="description" content="Obox records">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta charset="utf-8">
-    <title>{{ title | default("Form") }}</title>
-  </head>
-  <body>
-    {% for error in form.non_field_errors() %}<p role="alert">{{ error }}</p>{% endfor %}
+{% extends base_template|default("obox/base.html") %}
+{% set form_title = title|default("Form", true) %}
+{% block title %}{% if object %}Update {{ form_title }}{% else %}Create {{ form_title }}{% endif %}{% endblock %}
+{% block heading %}{% if object %}Update {{ form_title }}{% else %}Create {{ form_title }}{% endif %}{% endblock %}
+{% block content %}
+  <div class="record-form-panel p-0">
+    {% set routes = view.route_names|default({}) %}
+    {% if routes.get("list") %}
+      <nav class="d-flex gap-2 mb-4" aria-label="Form navigation">
+        <a class="btn btn-outline-secondary btn-sm"
+           href="{{ request.url_for(routes['list']) }}">Back to list</a>
+      </nav>
+    {% endif %}
+    {% for error in form.non_field_errors() %}
+      <div class="alert alert-danger" role="alert">{{ error }}</div>
+    {% endfor %}
     {% set upload = namespace(required=form.is_multipart()) %}
     {% for group in inline_formsets %}
       {% if group.formset.is_multipart() %}
@@ -18,22 +24,40 @@
           {% if upload.required %} enctype="multipart/form-data"{% endif %}>
       <input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">
       {% for group in fieldsets %}
-        <fieldset>
-          {% if group.title %}<legend>{{ group.title }}</legend>{% endif %}
-          {% if group.description %}<p>{{ group.description }}</p>{% endif %}
+        <fieldset class="mb-4">
+          {% if group.title %}<legend class="form-label fw-semibold">{{ group.title }}</legend>{% endif %}
+          {% if group.description %}<p class="text-secondary">{{ group.description }}</p>{% endif %}
           {% for name in group.fields %}
-            {% if name in readonly_fields %}<p>{{ name }}: {{ readonly_values[name] }}</p>
-          {% else %}<p><label for="{{ form[name].id_for_label }}">{{ form[name].label }}</label>{{ form[name] }}{% if form[name].field.help_text %}<span class="helptext">{{ form[name].field.help_text }}</span>{% endif %}{% for error in form[name].errors %}<span role="alert">{{ error }}</span>{% endfor %}</p>{% endif %}
-        {% endfor %}
+            {% if name in readonly_fields %}
+              <div class="mb-3">
+                <div class="form-label text-secondary">{{ name.replace('_', ' ').capitalize() }}</div>
+                <div>{{ readonly_values[name] }}</div>
+              </div>
+            {% else %}
+              <div class="mb-3">
+                <label class="form-label"
+                       for="{{ form[name].id_for_label }}">{{ form[name].label }}</label>
+                {{ form[name] }}
+                {% if form[name].field.help_text %}<div class="form-hint">{{ form[name].field.help_text }}</div>{% endif %}
+                {% for error in form[name].errors %}<div class="invalid-feedback d-block"
+     role="alert">{{ error }}</div>{% endfor %}
+              </div>
+            {% endif %}
+          {% endfor %}
         </fieldset>
       {% else %}
-        {{ form.as_p() }}
+        <div class="generic-form-fields">{{ form.as_p() }}</div>
       {% endfor %}
       {% for group in inline_formsets %}
         {% include group.inline.template %}
       {% endfor %}
-      {% if has_change_permission | default(true) %}<button type="submit">Save</button>{% endif %}
+      {% if has_change_permission | default(true) %}
+        <div class="submit-row mt-4">
+          <button class="btn btn-primary" type="submit">Save</button>
+          {% if delete_url %}<a class="btn btn-outline-danger"
+   href="{{ delete_url }}">Delete</a>{% endif %}
+        </div>
+      {% endif %}
     </form>
-    {% if delete_url %}<a href="{{ delete_url }}">Delete</a>{% endif %}
-  </body>
-</html>
+  </div>
+{% endblock %}

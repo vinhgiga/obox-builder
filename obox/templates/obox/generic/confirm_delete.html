@@ -1,16 +1,34 @@
-<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta name="description" content="Obox administration">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta charset="utf-8">
-    <title>Delete</title>
-  </head>
-  <body>
-    <form method="post">
-      <input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">
-      <p>Are you sure you want to delete {{ object }}?</p>
-      <button type="submit">Confirm</button>
-    </form>
-  </body>
-</html>
+{% extends base_template|default("obox/base.html") %}
+{% set routes = view.route_names|default({}) %}
+{% set resource = view._bound_resource() %}
+{% set record = namespace(label=none) %}
+{% set model_label = resource.model.__name__ if resource else object.__class__.__name__ %}
+{% if resource %}
+  {% for name in resource.readable %}
+    {% if name != resource.pk_name and record.label is none %}
+      {% set candidate = object|attr(name) %}
+      {% if candidate is not none and candidate != "" %}
+        {% set record.label = candidate %}
+      {% endif %}
+    {% endif %}
+  {% endfor %}
+  {% set object_label = record.label if record.label is not none else model_label ~ ' #' ~ (object|attr(resource.pk_name)) %}
+{% else %}
+  {% set object_label = model_label %}
+{% endif %}
+{% block title %}Delete {{ model_label }}{% endblock %}
+{% block heading %}Delete {{ model_label }}{% endblock %}
+{% block content %}
+  <div class="alert alert-warning" role="alert">
+    <h2 class="h3 alert-title">Are you sure?</h2>
+    <div>Are you sure you want to delete <strong>{{ object_label }}</strong>?</div>
+  </div>
+  <form method="post" class="submit-row mt-4">
+    <input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">
+    <button class="btn btn-danger" type="submit">Confirm delete</button>
+    {% if routes.get("list") %}
+      <a class="btn btn-outline-secondary"
+         href="{{ request.url_for(routes['list']) }}">Cancel</a>
+    {% endif %}
+  </form>
+{% endblock %}
