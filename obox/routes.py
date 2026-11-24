@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from obox.core.exceptions import ImproperlyConfigured
-from obox.core.principal import _valid_permission
+from obox.core.principal import valid_permission
 
 if TYPE_CHECKING:
     from obox.views.generic import TemplateView
@@ -49,7 +49,7 @@ class Route:
         if self.permission is not None and (
             not isinstance(self.permission, str)
             or not (
-                _valid_permission(self.permission)
+                valid_permission(self.permission)
                 or (self.permission.isidentifier() and not self.permission.startswith("_"))
             )
         ):

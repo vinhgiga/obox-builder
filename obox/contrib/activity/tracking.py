@@ -20,7 +20,7 @@ def context(session: Any) -> Any:
     ctx = session.info.get("obox.runtime.context")
     if ctx is None or ctx._owner is None:
         return None
-    activity = ctx._owner._feature("activity")
+    activity = ctx._owner.feature("activity")
     return (activity, ctx.principal, ctx.source) if activity is not None else None
 
 

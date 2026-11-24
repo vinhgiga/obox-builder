@@ -47,10 +47,10 @@ def actor(ctx: Context) -> str:
 
 
 def resource(plugin: Any, slug: str) -> Any:
-    from obox.db.identity import _model_label
+    from obox.db.identity import model_label
 
     for model in plugin.models:
-        if ".".join(_model_label(model)) == slug:
+        if ".".join(model_label(model)) == slug:
             return model
     raise NotFound("The webhook model is unavailable.")
 
@@ -118,14 +118,14 @@ async def create(plugin: Any, data: Any, ctx: Context) -> Subscription:
 
 
 async def record(plugin: Any, action: str, obj: Any, ctx: Context) -> None:
-    from obox.db.identity import _model_label
+    from obox.db.identity import model_label
 
     if action not in {"create", "update"}:
         return
     model = type(obj)
     mapper = sa.inspect(model)
     pk_name = mapper.get_property_by_column(mapper.primary_key[0]).key
-    slug = ".".join(_model_label(model))
+    slug = ".".join(model_label(model))
     timestamp = now()
     # Serialize allocation on each subscription. A polling cursor must never skip
     # a lower sequence that commits after a higher sequence.

@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic import Field, JsonValue, PrivateAttr, StrictStr
 
 from obox.core.exceptions import ImproperlyConfigured
-from obox.core.principal import _valid_permission
+from obox.core.principal import valid_permission
 from obox.db.filters import FilterGroup, parse_filter
 from obox.runtime.context import Context
 from obox.web.schemas import ApiRequest, ApiResponse
@@ -121,7 +121,7 @@ class Component:
     def get_data(self, query: Any, ctx: Context) -> Any:
         raise ImproperlyConfigured("Declare get_data for an API component.")
 
-    def _snapshot(self) -> Component:
+    def snapshot(self) -> Component:
         values: dict[str, Any] = {}
         for base in reversed(type(self).__mro__):
             values.update(
@@ -136,18 +136,18 @@ class Component:
         vars(result).update(deepcopy(values))
         return result
 
-    def _build(self, builder: Any, name: str) -> Any:
+    def build(self, builder: Any, name: str) -> Any:
         return None
 
-    async def _execute(self, service: ComponentService, query: ApiRequest, ctx: Context) -> Any:
+    async def execute(self, service: ComponentService, query: ApiRequest, ctx: Context) -> Any:
         from obox.core.async_utils import invoke
 
         return await invoke(self.get_data, query, ctx)
 
-    def _presentation(self, spec: Any) -> dict[str, Any]:
+    def presentation(self, spec: Any) -> dict[str, Any]:
         return {}
 
-    async def _records(
+    async def records(
         self, service: ComponentService, query: ComponentRecords, ctx: Context
     ) -> Any:
         from obox.core.exceptions import NotFound
@@ -189,7 +189,7 @@ def fixed_filters(value: FilterGroup | Mapping[str, Any]) -> FilterGroup:
 def validate_component(component: Component) -> None:
     for name in ("permission", "records_permission"):
         value = getattr(component, name)
-        if value is not None and (not isinstance(value, str) or not _valid_permission(value)):
+        if value is not None and (not isinstance(value, str) or not valid_permission(value)):
             raise ImproperlyConfigured("Component permissions require app.resource.action.")
     if not isinstance(component.title, str) or not isinstance(component.description, str):
         raise ImproperlyConfigured("Component titles and descriptions must be strings.")

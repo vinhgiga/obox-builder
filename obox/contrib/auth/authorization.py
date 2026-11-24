@@ -15,7 +15,7 @@ from obox.core.exceptions import (
     NotFound,
     PermissionDenied,
 )
-from obox.core.principal import _valid_permission
+from obox.core.principal import valid_permission
 from obox.runtime.context import Context
 from obox.web.i18n import N_
 
@@ -57,7 +57,7 @@ class Authorization:
     def _permissions(self, values: Sequence[str], *, existing: Sequence[str] = ()) -> list[str]:
         known = self.app.permissions.keys() | set(existing)
         if isinstance(values, str | bytes) or any(
-            not isinstance(value, str) or not _valid_permission(value) or value not in known
+            not isinstance(value, str) or not valid_permission(value) or value not in known
             for value in values
         ):
             raise BuilderValidationError({"permissions": [N_("Choose valid permissions.")]})
@@ -71,7 +71,7 @@ class Authorization:
         before: Mapping[str, Any],
         after: Mapping[str, Any],
     ) -> None:
-        if self.app._feature("activity") is None:
+        if self.app.feature("activity") is None:
             return
         from obox.contrib.activity.models import Event
 

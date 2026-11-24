@@ -65,9 +65,9 @@ class Activity:
 
     @staticmethod
     def label(model: type[Any]) -> str:
-        from obox.db.identity import _model_label
+        from obox.db.identity import model_label
 
-        return ".".join(_model_label(model))
+        return ".".join(model_label(model))
 
     def get_queryset(self, model: type[Any], ctx: Context) -> Any:
         return sa.select(model)
@@ -104,7 +104,7 @@ class Activity:
             else:
                 target.info["obox.history"] = previous
 
-    def _attach(self, app: Any) -> None:
+    def attach(self, app: Any) -> None:
         from obox.contrib.activity.routes import build_router
 
         if hasattr(self, "app"):

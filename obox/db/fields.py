@@ -51,10 +51,10 @@ class ModelField:
         return value
 
     def normalize(self, value: Any) -> Any:
-        return _model_value(self.column, value)
+        return model_value(self.column, value)
 
 
-def _model_value(column: Any, value: Any) -> Any:
+def model_value(column: Any, value: Any) -> Any:
     if value is None:
         return None
     if isinstance(column.type, sa.Enum) and column.type.enum_class and not isinstance(value, Enum):
@@ -67,7 +67,7 @@ def _model_value(column: Any, value: Any) -> Any:
     return value
 
 
-def _validate_text(value: str) -> str:
+def validate_text(value: str) -> str:
     if "\x00" in value:
         raise ValueError("NUL characters are not permitted.")
     if any(0xD800 <= ord(char) <= 0xDFFF for char in value):
@@ -106,9 +106,9 @@ def _constrained_annotation(column: sa.Column[Any], annotation: Any) -> Any:
     if annotation is str and isinstance(column_type, sa.String):
         if column_type.length:
             return Annotated[
-                str, Field(max_length=column_type.length), AfterValidator(_validate_text)
+                str, Field(max_length=column_type.length), AfterValidator(validate_text)
             ]
-        return Annotated[str, AfterValidator(_validate_text)]
+        return Annotated[str, AfterValidator(validate_text)]
     return annotation
 
 

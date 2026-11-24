@@ -8,8 +8,8 @@ from pydantic import TypeAdapter, ValidationError
 from obox.apps import apps
 from obox.core.exceptions import NotAuthenticated, NotFound, PermissionDenied
 from obox.core.principal import has_permission
-from obox.db.identity import _model_label
-from obox.db.query import _scope
+from obox.db.identity import model_label
+from obox.db.query import scope_query
 
 
 def installed_models() -> tuple[type[Any], ...]:
@@ -17,7 +17,7 @@ def installed_models() -> tuple[type[Any], ...]:
 
 
 def permission(model: type[Any], actor: Any, action: str) -> bool:
-    label, name = _model_label(model)
+    label, name = model_label(model)
     action = {"list": "view", "retrieve": "view", "create": "add", "update": "change"}.get(
         action, action
     )
@@ -40,7 +40,7 @@ async def get_object(
         key = TypeAdapter(column.type.python_type).validate_python(identity)
     except (TypeError, ValueError, ValidationError) as exc:
         raise NotFound("Record is unavailable.") from exc
-    query = _scope(queryset, model).where(column == key)
+    query = scope_query(queryset, model).where(column == key)
     if lock:
         query = query.with_for_update().execution_options(populate_existing=True)
     obj = await ctx.session.scalar(query)

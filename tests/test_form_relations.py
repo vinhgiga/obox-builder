@@ -10,7 +10,7 @@ from fastapi import Depends, FastAPI
 from obox import Obox, forms, permission_required
 from obox.core.exceptions import ImproperlyConfigured
 from obox.core.principal import Principal
-from obox.db.session import _session
+from obox.db.session import session_scope
 from obox.db.transaction import atomic
 from obox.views.generic import CreateView
 from pydantic import BaseModel
@@ -99,7 +99,7 @@ class DefaultProduct(Base):
 
 
 async def seed() -> None:
-    async with _session() as session:
+    async with session_scope() as session:
         for model in (Category, Tag):
             session.add_all(
                 [
@@ -184,7 +184,7 @@ def test_choices_reject_inaccessible_missing_and_malformed_ids(field: str, value
             assert form.has_error(field, "invalid_choice")
             with pytest.raises(ValueError, match="could not be saved"):
                 await form.save()
-            async with _session() as session:
+            async with session_scope() as session:
                 assert await session.scalar(sa.select(sa.func.count()).select_from(Product)) == 0
 
     asyncio.run(scenario())
@@ -204,7 +204,7 @@ def test_create_edit_and_clear_relationships_without_implicit_async_io() -> None
             product = await form.save()
             assert product.category_id == product.category.id == 1
             assert [tag.id for tag in product.tags] == [1, 2]
-            async with _session() as session:
+            async with session_scope() as session:
                 detached = await session.get(Product, product.id)
             edit = ProductForm(
                 {"name": "Edited", "category": "2", "tags": ["2"]}, instance=detached
@@ -219,7 +219,7 @@ def test_create_edit_and_clear_relationships_without_implicit_async_io() -> None
             await edit.save_m2m()  # Repeated calls must not duplicate links.
             clear = ProductForm({"name": "Cleared", "category": "1"}, instance=detached)
             await clear.save()
-            async with _session() as session:
+            async with session_scope() as session:
                 saved = await session.scalar(sa.select(Product).options(selectinload(Product.tags)))
                 assert saved is not None
                 assert saved.name == "Cleared"
@@ -241,14 +241,14 @@ def test_commit_false_defers_many_to_many_and_atomic_rollback() -> None:
             assert product.category_id == 1
             with pytest.raises(ValueError, match="Save the instance"):
                 await form.save_m2m()
-            async with _session() as session:
+            async with session_scope() as session:
                 session.add(product)
                 await session.flush()
                 assert (
                     await session.scalar(sa.select(sa.func.count()).select_from(product_tags)) == 0
                 )
             await form.save_m2m()
-            async with _session() as session:
+            async with session_scope() as session:
                 assert (
                     await session.scalar(sa.select(sa.func.count()).select_from(product_tags)) == 2
                 )
@@ -258,7 +258,7 @@ def test_commit_false_defers_many_to_many_and_atomic_rollback() -> None:
                         {"name": "Rolled back", "category": "2", "tags": ["2"]}
                     ).save()
                     raise RuntimeError("rollback")
-            async with _session() as session:
+            async with session_scope() as session:
                 assert (await session.scalars(sa.select(Product.name))).all() == ["Deferred"]
                 assert (
                     await session.scalar(sa.select(sa.func.count()).select_from(product_tags)) == 2
@@ -300,7 +300,7 @@ def test_prefix_repeated_post_values_disabled_initials_and_field_isolation() -> 
             product = await ProductForm(
                 {"name": "First", "category": "1", "tags": ["1", "2"]}
             ).save()
-            async with _session() as session:
+            async with session_scope() as session:
                 detached = await session.get(Product, product.id)
             form = ProductForm(
                 FormData(
@@ -344,7 +344,7 @@ def test_declared_model_choices_preserve_select_limits_and_return_model_objects(
 
     async def scenario() -> None:
         async with configured():
-            async with _session() as session:
+            async with session_scope() as session:
                 session.add_all([ManualKey(code="a", label="A"), ManualKey(code="b", label="B")])
             valid = KeyForm({"key": "a"})
             assert await valid.is_valid()
@@ -389,7 +389,7 @@ def test_validation_queries_current_scope_instead_of_cached_display_choices() ->
             await seed()
             form = ProductForm({"name": "P", "category": "1", "tags": ["1"]})
             await form.prepare()
-            async with _session() as session:
+            async with session_scope() as session:
                 await session.execute(
                     sa.update(Category).where(Category.id == 1).values(active=False)
                 )
@@ -405,7 +405,7 @@ def test_uuid_keys_optional_fields_validators_and_custom_errors() -> None:
     async def scenario() -> None:
         async with configured():
             token = Token()
-            async with _session() as session:
+            async with session_scope() as session:
                 session.add(token)
                 await session.flush()
             validated: list[Token] = []
@@ -452,7 +452,7 @@ def test_commit_false_edit_defers_link_changes_and_rollback_restores_links() -> 
             product = await ProductForm({"name": "P", "category": "1", "tags": ["1"]}).save()
             edit = ProductForm({"name": "Edited", "category": "2", "tags": ["2"]}, instance=product)
             await edit.save(commit=False)
-            async with _session() as session:
+            async with session_scope() as session:
                 assert await session.scalar(sa.select(Product.name)) == "P"
                 assert (await session.scalars(sa.select(product_tags.c.tag_id))).all() == [1]
                 session.add(product)
@@ -461,7 +461,7 @@ def test_commit_false_edit_defers_link_changes_and_rollback_restores_links() -> 
                 async with atomic():
                     await edit.save_m2m()
                     raise RuntimeError("rollback")
-            async with _session() as session:
+            async with session_scope() as session:
                 assert await session.scalar(sa.select(Product.name)) == "Edited"
                 assert (await session.scalars(sa.select(product_tags.c.tag_id))).all() == [1]
 
@@ -528,7 +528,7 @@ def test_generic_view_prepares_scoped_choices_and_checks_forged_post() -> None:
                     },
                 )
                 assert good.status_code == 303
-                async with _session() as session:
+                async with session_scope() as session:
                     assert (
                         await session.scalar(sa.select(sa.func.count()).select_from(product_tags))
                         == 2

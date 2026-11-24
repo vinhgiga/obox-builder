@@ -3,7 +3,7 @@
 from typing import Any
 
 
-def _model_label(model: type[Any]) -> tuple[str, str]:
+def model_label(model: type[Any]) -> tuple[str, str]:
     from obox.apps import apps
 
     candidates = [

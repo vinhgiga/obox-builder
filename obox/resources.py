@@ -24,8 +24,8 @@ from obox.core.exceptions import (
 )
 from obox.core.pagination import ListResult, Page
 from obox.core.principal import ANONYMOUS, Identity
-from obox.db.fields import _model_value, inspect_fields, normalize, schema
-from obox.db.query import _scope
+from obox.db.fields import inspect_fields, model_value, normalize, schema
+from obox.db.query import scope_query
 
 ModelT = TypeVar("ModelT")
 WriteAction = Literal["create", "update", "delete"]
@@ -150,10 +150,10 @@ class Resource(Generic[ModelT]):
         return sa.select(self.model).options(*self.load_options)
 
     def _query(self, query: Any = None) -> Any:
-        base = _scope(self.get_queryset(), self.model)
+        base = scope_query(self.get_queryset(), self.model)
         if query is None:
             return base
-        query = _scope(query, self.model)
+        query = scope_query(query, self.model)
         return query.where(self.pk.in_(base.with_only_columns(self.pk, maintain_column_froms=True)))
 
     async def check_permission(self, action: str, obj: ModelT | None = None) -> None:
@@ -179,7 +179,7 @@ class Resource(Generic[ModelT]):
         query = query.where(column == key)
         if for_update:
             query = query.with_for_update(of=self.model).execution_options(populate_existing=True)
-        obj = (await self._session().scalars(self._load_fields(query))).unique().one_or_none()
+        obj = (await self._session().scalars(self.load_fields(query))).unique().one_or_none()
         if obj is None:
             raise NotFound("Record is unavailable.")
         if action is not None:
@@ -196,7 +196,7 @@ class Resource(Generic[ModelT]):
             .with_for_update(of=self.model)
             .execution_options(populate_existing=True)
         )
-        found = (await self._session().scalars(self._load_fields(query))).unique().one_or_none()
+        found = (await self._session().scalars(self.load_fields(query))).unique().one_or_none()
         if found is None:
             raise NotFound("Record is unavailable.")
         await self.check_permission(action, found)
@@ -211,7 +211,7 @@ class Resource(Generic[ModelT]):
             .where(self.pk == state.identity[0])
             .execution_options(populate_existing=True)
         )
-        found = (await self._session().scalars(self._load_fields(query))).unique().one_or_none()
+        found = (await self._session().scalars(self.load_fields(query))).unique().one_or_none()
         if found is None:
             raise NotFound("Record is unavailable.")
         return cast(ModelT, found)
@@ -406,7 +406,7 @@ class Resource(Generic[ModelT]):
                     query = sa.select(self.pk).where(
                         *(
                             getattr(self.model, name)
-                            == _model_value(mapper.column_attrs[name].columns[0], values[name])
+                            == model_value(mapper.column_attrs[name].columns[0], values[name])
                             for name in names
                         )
                     )
@@ -437,7 +437,7 @@ class Resource(Generic[ModelT]):
         """Add trusted values or normalize validated input before persistence."""
         return values
 
-    def _load_fields(self, query: Any) -> Any:
+    def load_fields(self, query: Any) -> Any:
         return query.options(
             *self.load_options,
             *(
@@ -468,7 +468,7 @@ class Resource(Generic[ModelT]):
             for name, column in zip(self.ordering, columns, strict=True)
         ] + [self.pk.asc()]
 
-    def _check_create(self, writable: Sequence[str]) -> None:
+    def check_create(self, writable: Sequence[str]) -> None:
         mapper = cast("Mapper[ModelT]", sa.inspect(self.model))
         for prop in mapper.column_attrs:
             column = prop.columns[0]
@@ -488,7 +488,7 @@ class Resource(Generic[ModelT]):
 
     async def _count(self, session: AsyncSession, query: Any) -> int:
         identities = (
-            _scope(query, self.model)
+            scope_query(query, self.model)
             .with_only_columns(self.pk, maintain_column_froms=True)
             .order_by(None)
             .distinct()
@@ -501,7 +501,7 @@ class Resource(Generic[ModelT]):
         self, session: AsyncSession, query: Any, *, offset: int = 0, limit: int | None = None
     ) -> Sequence[ModelT]:
         if limit is not None or offset:
-            query = _scope(query, self.model)
+            query = scope_query(query, self.model)
             order_columns = []
             for term in query._order_by_clauses:
                 while isinstance(term, UnaryExpression):
@@ -515,7 +515,7 @@ class Resource(Generic[ModelT]):
                 .subquery()
             )
             query = query.where(self.pk.in_(sa.select(identities.c[0])))
-        return (await session.scalars(self._load_fields(query))).unique().all()
+        return (await session.scalars(self.load_fields(query))).unique().all()
 
     async def _validate(
         self,
@@ -585,7 +585,7 @@ class Resource(Generic[ModelT]):
                 if value is None and not column.nullable and not column.type.should_evaluate_none:
                     raise BuilderValidationError({name: ["This field cannot be null."]})
                 try:
-                    normalized[name] = _model_value(column, value)
+                    normalized[name] = model_value(column, value)
                 except (TypeError, ValueError) as exc:
                     raise BuilderValidationError({name: ["Invalid model value."]}) from exc
             for table in mapper.tables:
@@ -631,7 +631,7 @@ class Resource(Generic[ModelT]):
             ]
             if files:
                 ctx = session.info.get("obox.runtime.context")
-                feature = ctx._owner._feature("files") if ctx is not None else None
+                feature = ctx._owner.feature("files") if ctx is not None else None
                 if feature is None:
                     raise ImproperlyConfigured("Install Files before writing attachments.")
                 normalized = await feature.resolve(self.model, normalized, ctx, obj)

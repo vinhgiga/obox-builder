@@ -558,9 +558,9 @@ def test_nonliteral_component_call_fails_with_template_line(tmp_path: Path) -> N
     )
     obox.add_app(config)
     obox._loading_apps = False
-    obox._finish_apps()
+    obox.finish_apps()
     with pytest.raises(ImproperlyConfigured, match=r"metrics/dynamic\.html:2"):
-        obox._bind_templates()
+        obox.bind_templates()
     assert obox.database.engine is None
 
 
@@ -584,9 +584,9 @@ def test_component_import_fails_before_database_startup(tmp_path: Path) -> None:
     )
     obox.add_app(config)
     obox._loading_apps = False
-    obox._finish_apps()
+    obox.finish_apps()
     with pytest.raises(ImproperlyConfigured, match="Cannot import component"):
-        obox._bind_templates()
+        obox.bind_templates()
     assert obox.database.engine is None
 
 

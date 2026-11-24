@@ -264,7 +264,7 @@ class JSONField(Field):
 
 
 @cache
-def _type_adapter(python_type: type[Any]) -> TypeAdapter[Any]:
+def type_adapter(python_type: type[Any]) -> TypeAdapter[Any]:
     return TypeAdapter(python_type)
 
 
@@ -276,7 +276,7 @@ class _TypedField(Field):
         if value in self.empty_values:
             return None
         try:
-            return _type_adapter(self.python_type).validate_python(value)
+            return type_adapter(self.python_type).validate_python(value)
         except PydanticValidationError as exc:
             raise ValidationError(self.invalid, code="invalid") from exc
 

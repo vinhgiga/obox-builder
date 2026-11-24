@@ -27,7 +27,7 @@ def synchronize(
         return
     session = object_session(target)
     ctx = session.info.get("obox.runtime.context") if session is not None else None
-    if ctx is None or ctx._owner._feature("files") is None:
+    if ctx is None or ctx._owner.feature("files") is None:
         raise ImproperlyConfigured(
             "Modify file fields inside an _Runtime unit of work with Files installed."
         )

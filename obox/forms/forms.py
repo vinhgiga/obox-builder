@@ -99,11 +99,11 @@ class Form(Generic[S]):
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
-        cls.declared_fields = cls._collect_fields()
+        cls.declared_fields = cls.collect_fields()
         cls.base_fields = cls.declared_fields
 
     @classmethod
-    def _collect_fields(cls) -> dict[str, Field]:
+    def collect_fields(cls) -> dict[str, Field]:
         if cls.schema is not None and (
             not isinstance(cls.schema, type) or not issubclass(cls.schema, BaseModel)
         ):
@@ -255,9 +255,6 @@ class Form(Generic[S]):
         return self.is_bound and not self.errors
 
     async def full_clean(self) -> None:
-        await self._full_clean()
-
-    async def _full_clean(self) -> None:
         self.cleaned_data, self.validated_data = None, {}
         self.errors, self._error_codes, self.error_details = {}, {}, []
         self._validated = False
@@ -398,10 +395,10 @@ class Form(Generic[S]):
                     ValidationError(message, code=code),
                 )
         if self.cleaned_data is not None:
-            await self._post_clean()
+            await self.post_clean()
         self._validated = True
 
-    async def _post_clean(self) -> None:
+    async def post_clean(self) -> None:
         pass
 
     def add_error(self, field: str | None, error: Any) -> None:

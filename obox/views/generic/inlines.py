@@ -172,7 +172,7 @@ async def prepare_inlines(
         if form.is_bound:
             await formset.is_valid()
             if not permissions["add"] and any(
-                child.has_changed() and not formset._should_delete_form(child)
+                child.has_changed() and not formset.should_delete_form(child)
                 for child in formset.extra_forms
             ):
                 raise PermissionDenied()

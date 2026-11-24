@@ -9,7 +9,7 @@ from fastapi import Depends, FastAPI
 from obox import Obox, Resource, permission_required
 from obox.core.exceptions import ImproperlyConfigured
 from obox.core.principal import Principal
-from obox.db.session import _session
+from obox.db.session import session_scope
 from obox.views.generic import CreateView, DeleteView, ListView, UpdateView, action
 
 from tests.test_forms_integration import Item, ItemForm, configured
@@ -248,7 +248,7 @@ def test_same_list_view_supports_filters_search_and_actions_on_both_routes() -> 
 
         @action(permissions=("change",), description="Select rows")
         async def select_rows(self, request: Any, queryset: Any) -> None:
-            async with _session() as session:
+            async with session_scope() as session:
                 seen.append([item.name for item in await session.scalars(queryset)])
 
     async def scenario() -> None:

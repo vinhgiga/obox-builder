@@ -15,7 +15,7 @@ from obox.web.dependencies import _RoutePermission
 from obox.web.http import read_form
 from obox.web.i18n import N_, localize, translate
 from obox.web.i18n import context as translation_context
-from obox.web.routes import OboxRoute, _authentication_challenge
+from obox.web.routes import OboxRoute, authentication_challenge
 from obox.web.ui import build_navigation
 
 if TYPE_CHECKING:
@@ -106,7 +106,7 @@ def router(app: _Runtime, auth: Auth) -> APIRouter:
             headers={"cache-control": "no-store"},
         )
         if status == 401:
-            rendered.headers["WWW-Authenticate"] = _authentication_challenge(request, auth)
+            rendered.headers["WWW-Authenticate"] = authentication_challenge(request, auth)
         return rendered
 
     async def logout(request: Request) -> Response:

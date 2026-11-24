@@ -11,12 +11,12 @@ from fastapi.routing import RouteContext, iter_route_contexts
 from starlette.routing import BaseRoute
 
 from obox.core.exceptions import ImproperlyConfigured, NotAuthenticated, PermissionDenied
-from obox.core.principal import Identity, _valid_permission, has_permission
+from obox.core.principal import Identity, has_permission, valid_permission
 from obox.runtime.context import Context
-from obox.web.identity import _identify
+from obox.web.identity import identify
 
 
-async def _api_context() -> Context:
+async def api_context_dependency() -> Context:
     raise ImproperlyConfigured("Install Obox before using an API context dependency.")
 
 
@@ -26,7 +26,9 @@ class _APIContext:
     csrf: bool = False
 
     async def __call__(
-        self, request: Request, ctx: Annotated[Context, Depends(_api_context, scope="function")]
+        self,
+        request: Request,
+        ctx: Annotated[Context, Depends(api_context_dependency, scope="function")],
     ) -> Context:
         principal = ctx.principal
         _require_permission(principal, self.permission)
@@ -42,7 +44,7 @@ class _APIContext:
 def api_context(*, permission: str | None = None, csrf: bool = False) -> _APIContext:
     """Require an active identity and optionally a permission, returning its API context."""
     if permission is not None and (
-        not isinstance(permission, str) or not _valid_permission(permission)
+        not isinstance(permission, str) or not valid_permission(permission)
     ):
         raise ImproperlyConfigured(
             "Use a permission such as app.view_model or app.resource.action."
@@ -50,7 +52,7 @@ def api_context(*, permission: str | None = None, csrf: bool = False) -> _APICon
     return _APIContext(permission, csrf)
 
 
-def _api_contexts(
+def iter_api_contexts(
     routes: Sequence[BaseRoute | RouteContext],
 ) -> Iterator[_APIContext | _RoutePermission]:
     for route in iter_route_contexts(routes):
@@ -70,7 +72,7 @@ class _RoutePermission:
     html: bool
     csrf: bool = True
 
-    async def __call__(self, request: Request, actor: Any = Depends(_identify)) -> Identity:
+    async def __call__(self, request: Request, actor: Any = Depends(identify)) -> Identity:
         if self.html:
             request.state.obox_html_permission = True
         _require_permission(actor, self.permission)
@@ -80,9 +82,9 @@ class _RoutePermission:
             and getattr(request.state, "obox_bearer_principal", None) is not actor
         ):
             if self.html:
-                from obox.middleware.csrf import _check
+                from obox.middleware.csrf import check_csrf
 
-                await _check(request, multipart=True)
+                await check_csrf(request, multipart=True)
                 request.state._obox_html_csrf = True
             else:
                 request.app.state.obox.csrf.validate(request, actor)
@@ -91,7 +93,7 @@ class _RoutePermission:
 
 def permission_required(permission: str, *, html: bool = False) -> _RoutePermission:
     """Require an admin-assignable permission on a native FastAPI route."""
-    if not isinstance(permission, str) or not _valid_permission(permission):
+    if not isinstance(permission, str) or not valid_permission(permission):
         raise ImproperlyConfigured("Use a permission such as app.view_model.")
     return _RoutePermission(permission, html)
 

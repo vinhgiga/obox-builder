@@ -42,7 +42,7 @@ def _url() -> str:
     raise ImproperlyConfigured(f"Unsupported database backend: {engine!r}.")
 
 
-def _factory() -> async_sessionmaker[AsyncSession]:
+def default_session_factory() -> async_sessionmaker[AsyncSession]:
     url = _url()
     if url not in _factories:
         options = settings.DATABASES["default"].get("OPTIONS", {})
@@ -51,7 +51,7 @@ def _factory() -> async_sessionmaker[AsyncSession]:
     return _factories[url]
 
 
-async def _close() -> None:
+async def close_engines() -> None:
     for factory in _factories.values():
         await factory.kw["bind"].dispose()
     _factories.clear()

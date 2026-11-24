@@ -9,7 +9,7 @@ from fastapi import Depends, FastAPI
 from obox import Obox, Resource, permission_required
 from obox.core.exceptions import ResourceConflict
 from obox.core.principal import Principal
-from obox.db.session import _session
+from obox.db.session import session_scope
 from obox.views.generic import CreateView, StackedInline, TabularInline, UpdateView
 
 from tests.test_forms_integration import configured
@@ -77,7 +77,7 @@ def test_view_inlines_save_parent_children_and_render_errors(layout: Any, direct
                 )
                 assert invalid.status_code == 200
                 assert "at most 40 characters" in invalid.text
-                async with _session() as session:
+                async with session_scope() as session:
                     assert await session.scalar(sa.select(sa.func.count()).select_from(Author)) == 0
                 failed = await client.post(
                     "/authors/add",
@@ -89,14 +89,14 @@ def test_view_inlines_save_parent_children_and_render_errors(layout: Any, direct
                 )
                 assert failed.status_code == 200
                 assert "Cannot save this group." in failed.text
-                async with _session() as session:
+                async with session_scope() as session:
                     assert await session.scalar(sa.select(sa.func.count()).select_from(Author)) == 0
                     assert await session.scalar(sa.select(sa.func.count()).select_from(Book)) == 0
                 saved = await client.post(
                     "/authors/add", data={**parent, **data({"title": "First"}, {})}
                 )
                 assert saved.status_code == 303, saved.text
-                async with _session() as session:
+                async with session_scope() as session:
                     author_id = await session.scalar(sa.select(Author.id))
                     book_id = await session.scalar(sa.select(Book.id))
                 changed = await client.post(
@@ -111,7 +111,7 @@ def test_view_inlines_save_parent_children_and_render_errors(layout: Any, direct
                     },
                 )
                 assert changed.status_code == 303, changed.text
-                async with _session() as session:
+                async with session_scope() as session:
                     assert list(await session.scalars(sa.select(Book.title).order_by(Book.id))) == [
                         "Changed",
                         "Second",
@@ -164,7 +164,7 @@ def test_view_rejects_inline_creation_without_child_add_permission() -> None:
                     },
                 )
                 assert forged.status_code == 403
-                async with _session() as session:
+                async with session_scope() as session:
                     assert await session.scalar(sa.select(Author.name)) == "One"
                     assert await session.scalar(sa.select(sa.func.count()).select_from(Book)) == 2
 

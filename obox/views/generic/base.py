@@ -17,8 +17,8 @@ from starlette.types import Message, Receive, Scope, Send
 from obox.conf import settings
 from obox.core.async_utils import invoke
 from obox.core.exceptions import ImproperlyConfigured, OboxError, PermissionDenied
-from obox.db.session import _current, _session
-from obox.web.identity import _identify
+from obox.db.session import current_session, session_scope
+from obox.web.identity import identify
 from obox.web.routes import MethodRoute, error_status
 
 
@@ -29,7 +29,7 @@ async def _html_error(request: Request, exc: Exception) -> Response:
     status = 403 if isinstance(exc, PermissionDenied) else error_status(exc)
     if runtime is not None and isinstance(exc, OboxError):
         request.state.obox_html_permission = True
-        response = await runtime._problem(request, exc)
+        response = await runtime.problem(request, exc)
     else:
         detail = exc.detail if isinstance(exc, HTTPException) else str(exc)
         if isinstance(exc, PermissionDenied) and not detail:
@@ -102,7 +102,7 @@ async def _request_session(request: Request) -> AsyncIterator[Any]:
         async with runtime.uow(principal=actor, request=request, source="ui") as context:
             yield context
     elif settings.configured and settings.DATABASES:
-        async with _session():
+        async with session_scope():
             yield None
     else:
         yield None
@@ -147,7 +147,7 @@ class View:
     ) -> None:
         options = initkwargs or {}
         endpoint = cls.as_view(**options)
-        methods = cls(**options)._allowed_methods()
+        methods = cls(**options).allowed_methods()
         if "GET" in methods and "HEAD" not in methods:
             methods.append("HEAD")
         router.add_api_route(
@@ -180,7 +180,7 @@ class View:
                 raise TypeError(f"{cls.__name__}.as_view() received an invalid keyword {key!r}.")
 
         cls(**initkwargs).check()
-        principal_dependency = cls.principal_dependency or _identify
+        principal_dependency = cls.principal_dependency or identify
 
         async def view(
             request: Request, principal: Any = Depends(principal_dependency)
@@ -191,7 +191,7 @@ class View:
             self.setup(request, **request.path_params)
             try:
                 async with _request_session(request) as context:
-                    current = _current.get()
+                    current = current_session.get()
                     self.session = (
                         context.session if context is not None else current[1] if current else None
                     )
@@ -211,12 +211,12 @@ class View:
                             "auth": runtime.auth,
                             "csrf": runtime.csrf.token(request, context.principal),
                         }
-                    from obox.middleware.csrf import _check, _set_cookie
+                    from obox.middleware.csrf import check_csrf, set_csrf_cookie
 
                     if self.csrf_protect and not getattr(request.state, "_obox_html_csrf", False):
-                        await _check(request, multipart=True)
+                        await check_csrf(request, multipart=True)
                     response = cast(Response, await invoke(self.dispatch, request, **self.kwargs))
-                    _set_cookie(request, response)
+                    set_csrf_cookie(request, response)
                     return response
             except (PermissionDenied, OboxError, HTTPException, RequestValidationError) as exc:
                 return await _html_error(request, exc)
@@ -243,16 +243,14 @@ class View:
         )
         return await invoke(handler, request, *args, **kwargs)
 
-    def _allowed_methods(self) -> list[str]:
+    def allowed_methods(self) -> list[str]:
         return [method.upper() for method in self.http_method_names if hasattr(self, method)]
 
     def http_method_not_allowed(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        return Response(status_code=405, headers={"Allow": ", ".join(self._allowed_methods())})
+        return Response(status_code=405, headers={"Allow": ", ".join(self.allowed_methods())})
 
     def options(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        return Response(
-            headers={"Allow": ", ".join(self._allowed_methods()), "Content-Length": "0"}
-        )
+        return Response(headers={"Allow": ", ".join(self.allowed_methods()), "Content-Length": "0"})
 
 
 class ContextMixin:

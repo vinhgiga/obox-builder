@@ -33,7 +33,7 @@ class Idempotency:
             raise ImproperlyConfigured("Idempotency.ttl must be positive.")
         self.ttl = ttl
 
-    def _attach(self, app: _Runtime) -> None:
+    def attach(self, app: _Runtime) -> None:
         if hasattr(self, "app"):
             raise ImproperlyConfigured("Idempotency is already installed.")
         self.app = app

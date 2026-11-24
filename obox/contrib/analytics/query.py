@@ -16,7 +16,7 @@ from pydantic import TypeAdapter, ValidationError
 
 from obox.contrib.analytics.aggregates import State, encode, exceeded
 from obox.contrib.analytics.charts import ChartSpec, Field
-from obox.contrib.analytics.filters import _filter_tree
+from obox.contrib.analytics.filters import filter_tree
 from obox.core.async_utils import invoke
 from obox.core.exceptions import (
     BuilderValidationError,
@@ -30,13 +30,13 @@ async def statement(
     service: Any, chart: ChartSpec, ctx: Any, **options: Any
 ) -> tuple[Any, set[str]]:
     await service.authorize("list", ctx)
-    selected, readable = await service._list_statement(ctx=ctx, **options)
+    selected, readable = await service.list_statement(ctx=ctx, **options)
     if not set(chart.fields).issubset(readable):
         raise PermissionDenied("These fields are not available for charting.")
     narrow = chart.statement
     if narrow is not None:
         extra = await invoke(narrow, ctx)
-        service._context(ctx)
+        service.context(ctx)
         if extra is not None:
             if not isinstance(extra, sa.Select):
                 raise ImproperlyConfigured("Chart statement must return a Select or None.")
@@ -86,7 +86,7 @@ async def execute(
     masks = []
     for index, series in enumerate(chart.series):
         if series.where and series.where.children:
-            condition = _filter_tree(
+            condition = filter_tree(
                 builder, readable, series.where, ctx.session.get_bind().dialect.name
             )
             if condition is None:
@@ -389,7 +389,7 @@ async def records(
     if series is None:
         raise BuilderValidationError({"selector": ["Unknown chart series."]})
     if series.where is not None:
-        condition = _filter_tree(
+        condition = filter_tree(
             builder, readable, series.where, ctx.session.get_bind().dialect.name
         )
         if condition is not None:
@@ -416,7 +416,7 @@ async def records(
     return list(
         (
             await ctx.session.scalars(
-                service._statement("list", ctx)
+                service.statement("list", ctx)
                 .where(builder.pk.in_(ids))
                 .order_by(None)
                 .order_by(builder.pk),

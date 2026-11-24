@@ -138,9 +138,9 @@ async def _run(arguments: argparse.Namespace, sessions: async_sessionmaker[Async
 
 
 async def run(arguments: argparse.Namespace) -> None:
-    from obox.db.engine import _close
+    from obox.db.engine import close_engines
 
     try:
         await _run_command(arguments)
     finally:
-        await _close()
+        await close_engines()

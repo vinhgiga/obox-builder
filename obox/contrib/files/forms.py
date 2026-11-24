@@ -6,7 +6,7 @@ import sqlalchemy as sa
 
 from obox.contrib.files.models import File
 from obox.core.exceptions import BuilderValidationError, ValidationError
-from obox.db.session import _session
+from obox.db.session import session_scope
 from obox.forms.relations import ModelMultipleChoiceField
 
 
@@ -16,11 +16,11 @@ class AttachmentField(ModelMultipleChoiceField):
         super().__init__(sa.select(File).where(sa.false()), required=bool(rule.min_count), **kwargs)
 
     async def _scope(self) -> None:
-        async with _session() as session:
+        async with session_scope() as session:
             ctx = session.info.get("obox.runtime.context")
             if ctx is None or ctx._owner is None:
                 raise ValidationError("Attachment forms require an authenticated file context.")
-            files = ctx._owner._feature("files")
+            files = ctx._owner.feature("files")
             if files is None:
                 raise ValidationError("Install file uploads before editing attachments.")
             mapper = sa.inspect(self.owner_model)

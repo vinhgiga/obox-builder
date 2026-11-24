@@ -8,7 +8,7 @@ import pytest
 import sqlalchemy as sa
 from obox.conf import settings
 from obox.contrib.jobs import cli
-from obox.db.engine import _factory
+from obox.db.engine import default_session_factory
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 
@@ -22,7 +22,7 @@ def test_commands_use_standard_database_settings_and_close_resources(
         monkeypatch.setitem(sys.modules, "job_settings", module)
         monkeypatch.setenv("OBOX_SETTINGS_MODULE", "job_settings")
         monkeypatch.setattr(settings, "_wrapped", None)
-        factory = _factory()
+        factory = default_session_factory()
         disposed = []
         sa.event.listen(
             factory.kw["bind"].sync_engine, "engine_disposed", lambda _: disposed.append(True)

@@ -11,8 +11,8 @@ from sqlalchemy.orm import Mapper
 
 from obox.core.async_utils import invoke
 from obox.core.exceptions import ImproperlyConfigured, ValidationError
-from obox.db.session import _session
-from obox.forms.fields import ChoiceField, _type_adapter
+from obox.db.session import session_scope
+from obox.forms.fields import ChoiceField, type_adapter
 from obox.forms.widgets import SelectMultiple
 
 
@@ -72,7 +72,7 @@ class ModelChoiceField(ChoiceField):
 
     async def prepare(self) -> None:
         mapper = self._model()
-        async with _session() as session:
+        async with session_scope() as session:
             with session.no_autoflush:
                 objects = (await session.scalars(self.queryset)).unique().all()
                 self.choices = [
@@ -92,9 +92,7 @@ class ModelChoiceField(ChoiceField):
         try:
             keys = list(
                 dict.fromkeys(
-                    _type_adapter(column.type.python_type).validate_python(
-                        self.prepare_value(value)
-                    )
+                    type_adapter(column.type.python_type).validate_python(self.prepare_value(value))
                     for value in values
                 )
             )
@@ -106,7 +104,7 @@ class ModelChoiceField(ChoiceField):
         query = self.queryset
         if not query._has_row_limiting_clause:
             query = query.where(getattr(mapper.class_, key).in_(keys))
-        async with _session() as session:
+        async with session_scope() as session:
             with session.no_autoflush:
                 objects = (await session.scalars(query)).unique().all()
         found = {getattr(obj, key): obj for obj in objects}

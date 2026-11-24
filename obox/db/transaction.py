@@ -6,11 +6,11 @@ from contextlib import asynccontextmanager
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from obox.db.session import _current, _session
+from obox.db.session import current_session, session_scope
 
 
 @asynccontextmanager
-async def _savepoint(session: AsyncSession) -> AsyncIterator[None]:
+async def savepoint_scope(session: AsyncSession) -> AsyncIterator[None]:
     connection = await session.connection()
     if connection.dialect.name == "sqlite":
         raw = await connection.get_raw_connection()
@@ -28,13 +28,13 @@ async def atomic(
 ) -> AsyncIterator[None]:
     if using not in (None, "default"):
         raise ValueError("Only the default database is supported.")
-    current = _current.get()
+    current = current_session.get()
     nested = current is not None and current[0] is asyncio.current_task()
     if durable and nested:
         raise RuntimeError("A durable atomic block cannot be nested.")
-    async with _session() as session:
+    async with session_scope() as session:
         if nested and savepoint:
-            async with _savepoint(session):
+            async with savepoint_scope(session):
                 yield
         else:
             yield

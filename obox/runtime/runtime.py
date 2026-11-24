@@ -41,7 +41,7 @@ from obox.db.session import bind_session
 from obox.routes import Route
 from obox.runtime.config import RuntimeConfig
 from obox.runtime.context import Context
-from obox.web.dependencies import _api_context, _api_contexts, _RoutePermission
+from obox.web.dependencies import _RoutePermission, api_context_dependency, iter_api_contexts
 from obox.web.i18n import LANGUAGES, LanguageMiddleware
 from obox.web.staticfiles import AssetMount
 
@@ -126,7 +126,7 @@ class _Runtime:
                     }
                 for route in routes:
                     if not isinstance(route.original_route, ApiRoute) and not any(
-                        _api_contexts((route,))
+                        iter_api_contexts((route,))
                     ):
                         continue
                     path = route.path_format
@@ -150,7 +150,7 @@ class _Runtime:
 
         async def http_error(request: Request, exc: Exception) -> Response:
             if isinstance(exc, OboxError):
-                return await self._problem(request, exc)
+                return await self.problem(request, exc)
             if previous_http_handler is not None:
                 result = previous_http_handler(request, exc)
                 return await result if isawaitable(result) else result
@@ -179,7 +179,7 @@ class _Runtime:
         self._frozen = False
         self.csrf = CSRF(self.settings.csrf_secret)
         self.templates = create_templates(self.settings)
-        app.dependency_overrides.setdefault(_api_context, self.context_dependency("api"))
+        app.dependency_overrides.setdefault(api_context_dependency, self.context_dependency("api"))
         from obox.web.identity import get_principal
 
         self._provided_principal = self.settings.principal_dependency
@@ -193,8 +193,8 @@ class _Runtime:
             self._frozen = True
             async with self.database.lifespan(), AsyncExitStack() as stack:
                 for plugin in self._features.values():
-                    if callable(getattr(plugin, "_lifespan", None)):
-                        await stack.enter_async_context(plugin._lifespan(self))
+                    if callable(getattr(plugin, "lifespan", None)):
+                        await stack.enter_async_context(plugin.lifespan(self))
                 async with original_lifespan(app) as state:
                     self.check(strict=True)
                     yield state
@@ -213,8 +213,8 @@ class _Runtime:
             return
         try:
             self._loading_apps = False
-            self._finish_apps()
-            self._bind_templates()
+            self.finish_apps()
+            self.bind_templates()
         except BaseException:
             self._installation_failed = True
             raise
@@ -239,15 +239,15 @@ class _Runtime:
     def permissions(self) -> Mapping[str, Permission]:
         result = {}
         from obox.contrib._models import installed_models
-        from obox.db.identity import _model_label
+        from obox.db.identity import model_label
 
         for model in installed_models():
-            label, model_name = _model_label(model)
+            label, model_name = model_label(model)
             for action in ("add", "change", "delete", "view", "comment"):
                 name = f"{label}.{action}_{model_name}"
                 result[name] = Permission(name, action.title(), "model")
         for model in self._resources.values():
-            label, model_name = _model_label(model)
+            label, model_name = model_label(model)
             for action in ("add", "change", "delete", "view"):
                 name = f"{label}.{action}_{model_name}"
                 result[name] = Permission(name, action.title(), "model")
@@ -268,14 +268,14 @@ class _Runtime:
                     result.setdefault(
                         permission, Permission(permission, declaration.title, "component")
                     )
-        for dependency in _api_contexts(self.app.routes):
+        for dependency in iter_api_contexts(self.app.routes):
             if dependency.permission is not None:
                 name = dependency.permission
                 result.setdefault(name, Permission(name, name.rsplit(".", 1)[-1].title(), "api"))
         return MappingProxyType(result)
 
     def add_app(self, config: AppConfig) -> None:
-        self._check_mutable()
+        self.check_mutable()
         if not self._loading_apps:
             raise ImproperlyConfigured("Declare applications before app configuration is complete.")
         if not isinstance(config, AppConfig):
@@ -330,7 +330,7 @@ class _Runtime:
             ):
                 raise ImproperlyConfigured("Application UI prefixes must not overlap.")
 
-    def _finish_apps(self) -> None:
+    def finish_apps(self) -> None:
         from obox.components.api import build_component_api
         from obox.web.navigation import build_catalog
         from obox.web.ui import create_templates
@@ -376,7 +376,7 @@ class _Runtime:
         if any(config.routes or config._registered_resources for config in self._apps.values()):
             self.include_router(build_catalog(self), ui=True, permission="site.view_home")
 
-    def _bind_templates(self) -> None:
+    def bind_templates(self) -> None:
         from obox.components.binding import bind_templates
 
         bind_templates(self)
@@ -387,23 +387,23 @@ class _Runtime:
 
     @property
     def auth(self) -> Any:
-        return self._feature("auth")
+        return self.feature("auth")
 
-    def _feature(self, name: str) -> Any | None:
+    def feature(self, name: str) -> Any | None:
         return self._features.get(name)
 
-    def _check_mutable(self) -> None:
+    def check_mutable(self) -> None:
         if self._installation_failed:
             raise ImproperlyConfigured("Application setup failed; create a new application.")
         if self._frozen or self.app.middleware_stack is not None:
             raise ImproperlyConfigured("Registration is frozen after application startup.")
 
-    def _activate(self, plugin: Any) -> Any:
-        self._check_mutable()
-        lifespan_hook = getattr(plugin, "_lifespan", None)
+    def activate(self, plugin: Any) -> Any:
+        self.check_mutable()
+        lifespan_hook = getattr(plugin, "lifespan", None)
         if (
-            not callable(getattr(plugin, "_attach", None))
-            or iscoroutinefunction(plugin._attach)
+            not callable(getattr(plugin, "attach", None))
+            or iscoroutinefunction(plugin.attach)
             or not isinstance(plugin.name, str)
             or re.fullmatch(r"[a-z][a-z0-9_-]*", plugin.name) is None
             or not isinstance(plugin.requires, tuple)
@@ -425,7 +425,7 @@ class _Runtime:
 
     def _attach_feature(self, plugin: Any) -> None:
         try:
-            plugin._attach(self)
+            plugin.attach(self)
         except BaseException:
             del self._features[plugin.name]
             self._installation_failed = True
@@ -436,7 +436,7 @@ class _Runtime:
         *,
         principal_dependency: Callable[..., Any] | None = None,
     ) -> None:
-        self._check_mutable()
+        self.check_mutable()
         self.settings = replace(
             self.settings,
             principal_dependency=self.settings.principal_dependency
@@ -450,11 +450,11 @@ class _Runtime:
             self._provided_principal = self.settings.principal_dependency
             if self._provided_principal is not None:
                 self.app.dependency_overrides[get_principal] = self._provided_principal
-        if _api_context in self.app.dependency_overrides:
-            self.app.dependency_overrides[_api_context] = self.context_dependency("api")
+        if api_context_dependency in self.app.dependency_overrides:
+            self.app.dependency_overrides[api_context_dependency] = self.context_dependency("api")
 
     def add_ui_prefix(self, prefix: str) -> None:
-        self._check_mutable()
+        self.check_mutable()
         if not isinstance(prefix, str):
             raise ImproperlyConfigured("UI prefixes must be nonempty absolute URL paths.")
         prefix = prefix.rstrip("/") or "/"
@@ -464,7 +464,7 @@ class _Runtime:
             self.ui_prefixes.append(prefix)
 
     def mount_static(self, path: str, *, namespace: str, name: str) -> None:
-        self._check_mutable()
+        self.check_mutable()
         route = AssetMount(path, namespace=namespace, name=name, root=self.settings.static_root)
         self.app.routes.append(route)
         self._owned_routes.add(id(route))
@@ -472,7 +472,7 @@ class _Runtime:
         self._ui_routes.append(route)
 
     @staticmethod
-    async def _problem(request: Request, exc: Exception) -> Response:
+    async def problem(request: Request, exc: Exception) -> Response:
         from obox.web.routes import authentication_response, error_status
 
         obox = request.app.state.obox
@@ -504,7 +504,7 @@ class _Runtime:
         )
 
     @staticmethod
-    async def _validation_problem(request: Request, exc: Exception) -> JSONResponse:
+    async def validation_problem(request: Request, exc: Exception) -> JSONResponse:
         errors = exc.errors() if isinstance(exc, RequestValidationError) else []
         return JSONResponse(
             {
@@ -528,7 +528,7 @@ class _Runtime:
         check_csrf: bool = False,
         app_api: bool = False,
     ) -> None:
-        self._check_mutable()
+        self.check_mutable()
         dependencies = [Depends(_mark_app_api)] if app_api else []
         if self._enforce_permissions and permission:
             dependencies.append(Depends(_RoutePermission(permission, ui, check_csrf)))
@@ -543,14 +543,14 @@ class _Runtime:
 
     def _audit_routes(self) -> None:
         routes = list(iter_route_contexts(self.app.routes))
-        from obox.api import _check_route_conflicts
+        from obox.api import check_route_conflicts
 
-        _check_route_conflicts(routes, all_routes=True)
+        check_route_conflicts(routes, all_routes=True)
         for i, route in enumerate(routes):
             if id(route.original_route) in self._public_routes:
                 continue
             methods = route.methods or ()
-            if not methods or not any(dep.permission for dep in _api_contexts((route,))):
+            if not methods or not any(dep.permission for dep in iter_api_contexts((route,))):
                 raise ImproperlyConfigured(
                     f"Missing route permission: {', '.join(sorted(methods))} {route.path}."
                 )
@@ -611,12 +611,12 @@ class _Runtime:
             raise ImproperlyConfigured("Application setup failed.")
         from jinja2 import TemplateNotFound
 
-        from obox.api import _check_route_conflicts
+        from obox.api import check_route_conflicts
 
         if self._enforce_permissions:
             self._audit_routes()
         else:
-            _check_route_conflicts(iter_route_contexts(self.app.routes))
+            check_route_conflicts(iter_route_contexts(self.app.routes))
 
         diagnostics = list(self._route_diagnostics)
         definitions = [

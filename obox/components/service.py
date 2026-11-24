@@ -21,7 +21,7 @@ from obox.components.declarations import (
     validate_component,
 )
 from obox.components.query import CONTROLS, parse_terms
-from obox.contrib.analytics.filters import _filter_tree
+from obox.contrib.analytics.filters import filter_tree
 from obox.contrib.analytics.source import DataSource
 from obox.core.async_utils import invoke
 from obox.core.exceptions import (
@@ -63,7 +63,7 @@ class ComponentService:
             raise ImproperlyConfigured("Declare a Component class or instance.")
         if not callable(app.settings.principal_dependency):
             raise ImproperlyConfigured("Components require an identity resolver.")
-        component = declaration._snapshot()
+        component = declaration.snapshot()
         name = name or component.name
         component_name(name)
         component.name = cast(str, name)
@@ -71,7 +71,7 @@ class ComponentService:
             component.title = title
         component.title = component.title or re.sub(r"(?<!^)(?=[A-Z])", " ", component.name).title()
         validate_component(component)
-        if component.plugin and app._feature(component.plugin) is None:
+        if component.plugin and app.feature(component.plugin) is None:
             raise ImproperlyConfigured(f"Install {component.plugin} for this component.")
         predicate = fixed_filters(component.filters)
         if filters is not None:
@@ -81,17 +81,17 @@ class ComponentService:
         if component.source is not None:
             dataset = DataSource(component, app, predicate)
             try:
-                _filter_tree(dataset.dataset, set(dataset.dataset.fields), predicate, "sqlite")
+                filter_tree(dataset.dataset, set(dataset.dataset.fields), predicate, "sqlite")
             except BuilderValidationError as exc:
                 raise ImproperlyConfigured("Invalid fixed component filter.") from exc
         elif not component._supports_memory and (
             component.plugin == "analytics" or predicate.children
         ):
             raise ImproperlyConfigured("Data filters require a source model.")
-        spec = component._build(dataset.dataset if dataset else None, component.name)
+        spec = component.build(dataset.dataset if dataset else None, component.name)
         if (
             component.query_model is not None
-            and type(component)._execute is Component._execute
+            and type(component).execute is Component.execute
             and type(component).get_data is Component.get_data
         ):
             raise ImproperlyConfigured("ApiOptions components require get_data.")
@@ -150,7 +150,7 @@ class ComponentService:
             if not fields.issubset(readable):
                 raise PermissionDenied("These fields are not available for this component.")
             # Recheck dynamic field restrictions on fixed filters.
-            self.dataset._statement("list", ctx)
+            self.dataset.statement("list", ctx)
         elif definition._supports_memory:
             if not await invoke(definition.has_permission, ctx):
                 raise PermissionDenied("This component is not permitted.")
@@ -213,7 +213,7 @@ class ComponentService:
         query = self._input({} if data is None else data)
         component = self.definition
         component._dataset = self.dataset
-        result = await component._execute(self, query, ctx)
+        result = await component.execute(self, query, ctx)
         self._context(ctx)
         try:
             return self.result_model.model_validate(result)
@@ -234,7 +234,7 @@ class ComponentService:
             raise BuilderValidationError(
                 {"records": [error["msg"] for error in exc.errors()]}
             ) from exc
-        result = await self.definition._records(self, query, ctx)
+        result = await self.definition.records(self, query, ctx)
         self._context(ctx)
         return RecordResults.model_validate(result)
 
@@ -260,7 +260,7 @@ class ComponentService:
             capabilities.append("records")
         if definition.template or definition.plugin == "analytics":
             capabilities.append("view")
-        presentation = definition._presentation(self.spec)
+        presentation = definition.presentation(self.spec)
         if "drill" in presentation:
             presentation["drill"] = drill
         return ComponentDescription(

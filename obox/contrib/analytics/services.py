@@ -59,7 +59,7 @@ def selection_binding(service: ComponentService, query: ComponentQuery, ctx: Con
 
 async def timeout(service: ComponentService, ctx: Context) -> None:
     if ctx.session.get_bind().dialect.name == "postgresql":
-        limits = service.app._feature("analytics")
+        limits = service.app.feature("analytics")
         await ctx.session.execute(
             sa.select(sa.func.set_config("statement_timeout", str(limits.timeout_ms), True))
         )
@@ -101,7 +101,7 @@ def memory_rows(
 async def execute(
     service: ComponentService, query: ComponentQuery, ctx: Context, component: Any
 ) -> dict[str, Any]:
-    limits = service.app._feature("analytics")
+    limits = service.app.feature("analytics")
     resource, spec = service.dataset, service.spec
     options = service.options(query)
     started, outcome = monotonic(), "error"

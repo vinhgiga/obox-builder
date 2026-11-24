@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
 class Obox:
     def __init__(self, app: FastAPI) -> None:
-        from obox.db.engine import _close
+        from obox.db.engine import close_engines
         from obox.runtime.config import RuntimeConfig
         from obox.runtime.registration import app_registrations
         from obox.runtime.runtime import _Runtime
@@ -41,9 +41,9 @@ class Obox:
             factory = getattr(entry, "_service_factory", None)
             feature = factory() if factory is not None else None
             if feature is not None:
-                runtime._activate(feature)
+                runtime.activate(feature)
         runtime._loading_apps = False
-        runtime._finish_apps()
+        runtime.finish_apps()
         if settings.TEMPLATES:
             from importlib import import_module
 
@@ -53,7 +53,7 @@ class Obox:
             module, _, name = definition["BACKEND"].rpartition(".")
             backend = getattr(import_module(module), name)(definition)
             runtime.templates = Jinja2Templates(env=backend.env)
-        runtime._bind_templates()
+        runtime.bind_templates()
         lifespan = app.router.lifespan_context
 
         @asynccontextmanager
@@ -62,7 +62,7 @@ class Obox:
                 async with lifespan(app) as state:
                     yield state
             finally:
-                await _close()
+                await close_engines()
 
         app.router.lifespan_context = managed
         for entry in entries:

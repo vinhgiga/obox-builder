@@ -9,7 +9,7 @@ from obox.db.fields import FILTER_EMPTY_OPERATORS, FILTER_OPERATORS, schema, val
 from obox.db.filters import FilterGroup, FilterTerm, compile_condition, compile_filter
 
 
-def _filter_condition(
+def filter_condition(
     builder: Any, readable: set[str], field: str, op: str, value: Any, dialect: str = ""
 ) -> Any:
     if op.startswith("pg."):
@@ -49,10 +49,10 @@ def _filter_condition(
     return match
 
 
-def _filter_tree(
+def filter_tree(
     builder: Any, readable: set[str], node: FilterGroup | FilterTerm, dialect: str
 ) -> Any | None:
     return compile_filter(
         node,
-        lambda term: _filter_condition(builder, readable, term.field, term.op, term.value, dialect),
+        lambda term: filter_condition(builder, readable, term.field, term.op, term.value, dialect),
     )[1]

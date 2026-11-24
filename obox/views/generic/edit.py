@@ -16,8 +16,8 @@ from obox.core.exceptions import (
     ResourceConflict,
     RuleViolation,
 )
-from obox.db.session import _session
-from obox.db.transaction import _savepoint
+from obox.db.session import session_scope
+from obox.db.transaction import savepoint_scope
 from obox.forms import Form, ModelForm, modelform_factory
 from obox.resources import WriteAction, resolve_resource
 from obox.views.generic.base import ContextMixin, TemplateResponseMixin, View
@@ -137,7 +137,7 @@ class ModelFormMixin(FormMixin, SingleObjectMixin):
     def check(self) -> None:
         super().check()
         form_class = self.get_form_class()
-        resource = self._bound_resource()
+        resource = self.bound_resource()
         model = (
             resource.model
             if resource is not None
@@ -161,7 +161,7 @@ class ModelFormMixin(FormMixin, SingleObjectMixin):
             raise ImproperlyConfigured("Specifying both fields and form_class is not permitted.")
         if self.form_class is not None:
             return cast(type[ModelForm[Any]], self.form_class)
-        if resource := self._bound_resource():
+        if resource := self.bound_resource():
             return modelform_factory(
                 resource.model,
                 fields=self.fields
@@ -180,12 +180,12 @@ class ModelFormMixin(FormMixin, SingleObjectMixin):
         return {
             **await super().get_form_kwargs(),
             "instance": self.object,
-            "resource": self._bound_resource(),
+            "resource": self.bound_resource(),
         }
 
     async def get_form(self, form_class: Any = None) -> Any:
         form = await super().get_form(form_class)
-        if resource := self._bound_resource():
+        if resource := self.bound_resource():
             action: WriteAction = "create" if self.object is None else "update"
             await resource.check_permission(action, self.object)
             allowed = await resource.writable_fields(action, self.object)
@@ -213,7 +213,7 @@ class ModelFormMixin(FormMixin, SingleObjectMixin):
             return cast(Response, await invoke(self.form_invalid, form))
         change = self.object is not None
         try:
-            async with _session() as session, _savepoint(session):
+            async with session_scope() as session, savepoint_scope(session):
                 self.object = await self._save_resource_form(form)
                 await invoke(self.save_model, self.request, self.object, form, change)
                 formsets = [group["formset"] for group in groups]
@@ -221,10 +221,10 @@ class ModelFormMixin(FormMixin, SingleObjectMixin):
                     formset.instance = self.object
                 await invoke(self.save_related, self.request, form, formsets, change)
         except BuilderValidationError as exc:
-            await self._restore_object()
+            await self.restore_object()
             return await self._render_resource_errors(form, exc)
         except (RuleViolation, ResourceConflict) as exc:
-            await self._restore_object()
+            await self.restore_object()
             form.add_error(None, str(exc))
             return await self.form_invalid(form)
         return await super().form_valid(form)
@@ -259,7 +259,7 @@ class ModelFormMixin(FormMixin, SingleObjectMixin):
     async def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = await super().get_context_data(**kwargs)
         form = context["form"]
-        resource = self._bound_resource()
+        resource = self.bound_resource()
         model = type(form.instance)
         visible = resource.readable if resource is not None else form.fields
         readonly = {
@@ -272,10 +272,10 @@ class ModelFormMixin(FormMixin, SingleObjectMixin):
             self.object is not None
             and resource is not None
             and "delete" in self.route_names
-            and self._has_model_permission(model, "delete")
+            and self.has_model_permission(model, "delete")
             and await invoke(resource.can, "delete", self.object, self.request.user)
         ):
-            delete_url = self._route_url("delete", pk=str(getattr(self.object, resource.pk_name)))
+            delete_url = self.route_url("delete", pk=str(getattr(self.object, resource.pk_name)))
         return {
             "title": model.__name__,
             "fieldsets": [
@@ -296,7 +296,7 @@ class ModelFormMixin(FormMixin, SingleObjectMixin):
     async def _render_resource_errors(
         self, form: ModelForm[Any], exc: BuilderValidationError
     ) -> Response:
-        async with _session() as session:
+        async with session_scope() as session:
             if not session.is_active:
                 raise exc
         for field, messages in exc.errors.items():
@@ -314,7 +314,7 @@ class ModelFormMixin(FormMixin, SingleObjectMixin):
                 if target.startswith(("/", "http://", "https://"))
                 else str(self.reverse(target))
             )
-        if url := self._route_url("list"):
+        if url := self.route_url("list"):
             return url
         if hasattr(self.object, "get_absolute_url"):
             return str(self.object.get_absolute_url())
@@ -364,7 +364,7 @@ class DeleteView(SingleObjectTemplateResponseMixin, SingleObjectMixin, FormMixin
 
     async def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         self.object = await self.get_object()
-        if resource := self._bound_resource():
+        if resource := self.bound_resource():
             await resource.check_permission("destroy", self.object)
         return self.render_to_response(await invoke(self.get_context_data, **kwargs))
 
@@ -384,18 +384,18 @@ class DeleteView(SingleObjectTemplateResponseMixin, SingleObjectMixin, FormMixin
                 if target.startswith(("/", "http://", "https://"))
                 else str(self.reverse(target))
             )
-        if url := self._route_url("list"):
+        if url := self.route_url("list"):
             return url
         raise ImproperlyConfigured("No URL to redirect to. Provide a success_url.")
 
     async def form_valid(self, form: Form[Any]) -> Response:
         url = self.get_success_url()
         try:
-            async with _session() as session, _savepoint(session):
-                resource = self._bound_resource() or resolve_resource(type(self.object))
+            async with session_scope() as session, savepoint_scope(session):
+                resource = self.bound_resource() or resolve_resource(type(self.object))
                 await resource.bind(session, self.request.user).destroy(self.object)
         except (BuilderValidationError, RuleViolation, ResourceConflict) as exc:
-            await self._restore_object()
+            await self.restore_object()
             errors = (
                 [message for messages in exc.errors.values() for message in messages]
                 if isinstance(exc, BuilderValidationError)

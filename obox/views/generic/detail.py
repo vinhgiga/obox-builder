@@ -9,8 +9,8 @@ from starlette.exceptions import HTTPException
 
 from obox.core.async_utils import invoke
 from obox.core.exceptions import ImproperlyConfigured
-from obox.db.identity import _model_label
-from obox.db.session import _session
+from obox.db.identity import model_label
+from obox.db.session import session_scope
 from obox.resources import resolve_resource
 from obox.views.generic._model import ModelContextMixin
 from obox.views.generic.base import TemplateResponseMixin, View
@@ -39,7 +39,7 @@ class SingleObjectMixin(ModelContextMixin):
             raise ImproperlyConfigured("Define model, resource or queryset.")
 
     def get_queryset(self) -> Any:
-        if resource := self._bound_resource():
+        if resource := self.bound_resource():
             return resource.get_queryset()
         if self.queryset is not None:
             return self.queryset._generate()
@@ -51,9 +51,9 @@ class SingleObjectMixin(ModelContextMixin):
         query = await invoke(self.get_queryset) if queryset is None else queryset
         model = query.column_descriptions[0]["entity"]
         pk, slug = self.kwargs.get(self.pk_url_kwarg), self.kwargs.get(self.slug_url_kwarg)
-        resource = self._bound_resource()
+        resource = self.bound_resource()
         if pk is not None and resource is not None:
-            async with _session() as session:
+            async with session_scope() as session:
                 return await resource.bind(session, self.request.user).get_object(
                     pk,
                     queryset=query,
@@ -73,17 +73,17 @@ class SingleObjectMixin(ModelContextMixin):
         else:
             raise AttributeError("A generic detail view requires a pk or slug.")
         if resource is not None:
-            query = resource._load_fields(query)
-        async with _session() as session:
+            query = resource.load_fields(query)
+        async with session_scope() as session:
             obj = (await session.scalars(query)).unique().one_or_none()
         if obj is None:
             raise HTTPException(404, "Not found.")
         return obj
 
-    async def _restore_object(self) -> None:
+    async def restore_object(self) -> None:
         if self.object is not None:
-            async with _session() as session:
-                resource = self._bound_resource() or resolve_resource(type(self.object))
+            async with session_scope() as session:
+                resource = self.bound_resource() or resolve_resource(type(self.object))
                 self.object = await resource.bind(session, self.request.user).reload(self.object)
 
     def get_context_object_name(self, obj: Any) -> str:
@@ -102,12 +102,12 @@ class SingleObjectTemplateResponseMixin(TemplateResponseMixin):
     model: type[Any] | None
     request: Request
     object: Any
-    _bound_resource: Any
+    bound_resource: Any
 
     def get_template_names(self) -> list[str]:
         if self.template_name:
             return [self.template_name]
-        resource = self._bound_resource()
+        resource = self.bound_resource()
         model = (
             type(self.object)
             if self.object is not None
@@ -115,7 +115,7 @@ class SingleObjectTemplateResponseMixin(TemplateResponseMixin):
         )
         if model is None:
             raise ImproperlyConfigured("Define a template or model.")
-        app, name = _model_label(model)
+        app, name = model_label(model)
         return [
             f"{app}/{name}{self.template_name_suffix}.html",
             f"obox/generic/{self.template_name_suffix.removeprefix('_')}.html",
@@ -128,7 +128,7 @@ class DetailView(SingleObjectTemplateResponseMixin, SingleObjectMixin, View):
     def get_context_data(self, **kwargs: Any) -> Any:
         context = super().get_context_data(**kwargs)
         model = type(self.object)
-        resource = self._bound_resource()
+        resource = self.bound_resource()
         return {
             "title": model.__name__,
             "values": (
@@ -146,12 +146,12 @@ class DetailView(SingleObjectTemplateResponseMixin, SingleObjectMixin, View):
     async def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         self.object = await self.get_object()
         if (
-            (resource := self._bound_resource())
+            (resource := self.bound_resource())
             and "update" in self.route_names
-            and self._has_model_permission(resource.model, "change")
+            and self.has_model_permission(resource.model, "change")
             and await invoke(resource.can, "update", self.object, request.user)
         ):
-            self.change_url = self._route_url(
+            self.change_url = self.route_url(
                 "update", pk=str(getattr(self.object, resource.pk_name))
             )
         return self.render_to_response(await invoke(self.get_context_data, **kwargs))

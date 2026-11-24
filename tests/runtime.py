@@ -21,8 +21,8 @@ def build_runtime(
     for config in app_configs:
         runtime.add_app(config)
     for feature in features:
-        runtime._activate(feature)
+        runtime.activate(feature)
     runtime._loading_apps = False
-    runtime._finish_apps()
-    runtime._bind_templates()
+    runtime.finish_apps()
+    runtime.bind_templates()
     return runtime

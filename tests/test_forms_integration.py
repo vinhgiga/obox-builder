@@ -11,8 +11,8 @@ import sqlalchemy as sa
 from obox import forms
 from obox.conf import settings
 from obox.core.exceptions import ImproperlyConfigured
-from obox.db.engine import _close, _factory
-from obox.db.session import _session
+from obox.db.engine import close_engines, default_session_factory
+from obox.db.session import session_scope
 from obox.db.transaction import atomic
 from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy.engine import make_url
@@ -84,12 +84,12 @@ async def configured() -> AsyncIterator[None]:
         SECRET_KEY="s" * 32,
     )
     try:
-        engine = _factory().kw["bind"]
+        engine = default_session_factory().kw["bind"]
         async with engine.begin() as connection:
             await connection.run_sync(Base.metadata.create_all)
         yield
     finally:
-        await _close()
+        await close_engines()
         if provisioner is not None:
             async with provisioner.begin() as connection:
                 await connection.execute(sa.schema.DropSchema(schema, cascade=True))
@@ -147,7 +147,7 @@ def test_model_form_validates_without_saving_and_supports_commit_false() -> None
             assert await form.is_valid()
             assert form.validated_data["name"] == "alpha"
             assert form.fields["name"].label == "Title"
-            async with _session() as session:
+            async with session_scope() as session:
                 assert await session.scalar(sa.select(sa.func.count()).select_from(Item)) == 0
             record = await form.save(commit=False)
             assert record.id is None
@@ -204,7 +204,7 @@ def test_atomic_rolls_back_form_writes() -> None:
                     assert await form.is_valid()
                     await form.save()
                     raise RuntimeError("rollback")
-            async with _session() as session:
+            async with session_scope() as session:
                 assert await session.scalar(sa.select(sa.func.count()).select_from(Item)) == 0
 
     asyncio.run(scenario())
@@ -233,7 +233,7 @@ def test_manual_primary_key_uniqueness_and_validation_preserves_instance() -> No
             async with atomic():
                 assert await edited.is_valid()
                 assert obj.label == "Original"
-                async with _session() as session:
+                async with session_scope() as session:
                     assert await session.scalar(sa.select(ManualKey.label)) == "Original"
                 await edited.save()
             assert obj.label == "Changed"
@@ -294,10 +294,10 @@ def test_prefix_disabled_fields_error_codes_and_widgets_escape_values() -> None:
 
 def test_atomic_task_isolation_savepoint_and_durable_contract() -> None:
     async def scenario() -> None:
-        async with configured(), _session() as parent:
+        async with configured(), session_scope() as parent:
 
             async def child() -> Any:
-                async with atomic(durable=True), _session() as session:
+                async with atomic(durable=True), session_scope() as session:
                     return session
 
             assert await asyncio.create_task(child()) is not parent

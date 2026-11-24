@@ -117,7 +117,7 @@ class BaseFormSet:
     def get_form_kwargs(self, index: int | None) -> dict[str, Any]:
         return self.form_kwargs.copy()
 
-    def _construct_form(self, index: int | None, **kwargs: Any) -> Form[Any]:
+    def construct_form(self, index: int | None, **kwargs: Any) -> Form[Any]:
         options: dict[str, Any] = {
             **self.get_form_kwargs(index),
             "prefix": self.add_prefix("__prefix__" if index is None else index),
@@ -135,7 +135,7 @@ class BaseFormSet:
 
     @cached_property
     def forms(self) -> list[Form[Any]]:
-        return [self._construct_form(index) for index in range(self.total_form_count())]
+        return [self.construct_form(index) for index in range(self.total_form_count())]
 
     @property
     def initial_forms(self) -> list[Form[Any]]:
@@ -147,7 +147,7 @@ class BaseFormSet:
 
     @property
     def empty_form(self) -> Form[Any]:
-        return self._construct_form(None)
+        return self.construct_form(None)
 
     def add_fields(self, form: Form[Any], index: int | None) -> None:
         if self.can_order:
@@ -187,13 +187,13 @@ class BaseFormSet:
         for form in self.forms:
             await form.prepare()
 
-    def _should_delete_form(self, form: Form[Any]) -> bool:
+    def should_delete_form(self, form: Form[Any]) -> bool:
         return self.can_delete and bool(form.validated_data.get(DELETION_FIELD_NAME))
 
     @property
     def deleted_forms(self) -> list[Form[Any]]:
         return (
-            [form for form in self.forms if self._should_delete_form(form)] if self._valid() else []
+            [form for form in self.forms if self.should_delete_form(form)] if self._valid() else []
         )
 
     @property
@@ -205,7 +205,7 @@ class BaseFormSet:
                 form
                 for form in self.forms
                 if form.has_changed() or form in self.initial_forms
-                if not self._should_delete_form(form)
+                if not self.should_delete_form(form)
             ),
             key=lambda form: (
                 form.validated_data.get(ORDERING_FIELD_NAME) is None,
@@ -250,7 +250,7 @@ class BaseFormSet:
         empty, deleted = 0, 0
         for index, form in enumerate(self.forms):
             await form.full_clean()
-            if self._should_delete_form(form):
+            if self.should_delete_form(form):
                 deleted += 1
             else:
                 self.errors.append(form.errors)

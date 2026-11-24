@@ -51,7 +51,7 @@ class Chart(Component):
         """Narrow the authorized source; never replace its policy selection."""
         return None
 
-    def _build(self, builder: Any, name: str) -> ChartSpec:
+    def build(self, builder: Any, name: str) -> ChartSpec:
         spec = chart_spec(
             cast(Kind, self.kind),
             x=self.x,
@@ -75,17 +75,17 @@ class Chart(Component):
         spec.validate(builder)
         return spec
 
-    async def _execute(self, service: ComponentService, query: Any, ctx: Context) -> Any:
+    async def execute(self, service: ComponentService, query: Any, ctx: Context) -> Any:
         from obox.contrib.analytics.services import execute
 
         return await execute(service, query, ctx, self)
 
-    async def _records(self, service: ComponentService, query: Any, ctx: Context) -> Any:
+    async def records(self, service: ComponentService, query: Any, ctx: Context) -> Any:
         from obox.contrib.analytics.services import records
 
         return await records(service, query, ctx, self)
 
-    def _presentation(self, spec: Any) -> dict[str, Any]:
+    def presentation(self, spec: Any) -> dict[str, Any]:
         from dataclasses import asdict
 
         return {
@@ -233,7 +233,7 @@ class Pivot(Component):
             legacy,
         )
 
-    def _build(self, builder: Any, name: str) -> PivotSpec:
+    def build(self, builder: Any, name: str) -> PivotSpec:
         spec = self._layout(model=builder is not None)
         if builder is not None:
             if spec.legacy is None:
@@ -288,17 +288,17 @@ class Pivot(Component):
             )
         )
 
-    async def _execute(self, service: ComponentService, query: Any, ctx: Context) -> Any:
+    async def execute(self, service: ComponentService, query: Any, ctx: Context) -> Any:
         from obox.contrib.analytics.services import execute
 
         return await execute(service, query, ctx, self)
 
-    async def _records(self, service: ComponentService, query: Any, ctx: Context) -> Any:
+    async def records(self, service: ComponentService, query: Any, ctx: Context) -> Any:
         from obox.contrib.analytics.services import records
 
         return await records(service, query, ctx, self)
 
-    def _presentation(self, spec: Any) -> dict[str, Any]:
+    def presentation(self, spec: Any) -> dict[str, Any]:
         return {
             "kind": "pivot",
             "drill": self.drill,

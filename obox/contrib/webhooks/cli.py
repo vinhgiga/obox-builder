@@ -33,7 +33,7 @@ async def run(arguments: argparse.Namespace) -> None:
     obox = app if isinstance(app, _Runtime) else getattr(getattr(app, "state", None), "obox", None)
     if not isinstance(obox, _Runtime):
         raise ValueError("The application must install the Webhooks plugin.")
-    plugin = obox._feature("webhooks")
+    plugin = obox.feature("webhooks")
     if (
         plugin is None
         or getattr(plugin, "name", None) != "webhooks"

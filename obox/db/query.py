@@ -13,7 +13,7 @@ from obox.core.exceptions import BuilderValidationError, InvalidQuery, Permissio
 from obox.db.filters import FilterGroup, FilterTerm, compile_filter, parse_filter
 
 
-def _scope(query: Any, model: type[Any]) -> Any:
+def scope_query(query: Any, model: type[Any]) -> Any:
     """Preserve a limited selection before applying additional conditions."""
     if not query._has_row_limiting_clause:
         return query
@@ -27,7 +27,7 @@ def _scope(query: Any, model: type[Any]) -> Any:
     )
 
 
-def _column(model: type[Any], name: str) -> Any | None:
+def model_column(model: type[Any], name: str) -> Any | None:
     """Return a mapped scalar column for a directly addressable model field."""
     attribute = getattr(model, name, None)
     property_ = getattr(attribute, "property", None)
@@ -35,7 +35,7 @@ def _column(model: type[Any], name: str) -> Any | None:
     return columns[0] if columns else None
 
 
-def _field_kind(column: Any) -> str:
+def field_kind(column: Any) -> str:
     type_ = column.type
     if isinstance(type_, sa.Enum):
         return "choice"
@@ -52,7 +52,7 @@ def _field_kind(column: Any) -> str:
     return "text"
 
 
-def _filter_operators(kind: str) -> list[str]:
+def filter_operators(kind: str) -> list[str]:
     if kind == "text":
         return ["contains", "does_not_contain", "is", "is_not", "is_empty", "is_not_empty"]
     if kind in {"number", "date", "datetime", "time"}:
@@ -60,7 +60,7 @@ def _filter_operators(kind: str) -> list[str]:
     return ["is", "is_not", "is_empty", "is_not_empty"]
 
 
-def _filter_expression(
+def filter_expression(
     model: type[Any],
     data: Any,
     allowed: set[str],
@@ -76,11 +76,11 @@ def _filter_expression(
         name, op, raw = term.field, term.op, term.value
         if name not in allowed:
             raise InvalidQuery("Invalid filter field.")
-        column = _column(model, name)
+        column = model_column(model, name)
         if column is None:
             raise InvalidQuery("Invalid filter field.")
-        kind = _field_kind(column)
-        if op not in _filter_operators(kind):
+        kind = field_kind(column)
+        if op not in filter_operators(kind):
             raise InvalidQuery("Invalid filter operator.")
         if op not in {"is_empty", "is_not_empty"} and (raw is None or str(raw).strip() == ""):
             return None
@@ -139,7 +139,7 @@ def _filter_expression(
     )
 
 
-def _parse_order(value: str, allowed: set[str], *, maximum: int) -> list[dict[str, Any]]:
+def parse_order(value: str, allowed: set[str], *, maximum: int) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
     seen: set[str] = set()
     for raw in value.split(","):
@@ -201,12 +201,12 @@ def list_query(
             data = json.loads(raw_filter)
         except (TypeError, ValueError) as exc:
             raise InvalidQuery("Invalid filter query.") from exc
-        _, expression, _ = _filter_expression(model, data, allowed)
+        _, expression, _ = filter_expression(model, data, allowed)
         if expression is not None:
             query = query.where(expression)
-    groups = _parse_order(params.get("group", ""), allowed, maximum=3)
+    groups = parse_order(params.get("group", ""), allowed, maximum=3)
     if "ordering" in params or groups:
-        sorts = _parse_order(params.get("ordering", ""), allowed, maximum=5)
+        sorts = parse_order(params.get("ordering", ""), allowed, maximum=5)
         ordering, seen = [], set()
         for term in [*groups, *sorts]:
             if term["field"] in seen:

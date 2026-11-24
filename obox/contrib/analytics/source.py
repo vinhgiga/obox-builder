@@ -6,12 +6,12 @@ import sqlalchemy as sa
 
 from obox.contrib._models import authorize
 from obox.contrib.analytics.aggregates import execute
-from obox.contrib.analytics.filters import _filter_condition, _filter_tree
+from obox.contrib.analytics.filters import filter_condition, filter_tree
 from obox.contrib.analytics.pivot import PivotSpec, execute_sql
 from obox.core.async_utils import invoke
 from obox.core.exceptions import BuilderValidationError, ImproperlyConfigured, PermissionDenied
 from obox.db.fields import inspect_fields
-from obox.db.query import _scope
+from obox.db.query import scope_query
 
 
 class Dataset:
@@ -45,26 +45,26 @@ class DataSource:
     def __init__(self, component: Any, app: Any, filters: Any) -> None:
         self.dataset, self.app, self.filters = Dataset(component), app, filters
 
-    def _context(self, ctx: Any) -> None:
+    def context(self, ctx: Any) -> None:
         if ctx._owner is not self.app or not ctx._active or ctx._failed:
             raise ImproperlyConfigured("Use an active unit of work from this application.")
 
     async def authorize(self, action: str, ctx: Any, obj: Any = None) -> None:
-        self._context(ctx)
+        self.context(ctx)
         authorize(self.dataset.model, ctx.principal, "view")
         if not await invoke(self.dataset.component.has_permission, ctx):
             raise PermissionDenied("This component is not permitted.")
 
-    def _statement(self, action: str, ctx: Any) -> Any:
-        self._context(ctx)
+    def statement(self, action: str, ctx: Any) -> Any:
+        self.context(ctx)
         stmt = self.dataset.component.get_queryset(ctx)
         if (
             not isinstance(stmt, sa.Select)
             or stmt.column_descriptions[0].get("entity") is not self.dataset.model
         ):
             raise ImproperlyConfigured("Component.get_queryset must return select(source_model).")
-        stmt = _scope(stmt, self.dataset.model)
-        condition = _filter_tree(
+        stmt = scope_query(stmt, self.dataset.model)
+        condition = filter_tree(
             self.dataset,
             set(self.dataset.readable(ctx)),
             self.filters,
@@ -72,7 +72,7 @@ class DataSource:
         )
         return stmt.where(condition) if condition is not None else stmt
 
-    async def _list_statement(
+    async def list_statement(
         self,
         *,
         ctx: Any,
@@ -82,15 +82,15 @@ class DataSource:
         search: Any = None,
     ) -> Any:
         readable = set(self.dataset.readable(ctx))
-        stmt = self._statement("list", ctx)
+        stmt = self.statement("list", ctx)
         for name, value in (filters or {}).items():
             stmt = stmt.where(
-                _filter_condition(
+                filter_condition(
                     self.dataset, readable, name, (filter_ops or {}).get(name, "is"), value
                 )
             )
         if filter_group is not None:
-            condition = _filter_tree(
+            condition = filter_tree(
                 self.dataset, readable, filter_group, ctx.session.get_bind().dialect.name
             )
             if condition is not None:
@@ -112,7 +112,7 @@ class DataSource:
         self, query: Any, ctx: Any, filter_group: Any, search: Any
     ) -> Any:
         await self.authorize("list", ctx)
-        stmt, readable = await self._list_statement(
+        stmt, readable = await self.list_statement(
             ctx=ctx, filter_group=filter_group, search=search
         )
         if not set(query.fields) <= readable:
@@ -172,7 +172,7 @@ class DataSource:
         return list(
             (
                 await ctx.session.scalars(
-                    self._statement("list", ctx).where(pk.in_(ids)).order_by(None).order_by(pk)
+                    self.statement("list", ctx).where(pk.in_(ids)).order_by(None).order_by(pk)
                 )
             ).unique()
         )

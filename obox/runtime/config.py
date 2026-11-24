@@ -33,11 +33,11 @@ class RuntimeConfig:
     @classmethod
     def from_settings(cls) -> RuntimeConfig:
         from obox.conf import settings
-        from obox.db.engine import _factory
+        from obox.db.engine import default_session_factory
 
         template = settings.TEMPLATES[0] if settings.TEMPLATES else {}
         return cls(
-            session_factory=_factory(),
+            session_factory=default_session_factory(),
             ui_prefix="",
             csrf_secret=settings.SECRET_KEY or None,
             template_dirs=template.get("DIRS", ()),

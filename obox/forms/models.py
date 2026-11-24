@@ -11,9 +11,9 @@ from sqlalchemy.orm import MANYTOMANY, MANYTOONE, NO_VALUE, attributes, selectin
 
 from obox.core.exceptions import BuilderValidationError, ImproperlyConfigured, ValidationError
 from obox.core.principal import ANONYMOUS
-from obox.db.fields import _model_value
-from obox.db.query import _scope
-from obox.db.session import _session
+from obox.db.fields import model_value
+from obox.db.query import scope_query
+from obox.db.session import session_scope
 from obox.forms._schema import schema_fields
 from obox.forms.fields import (
     BooleanField,
@@ -217,7 +217,7 @@ def fields_for_model(
 
 class ModelForm(Form[S]):
     @classmethod
-    def _collect_fields(cls) -> dict[str, Field]:
+    def collect_fields(cls) -> dict[str, Field]:
         fields: dict[str, Field] = {}
         for parent in reversed(cls.__mro__[1:]):
             fields.update(getattr(parent, "declared_fields", {}))
@@ -326,7 +326,7 @@ class ModelForm(Form[S]):
             if name in state.mapper.relationships and name not in self.initial
         ]
         if state.identity is not None and missing:
-            async with _session() as session:
+            async with session_scope() as session:
                 with session.no_autoflush:
                     obj = await session.scalar(
                         sa.select(type(self.instance))
@@ -346,18 +346,18 @@ class ModelForm(Form[S]):
                         self.initial.update({name: getattr(obj, name) for name in missing})
         await super().prepare()
 
-    async def _full_clean(self) -> None:
+    async def full_clean(self) -> None:
         # Related choices share an identity map without flushing the edited instance.
         if not self.is_bound or not any(
             isinstance(field, ModelChoiceField) for field in self.fields.values()
         ):
-            await super()._full_clean()
+            await super().full_clean()
             return
-        async with _session() as session:
+        async with session_scope() as session:
             with session.no_autoflush:
                 if any(field.disabled for field in self.fields.values()):
                     await self.prepare()
-                await super()._full_clean()
+                await super().full_clean()
 
     def _column_data(self) -> tuple[dict[str, Any], dict[str, str]]:
         mapper = sa.inspect(type(self.instance))
@@ -381,9 +381,9 @@ class ModelForm(Form[S]):
                         sources[key] = name
         return values, sources
 
-    async def _post_clean(self) -> None:
+    async def post_clean(self) -> None:
         values, sources = self._column_data()
-        async with _session() as session:
+        async with session_scope() as session:
             resource = self._resource(session)
             try:
                 await resource.validate_constraints(values, self.instance, unique=True)
@@ -444,7 +444,7 @@ class ModelForm(Form[S]):
             ):
                 continue
             if column is not None:
-                value = _model_value(column, value)
+                value = model_value(column, value)
             setattr(self.instance, name, value)
 
     async def save(self, commit: bool = True) -> Any:
@@ -452,7 +452,7 @@ class ModelForm(Form[S]):
         if not commit:
             self._assign_fields()
             return self.instance
-        async with _session() as session:
+        async with session_scope() as session:
             resource = self._resource(session)
             values, sources = self._column_data()
             for name in self.validated_data:
@@ -527,7 +527,7 @@ class ModelForm(Form[S]):
                 continue
             collections[name] = value
         if collections:
-            async with _session() as session:
+            async with session_scope() as session:
                 await self._resource(session).save_related(self.instance, collections)
 
 
@@ -634,7 +634,7 @@ class BaseModelFormSet(BaseFormSet):
 
     async def prepare(self) -> None:
         if self._objects is None:
-            async with _session() as session:
+            async with session_scope() as session:
                 with session.no_autoflush:
                     objects = (await session.scalars(self.get_queryset())).unique().all()
             self._objects = {str(getattr(obj, self.pk_name)): obj for obj in objects}
@@ -643,7 +643,7 @@ class BaseModelFormSet(BaseFormSet):
     def initial_form_count(self) -> int:
         return super().initial_form_count() if self.is_bound else len(self._objects or {})
 
-    def _construct_form(self, index: int | None, **kwargs: Any) -> ModelForm[Any]:
+    def construct_form(self, index: int | None, **kwargs: Any) -> ModelForm[Any]:
         if self._objects is None and index is not None:
             raise ValueError("Await formset.prepare() before accessing model forms.")
         if index is not None and index < self.initial_form_count():
@@ -653,7 +653,7 @@ class BaseModelFormSet(BaseFormSet):
                 else list(self._objects or {})[index]
             )
             kwargs["instance"] = (self._objects or {}).get(identity)
-        return cast(ModelForm[Any], super()._construct_form(index, **kwargs))
+        return cast(ModelForm[Any], super().construct_form(index, **kwargs))
 
     def add_fields(self, form: Form[Any], index: int | None) -> None:
         super().add_fields(form, index)
@@ -679,7 +679,7 @@ class BaseModelFormSet(BaseFormSet):
         duplicates = False
         identities: set[Any] = set()
         for form in cast(list[ModelForm[Any]], self.forms):
-            if form.errors or self._should_delete_form(form) or not form.validated_data:
+            if form.errors or self.should_delete_form(form) or not form.validated_data:
                 continue
             state = sa.inspect(form.instance)
             if state.identity is not None:
@@ -702,7 +702,7 @@ class BaseModelFormSet(BaseFormSet):
                     duplicates = True
                 seen[names].add(row)
         if duplicates:
-            self.errors = [form.errors for form in self.forms if not self._should_delete_form(form)]
+            self.errors = [form.errors for form in self.forms if not self.should_delete_form(form)]
             raise ValidationError("Please correct the duplicate data in the forms.")
 
     async def save_new(self, form: ModelForm[Any], commit: bool = True) -> Any:
@@ -713,7 +713,7 @@ class BaseModelFormSet(BaseFormSet):
 
     async def delete_existing(self, obj: Any, commit: bool = True) -> None:
         if commit:
-            async with _session() as session:
+            async with session_scope() as session:
                 ctx = session.info.get("obox.runtime.context")
                 await Resource(
                     session, ctx.principal if ctx else ANONYMOUS, model=self.model
@@ -733,7 +733,7 @@ class BaseModelFormSet(BaseFormSet):
             saved = []
             for form in cast(list[ModelForm[Any]], self.forms):
                 existing = sa.inspect(form.instance).identity is not None
-                if self._should_delete_form(form):
+                if self.should_delete_form(form):
                     if existing:
                         self.deleted_objects.append(form.instance)
                         await self.delete_existing(form.instance, commit)
@@ -750,7 +750,7 @@ class BaseModelFormSet(BaseFormSet):
             return saved
 
         if commit:
-            async with _session():
+            async with session_scope():
                 return await persist()
         return await persist()
 
@@ -792,7 +792,7 @@ class BaseInlineFormSet(BaseModelFormSet):
                     ("-" + pk_name, "-" + self.fk_name)
                 ):
                     data[key] = ""
-        query = sa.select(self.model) if queryset is None else _scope(queryset, self.model)
+        query = sa.select(self.model) if queryset is None else scope_query(queryset, self.model)
         value = getattr(self.instance, self.to_field, None)
         query = (
             query.where(self.fk == value)

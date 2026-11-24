@@ -9,7 +9,7 @@ from typing import Any, Protocol, TypeVar
 T = TypeVar("T")
 
 
-def _valid_permission(name: str) -> bool:
+def valid_permission(name: str) -> bool:
     parts = name.split(".")
     return len(parts) in (2, 3) and all(part.isidentifier() for part in parts)
 
@@ -19,7 +19,7 @@ def has_permission(actor: Any, permission: str) -> bool:
     return bool(
         getattr(actor, "is_authenticated", False) is True
         and getattr(actor, "is_active", False) is True
-        and _valid_permission(permission)
+        and valid_permission(permission)
         and callable(check)
         and not iscoroutinefunction(check)
         and check(permission) is True
@@ -65,7 +65,7 @@ class Principal:
         return (
             self.is_authenticated
             and self.is_active
-            and _valid_permission(permission)
+            and valid_permission(permission)
             and (self.is_superuser or permission in self.permissions)
         )
 

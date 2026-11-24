@@ -9,7 +9,7 @@
             href="{{ request.url_for('obox_static', path='tabler.min.css') }}">
       <link rel="stylesheet"
             href="{{ request.url_for('obox_static', path='ui.css') }}">
-      {% if request.app.state.obox._feature("files") %}
+      {% if request.app.state.obox.feature("files") %}
         <link rel="stylesheet"
               href="{{ request.url_for('obox_files_static', path='files.css') }}">
         <script type="module"

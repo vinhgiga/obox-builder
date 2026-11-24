@@ -17,9 +17,9 @@ from pydantic import BaseModel, Field, SkipValidation, create_model
 from obox.components.query import invalid, parameters
 from obox.core.async_utils import invoke
 from obox.core.exceptions import ImproperlyConfigured
-from obox.core.principal import _valid_permission
+from obox.core.principal import valid_permission
 from obox.db.fields import ModelField, normalize, schema
-from obox.db.identity import _model_label
+from obox.db.identity import model_label
 from obox.db.query import search_query
 from obox.resources import Resource, resolve_resource
 from obox.runtime.context import Context as Context
@@ -67,7 +67,7 @@ class _Page(ApiResponse):
     total: int | None
 
 
-def _check_route_conflicts(routes: Iterable[RouteContext], *, all_routes: bool = False) -> None:
+def check_route_conflicts(routes: Iterable[RouteContext], *, all_routes: bool = False) -> None:
     registered: dict[tuple[str, str], bool] = {}
     for route in routes:
         if route.path is None:
@@ -165,11 +165,11 @@ class ModelApi(BaseApi, Generic[ModelT]):
                 resource = type("ApiResource", (Resource,), {"fields": explicit_fields})(
                     model=resource.model
                 )
-        return binding._build_router(
+        return binding.build_resource_router(
             prefix if prefix is not None else getattr(self, "prefix", ""), resource
         )
 
-    def _build_router(self, prefix: str, resource: Resource[ModelT]) -> APIRouter:
+    def build_resource_router(self, prefix: str, resource: Resource[ModelT]) -> APIRouter:
         if not re.fullmatch(r"/[a-zA-Z0-9_-]+(?:/[a-zA-Z0-9_-]+)*", prefix):
             raise ImproperlyConfigured("Provide an absolute API prefix.")
         if self.include_router_methods is not None and (
@@ -189,7 +189,7 @@ class ModelApi(BaseApi, Generic[ModelT]):
         if not isinstance(self.permissions, Mapping) or any(
             action not in _ROUTES
             or not isinstance(permission, str)
-            or not _valid_permission(permission)
+            or not valid_permission(permission)
             for action, permission in self.permissions.items()
         ):
             raise ImproperlyConfigured("Use supported ModelApi permission method names and values.")
@@ -235,7 +235,7 @@ class ModelApi(BaseApi, Generic[ModelT]):
             )
             generated.add(operation)
         if "create" in methods and "create" in generated:
-            resource._check_create(writable)
+            resource.check_create(writable)
         read = self.read_schema if set(methods) - {"delete"} else None
         names, readable = {}, {}
         if set(methods) - {"delete"}:
@@ -252,7 +252,7 @@ class ModelApi(BaseApi, Generic[ModelT]):
             prefix=prefix, tags=[prefix.rsplit("/", 1)[-1]], dependencies=list(self.dependencies)
         )
         self.configure_router(router)
-        label, model_name = _model_label(self.model)
+        label, model_name = model_label(self.model)
         schemas = {
             "create": self.create_schema,
             "update": self.update_schema,
@@ -307,7 +307,7 @@ class ModelApi(BaseApi, Generic[ModelT]):
                 name=name,
                 route_class_override=_ModelRoute,
             )
-        _check_route_conflicts(iter_route_contexts(router.routes), all_routes=True)
+        check_route_conflicts(iter_route_contexts(router.routes), all_routes=True)
         return router
 
     def _check_list_fields(self, readable: Mapping[str, ModelField]) -> None:

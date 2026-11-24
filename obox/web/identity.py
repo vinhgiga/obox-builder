@@ -11,7 +11,7 @@ async def get_principal(request: Request) -> Any:
     return request.scope.get("user", ANONYMOUS)
 
 
-async def _identify(request: Request, principal: Any = Depends(get_principal)) -> Any:
+async def identify(request: Request, principal: Any = Depends(get_principal)) -> Any:
     request.scope["user"] = principal
     request.state._obox_identified = True
     return principal

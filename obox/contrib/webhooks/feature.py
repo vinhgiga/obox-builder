@@ -58,7 +58,7 @@ class Webhooks:
         self.max_subscriptions, self.max_attempts = max_subscriptions, max_attempts
         self.models = models
 
-    def _attach(self, app: Any) -> None:
+    def attach(self, app: Any) -> None:
         from obox.contrib.webhooks.routes import build_router
 
         if hasattr(self, "app"):

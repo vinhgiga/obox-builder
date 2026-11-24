@@ -4,7 +4,7 @@ import pytest
 import sqlalchemy as sa
 from obox import forms
 from obox.core.exceptions import ImproperlyConfigured
-from obox.db.session import _session
+from obox.db.session import session_scope
 from obox.db.transaction import atomic
 from pydantic import BaseModel
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -44,7 +44,7 @@ def data(*rows: dict[str, str], initial: int = 0, prefix: str = "books") -> dict
 
 
 async def seed() -> Author:
-    async with _session() as session:
+    async with session_scope() as session:
         author = Author(name="One")
         session.add(author)
         await session.flush()
@@ -83,7 +83,7 @@ def test_inline_load_add_update_delete_and_unchanged() -> None:
             assert (
                 len(edit.new_objects) == len(edit.deleted_objects) == len(edit.changed_objects) == 1
             )
-            async with _session() as session:
+            async with session_scope() as session:
                 assert list(await session.scalars(sa.select(Book.title).order_by(Book.title))) == [
                     "Changed",
                     "Third",
@@ -132,11 +132,11 @@ def test_inline_unsaved_parent_duplicates_and_custom_clean() -> None:
             assert await valid.is_valid()
             with pytest.raises(ValueError, match="parent"):
                 await valid.save()
-            async with atomic(), _session() as session:
+            async with atomic(), session_scope() as session:
                 session.add(author)
                 await session.flush()
                 await valid.save()
-            async with _session() as session:
+            async with session_scope() as session:
                 assert await session.scalar(sa.select(Book.author_id)) == author.id
 
     asyncio.run(scenario())
@@ -194,7 +194,7 @@ def test_inline_save_commit_false_and_transaction_rollback() -> None:
             )
             instances = await bound.save(commit=False)
             assert instances[0].title == "Changed"
-            async with _session() as session:
+            async with session_scope() as session:
                 assert await session.scalar(sa.select(Book.title).where(Book.id == 1)) == "First"
                 assert await session.get(Book, 2) is not None
 
@@ -206,7 +206,7 @@ def test_inline_save_commit_false_and_transaction_rollback() -> None:
 
             with pytest.raises(RuntimeError, match="rollback"):
                 await rollback()
-            async with _session() as session:
+            async with session_scope() as session:
                 assert await session.scalar(sa.select(sa.func.count()).select_from(Book)) == 2
 
     asyncio.run(scenario())
@@ -280,9 +280,9 @@ def test_new_inline_commit_false_can_be_saved_with_unsaved_parent() -> None:
             bound = Books(data({"title": "Pending child"}), instance=parent)
             children = await bound.save(commit=False)
             assert children[0].author is parent
-            async with _session() as session:
+            async with session_scope() as session:
                 session.add_all([parent, *children])
-            async with _session() as session:
+            async with session_scope() as session:
                 assert await session.scalar(sa.select(Book.author_id)) == parent.id
 
     asyncio.run(scenario())

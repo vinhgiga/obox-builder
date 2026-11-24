@@ -94,7 +94,7 @@ class OboxRoute(MethodRoute):
         obox = scope["app"].state.obox
         middleware = ExceptionMiddleware(
             super().handle,
-            handlers={OboxError: obox._problem, RequestValidationError: obox._validation_problem},
+            handlers={OboxError: obox.problem, RequestValidationError: obox.validation_problem},
         )
 
         async def respond(message: Message) -> None:
@@ -117,7 +117,7 @@ class UIRoute(OboxRoute):
         await super().handle(scope, receive, respond)
 
 
-def _authentication_challenge(request: Request, auth: object | None) -> str:
+def authentication_challenge(request: Request, auth: object | None) -> str:
     if getattr(auth, "api_tokens", False) and "authorization" in request.headers:
         return 'Bearer realm="obox"'
     challenge = 'Cookie realm="obox"'
@@ -140,7 +140,7 @@ def authentication_response(
 ) -> Response:
     auth = request.app.state.obox.auth
     if response.status_code == 401 and "WWW-Authenticate" not in response.headers:
-        response.headers["WWW-Authenticate"] = _authentication_challenge(request, auth)
+        response.headers["WWW-Authenticate"] = authentication_challenge(request, auth)
     if not isinstance(exc, NotAuthenticated) or auth is None:
         return response
     response.headers["Cache-Control"] = "private, no-store"

@@ -54,7 +54,7 @@ class Registration:
         view_prefix: str | None = None,
         api_prefix: str | None = None,
     ) -> None:
-        runtime._check_mutable()
+        runtime.check_mutable()
         if type(self.views) is not bool or (self.api is False and not self.views):
             raise ImproperlyConfigured("Choose at least one Resource surface.")
         if self.api is True or self.api is False:
@@ -98,9 +98,11 @@ class Registration:
         api_path = _join_path(api_base, api_suffix)
 
         if self.views:
-            resource._check_create(resource.writable)
+            resource.check_create(resource.writable)
         ui = self._build_views(view_path, resource) if self.views else None
-        api = api_class()._build_router(api_path, resource) if api_class is not None else None
+        api = (
+            api_class().build_resource_router(api_path, resource) if api_class is not None else None
+        )
         if ui is not None:
             runtime.add_ui_prefix(view_path)
             runtime.include_router(ui, ui=True)

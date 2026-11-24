@@ -11,17 +11,17 @@ from starlette.exceptions import HTTPException
 
 from obox.core.async_utils import invoke
 from obox.core.exceptions import ImproperlyConfigured, InvalidQuery, PermissionDenied
-from obox.db.identity import _model_label
+from obox.db.identity import model_label
 from obox.db.query import (
-    _column,
-    _field_kind,
-    _filter_expression,
-    _filter_operators,
-    _parse_order,
+    field_kind,
+    filter_expression,
+    filter_operators,
     list_query,
+    model_column,
+    parse_order,
     search_query,
 )
-from obox.db.session import _session
+from obox.db.session import session_scope
 from obox.resources import resolve_resource
 from obox.views.generic._model import ModelContextMixin
 from obox.views.generic.base import TemplateResponseMixin, TemplateView, View
@@ -67,28 +67,28 @@ class ListView(TemplateResponseMixin, ModelContextMixin, View):
         return {
             name
             for name in self.get_list_display()
-            if isinstance(name, str) and _column(model, name) is not None
+            if isinstance(name, str) and model_column(model, name) is not None
         }
 
     def _filter_field_options(self, model: type[Any]) -> list[dict[str, Any]]:
         options = []
         for name in self.get_list_display():
-            if not isinstance(name, str) or (column := _column(model, name)) is None:
+            if not isinstance(name, str) or (column := model_column(model, name)) is None:
                 continue
-            kind = _field_kind(column)
+            kind = field_kind(column)
             options.append(
                 {
                     "name": name,
                     "label": name.replace("_", " ").capitalize(),
                     "kind": kind,
                     "choices": list(column.type.enums) if isinstance(column.type, sa.Enum) else [],
-                    "operators": _filter_operators(kind),
+                    "operators": filter_operators(kind),
                 }
             )
         return options
 
     def get_queryset(self) -> Any:
-        if resource := self._bound_resource():
+        if resource := self.bound_resource():
             query = resource.get_queryset().order_by(*resource.get_ordering())
         elif self.queryset is not None:
             query = self.queryset._generate()
@@ -121,7 +121,7 @@ class ListView(TemplateResponseMixin, ModelContextMixin, View):
         )
 
     def get_list_display(self) -> Sequence[Any]:
-        resource = self._bound_resource()
+        resource = self.bound_resource()
         if self.list_display is None:
             return resource.readable if resource is not None else ()
         if resource is None:
@@ -133,13 +133,13 @@ class ListView(TemplateResponseMixin, ModelContextMixin, View):
         )
 
     def get_list_filter(self) -> Sequence[str]:
-        resource = self._bound_resource()
+        resource = self.bound_resource()
         if resource is None:
             return self.list_filter
         return tuple(name for name in self.list_filter if name in resource.readable)
 
     def get_search_results(self, queryset: Any, term: str) -> Any:
-        resource = self._bound_resource()
+        resource = self.bound_resource()
         model = queryset.column_descriptions[0]["entity"]
         fields = tuple(
             name
@@ -156,14 +156,14 @@ class ListView(TemplateResponseMixin, ModelContextMixin, View):
             )
             name = method.__name__
             permissions = getattr(method, "allowed_permissions", ("change",))
-            if any(self._has_model_permission(model, permission) for permission in permissions):
+            if any(self.has_model_permission(model, permission) for permission in permissions):
                 label = getattr(method, "short_description", name.replace("_", " ").capitalize())
                 allowed[name] = (method, name, label)
         return allowed
 
     @action(permissions=("delete",), description="Delete selected objects")
     async def delete_selected(self, request: Request, queryset: Any) -> Response | None:
-        resource = self._bound_resource()
+        resource = self.bound_resource()
         if resource is None:
             raise ImproperlyConfigured("Bind a Resource to delete selected records.")
         data = await read_form(request)
@@ -173,7 +173,7 @@ class ListView(TemplateResponseMixin, ModelContextMixin, View):
             return view.render_to_response(
                 {"selected": data.getlist("_selected_action"), "action": "delete_selected"}
             )
-        async with _session() as session:
+        async with session_scope() as session:
             bound = resource.bind(session, request.user)
             for obj in (await bound.list(queryset=queryset.with_for_update())).items:
                 await bound.destroy(obj)
@@ -200,8 +200,8 @@ class ListView(TemplateResponseMixin, ModelContextMixin, View):
                 return result
         return RedirectResponse(str(request.url), status_code=303)
 
-    def _allowed_methods(self) -> list[str]:
-        methods = super()._allowed_methods()
+    def allowed_methods(self) -> list[str]:
+        methods = super().allowed_methods()
         if not self.actions and type(self).post is ListView.post and "POST" in methods:
             methods.remove("POST")
         return methods
@@ -220,7 +220,7 @@ class ListView(TemplateResponseMixin, ModelContextMixin, View):
                 values.append(value() if callable(value) else value)
             row_id = getattr(obj, pk)
             rows.append(
-                {"pk": row_id, "values": values, "url": self._route_url("detail", pk=str(row_id))}
+                {"pk": row_id, "values": values, "url": self.route_url("detail", pk=str(row_id))}
             )
         return rows
 
@@ -241,7 +241,7 @@ class ListView(TemplateResponseMixin, ModelContextMixin, View):
         if raw_filter:
             try:
                 filter_data = json.loads(raw_filter)
-                cleaned, _, _ = _filter_expression(model, filter_data, queryable)
+                cleaned, _, _ = filter_expression(model, filter_data, queryable)
                 filter_config["filter"] = cleaned
             except (TypeError, ValueError, InvalidQuery):
                 filter_config["filter"] = {"conjunction": "and", "children": []}
@@ -255,13 +255,13 @@ class ListView(TemplateResponseMixin, ModelContextMixin, View):
             filter_config["filter"]["children"].extend(exact_terms)
         sort_config = {
             "fields": filter_config["fields"],
-            "sort": _parse_order(
+            "sort": parse_order(
                 self.request.query_params.get("ordering", ""), queryable, maximum=5
             ),
         }
         group_config = {
             "fields": filter_config["fields"],
-            "group": _parse_order(self.request.query_params.get("group", ""), queryable, maximum=3),
+            "group": parse_order(self.request.query_params.get("group", ""), queryable, maximum=3),
         }
         page = self._page
         context = {
@@ -294,7 +294,7 @@ class ListView(TemplateResponseMixin, ModelContextMixin, View):
     def get_template_names(self) -> list[str]:
         if self.template_name:
             return [self.template_name]
-        app, name = _model_label(self.model or self._list_model)
+        app, name = model_label(self.model or self._list_model)
         return [f"{app}/{name}{self.template_name_suffix}.html", "obox/generic/list.html"]
 
     async def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -302,14 +302,14 @@ class ListView(TemplateResponseMixin, ModelContextMixin, View):
         self._list_model = query.column_descriptions[0]["entity"]
         self._page = None
         number = 1
-        resource = self._bound_resource()
+        resource = self.bound_resource()
         if (
             "create" in self.route_names
-            and self._has_model_permission(self._list_model, "add")
+            and self.has_model_permission(self._list_model, "add")
             and (resource is None or await invoke(resource.can, "create", None, request.user))
         ):
-            self.add_url = self._route_url("create")
-        async with _session() as session:
+            self.add_url = self.route_url("create")
+        async with session_scope() as session:
             bound = (resource or resolve_resource(self._list_model)).bind(session, request.user)
             if self.paginate_by:
                 raw = kwargs.get(

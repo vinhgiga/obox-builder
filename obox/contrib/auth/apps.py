@@ -119,7 +119,7 @@ class Auth:
         if not getattr(self, "_installed", False):
             raise ImproperlyConfigured("Install Auth before using API tokens.")
         path = request.scope.get("obox_path", get_route_path(request.scope))
-        files = request.app.state.obox._feature("files")
+        files = request.app.state.obox.feature("files")
         files_prefix = getattr(files, "prefix", None)
         file_api = isinstance(files_prefix, str) and (
             path == files_prefix or path.startswith(files_prefix + "/")
@@ -225,7 +225,7 @@ class Auth:
     async def create_role(self, name: str, *, permissions: Sequence[str] = (), ctx: Context) -> Any:
         return await self.authorization.create_role(name, permissions=permissions, ctx=ctx)
 
-    def _attach(self, app: _Runtime) -> None:
+    def attach(self, app: _Runtime) -> None:
         if getattr(self, "_installed", False):
             raise ImproperlyConfigured("Auth is already installed.")
         backend = self.backend if self.backend is not None else ModelBackend(app.session_factory)

@@ -113,7 +113,7 @@ def test_file_json_contract_across_upload_resume_claim_and_widget(tmp_path: Path
             async with app.uow(
                 principal=Principal(id=1, is_authenticated=True, is_superuser=True)
             ) as ctx:
-                values = await app._feature("files").resolve(
+                values = await app.feature("files").resolve(
                     Document, {"name": "Example", "attachments": [upload["id"]]}, ctx
                 )
                 document = Document(**values)
@@ -134,7 +134,7 @@ def test_file_json_contract_across_upload_resume_claim_and_widget(tmp_path: Path
                 principal=Principal(id=1, is_authenticated=True, is_superuser=True)
             ) as ctx:
                 document = await ctx.session.get(Document, int(record_id))
-                config = app._feature("files").form_config(Document, "attachments", document, ctx)
+                config = app.feature("files").form_config(Document, "attachments", document, ctx)
                 assert config["files"] == [renamed.json()]
             owned_upload = await client.post(
                 "/files",

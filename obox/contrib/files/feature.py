@@ -49,7 +49,7 @@ class Files:
         if not self.prefix.startswith("/") or any(c in self.prefix for c in "{}?#"):
             raise ImproperlyConfigured("Files.prefix must be an absolute URL path.")
 
-    def _attach(self, app: _Runtime) -> None:
+    def attach(self, app: _Runtime) -> None:
         from obox.contrib.files.routes import build_router
 
         if hasattr(self, "app"):
@@ -66,7 +66,7 @@ class Files:
         app.add_ui_prefix(self.prefix)
 
     @asynccontextmanager
-    async def _lifespan(self, app: _Runtime) -> AsyncIterator[None]:
+    async def lifespan(self, app: _Runtime) -> AsyncIterator[None]:
         async def cleanup() -> None:
             while True:
                 await anyio.sleep(3600)

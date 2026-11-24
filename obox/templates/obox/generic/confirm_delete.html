@@ -1,6 +1,6 @@
 {% extends base_template|default("obox/base.html") %}
 {% set routes = view.route_names|default({}) %}
-{% set resource = view._bound_resource() %}
+{% set resource = view.bound_resource() %}
 {% set record = namespace(label=none) %}
 {% set model_label = resource.model.__name__ if resource else object.__class__.__name__ %}
 {% if resource %}

@@ -5,7 +5,7 @@ from typing import Annotated, Literal
 
 from pydantic import Field, JsonValue, StrictStr, field_serializer, field_validator
 
-from obox.db.fields import _validate_text
+from obox.db.fields import validate_text
 from obox.web.schemas import (
     ApiRequest,
     ApiResponse,
@@ -53,7 +53,7 @@ class CommentInput(ApiRequest):
     @field_validator("body")
     @classmethod
     def clean_body(cls, value: str) -> str:
-        value = _validate_text(value).replace("\r\n", "\n").replace("\r", "\n")
+        value = validate_text(value).replace("\r\n", "\n").replace("\r", "\n")
         if not value.strip():
             raise ValueError("Enter a comment.")
         return value

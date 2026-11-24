@@ -50,5 +50,5 @@ class Analytics:
         self.max_points = max_points
         self.timeout_ms = timeout_ms
 
-    def _attach(self, obox: _Runtime) -> None:
+    def attach(self, obox: _Runtime) -> None:
         pass

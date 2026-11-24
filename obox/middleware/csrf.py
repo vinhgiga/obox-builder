@@ -44,7 +44,7 @@ def get_token(request: Request) -> str:
     return mask + cipher
 
 
-async def _check(request: Request, *, multipart: bool = False) -> None:
+async def check_csrf(request: Request, *, multipart: bool = False) -> None:
     if request.method in ("GET", "HEAD", "OPTIONS", "TRACE"):
         return
     origin = request.headers.get("origin")
@@ -78,7 +78,7 @@ async def _check(request: Request, *, multipart: bool = False) -> None:
         raise PermissionDenied("CSRF verification failed.")
 
 
-def _set_cookie(request: Request, response: Response) -> None:
+def set_csrf_cookie(request: Request, response: Response) -> None:
     secret = request.scope.get("_csrf_secret")
     if secret:
         response.set_cookie(

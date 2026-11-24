@@ -24,7 +24,7 @@ from obox.core.exceptions import (
     NotAuthenticated,
     NotFound,
 )
-from obox.core.principal import Identity, Principal, ScopedIdentity, _valid_permission
+from obox.core.principal import Identity, Principal, ScopedIdentity, valid_permission
 
 
 class Backend(Protocol):
@@ -282,7 +282,7 @@ class ModelBackend:
         if (
             not scopes
             or len(set(scopes)) != len(scopes)
-            or any(not _valid_permission(scope) for scope in scopes)
+            or any(not valid_permission(scope) for scope in scopes)
         ):
             raise BuilderValidationError({"scopes": ["Choose unique permission scopes."]})
         async with self.session_factory.begin() as db:

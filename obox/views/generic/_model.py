@@ -5,13 +5,13 @@ from fastapi import Request
 
 from obox.core.exceptions import ImproperlyConfigured
 from obox.core.principal import has_permission
-from obox.db.identity import _model_label
+from obox.db.identity import model_label
 from obox.resources import Resource, resolve_resource
 from obox.views.generic.base import ContextMixin
 
 
 def model_permission(model: type[Any], operation: str) -> str:
-    label, name = _model_label(model)
+    label, name = model_label(model)
     return f"{label}.{operation}_{name}"
 
 
@@ -34,7 +34,7 @@ class ModelContextMixin(ContextMixin):
         elif self.model is not None:
             resolve_resource(self.model)
 
-    def _bound_resource(self) -> Resource[Any] | None:
+    def bound_resource(self) -> Resource[Any] | None:
         if isinstance(self.resource, type):
             if self.model is not None:
                 raise ImproperlyConfigured("Specify either model or resource.")
@@ -47,10 +47,10 @@ class ModelContextMixin(ContextMixin):
             self.resource = self.resource.bind(self.session, self.request.user)
         return self.resource
 
-    def _has_model_permission(self, model: type[Any], operation: str) -> bool:
+    def has_model_permission(self, model: type[Any], operation: str) -> bool:
         return has_permission(self.request.user, model_permission(model, operation))
 
-    def _route_url(self, operation: str, **params: Any) -> str | None:
+    def route_url(self, operation: str, **params: Any) -> str | None:
         if name := self.route_names.get(operation):
             path = str(self.request.app.url_path_for(name, **params))
             return str(self.request.scope.get("root_path", "")).rstrip("/") + path
