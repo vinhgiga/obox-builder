@@ -9,7 +9,7 @@ explicit; Obox does not implement the rest of either framework.
 | --- | --- | --- | --- | --- |
 | `conf.settings` | Django LazySettings/configure | lazy uppercase module settings; configure once; configuration errors | `OBOX_SETTINGS_MODULE` | `test_settings.py` |
 | `apps.AppConfig`, registry | Django apps | constructor/create; metadata; configs → models → ready; duplicate/reentrant checks | SQLAlchemy model discovery | `test_settings.py` |
-| `forms.Form` | Django Form | bound/unbound; fields; clean hooks; errors/add_error; initial/prefix | await validation before errors | `test_forms.py`, `test_forms_integration.py`, `test_reference_contracts.py` |
+| `forms.Form` | Django Form | bound/unbound; Pydantic schema validation; errors/add_error; initial/prefix | await validation before errors | `test_forms.py`, `test_forms_integration.py`, `test_reference_contracts.py` |
 | `forms.ModelForm` | Django ModelForm | explicit Meta; scalar fields; unique/FK validation; save/commit=False | async persistence; validation avoids ORM mutation | `test_forms_integration.py` |
 | `forms.widgets` | Django widgets | escaped inputs, checkbox, textarea, select, password/hidden | Jinja2/Markup rendering | `test_forms_integration.py` |
 | `views.generic` | Django generic display/edit views | per-request instance; setup/dispatch; query/object/context/form hooks; invalid200/redirect303 | native request; Select; awaited DB work | `test_views.py` |
@@ -17,7 +17,7 @@ explicit; Obox does not implement the rest of either framework.
 | `template.backends.jinja2` | Django Jinja2 backend | directories/app discovery/options; get_template/render | native Jinja2 environment | `test_views.py` |
 | `Resource` | Django model validation and queryset conventions | shared query, input and write policy | async SQLAlchemy and Pydantic | `test_resources.py` |
 | `api.ModelApi` | DRF model viewsets and routers | model CRUD; search, order and paging | native FastAPI and generated OpenAPI | `test_api.py` |
-| `builder.ModelBuilder` | Django ModelAdmin options | form, fieldsets, list, search and actions | options for generated HTML and API routes | `test_builder.py` |
+| `views.generic.ModelViewSet` | Django ModelAdmin options | list display/filters/search/actions; fieldsets, inlines and form class | binds view classes to a `Resource` for generated routes | `test_registered_views.py`, `test_view_inlines.py` |
 | `Obox(app)` | adapter exception | settings/apps/template/database/URL integration | FastAPI host adapter | `test_cli.py`, demo integration |
 
 Reference contract tests run the same scalar input cases in a separate

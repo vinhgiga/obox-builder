@@ -1,3 +1,3 @@
 # Forms
 
-[Customize ModelForm](customize-form.md) with Meta, cleaning hooks and standalone async validation.
+[Customize ModelForm](customize-form.md) with Meta, a Pydantic validation schema and standalone async validation.

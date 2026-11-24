@@ -53,10 +53,43 @@ class ProductsConfig(AppConfig):
 
 The app-prefixed collections are `/catalog/products` and
 `/api/catalog/products`. Pass `api=False` or `views=False` to publish a single
-surface. Pass `builder=ProductBuilder` to change presentation or select a
-specialized `ModelApi`.
+surface.
+
+Customize the generated HTML with view subclasses and the REST adapter with a
+`ModelApi` subclass.
+
+```python
+from obox.api import ModelApi
+from obox.views.generic import CreateView, ListView
+
+
+class ProductList(ListView):
+    list_display = ("name", "price")
+    search_fields = ("name",)
+
+
+class ProductCreate(CreateView):
+    fields = ("name", "price")
+    fieldsets = (("Details", {"fields": ("name", "price")}),)
+
+
+class ProductApi(ModelApi[Product]):
+    resource = ProductResource
+    search_fields = ("name",)
+    ordering_fields = ("name", "price")
+
+
+obox.register(
+    ProductResource,
+    list_view=ProductList,
+    create_view=ProductCreate,
+    api=ProductApi,
+)
+```
 
 Set `fields` to a fixed projection for sensitive models. Override
-`get_queryset(actor)` to limit record visibility before lookup and pagination,
-`can(action, obj, actor)` for write rules and `get_writable_fields(action, obj, actor)`
-to narrow writable fields.
+`get_queryset(self)` to limit record visibility using `self.principal` before
+lookup and pagination, `can(action, obj, actor)` for write rules and
+`get_writable_fields(action, obj, actor)` to narrow writable fields.
+`prepare_write(values, obj, actor)` runs after validation and can supply
+trusted server values such as an owner ID.

@@ -4,14 +4,15 @@
 
 ## File forms
 
-Declare the file as an `UploadFile` and call an application service from
-`form_valid()`. The service can parse and validate CSV rows and write the
-contacts in a transaction.
+Declare the file in the form's Pydantic schema as `UploadFile` and call an
+application service from `form_valid()`. The service can parse and validate CSV
+rows and write the contacts in a transaction.
 
 ```python
-from typing import cast
+from typing import Any, ClassVar, cast
 
 from fastapi import Response, UploadFile
+from pydantic import BaseModel, ConfigDict
 
 from obox import forms
 from obox.views.generic import FormView
@@ -19,10 +20,17 @@ from obox.views.generic import FormView
 from .services import import_contacts
 
 
-class ContactImportForm(forms.Form):
-    csv_file: UploadFile = forms.field(
-        forms.FileInput({"accept": ".csv,text/csv"}, max_size=5 * 1024 * 1024)
-    )
+class ContactImportInput(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    csv_file: UploadFile
+
+
+class ContactImportForm(forms.Form[ContactImportInput]):
+    schema = ContactImportInput
+    widgets: ClassVar[dict[str, Any]] = {
+        "csv_file": forms.FileInput({"accept": ".csv,text/csv"}, max_size=5 * 1024 * 1024)
+    }
 
 
 class ContactImportView(FormView):
@@ -31,7 +39,8 @@ class ContactImportView(FormView):
     success_url = "/contacts/"
 
     async def form_valid(self, form: forms.Form) -> Response:
-        await import_contacts(cast(ContactImportForm, form).csv_file)
+        upload = cast(ContactImportForm, form).cleaned_data.csv_file
+        await import_contacts(upload)
         return await super().form_valid(form)
 ```
 

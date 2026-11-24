@@ -64,7 +64,7 @@ nav:
       - Installation: installation.md
   - Features:
       - Overview: features/index.md
-      - Resource builders: features/resources.md
+      - Resources and views: features/resources.md
       - Access control: features/access-control.md
       - JSON API: features/api.md
       - Activity and files: features/activity-files.md
@@ -105,5 +105,5 @@ nav:
       - Component query filters: component-query.md
       - Record and activity API: record-activity-spec.md
       - Core design specification: core-spec.md
-      - Analytics design specification: extension-spec.md
+      - Contrib integration contract: extension-spec.md
   - Release Notes: release-notes.md

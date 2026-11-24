@@ -31,8 +31,9 @@ obox.register(Product)  # /products and /api/products
 
 Use `views=False` for REST only or `api=False` for HTML only. Register from
 `AppConfig.ready()` for app-prefixed routes. Declare a `Resource` to share
-field selection, validation and access rules between both surfaces. Use
-`ModelBuilder` to customize the generated views, forms and REST adapter.
+field selection, validation and access rules between both surfaces. Customize
+generated HTML with `ListView`, `DetailView`, `CreateView`, `UpdateView` and
+`DeleteView` subclasses, and REST with a `ModelApi` subclass.
 
 Native FastAPI routes declare a permission with `Depends(permission_required(...))`.
 Administrators assign permissions through roles. Keep the ASGI lifespan enabled

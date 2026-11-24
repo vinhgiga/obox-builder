@@ -5,10 +5,10 @@ mapped source model and apply its source policy, field access and query budgets.
 Declare HTML routes on `AppConfig.routes`; templates place components with the
 `component()` function. See [the chart example](../examples/components/analytics-chart.md).
 
-The existing product API includes Bar, Line, Pie, Donut and Scatter charts,
-Pivot and CustomChart, with measure/axis declarations exported from
-`obox.contrib.analytics`. Supported aggregates and limits are checked against
-source model metadata. HTML and query routes share policy-scoped services.
+Analytics provides Bar, Line, Pie, Donut and Scatter charts plus Pivot, with
+measure and axis declarations exported from `obox.contrib.analytics`. Supported
+aggregates and limits are checked against source model metadata. HTML and query
+routes share policy-scoped services.
 
 An analytics component used in a template gets app-scoped `/_components/` data
 routes. Those endpoints require `<app>.components.access` plus the component's
@@ -17,7 +17,7 @@ publish it through the JSON API as well. The
 [route example](../examples/pages/compose-page.md) shows template composition.
 
 Analytics is optional contrib functionality. It does not add chart or pivot
-concepts to ModelBuilder or the standardized REST core. The
+concepts to `Resource`, the generated HTML views or `ModelApi`. The
 [analytics integration contract](../extension-spec.md) describes the current boundary.
 
 ## Pivot

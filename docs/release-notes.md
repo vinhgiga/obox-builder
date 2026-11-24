@@ -9,7 +9,8 @@ HTML and native FastAPI REST routes.
    or register in `AppConfig.ready()` for app-prefixed routes. Attach custom
    views and routers to FastAPI with a named permission.
 2. Put shared validation, field selection and visibility on a `Resource`.
-   Attach view, form and API customizations with `builder=ModelBuilderSubclass`.
+   Attach HTML customizations with `list_view=`, `detail_view=`, `create_view=`,
+   `update_view=` and `delete_view=`, and a REST adapter with `api=ModelApiSubclass`.
 3. Choose a surface using `views=False` or `api=False`. Check the new
    collection URLs and the REST OpenAPI contract. Use an explicit
    `update_schema` when clients need PUT.

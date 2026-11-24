@@ -23,14 +23,17 @@ Database/schema management remains SQLAlchemy/Alembic; no QuerySet emulation exi
 
 ## Forms
 
-`Form` declares fields; `ModelForm` derives scalar fields from `Meta.model` and
-explicit `Meta.fields` or `Meta.exclude`. Meta also supports `labels`, `widgets`
-and `help_texts`. Per-instance input is `data`, `files`, `initial`, `prefix`, and,
-for model forms, `instance`. Fieldsets belong to ModelBuilder.
+`Form` declares fields through a Pydantic schema or `field_options`;
+`ModelForm` derives scalar fields from `Meta.model` and explicit `Meta.fields`
+or `Meta.exclude`. Meta also supports `labels`, `widgets` and `help_texts`.
+Per-instance input is `data`, `files`, `initial`, `prefix`, and, for model
+forms, `instance`. Fieldsets and inlines belong to the generic `CreateView` and
+`UpdateView`, not to `Meta`.
 
 Unbound forms are invalid and have no errors. Await `is_valid()` or `full_clean()`
-before reading `errors` or `cleaned_data`. Cleaning runs field conversion and
-validators, `clean_<field>()`, `clean()`, then model uniqueness/foreign-key checks.
+before reading `errors` or `cleaned_data`. Cleaning runs field conversion,
+Pydantic field/model validators and then `post_clean()`; model forms use that
+hook for model uniqueness and foreign-key checks.
 `fastapi.UploadFile` declares a file input. Bind uploads with
 `files=` using the same prefix rules as `data=`. Use `UploadFile | None` for an
 optional file. `Form.is_multipart()` reports the encoding required by its widgets.
@@ -42,7 +45,7 @@ model construction to avoid SQLAlchemy's automatic dirty tracking.
 
 `await form.save(commit=False)` applies validated data to an instance without
 inserting/updating it. `await form.save()` flushes within the current transaction
-or owns a short transaction. `async with transaction.atomic()` groups work and
+or owns a short transaction. `async with atomic()` from `obox.db` groups work and
 rolls back on exceptions. Metadata/configuration methods stay synchronous;
 database-aware hooks may be asynchronous. Uploaded files are available to the
 application during form processing. The application owns any file storage and
@@ -74,8 +77,11 @@ See [File forms](examples/views/index.md#file-forms) for routing and list integr
 
 Register a mapped class or a `Resource` on `Obox` or in `AppConfig.ready()`.
 The registration builds the selected HTML and REST routes on FastAPI. The shared
-resource owns visibility, input validation and write policy. Builder options
-choose the form, views and API adapter. See [Resource registration](examples/features/register-resource.md).
+resource owns visibility, input validation and write policy. Pass custom
+`ListView`/`DetailView`/`CreateView`/`UpdateView`/`DeleteView` subclasses and a
+`ModelApi` subclass to choose the form, views and API adapter. `AppConfig.views`
+and `AppConfig.apis` support the same choices declaratively. See
+[Resource registration](examples/features/register-resource.md).
 
 Startup checks that routes have a permission policy. Model operations use
 `app_label.view_model`, `add_model`, `change_model` and `delete_model`.

@@ -1,3 +1,4 @@
 # REST APIs
 
-[Register a viewset](query-resource.md) and [add an action](custom-action.md) independently of the builder.
+[Register a REST adapter](query-resource.md) and [add an action](custom-action.md)
+independently of the generated HTML views.

@@ -1,14 +1,14 @@
 # File attachments
 
 ```python
-from sqlalchemy.orm import Mapped
+from sqlalchemy.orm import Mapped, mapped_column
 from obox.contrib.files import File, IMAGES, attachments
 from models import Base
 
 
 class Article(Base):
-    # Supply a table name, primary key and other mapped columns.
-    __abstract__ = True
+    __tablename__ = "article"
+    id: Mapped[int] = mapped_column(primary_key=True)
     images: Mapped[list[File]] = attachments(types=IMAGES, max_count=8)
 ```
 

@@ -23,9 +23,10 @@ uv run obox createsuperuser
 uv run uvicorn main:app --reload
 ```
 
-The scaffold creates `settings.py`, `urls.py`, `main.py`, `models.py` and Alembic
-configuration, including an initial migration for its auth tables. Add models under `app/<feature>`, register their AppConfig in
-`INSTALLED_APPS`, then generate and review a migration before applying it.
+The scaffold creates `settings.py`, `main.py`, `models.py`, Alembic
+configuration and an initial migration for its auth tables. Add models under
+`app/<feature>`, register their AppConfig in `INSTALLED_APPS`, then generate and
+review a migration before applying it.
 
 Configure production `SECRET_KEY`, database credentials, `DEBUG = False`, secure
 cookies and a persistent file directory through your deployment's settings.

@@ -1,7 +1,7 @@
 # Model REST API
 
 `ModelApi` builds typed FastAPI routes for a shared `Resource`. Register the
-resource through Obox or include `ModelApi.build_router(prefix=...)` directly.
+resource through Obox or include `ModelApi().build_router(prefix=...)` directly.
 
 The default routes are GET and POST on the collection, and GET, PATCH and DELETE
 on `/{id}`. PATCH updates only fields included in the JSON body. An explicit
