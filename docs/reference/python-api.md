@@ -1,5 +1,10 @@
 # Python API
 
+Use the [class-based view reference](views/index.md), [Model REST API](api.md),
+[forms reference](forms.md), and [settings reference](settings.md) for behavior,
+configuration, and extension hooks. This page summarizes the import paths and
+registration signatures.
+
 | Import | Purpose |
 | --- | --- |
 | `from obox import Obox, Resource, permission_required, setup` | FastAPI adapter, shared CRUD, route authorization and app loading |
@@ -8,7 +13,7 @@
 | `from obox.components import Component` | Reusable component declarations |
 | `from obox.views.generic import ModelViewSet, ListView, DetailView, CreateView, UpdateView, DeleteView, FormView, TemplateView, StackedInline, TabularInline, action` | Generated and standalone HTML views |
 | `from obox.api import ModelApi, ApiRequest, ApiResponse, Context` | Native FastAPI REST adapter and schemas |
-| `from obox.forms import Form, ModelForm, modelform_factory` | Standalone and model forms |
+| `from obox import forms` | Fields, widgets, forms, and formset factories |
 | `from obox.db import atomic` | Async transaction boundary |
 
 `Obox.register(target, *, slug=None, api=True, views=True, list_view=None, detail_view=None, create_view=None, update_view=None, delete_view=None)`

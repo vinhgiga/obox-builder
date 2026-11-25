@@ -96,11 +96,18 @@ nav:
           - Add an analytics chart: examples/components/analytics-chart.md
   - Reference:
       - Overview: reference/index.md
-      - Django/DRF mapping: mapping.md
-      - Python API: reference/python-api.md
+      - Class-based views:
+          - Overview: reference/views/index.md
+          - Base views: reference/views/base.md
+          - Display views: reference/views/display.md
+          - Editing views: reference/views/editing.md
+          - ModelViewSet: reference/views/model-viewset.md
+      - Model REST API: reference/api.md
+      - Command-line reference: reference/cli.md
+      - Forms: reference/forms.md
       - Settings: reference/settings.md
-      - CLI: reference/cli.md
-      - Resource API overview: reference/api.md
+      - Python API: reference/python-api.md
+      - Django/DRF mapping: mapping.md
       - REST contract: api-spec.md
       - Component query filters: component-query.md
       - Record and activity API: record-activity-spec.md
