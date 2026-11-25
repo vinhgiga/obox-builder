@@ -1,16 +1,19 @@
 import asyncio
 import re
-from typing import Any
+from importlib import import_module
+from typing import Any, ClassVar
 
 import httpx
 import pytest
 import sqlalchemy as sa
 from fastapi import Depends, FastAPI
 from obox import Obox, Resource, permission_required
+from obox.apps import AppConfig
+from obox.conf import settings
 from obox.core.exceptions import ImproperlyConfigured
 from obox.core.principal import Principal
 from obox.db.session import session_scope
-from obox.views.generic import CreateView, DeleteView, ListView, UpdateView, action
+from obox.views.generic import CreateView, DeleteView, ListView, ModelViewSet, UpdateView, action
 
 from tests.test_forms_integration import Item, ItemForm, configured
 
@@ -24,6 +27,13 @@ class Actors:
         await self.app(scope, receive, send)
 
 
+def install_views(viewset: type[ModelViewSet[Any]]) -> None:
+    class TestConfig(AppConfig):
+        views: ClassVar[list[Any]] = [viewset]
+
+    settings.INSTALLED_APPS = [TestConfig("tests", import_module("tests"))]
+
+
 def test_registration_uses_generic_views_and_preserves_route_names() -> None:
     async def scenario() -> None:
         async with configured():
@@ -31,13 +41,18 @@ def test_registration_uses_generic_views_and_preserves_route_names() -> None:
             obox = Obox(app)
             for options, error in (
                 ({"api": False, "views": False}, "at least one"),
-                ({"views": False, "list_view": ListView}, "Enable views"),
-                ({"create_view": ListView}, "CreateView subclass"),
                 ({"api": ListView}, "ModelApi subclass"),
             ):
                 kwargs: dict[str, Any] = options
                 with pytest.raises(ImproperlyConfigured, match=error):
                     obox.register(Item, **kwargs)
+            with pytest.raises(TypeError):
+                obox.register(Item, list_view=ListView)  # type: ignore[call-arg]
+            with pytest.raises(TypeError):
+                AppConfig("tests", import_module("tests")).register(
+                    Item,
+                    list_view=ListView,  # type: ignore[call-arg]
+                )
             obox.register(Item)
             with pytest.raises(ImproperlyConfigured, match="already registered"):
                 obox.register(Item, api=False)
@@ -76,6 +91,13 @@ def test_registered_views_call_form_and_resource_hooks() -> None:
                 events.append(("delete", obj.id))
             return True
 
+    class ItemViews(ModelViewSet[Item]):
+        resource = ItemsResource
+        list_view = ItemList
+        create_view = ItemCreate
+        update_view = ItemUpdate
+        delete_view = ItemDelete
+
     async def scenario() -> None:
         async with configured():
             app = FastAPI(openapi_url=None)
@@ -83,13 +105,8 @@ def test_registered_views_call_form_and_resource_hooks() -> None:
                 Actors,
                 actor=Principal(id=1, is_authenticated=True, is_superuser=True),
             )
-            Obox(app).register(
-                ItemsResource,
-                list_view=ItemList,
-                create_view=ItemCreate,
-                update_view=ItemUpdate,
-                delete_view=ItemDelete,
-            )
+            install_views(ItemViews)
+            Obox(app)
             async with (
                 app.router.lifespan_context(app),
                 httpx.AsyncClient(
@@ -97,26 +114,29 @@ def test_registered_views_call_form_and_resource_hooks() -> None:
                 ) as client,
             ):
                 assert (await client.get("/api/tests/items/")).status_code == 404
-                page = await client.get("/items/add")
+                page = await client.get("/tests/items/add")
                 assert page.status_code == 200
                 assert "Details" in page.text
                 assert 'name="quantity"' not in page.text
                 token = re.search(r'name="csrfmiddlewaretoken" value="([^"]+)"', page.text)
                 assert token is not None
                 data = {"csrfmiddlewaretoken": token[1], "name": "Alpha", "price": "1.00"}
-                saved = await client.post("/items/add", data=data)
+                saved = await client.post("/tests/items/add", data=data)
                 assert saved.status_code == 303
-                assert "alpha" in (await client.get("/items")).text
-                assert "alpha" not in (await client.get("/items?q=absent")).text
+                assert "alpha" in (await client.get("/tests/items")).text
+                assert "alpha" not in (await client.get("/tests/items?q=absent")).text
                 assert (
-                    await client.post("/items/1/change", data={**data, "name": "Beta"})
+                    await client.post("/tests/items/1/change", data={**data, "name": "Beta"})
                 ).status_code == 303
                 deleted = await client.post(
-                    "/items/1/delete", data={"csrfmiddlewaretoken": token[1]}
+                    "/tests/items/1/delete", data={"csrfmiddlewaretoken": token[1]}
                 )
-                assert (deleted.status_code, deleted.headers["location"]) == (303, "/items")
+                assert (deleted.status_code, deleted.headers["location"]) == (
+                    303,
+                    "/items",
+                )
                 assert events == [("save", False), ("save", True), ("delete", 1), ("delete", 1)]
-                assert (await client.get("/items/1/change")).status_code == 404
+                assert (await client.get("/tests/items/1/change")).status_code == 404
 
     asyncio.run(scenario())
 
@@ -193,39 +213,45 @@ def test_registered_list_links_pagination_and_action_confirmation() -> None:
                 async def can(self, action: str, obj: Item | None, actor: Any) -> bool:
                     return not (action == "delete" and obj is not None and obj.name == "gamma")
 
+            class LockedItemViews(ModelViewSet[Item]):
+                resource = LockedItems
+                list_view = Items
+
             app = FastAPI(openapi_url=None)
             app.add_middleware(
                 Actors,
                 actor=Principal(id=1, is_authenticated=True, is_superuser=True),
             )
-            Obox(app).register(LockedItems, list_view=Items, api=False)
+            install_views(LockedItemViews)
+            Obox(app)
             async with httpx.AsyncClient(
                 transport=httpx.ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.get("/items")
+                response = await client.get("/tests/items")
                 assert "alpha" in response.text
                 assert "gamma" not in response.text
-                assert "/items/1/view" in response.text
+                assert "/tests/items/1/view" in response.text
                 assert 'name="q"' in response.text
-                assert "gamma" in (await client.get("/items?p=1")).text
+                assert "gamma" in (await client.get("/tests/items?p=1")).text
                 token = client.cookies["csrftoken"]
                 data = {
                     "action": "delete_selected",
                     "_selected_action": "1",
                     "csrfmiddlewaretoken": token,
                 }
-                confirmation = await client.post("/items", data=data)
+                confirmation = await client.post("/tests/items", data=data)
                 assert confirmation.status_code == 200
                 assert 'name="post" value="yes"' in confirmation.text
                 denied = await client.post(
-                    "/items", data={**data, "_selected_action": ["1", "3"], "post": "yes"}
+                    "/tests/items",
+                    data={**data, "_selected_action": ["1", "3"], "post": "yes"},
                 )
                 assert denied.status_code == 403
-                assert "alpha" in (await client.get("/items")).text
+                assert "alpha" in (await client.get("/tests/items")).text
                 assert (
-                    await client.post("/items", data={**data, "post": "yes"})
+                    await client.post("/tests/items", data={**data, "post": "yes"})
                 ).status_code == 303
-                assert "alpha" not in (await client.get("/items")).text
+                assert "alpha" not in (await client.get("/tests/items")).text
 
     asyncio.run(scenario())
 
@@ -251,6 +277,10 @@ def test_same_list_view_supports_filters_search_and_actions_on_both_routes() -> 
             async with session_scope() as session:
                 seen.append([item.name for item in await session.scalars(queryset)])
 
+    class ItemViews(ModelViewSet[Item]):
+        resource = VisibleItems
+        list_view = Items
+
     async def scenario() -> None:
         async with configured():
             ids = []
@@ -268,7 +298,8 @@ def test_same_list_view_supports_filters_search_and_actions_on_both_routes() -> 
                     permissions=frozenset({"tests.view_item", "tests.change_item"}),
                 ),
             )
-            Obox(app).register(VisibleItems, list_view=Items, api=False)
+            install_views(ItemViews)
+            Obox(app)
             app.add_api_route(
                 "/inventory",
                 Items.as_view(resource=VisibleItems),
@@ -281,7 +312,7 @@ def test_same_list_view_supports_filters_search_and_actions_on_both_routes() -> 
                     transport=httpx.ASGITransport(app=app), base_url="http://test"
                 ) as client,
             ):
-                for path, page in (("/items", "p=1"), ("/inventory", "page=2")):
+                for path, page in (("/tests/items", "p=1"), ("/inventory", "page=2")):
                     first = await client.get(path)
                     assert "alpha" in first.text
                     assert "beta" not in first.text

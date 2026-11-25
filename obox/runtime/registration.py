@@ -38,11 +38,11 @@ class Registration:
     slug: str | None
     api: bool | type[ModelApi[Any]]
     views: bool
-    list_view: type[ListView] | None
-    detail_view: type[DetailView] | None
-    create_view: type[CreateView] | None
-    update_view: type[UpdateView] | None
-    delete_view: type[DeleteView] | None
+    list_view: type[ListView] | None = None
+    detail_view: type[DetailView] | None = None
+    create_view: type[CreateView] | None = None
+    update_view: type[UpdateView] | None = None
+    delete_view: type[DeleteView] | None = None
     view_suffix: str | None = None
     api_suffix: str | None = None
 

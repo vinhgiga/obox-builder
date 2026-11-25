@@ -26,12 +26,7 @@ if TYPE_CHECKING:
     from obox.runtime.registration import Registration
     from obox.runtime.runtime import _Runtime
     from obox.views.generic import (
-        CreateView,
-        DeleteView,
-        DetailView,
-        ListView,
         ModelViewSet,
-        UpdateView,
     )
 
 
@@ -159,11 +154,6 @@ class AppConfig:
         slug: str | None = None,
         api: bool | type[ModelApi[Any]] = True,
         views: bool = True,
-        list_view: type[ListView] | None = None,
-        detail_view: type[DetailView] | None = None,
-        create_view: type[CreateView] | None = None,
-        update_view: type[UpdateView] | None = None,
-        delete_view: type[DeleteView] | None = None,
     ) -> None:
         from obox.runtime.registration import Registration
 
@@ -175,11 +165,6 @@ class AppConfig:
                 slug,
                 api,
                 views,
-                list_view,
-                detail_view,
-                create_view,
-                update_view,
-                delete_view,
             )
         )
 

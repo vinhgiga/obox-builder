@@ -1,16 +1,19 @@
 import asyncio
 import re
-from typing import Any
+from importlib import import_module
+from typing import Any, ClassVar
 
 import httpx
 import pytest
 import sqlalchemy as sa
 from fastapi import Depends, FastAPI
 from obox import Obox, Resource, permission_required
+from obox.apps import AppConfig
+from obox.conf import settings
 from obox.core.exceptions import ResourceConflict
 from obox.core.principal import Principal
 from obox.db.session import session_scope
-from obox.views.generic import CreateView, StackedInline, TabularInline, UpdateView
+from obox.views.generic import CreateView, ModelViewSet, StackedInline, TabularInline, UpdateView
 
 from tests.test_forms_integration import configured
 from tests.test_formsets import Author, Book, data, seed
@@ -38,6 +41,14 @@ def test_view_inlines_save_parent_children_and_render_errors(layout: Any, direct
         fields = AuthorCreate.fields
         inlines = AuthorCreate.inlines
 
+    class Authors(Resource[Author]):
+        model = Author
+
+    class AuthorPages(ModelViewSet[Author]):
+        resource = Authors
+        create_view = AuthorCreate
+        update_view = AuthorUpdate
+
     async def scenario() -> None:
         async with configured():
             app = FastAPI(openapi_url=None)
@@ -45,8 +56,8 @@ def test_view_inlines_save_parent_children_and_render_errors(layout: Any, direct
                 Actors,
                 actor=Principal(id=1, is_authenticated=True, is_superuser=True),
             )
-            obox = Obox(app)
             if direct:
+                Obox(app)
                 for path, view, operation in (
                     ("/authors/add", AuthorCreate, "add"),
                     ("/authors/{pk}/change", AuthorUpdate, "change"),
@@ -60,11 +71,17 @@ def test_view_inlines_save_parent_children_and_render_errors(layout: Any, direct
                         ],
                     )
             else:
-                obox.register(Author, create_view=AuthorCreate, update_view=AuthorUpdate, api=False)
+
+                class TestConfig(AppConfig):
+                    views: ClassVar[list[Any]] = [AuthorPages]
+
+                settings.INSTALLED_APPS = [TestConfig("tests", import_module("tests"))]
+                Obox(app)
+            base_path = "/authors" if direct else "/tests/authors"
             async with httpx.AsyncClient(
                 transport=httpx.ASGITransport(app=app), base_url="http://test"
             ) as client:
-                page = await client.get("/authors/add")
+                page = await client.get(f"{base_path}/add")
                 assert page.status_code == 200, page.text
                 assert 'name="books-TOTAL_FORMS"' in page.text
                 matched = re.search('name="csrfmiddlewaretoken" value="([^"]+)"', page.text)
@@ -72,7 +89,7 @@ def test_view_inlines_save_parent_children_and_render_errors(layout: Any, direct
                 token = matched[1]
                 parent = {"name": "New parent", "csrfmiddlewaretoken": token}
                 invalid = await client.post(
-                    "/authors/add",
+                    f"{base_path}/add",
                     data={**parent, **data({"title": ""}, {"title": "x" * 50})},
                 )
                 assert invalid.status_code == 200
@@ -80,7 +97,7 @@ def test_view_inlines_save_parent_children_and_render_errors(layout: Any, direct
                 async with session_scope() as session:
                     assert await session.scalar(sa.select(sa.func.count()).select_from(Author)) == 0
                 failed = await client.post(
-                    "/authors/add",
+                    f"{base_path}/add",
                     data={
                         **parent,
                         "name": "Roll back",
@@ -93,14 +110,14 @@ def test_view_inlines_save_parent_children_and_render_errors(layout: Any, direct
                     assert await session.scalar(sa.select(sa.func.count()).select_from(Author)) == 0
                     assert await session.scalar(sa.select(sa.func.count()).select_from(Book)) == 0
                 saved = await client.post(
-                    "/authors/add", data={**parent, **data({"title": "First"}, {})}
+                    f"{base_path}/add", data={**parent, **data({"title": "First"}, {})}
                 )
                 assert saved.status_code == 303, saved.text
                 async with session_scope() as session:
                     author_id = await session.scalar(sa.select(Author.id))
                     book_id = await session.scalar(sa.select(Book.id))
                 changed = await client.post(
-                    f"/authors/{author_id}/change",
+                    f"{base_path}/{author_id}/change",
                     data={
                         **parent,
                         **data(
@@ -129,6 +146,13 @@ def test_view_rejects_inline_creation_without_child_add_permission() -> None:
         fields = ("name",)
         inlines = (Books,)
 
+    class Authors(Resource[Author]):
+        model = Author
+
+    class AuthorPages(ModelViewSet[Author]):
+        resource = Authors
+        update_view = AuthorUpdate
+
     async def scenario() -> None:
         async with configured():
             author = await seed()
@@ -141,17 +165,22 @@ def test_view_rejects_inline_creation_without_child_add_permission() -> None:
             )
             app = FastAPI(openapi_url=None)
             app.add_middleware(Actors, actor=actor)
-            Obox(app).register(Author, update_view=AuthorUpdate, api=False)
+
+            class TestConfig(AppConfig):
+                views: ClassVar[list[Any]] = [AuthorPages]
+
+            settings.INSTALLED_APPS = [TestConfig("tests", import_module("tests"))]
+            Obox(app)
             async with httpx.AsyncClient(
                 transport=httpx.ASGITransport(app=app), base_url="http://test"
             ) as client:
-                page = await client.get(f"/authors/{author.id}/change")
+                page = await client.get(f"/tests/authors/{author.id}/change")
                 assert page.status_code == 200
                 matched = re.search('name="csrfmiddlewaretoken" value="([^"]+)"', page.text)
                 assert matched is not None
                 token = matched[1]
                 forged = await client.post(
-                    f"/authors/{author.id}/change",
+                    f"/tests/authors/{author.id}/change",
                     data={
                         "name": "Forged parent",
                         "csrfmiddlewaretoken": token,

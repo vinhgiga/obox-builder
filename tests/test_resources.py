@@ -1,7 +1,7 @@
 import asyncio
 from decimal import Decimal
 from importlib import import_module
-from typing import Annotated, Any, Self
+from typing import Annotated, Any, ClassVar, Self
 
 import httpx
 import pytest
@@ -13,7 +13,7 @@ from obox.apps import AppConfig
 from obox.conf import settings
 from obox.core.exceptions import ImproperlyConfigured
 from obox.core.principal import Principal, ScopedIdentity
-from obox.views.generic import DetailView
+from obox.views.generic import DetailView, ModelViewSet
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from tests.test_forms_integration import Item, configured
@@ -185,19 +185,22 @@ def test_app_registration_custom_views_and_direct_adapters() -> None:
 
             return PlainTextResponse(context["label"])
 
+    class ItemPages(ModelViewSet[Item]):
+        resource = Items
+        slug = "inventory"
+        detail_view = ItemDetail
+
     class Inventory(AppConfig):
         name = "tests"
         label = "tests"
-
-        def ready(self) -> None:
-            self.register(Items, slug="inventory", api=ItemApi, views=False)
+        views: ClassVar[list[Any]] = [ItemPages]
+        apis: ClassVar[list[Any]] = [ItemApi]
 
     async def scenario() -> None:
         async with configured():
             settings.INSTALLED_APPS = [Inventory("tests", import_module("tests"))]
             app = authenticated_app()
             obox = Obox(app)
-            obox.register(Items, slug="inventory", detail_view=ItemDetail, api=False)
             nested = APIRouter(prefix="/custom")
             nested.add_api_route(
                 "/item/{pk}",
@@ -219,12 +222,12 @@ def test_app_registration_custom_views_and_direct_adapters() -> None:
                     headers={"x-test-user": "admin"},
                 ) as client,
             ):
-                assert (await client.get("/tests/inventory")).status_code == 404
+                assert (await client.get("/tests/inventory")).status_code == 200
                 assert (await client.get("/api/tests/inventory")).status_code == 200
-                await client.get("/inventory/add")
+                await client.get("/tests/inventory/add")
                 assert (
                     await client.post(
-                        "/inventory/add",
+                        "/tests/inventory/add",
                         data={
                             "csrfmiddlewaretoken": client.cookies["csrftoken"],
                             "name": "one",
@@ -232,7 +235,7 @@ def test_app_registration_custom_views_and_direct_adapters() -> None:
                         },
                     )
                 ).status_code == 303
-                assert (await client.get("/inventory/1/view")).text == "one"
+                assert (await client.get("/tests/inventory/1/view")).text == "one"
                 assert (await client.get("/custom/item/1")).text == "one"
                 assert "tests.view_item" in obox._runtime.permissions
 
