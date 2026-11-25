@@ -38,11 +38,7 @@ class Registration:
     slug: str | None
     api: bool | type[ModelApi[Any]]
     views: bool
-    list_view: type[ListView] | None = None
-    detail_view: type[DetailView] | None = None
-    create_view: type[CreateView] | None = None
-    update_view: type[UpdateView] | None = None
-    delete_view: type[DeleteView] | None = None
+    viewset: type[ModelViewSet[Any]] | None = None
     view_suffix: str | None = None
     api_suffix: str | None = None
 
@@ -63,17 +59,8 @@ class Registration:
             api_class = self.api
         else:
             raise ImproperlyConfigured("Pass a boolean or a ModelApi subclass to api.")
-        if not self.views and any(
-            view is not None
-            for view in (
-                self.list_view,
-                self.detail_view,
-                self.create_view,
-                self.update_view,
-                self.delete_view,
-            )
-        ):
-            raise ImproperlyConfigured("Enable views when providing custom view classes.")
+        if not self.views and self.viewset is not None:
+            raise ImproperlyConfigured("Enable views when providing a ModelViewSet.")
 
         resource = resolve_resource(self.target)
         auth_model = getattr(getattr(runtime.auth, "backend", None), "user_model", None)
@@ -124,12 +111,34 @@ class Registration:
     def _build_views(self, prefix: str, resource: Resource[Any]) -> APIRouter:
         basename = f"obox:views:{prefix}"
         router = APIRouter(prefix=prefix, include_in_schema=False, route_class=UIRoute)
+        viewset = self.viewset
         routes = (
-            ("list", "changelist", "", ListView, self.list_view, "view"),
-            ("detail", "detail", "/{pk}/view", DetailView, self.detail_view, "view"),
-            ("create", "add", "/add", CreateView, self.create_view, "add"),
-            ("update", "change", "/{pk}/change", UpdateView, self.update_view, "change"),
-            ("delete", "delete", "/{pk}/delete", DeleteView, self.delete_view, "delete"),
+            ("list", "changelist", "", ListView, viewset.list_view if viewset else None, "view"),
+            (
+                "detail",
+                "detail",
+                "/{pk}/view",
+                DetailView,
+                viewset.detail_view if viewset else None,
+                "view",
+            ),
+            ("create", "add", "/add", CreateView, viewset.create_view if viewset else None, "add"),
+            (
+                "update",
+                "change",
+                "/{pk}/change",
+                UpdateView,
+                viewset.update_view if viewset else None,
+                "change",
+            ),
+            (
+                "delete",
+                "delete",
+                "/{pk}/delete",
+                DeleteView,
+                viewset.delete_view if viewset else None,
+                "delete",
+            ),
         )
         route_names = {role: f"{basename}:{name}" for role, name, *_ in routes}
         for role, _, path, base, custom, permission in routes:
@@ -234,11 +243,7 @@ def app_registrations(app: AppConfig) -> list[Registration]:
                 slug=api_slug if view_slug is None else view_slug,
                 api=api if api is not None else False,
                 views=view is not None,
-                list_view=view.list_view if view is not None else None,
-                detail_view=view.detail_view if view is not None else None,
-                create_view=view.create_view if view is not None else None,
-                update_view=view.update_view if view is not None else None,
-                delete_view=view.delete_view if view is not None else None,
+                viewset=view,
                 view_suffix=view_suffix,
                 api_suffix=api_suffix,
             )

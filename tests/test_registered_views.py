@@ -13,6 +13,7 @@ from obox.conf import settings
 from obox.core.exceptions import ImproperlyConfigured
 from obox.core.principal import Principal
 from obox.db.session import session_scope
+from obox.runtime.registration import Registration
 from obox.views.generic import CreateView, DeleteView, ListView, ModelViewSet, UpdateView, action
 
 from tests.test_forms_integration import Item, ItemForm, configured
@@ -53,6 +54,8 @@ def test_registration_uses_generic_views_and_preserves_route_names() -> None:
                     Item,
                     list_view=ListView,  # type: ignore[call-arg]
                 )
+            with pytest.raises(TypeError):
+                Registration(Item, None, False, True, list_view=ListView)  # type: ignore[call-arg]
             obox.register(Item)
             with pytest.raises(ImproperlyConfigured, match="already registered"):
                 obox.register(Item, api=False)
