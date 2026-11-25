@@ -9,6 +9,7 @@ from obox.core.exceptions import ResourceConflict as ResourceConflict
 from obox.core.exceptions import RuleViolation as RuleViolation
 from obox.core.pagination import ListResult as ListResult
 from obox.core.pagination import Page as Page
+from obox.core.pagination import Paginator as Paginator
 from obox.core.principal import ANONYMOUS as ANONYMOUS
 from obox.core.principal import SYSTEM as SYSTEM
 from obox.core.principal import Identity as Identity

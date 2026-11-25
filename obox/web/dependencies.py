@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Sequence
+from collections.abc import AsyncIterator, Callable, Iterator, Sequence
 from dataclasses import dataclass
 from typing import Annotated, Any, cast
 
@@ -40,6 +40,34 @@ class _APIContext:
             request.app.state.obox.csrf.validate(request, principal)
         return ctx
 
+    def with_context(self, context: Callable[..., Any]) -> Callable[..., Any]:
+        async def authorized(
+            request: Request, ctx: Context = Depends(context, scope="function")
+        ) -> Context:
+            return await self(request, ctx)
+
+        authorized.__dict__["obox_api_policy"] = self
+        return authorized
+
+
+def api_principal_context(resolver: Callable[..., Any]) -> Callable[..., Any]:
+    async def context(
+        request: Request, principal: Identity = Depends(resolver)
+    ) -> AsyncIterator[Context]:
+        runtime = getattr(request.app.state, "obox", None)
+        if runtime is None:
+            raise ImproperlyConfigured("Install Obox before using an API context dependency.")
+        request.scope["user"] = principal
+        async with runtime.uow(
+            principal=principal,
+            source="api",
+            request=request,
+            trace_id=getattr(request.state, "trace_id", None),
+        ) as ctx:
+            yield ctx
+
+    return context
+
 
 def api_context(*, permission: str | None = None, csrf: bool = False) -> _APIContext:
     """Require an active identity and optionally a permission, returning its API context."""
@@ -61,8 +89,9 @@ def iter_api_contexts(
             dependency = pending.pop()
             if dependency is None:
                 continue
-            if isinstance(dependency.call, (_APIContext, _RoutePermission)):
-                yield dependency.call
+            policy = getattr(dependency.call, "obox_api_policy", dependency.call)
+            if isinstance(policy, (_APIContext, _RoutePermission)):
+                yield policy
             pending.extend(dependency.dependencies)
 
 

@@ -488,11 +488,11 @@ msgstr "Hiện mật khẩu"
 msgid "Home"
 msgstr "Trang chủ"
 
-#: obox/web/routes.py:267
+#: obox/web/routes.py:272
 msgid "msg"
 msgstr ""
 
-#: obox/web/routes.py:279
+#: obox/web/routes.py:288
 msgid "Internal server error.Invalid input."
 msgstr ""
 

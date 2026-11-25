@@ -142,7 +142,11 @@ class Registration:
             if issubclass(view, ListView):
                 list_view = cast("type[ListView]", view)
                 options.update(
-                    paginate_by=list_view.paginate_by if list_view.paginate_by is not None else 100,
+                    paginate_by=(
+                        list_view.paginate_by
+                        if list_view.paginate_by is not None
+                        else (resource.page_size or 100)
+                    ),
                     page_kwarg="p",
                     page_start=0,
                     actions=(

@@ -145,7 +145,7 @@ allow_indirect_imports = true
 [[tool.importlinter.contracts]]
 name = "Domain operations are independent of HTTP and rendering"
 type = "forbidden"
-source_modules = ["obox.core", "obox.resources"]
+source_modules = ["obox.core", "obox.resources", "obox.services"]
 forbidden_modules = ["fastapi", "starlette", "jinja2"]
 
 [[tool.importlinter.contracts]]

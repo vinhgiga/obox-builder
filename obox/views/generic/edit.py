@@ -275,7 +275,9 @@ class ModelFormMixin(FormMixin, SingleObjectMixin):
             and self.has_model_permission(model, "delete")
             and await invoke(resource.can, "delete", self.object, self.request.user)
         ):
-            delete_url = self.route_url("delete", pk=str(getattr(self.object, resource.pk_name)))
+            delete_url = self.route_url(
+                "delete", pk=str(getattr(self.object, resource.lookup_name))
+            )
         return {
             "title": model.__name__,
             "fieldsets": [

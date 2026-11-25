@@ -7,7 +7,7 @@ from obox.core.exceptions import ImproperlyConfigured
 from obox.core.principal import has_permission
 from obox.db.identity import model_label
 from obox.resources import Resource, resolve_resource
-from obox.views.generic.base import ContextMixin
+from obox.views.generic.base import ContextMixin, TemplateResponseMixin
 
 
 def model_permission(model: type[Any], operation: str) -> str:
@@ -42,7 +42,10 @@ class ModelContextMixin(ContextMixin):
         if (
             self.resource is not None
             and getattr(self, "session", None) is not None
-            and self.resource.session is not self.session
+            and (
+                self.resource.session is not self.session
+                or self.resource.principal is not self.request.user
+            )
         ):
             self.resource = self.resource.bind(self.session, self.request.user)
         return self.resource
@@ -55,3 +58,16 @@ class ModelContextMixin(ContextMixin):
             path = str(self.request.app.url_path_for(name, **params))
             return str(self.request.scope.get("root_path", "")).rstrip("/") + path
         return None
+
+
+class ModelTemplateMixin(TemplateResponseMixin):
+    template_prefix = ""
+    template_name_suffix = ""
+
+    def model_template_names(self, model: type[Any], fallback: str) -> list[str]:
+        app, name = model_label(model)
+        table = getattr(model, "__tablename__", name)
+        derived = f"{self.template_prefix}{table}{self.template_name_suffix}.html"
+        legacy = f"{app}/{name}{self.template_name_suffix}.html"
+        alternatives = [derived, legacy] if self.template_prefix else [legacy, derived]
+        return [*alternatives, f"obox/generic/{fallback}.html"]

@@ -11,7 +11,6 @@ from starlette.exceptions import HTTPException
 
 from obox.core.async_utils import invoke
 from obox.core.exceptions import ImproperlyConfigured, InvalidQuery, PermissionDenied
-from obox.db.identity import model_label
 from obox.db.query import (
     field_kind,
     filter_expression,
@@ -23,13 +22,13 @@ from obox.db.query import (
 )
 from obox.db.session import session_scope
 from obox.resources import resolve_resource
-from obox.views.generic._model import ModelContextMixin
-from obox.views.generic.base import TemplateResponseMixin, TemplateView, View
+from obox.views.generic._model import ModelContextMixin, ModelTemplateMixin
+from obox.views.generic.base import TemplateView, View
 from obox.views.generic.decorators import action
 from obox.web.http import read_form
 
 
-class ListView(TemplateResponseMixin, ModelContextMixin, View):
+class ListView(ModelTemplateMixin, ModelContextMixin, View):
     queryset: Any = None
     context_object_name: str | None = None
     paginate_by: int | None = None
@@ -209,6 +208,8 @@ class ListView(TemplateResponseMixin, ModelContextMixin, View):
     def _rows(self, model: type[Any], columns: Sequence[Any]) -> list[dict[str, Any]]:
         mapper = sa.inspect(model)
         pk = mapper.get_property_by_column(mapper.primary_key[0]).key
+        resource = self.bound_resource()
+        lookup_name = resource.lookup_name if resource is not None else pk
         rows = []
         for obj in self.object_list:
             values = []
@@ -220,7 +221,11 @@ class ListView(TemplateResponseMixin, ModelContextMixin, View):
                 values.append(value() if callable(value) else value)
             row_id = getattr(obj, pk)
             rows.append(
-                {"pk": row_id, "values": values, "url": self.route_url("detail", pk=str(row_id))}
+                {
+                    "pk": row_id,
+                    "values": values,
+                    "url": self.route_url("detail", pk=str(getattr(obj, lookup_name))),
+                },
             )
         return rows
 
@@ -267,7 +272,7 @@ class ListView(TemplateResponseMixin, ModelContextMixin, View):
         context = {
             "object_list": self.object_list,
             self.context_object_name or model.__name__.lower() + "_list": self.object_list,
-            "is_paginated": page is not None and page.num_pages > 1,
+            "is_paginated": page is not None and page.is_paginated,
             "page_obj": page,
             "title": model.__name__,
             "list_display": columns,
@@ -294,8 +299,7 @@ class ListView(TemplateResponseMixin, ModelContextMixin, View):
     def get_template_names(self) -> list[str]:
         if self.template_name:
             return [self.template_name]
-        app, name = model_label(self.model or self._list_model)
-        return [f"{app}/{name}{self.template_name_suffix}.html", "obox/generic/list.html"]
+        return self.model_template_names(self.model or self._list_model, "list")
 
     async def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         query = await invoke(self.get_queryset)
@@ -311,19 +315,20 @@ class ListView(TemplateResponseMixin, ModelContextMixin, View):
             self.add_url = self.route_url("create")
         async with session_scope() as session:
             bound = (resource or resolve_resource(self._list_model)).bind(session, request.user)
-            if self.paginate_by:
+            size = self.paginate_by if self.paginate_by is not None else bound.page_size
+            if size is not None:
                 raw = kwargs.get(
                     self.page_kwarg, request.query_params.get(self.page_kwarg, str(self.page_start))
                 )
                 try:
                     if raw == "last" and self.page_start == 1:
-                        first = await bound.paginate(1, page_size=self.paginate_by, queryset=query)
+                        first = await bound.paginate(1, page_size=size, queryset=query)
                         number = first.num_pages
                     else:
                         number = int(raw) - self.page_start + 1
                 except (TypeError, ValueError) as exc:
                     raise HTTPException(404, "Invalid page.") from exc
-                page = await bound.paginate(number, page_size=self.paginate_by, queryset=query)
+                page = await bound.paginate(number, page_size=size, queryset=query)
                 self.object_list, self._page = page.items, page
             else:
                 self.object_list = (await bound.list(queryset=query)).items

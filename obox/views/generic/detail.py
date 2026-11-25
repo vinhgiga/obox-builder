@@ -9,17 +9,17 @@ from starlette.exceptions import HTTPException
 
 from obox.core.async_utils import invoke
 from obox.core.exceptions import ImproperlyConfigured
-from obox.db.identity import model_label
 from obox.db.session import session_scope
 from obox.resources import resolve_resource
-from obox.views.generic._model import ModelContextMixin
-from obox.views.generic.base import TemplateResponseMixin, View
+from obox.views.generic._model import ModelContextMixin, ModelTemplateMixin
+from obox.views.generic.base import View
 
 
 class SingleObjectMixin(ModelContextMixin):
     queryset: Any = None
     context_object_name: str | None = None
     pk_url_kwarg = "pk"
+    lookup_url_kwarg: str | None = None
     slug_url_kwarg = "slug"
     slug_field = "slug"
     kwargs: dict[str, Any]
@@ -50,15 +50,18 @@ class SingleObjectMixin(ModelContextMixin):
     async def get_object(self, queryset: Any = None) -> Any:
         query = await invoke(self.get_queryset) if queryset is None else queryset
         model = query.column_descriptions[0]["entity"]
-        pk, slug = self.kwargs.get(self.pk_url_kwarg), self.kwargs.get(self.slug_url_kwarg)
+        pk = self.kwargs.get(self.lookup_url_kwarg or self.pk_url_kwarg)
+        slug = self.kwargs.get(self.slug_url_kwarg)
         resource = self.bound_resource()
-        if pk is not None and resource is not None:
+        if resource is not None and (pk is not None or slug is not None):
+            options = {"lookup_field": self.slug_field} if pk is None else {}
             async with session_scope() as session:
                 return await resource.bind(session, self.request.user).get_object(
-                    pk,
+                    pk if pk is not None else slug,
                     queryset=query,
                     action=getattr(self, "action", "retrieve"),
                     for_update=self.request.method not in {"GET", "HEAD", "OPTIONS"},
+                    **options,
                 )
         if pk is not None:
             column = sa.inspect(model).primary_key[0]
@@ -72,8 +75,6 @@ class SingleObjectMixin(ModelContextMixin):
             query = query.where(getattr(model, self.slug_field) == slug)
         else:
             raise AttributeError("A generic detail view requires a pk or slug.")
-        if resource is not None:
-            query = resource.load_fields(query)
         async with session_scope() as session:
             obj = (await session.scalars(query)).unique().one_or_none()
         if obj is None:
@@ -97,7 +98,7 @@ class SingleObjectMixin(ModelContextMixin):
         return super().get_context_data(**kwargs)
 
 
-class SingleObjectTemplateResponseMixin(TemplateResponseMixin):
+class SingleObjectTemplateResponseMixin(ModelTemplateMixin):
     template_name_suffix = "_detail"
     model: type[Any] | None
     request: Request
@@ -115,11 +116,7 @@ class SingleObjectTemplateResponseMixin(TemplateResponseMixin):
         )
         if model is None:
             raise ImproperlyConfigured("Define a template or model.")
-        app, name = model_label(model)
-        return [
-            f"{app}/{name}{self.template_name_suffix}.html",
-            f"obox/generic/{self.template_name_suffix.removeprefix('_')}.html",
-        ]
+        return self.model_template_names(model, self.template_name_suffix.removeprefix("_"))
 
 
 class DetailView(SingleObjectTemplateResponseMixin, SingleObjectMixin, View):
@@ -152,6 +149,6 @@ class DetailView(SingleObjectTemplateResponseMixin, SingleObjectMixin, View):
             and await invoke(resource.can, "update", self.object, request.user)
         ):
             self.change_url = self.route_url(
-                "update", pk=str(getattr(self.object, resource.pk_name))
+                "update", pk=str(getattr(self.object, resource.lookup_name))
             )
         return self.render_to_response(await invoke(self.get_context_data, **kwargs))

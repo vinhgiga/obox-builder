@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator, Sequence
 from pathlib import Path
-from typing import Any
+from types import MappingProxyType
+from typing import Any, cast
 
 import httpx
 import pytest
 import sqlalchemy as sa
 from fastapi import APIRouter, Depends, FastAPI, Request
 from fastapi.responses import HTMLResponse
-from obox import Resource
+from jinja2 import ChoiceLoader, FileSystemLoader
+from obox import ModelResource, Resource
 from obox.api import ModelApi
 from obox.core import (
     BuilderValidationError,
@@ -22,9 +25,18 @@ from obox.core import (
 from obox.core.exceptions import ImproperlyConfigured
 from obox.runtime.config import RuntimeConfig
 from obox.runtime.runtime import _Runtime
-from obox.views.generic import CreateView, View
-from pydantic import BaseModel, Field, model_validator
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, selectinload
+from obox.services import BaseService
+from obox.views.generic import CreateView, DetailView, ListView, View
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+from sqlalchemy.orm import (
+    DeclarativeBase,
+    InstrumentedAttribute,
+    Mapped,
+    mapped_column,
+    relationship,
+    selectinload,
+)
+from sqlalchemy.sql.elements import ColumnElement
 
 from tests.storage import database
 from tests.test_forms_integration import configured
@@ -62,21 +74,11 @@ class EntryInput(BaseModel):
         return self
 
 
-class Entries(Resource[Entry]):
-    model = Entry
-    schema = EntryInput
-    readonly_fields = ("owner_id",)
-    fields = ("id", "name", "amount", "owner_id", "payload")
-    ordering = ("name",)
-    load_options = (selectinload(Entry.children),)
-
-    def get_queryset(self) -> sa.Select[tuple[Entry]]:
-        return super().get_queryset().where(Entry.owner_id == self.principal.id)
-
-    async def perform_create(self, data: dict[str, Any]) -> Entry:
+class EntryService(BaseService):
+    async def create(self, data: dict[str, Any]) -> Entry:
         entry = Entry(**data, owner_id=self.principal.id)
-        self._session().add(entry)
-        await self._session().flush()
+        self.session.add(entry)
+        await self.session.flush()
         if entry.name == "blocked":
             raise RuleViolation("quota_exceeded", "Quota exceeded.")
         if entry.name == "commit-failure":
@@ -85,8 +87,136 @@ class Entries(Resource[Entry]):
                 if not session.in_nested_transaction():
                     raise sa.exc.IntegrityError("commit", {}, ValueError("conflict"))
 
-            sa.event.listen(self._session().sync_session, "before_commit", fail_commit)
+            sa.event.listen(self.session.sync_session, "before_commit", fail_commit)
         return entry
+
+
+class Entries(Resource[Entry]):
+    model = Entry
+    schema: type[BaseModel] | None = EntryInput
+    readonly_fields = ("owner_id",)
+    fields = ("id", "name", "amount", "owner_id", "payload")
+    ordering: Sequence[str | ColumnElement[Any] | InstrumentedAttribute[Any]] = ("name",)
+    load_options = (selectinload(Entry.children),)
+    service_class = EntryService
+
+    def get_queryset(self) -> sa.Select[tuple[Entry]]:
+        return super().get_queryset().where(Entry.owner_id == self.principal.id)
+
+    async def perform_create(self, data: dict[str, Any]) -> Entry:
+        return await cast(EntryService, self.service).create(data)
+
+
+def test_html_and_api_share_page_order_and_scoped_lookup(tmp_path: Path) -> None:
+    class Directory(Entries):
+        lookup_field = "name"
+        page_size = 1
+        ordering = (Entry.name.desc(),)
+
+        async def check_permission(self, action: str, obj: Entry | None = None) -> None:
+            if action == "retrieve" and obj is not None and obj.name == "restricted":
+                raise PermissionDenied("Restricted entry.")
+            await super().check_permission(action, obj)
+
+    class Index(ListView):
+        resource = Directory
+        template_prefix = "listing/"
+
+    class Detail(DetailView):
+        resource = Directory
+        slug_field = "name"
+
+        def get_queryset(self) -> sa.Select[tuple[Entry]]:
+            return sa.select(Entry)
+
+    class Output(BaseModel):
+        model_config = ConfigDict(from_attributes=True)
+        name: str
+
+    async def principal(request: Request) -> Principal:
+        return Principal(id=1, is_authenticated=True, is_superuser=True)
+
+    class DirectoryAPI(ModelApi[Entry]):
+        resource = Directory
+        read_schema = Output
+        pagination = "page"
+        lookup_url_kwarg = "slug"
+        page_size_param = "per_page"
+        max_page_size = 2
+        principal_dependency = staticmethod(principal)
+        error_status = MappingProxyType({PermissionDenied: 404})
+
+    async def scenario() -> None:
+        template = tmp_path / "listing" / "resource_entries_list.html"
+        template.parent.mkdir()
+        template.write_text("{{ page_obj.number }}:{{ object_list[0].name }}", encoding="utf-8")
+        async with configured(), database(tmp_path / "pages.sqlite3", (Base.metadata,)) as sessions:
+            async with sessions.begin() as session:
+                session.add_all(
+                    Entry(owner_id=owner, name=name)
+                    for owner, name in [
+                        (1, "alpha"),
+                        (1, "restricted"),
+                        (1, "zeta"),
+                        (2, "private"),
+                    ]
+                )
+            app = FastAPI()
+            runtime = _Runtime(
+                app,
+                settings=RuntimeConfig(
+                    session_factory=sessions, principal_dependency=principal, csrf_secret="s" * 32
+                ),
+            )
+            loader = runtime.templates.env.loader
+            assert loader is not None
+            runtime.templates.env.loader = ChoiceLoader([FileSystemLoader(tmp_path), loader])
+            router = APIRouter()
+            Index.as_route(router, "/entries", name="entry-list")
+            Detail.as_route(router, "/entries/{slug}", name="entry-detail")
+            app.include_router(router)
+            app.include_router(
+                DirectoryAPI.as_router("/api/entries", tags=["entries"], name_prefix="entries")
+            )
+            async with (
+                app.router.lifespan_context(app),
+                httpx.AsyncClient(
+                    transport=httpx.ASGITransport(app=app), base_url="http://test"
+                ) as client,
+            ):
+                assert (await client.get("/entries?page=2")).text == "2:restricted"
+                assert (await client.get("/api/entries?page=2")).json() == {
+                    "items": [{"name": "restricted"}],
+                    "page": 2,
+                    "page_size": 1,
+                    "total": 3,
+                    "pages": 3,
+                }
+                assert len((await client.get("/api/entries?per_page=2")).json()["items"]) == 2
+                assert (await client.get("/api/entries?per_page=3")).status_code == 422
+                for prefix in ("/entries", "/api/entries"):
+                    assert (await client.get(f"{prefix}?page={10**40}")).status_code == 404
+                    assert (await client.get(f"{prefix}/private")).status_code == 404
+                    assert (await client.get(f"{prefix}/alpha")).status_code == 200
+                assert (await client.get("/entries/restricted")).status_code == 403
+                denied = await client.get("/api/entries/restricted")
+                assert denied.status_code == 404
+                assert denied.json()["code"] == "permission_denied"
+                assert (await client.post("/api/entries", json={"name": "new"})).status_code == 405
+                assert (await client.delete("/api/entries/alpha")).status_code == 405
+                assert (
+                    str(app.url_path_for("entries-retrieve", slug="alpha")) == "/api/entries/alpha"
+                )
+                paths = app.openapi()["paths"]
+                assert set(paths["/api/entries"]) == {"get"}
+                listing = paths["/api/entries"]["get"]
+                assert listing["tags"] == ["entries"]
+                assert {param["name"] for param in listing["parameters"]} == {"page", "per_page"}
+                lookup = paths["/api/entries/{slug}"]["get"]["parameters"][0]
+                assert lookup["name"] == "slug"
+                assert lookup["schema"]["type"] == "string"
+
+    asyncio.run(scenario())
 
 
 @pytest.mark.parametrize("page_size", [1, 2])
@@ -104,10 +234,17 @@ def test_resource_scope_unique_pagination_and_eager_loading(tmp_path: Path, page
                 )
             async with sessions.begin() as session:
                 resource = Entries(session, Principal(id=1))
+                assert isinstance(resource, ModelResource)
+                assert resource.service is resource.service
+                assert resource.bind(session, Principal(id=2)).service.principal.id == 2
                 query = sa.select(Entry).join(Child).order_by(Entry.name)
                 page = await resource.paginate(1, page_size=page_size, queryset=query)
                 assert page.total == 2
                 assert len(page) == page_size
+                assert (page.start_index, page.end_index) == (1, page_size)
+                assert page.next_number == (2 if page_size == 1 else None)
+                assert page.previous_number is None
+                assert page.is_paginated == (page_size == 1)
                 assert len({entry.id for entry in page}) == page_size
                 window = await resource.list(
                     queryset=sa.select(Entry), limit=1, offset=1, include_total=True
@@ -177,9 +314,20 @@ def test_adapters_share_resource_rules_and_transaction_boundary(
         success_url = "/done"
         csrf_protect = False
 
+    class ChildOutput(BaseModel):
+        model_config = ConfigDict(from_attributes=True)
+        id: int
+
+    class EntryOutput(BaseModel):
+        model_config = ConfigDict(from_attributes=True)
+        name: str
+        amount: int
+        children: list[ChildOutput]
+
     class EntryApi(ModelApi[Entry]):
         resource = Entries
-        include_router_methods = ("list", "retrieve", "create")
+        read_schema = EntryOutput
+        actions = ("list", "retrieve", "create", "update", "partial_update", "destroy")
 
     async def scenario() -> None:
         async with (
@@ -228,12 +376,27 @@ def test_adapters_share_resource_rules_and_transaction_boundary(
                     async with runtime.uow(principal=Principal(id=1)) as ctx:
                         with pytest.raises(ImproperlyConfigured, match="unit of work"):
                             await ctx.session.commit()
+                    if surface == "api":
+                        assert response.json() == {"name": "ok", "amount": 1, "children": []}
+                        detail = response.headers["location"]
+                        assert (await client.put(detail, json={"amount": 3})).status_code == 422
+                        changed = await client.put(detail, json={"name": "limited", "amount": 2})
+                        assert changed.status_code == 200
+                        assert changed.json() == {"name": "limited", "amount": 2, "children": []}
+                        assert (await client.patch(detail, json={"amount": 3})).status_code == 422
+                        reset = await client.put(detail, json={"name": "limited"})
+                        assert reset.status_code == 200
+                        assert reset.json()["amount"] == 1
+                        removed = await client.delete(detail)
+                        assert removed.status_code == 204
+                        assert removed.content == b""
+                        assert (await client.get(detail)).status_code == 404
 
     asyncio.run(scenario())
 
 
 def test_html_route_catches_dependency_entry_and_exit_errors() -> None:
-    async def dependency():
+    async def dependency() -> AsyncIterator[None]:
         yield
         raise ResourceConflict("Commit failed.")
 
@@ -284,10 +447,12 @@ def test_per_action_schemas_defaults_and_invalid_configuration(tmp_path: Path) -
             assert entry.amount == 4
             with pytest.raises(PermissionDenied, match="Fields cannot be written"):
                 await resource.update(entry, {"name": "denied"}, partial=True)
-        with pytest.raises(ImproperlyConfigured):
-            type("Broken", (Resource,), {"model": Entry, "ordering": "name"}).check()
-        with pytest.raises(ImproperlyConfigured):
-            type("Broken", (Resource,), {"model": Entry, "page_size": 0}).check()
+        for options in ({"ordering": "name"}, {"page_size": 0}, {"service_class": object}):
+            broken = cast(
+                type[Resource[Entry]], type("Broken", (Resource,), {"model": Entry, **options})
+            )
+            with pytest.raises(ImproperlyConfigured):
+                broken.check()
 
     asyncio.run(scenario())
 
@@ -307,10 +472,14 @@ def test_write_rule_violation_restores_object_before_rendering(tmp_path: Path, a
             await super().perform_destroy(obj)
             raise RuleViolation("blocked", "Cannot change this record.")
 
-    class Edit(UpdateView if action == "update" else DeleteView):
-        resource = Guarded
-        csrf_protect = False
-        success_url = "/done"
+    edit = cast(
+        type[View],
+        type(
+            "Edit",
+            (UpdateView if action == "update" else DeleteView,),
+            {"resource": Guarded, "csrf_protect": False, "success_url": "/done"},
+        ),
+    )
 
     async def actor() -> Principal:
         return Principal(id=1, is_authenticated=True)
@@ -330,7 +499,7 @@ def test_write_rule_violation_restores_object_before_rendering(tmp_path: Path, a
                 ),
             )
             router = APIRouter()
-            Edit.as_route(router, "/entries/{pk}", name="edit")
+            edit.as_route(router, "/entries/{pk}", name="edit")
             app.include_router(router)
             async with (
                 app.router.lifespan_context(app),

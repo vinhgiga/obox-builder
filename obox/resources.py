@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from copy import copy
+from functools import cached_property
 from typing import Any, Generic, Literal, TypeVar, cast
 from uuid import UUID
 
@@ -11,8 +12,8 @@ import sqlalchemy as sa
 from pydantic import BaseModel, TypeAdapter, ValidationError
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import InstanceState, Mapper, selectinload, undefer
-from sqlalchemy.sql.elements import UnaryExpression
+from sqlalchemy.orm import InstanceState, InstrumentedAttribute, Mapper, selectinload, undefer
+from sqlalchemy.sql.elements import ColumnElement
 
 from obox.core.async_utils import invoke
 from obox.core.exceptions import (
@@ -22,10 +23,11 @@ from obox.core.exceptions import (
     PermissionDenied,
     ResourceConflict,
 )
-from obox.core.pagination import ListResult, Page
+from obox.core.pagination import ListResult, Page, Paginator
 from obox.core.principal import ANONYMOUS, Identity
 from obox.db.fields import inspect_fields, model_value, normalize, schema
 from obox.db.query import scope_query
+from obox.services import BaseService
 
 ModelT = TypeVar("ModelT")
 WriteAction = Literal["create", "update", "delete"]
@@ -43,7 +45,8 @@ class Resource(Generic[ModelT]):
     lookup_field: str | None = None
     fields: Sequence[str] | None = None
     readonly_fields: Sequence[str] = ()
-    ordering: Sequence[str] = ()
+    ordering: Sequence[str | ColumnElement[Any] | InstrumentedAttribute[Any]] = ()
+    service_class: type[BaseService] | None = None
 
     def __init__(
         self,
@@ -109,11 +112,25 @@ class Resource(Generic[ModelT]):
             or self.schema
             or schema(f"{self.model.__name__}Changes", self.specs, self.writable, partial=True)
         )
-        if isinstance(self.ordering, str) or not all(
-            isinstance(term, str) for term in self.ordering
+        if (
+            isinstance(self.ordering, str)
+            or not isinstance(self.ordering, Sequence)
+            or not all(
+                isinstance(term, (str, ColumnElement, InstrumentedAttribute))
+                for term in self.ordering
+            )
         ):
-            raise ImproperlyConfigured("Ordering must be a sequence of field names.")
-        normalize((term.removeprefix("-") for term in self.ordering), self.model, exposed)
+            raise ImproperlyConfigured("Ordering must be a sequence of fields or SQL expressions.")
+        normalize(
+            (term.removeprefix("-") for term in self.ordering if isinstance(term, str)),
+            self.model,
+            exposed,
+        )
+        if self.service_class is not None and (
+            not isinstance(self.service_class, type)
+            or not issubclass(self.service_class, BaseService)
+        ):
+            raise ImproperlyConfigured("Resource.service_class must extend BaseService.")
         sa.select(self.model).options(*self.load_options)
 
     @classmethod
@@ -139,6 +156,12 @@ class Resource(Generic[ModelT]):
             raise ImproperlyConfigured("Bind the Resource to an active session.")
         return self.session
 
+    @cached_property
+    def service(self) -> BaseService:
+        if self.service_class is None:
+            raise ImproperlyConfigured("Define a service_class on the Resource.")
+        return self.service_class(self._session(), self.principal)
+
     def get_schema(self, action: str) -> type[BaseModel]:
         return (
             self._create_schema
@@ -148,6 +171,10 @@ class Resource(Generic[ModelT]):
 
     def get_queryset(self) -> sa.Select[tuple[ModelT]]:
         return sa.select(self.model).options(*self.load_options)
+
+    @property
+    def lookup_name(self) -> str:
+        return self.lookup_field or self.pk_name
 
     def _query(self, query: Any = None) -> Any:
         base = scope_query(self.get_queryset(), self.model)
@@ -169,11 +196,15 @@ class Resource(Generic[ModelT]):
         action: str | None = "retrieve",
         queryset: Any = None,
         for_update: bool = False,
+        lookup_field: str | None = None,
     ) -> ModelT:
         query = self._query(queryset)
-        column = getattr(self.model, self.lookup_field) if self.lookup_field else self.pk
+        field = lookup_field or self.lookup_name
+        if field not in self.specs:
+            raise ImproperlyConfigured("Choose a mapped lookup field.")
+        column = getattr(self.model, field)
         try:
-            key = TypeAdapter(column.type.python_type).validate_python(lookup)
+            key = TypeAdapter(self.specs[field].annotation).validate_python(lookup)
         except (TypeError, ValueError) as exc:
             raise NotFound("Record is unavailable.") from exc
         query = query.where(column == key)
@@ -217,7 +248,15 @@ class Resource(Generic[ModelT]):
         return cast(ModelT, found)
 
     async def ensure_loaded(self, obj: ModelT, fields: Sequence[str]) -> None:
-        missing = cast("InstanceState[ModelT]", sa.inspect(obj)).unloaded.intersection(fields)
+        state = cast("InstanceState[ModelT]", sa.inspect(obj))
+        missing = state.unloaded.intersection(fields)
+        relations = missing.intersection(state.mapper.relationships.keys()) - self.specs.keys()
+        if relations:
+            # Newly flushed instances have not received the resource's eager loaders yet.
+            await self.reload(obj)
+            missing = state.unloaded.intersection(fields)
+            if missing & relations:
+                raise ImproperlyConfigured("Eagerly load the declared API relationships.")
         if missing:
             await self._session().refresh(obj, attribute_names=list(missing))
 
@@ -235,15 +274,12 @@ class Resource(Generic[ModelT]):
             or (limit is not None and (type(limit) is not int or limit < 1))
         ):
             raise ValueError("Use a positive limit and nonnegative offset.")
-        await self.check_permission("list")
-        query = self._query(queryset)
-        if not query._order_by_clauses:
-            query = query.order_by(*self.get_ordering())
-        else:
-            query = query.order_by(self.pk.asc())
+        query = await self._list_query(queryset)
         session = self._session()
-        total = await self._count(session, query) if include_total else None
-        rows = await self._rows(session, query, offset=offset, limit=limit + 1 if limit else None)
+        total = await Paginator.count(session, query, key=self.pk) if include_total else None
+        rows = await Paginator.rows(
+            session, query, key=self.pk, offset=offset, limit=limit + 1 if limit else None
+        )
         return ListResult(
             rows[:limit], offset, limit, limit is not None and len(rows) > limit, total
         )
@@ -256,21 +292,30 @@ class Resource(Generic[ModelT]):
         queryset: Any = None,
     ) -> Page[ModelT]:
         size = page_size if page_size is not None else self.page_size
-        if size is not None and (type(size) is not int or size < 1):
-            raise ImproperlyConfigured("Choose a positive page size.")
-        if type(number) is not int or number < 1:
-            raise NotFound("Invalid page.")
-        result = await self.list(
-            queryset=queryset,
-            limit=size,
-            offset=(number - 1) * size if size else 0,
-            include_total=True,
+        paginator = Paginator(size)
+        paginator.validate_number(number)
+        if type(self).list is not Resource.list:
+            # Existing resource subclasses may implement their own list execution.
+            result = await self.list(
+                queryset=queryset,
+                limit=size,
+                offset=(number - 1) * size if size else 0,
+                include_total=True,
+            )
+            total = result.total or 0
+            page = Page(result.items, number, size or max(1, total), total)
+            if number > page.num_pages:
+                raise NotFound("Invalid page.")
+            return page
+        return await paginator.paginate(
+            self._session(), await self._list_query(queryset), number, key=self.pk
         )
-        total = result.total or 0
-        page = Page(result.items, number, size or max(1, total), total)
-        if number > page.num_pages:
-            raise NotFound("Invalid page.")
-        return page
+
+    async def _list_query(self, queryset: Any) -> sa.Select[tuple[ModelT]]:
+        await self.check_permission("list")
+        query = self._query(queryset)
+        order = (self.pk.asc(),) if query._order_by_clauses else self.get_ordering()
+        return cast("sa.Select[tuple[ModelT]]", self.load_fields(query.order_by(*order)))
 
     async def create(
         self,
@@ -444,7 +489,7 @@ class Resource(Generic[ModelT]):
                 selectinload(getattr(self.model, name))
                 if "obox_files" in self.specs[name].column.info
                 else undefer(getattr(self.model, name))
-                for name in self.readable
+                for name in dict.fromkeys((*self.readable, self.lookup_name))
             ),
         )
 
@@ -462,11 +507,13 @@ class Resource(Generic[ModelT]):
         )
 
     def get_ordering(self) -> Sequence[Any]:
-        columns = [getattr(self.model, name.removeprefix("-")) for name in self.ordering]
-        return [
-            column.desc() if name.startswith("-") else column.asc()
-            for name, column in zip(self.ordering, columns, strict=True)
-        ] + [self.pk.asc()]
+        ordering = []
+        for term in self.ordering:
+            if isinstance(term, str):
+                column = getattr(self.model, term.removeprefix("-"))
+                term = column.desc() if term.startswith("-") else column.asc()
+            ordering.append(term)
+        return [*ordering, self.pk.asc()]
 
     def check_create(self, writable: Sequence[str]) -> None:
         mapper = cast("Mapper[ModelT]", sa.inspect(self.model))
@@ -486,37 +533,6 @@ class Resource(Generic[ModelT]):
                     f"{self.model.__name__}.{prop.key} requires a value for resource creation."
                 )
 
-    async def _count(self, session: AsyncSession, query: Any) -> int:
-        identities = (
-            scope_query(query, self.model)
-            .with_only_columns(self.pk, maintain_column_froms=True)
-            .order_by(None)
-            .distinct()
-        )
-        return int(
-            await session.scalar(sa.select(sa.func.count()).select_from(identities.subquery())) or 0
-        )
-
-    async def _rows(
-        self, session: AsyncSession, query: Any, *, offset: int = 0, limit: int | None = None
-    ) -> Sequence[ModelT]:
-        if limit is not None or offset:
-            query = scope_query(query, self.model)
-            order_columns = []
-            for term in query._order_by_clauses:
-                while isinstance(term, UnaryExpression):
-                    term = term.element
-                order_columns.append(term)
-            identities = (
-                query.with_only_columns(self.pk, *order_columns, maintain_column_froms=True)
-                .distinct()
-                .offset(offset)
-                .limit(limit)
-                .subquery()
-            )
-            query = query.where(self.pk.in_(sa.select(identities.c[0])))
-        return (await session.scalars(self.load_fields(query))).unique().all()
-
     async def _validate(
         self,
         session: AsyncSession,
@@ -528,7 +544,8 @@ class Resource(Generic[ModelT]):
         partial: bool = True,
     ) -> dict[str, Any]:
         action: WriteAction = "create" if obj is None else "update"
-        denied = values.keys() - await self._writable(action, obj, actor)
+        allowed = await self._writable(action, obj, actor)
+        denied = values.keys() - allowed
         if denied:
             raise PermissionDenied(f"Fields cannot be written: {', '.join(sorted(denied))}.")
         if not validate:
@@ -559,11 +576,15 @@ class Resource(Generic[ModelT]):
                 name = ".".join(str(part) for part in error["loc"]) or "__all__"
                 errors.setdefault(name, []).append(error["msg"])
             raise BuilderValidationError(errors) from exc
-        names = (
-            input_model.model_fields.keys()
-            if obj is None and (self.schema or self.create_schema)
-            else values.keys()
-        )
+        names: Collection[str] = values.keys()
+        if obj is None and (self.schema or self.create_schema):
+            names = input_model.model_fields.keys()
+        elif (
+            obj is not None
+            and not partial
+            and (self.schema or self.update_schema or self.create_schema)
+        ):
+            names = input_model.model_fields.keys() & allowed
         return {name: getattr(parsed, name) for name in names}
 
     async def _persist(
@@ -656,6 +677,9 @@ class Resource(Generic[ModelT]):
                 setattr(obj, name, value)
         await session.flush()
         return obj
+
+
+ModelResource = Resource
 
 
 def resolve_resource(target: type[ModelT] | type[Resource[ModelT]]) -> Resource[ModelT]:

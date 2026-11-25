@@ -1,6 +1,7 @@
 """Model-driven forms, views and APIs for FastAPI and SQLAlchemy."""
 
 from obox.application import Obox as Obox
+from obox.resources import ModelResource as ModelResource
 from obox.resources import Resource as Resource
 from obox.web.dependencies import permission_required as permission_required
 
@@ -14,4 +15,4 @@ def setup() -> None:
     apps.populate(settings.INSTALLED_APPS)
 
 
-__all__ = ["Obox", "Resource", "permission_required", "setup"]
+__all__ = ["ModelResource", "Obox", "Resource", "permission_required", "setup"]

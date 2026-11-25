@@ -2,7 +2,9 @@
 
 import logging
 import re
+from collections.abc import Mapping
 from http import HTTPStatus
+from types import MappingProxyType
 from typing import Any
 from uuid import uuid4
 
@@ -199,7 +201,10 @@ async def api_problem(request: Request, exc: Exception) -> Response:
     query_body = getattr(request.state, "query_body", False)
     record_write = getattr(request.state, "record_write", False)
     trace_id = getattr(request.state, "trace_id", uuid4().hex)
-    status = error_status(exc)
+    overrides = getattr(request.state, "error_status_overrides", {})
+    status = next((overrides[cls] for cls in type(exc).__mro__ if cls in overrides), None)
+    if status is None:
+        status = error_status(exc)
     if isinstance(exc, RequestValidationError) and any(
         error["type"] == "json_invalid" for error in exc.errors()
     ):
@@ -269,10 +274,14 @@ async def api_problem(request: Request, exc: Exception) -> Response:
             )
     if status == 500:
         logging.getLogger(__name__).error("ApiOptions request %s failed", trace_id, exc_info=exc)
+    try:
+        title = "Unprocessable Content" if status == 422 else HTTPStatus(status).phrase
+    except ValueError:
+        title = "Request failed"
     response = JSONResponse(
         Problem(
             type="urn:obox:problem:" + code,
-            title="Unprocessable Content" if status == 422 else HTTPStatus(status).phrase,
+            title=title,
             status=status,
             code=code,
             detail=translate(
@@ -300,6 +309,7 @@ class ApiRoute(MethodRoute):
     cache_control: str | None = None
     binary_upload = False
     download = False
+    error_status_overrides: Mapping[type[OboxError], int] = MappingProxyType({})
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         responses = {
@@ -308,7 +318,10 @@ class ApiRoute(MethodRoute):
                     "application/problem+json": {"schema": {"$ref": "#/components/schemas/Problem"}}
                 }
             }
-            for status in (400, 401, 403, 404, 405, 406, 409, 412, 415, 422, 428, 500)
+            for status in sorted(
+                {400, 401, 403, 404, 405, 406, 409, 412, 415, 422, 428, 500}
+                | set(self.error_status_overrides.values())
+            )
         }
         kwargs["responses"] = {**responses, **(kwargs.get("responses") or {})}
         super().__init__(*args, **kwargs)
@@ -317,6 +330,7 @@ class ApiRoute(MethodRoute):
         scope = dict(scope)
         scope["state"] = dict(scope.get("state", {}))
         request = Request(scope)
+        request.state.error_status_overrides = self.error_status_overrides
         request.state.query_body = request.method == "POST" and self.path.endswith(":query")
         request.state.record_write = (
             request.method in {"POST", "PUT", "PATCH", "DELETE"} and not request.state.query_body
