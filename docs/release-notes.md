@@ -1,6 +1,6 @@
 # Release notes — 0.1.0
 
-Obox uses `Resource` to share model CRUD, validation and access rules across
+Obox uses `ModelResource` to share model CRUD, validation and access rules across
 HTML and native FastAPI REST routes.
 
 ## Migration
@@ -8,7 +8,7 @@ HTML and native FastAPI REST routes.
 1. Replace the old site registration and URLconf with `obox.register(Model)`
    or register in `AppConfig.ready()` for app-prefixed routes. Attach custom
    views and routers to FastAPI with a named permission.
-2. Put shared validation, field selection and visibility on a `Resource`.
+2. Put shared validation, field selection and visibility on a `ModelResource`.
    Attach HTML customizations with `list_view=`, `detail_view=`, `create_view=`,
    `update_view=` and `delete_view=`, and a REST adapter with `api=ModelApiSubclass`.
 3. Choose a surface using `views=False` or `api=False`. Check the new

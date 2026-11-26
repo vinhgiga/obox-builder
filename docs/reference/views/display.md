@@ -6,14 +6,14 @@ response. Import them from `obox.views.generic`.
 ## `ListView`
 
 `ListView` gets its records from `resource`, `queryset`, `model`, or an overridden
-`get_queryset()`. When a `Resource` is registered, its query scope and readable
-fields apply to the HTML list. Put record visibility rules on the `Resource`
+`get_queryset()`. When a `ModelResource` is registered, its query scope and readable
+fields apply to the HTML list. Put record visibility rules on the `ModelResource`
 when they should also apply to REST routes.
 
 | Attribute | Default | Description |
 | --- | --- | --- |
 | `model` | `None` | SQLAlchemy model to select. |
-| `resource` | `None` | `Resource` class or instance shared with the REST adapter. |
+| `resource` | `None` | `ModelResource` class or instance shared with the REST adapter. |
 | `queryset` | `None` | SQLAlchemy `Select` used as the starting query. |
 | `list_display` | `None` | Model attribute names or callables displayed as columns. With a resource, defaults to its readable fields. |
 | `list_display_links` | `()` | Columns linked to the detail route. An empty sequence links the first displayed column; `None` disables those links. |
@@ -49,7 +49,7 @@ Mark a method with `@action` and include its name in `actions`. The default
 permission is `change`; pass `permissions=("delete",)` or another set of model
 operations when needed. `description` supplies the label displayed to users.
 Actions receive the view, request, and selected SQLAlchemy query. The built-in
-`delete_selected` action requires a `Resource`.
+`delete_selected` action requires a `ModelResource`.
 
 ```python
 from obox.views.generic import ListView, action

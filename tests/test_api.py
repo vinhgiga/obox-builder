@@ -12,7 +12,7 @@ import httpx
 import pytest
 import sqlalchemy as sa
 from fastapi import APIRouter, Depends, FastAPI, Request
-from obox import Resource
+from obox import ModelResource
 from obox.api import ApiRequest, ApiResponse, BaseApi, Context, ModelApi
 from obox.core.exceptions import ImproperlyConfigured
 from obox.core.principal import Principal
@@ -75,7 +75,7 @@ class PostPatch(PostWrite):
     title_text: Title = Field(default_factory=str, alias="headlineText")
 
 
-class PostResource(Resource[Post]):
+class PostResource(ModelResource[Post]):
     model = Post
 
     def get_queryset(self) -> sa.Select[tuple[Post]]:

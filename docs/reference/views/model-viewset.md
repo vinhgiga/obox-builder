@@ -1,6 +1,6 @@
 # `ModelViewSet`
 
-`ModelViewSet` binds one shared `Resource` to the built-in HTML routes. It is a
+`ModelViewSet` binds one shared `ModelResource` to the built-in HTML routes. It is a
 registration declaration, not a request handler. Use a `ModelViewSet` subclass
 in an installed app's `views` sequence, or pass view classes to
 `Obox.register()` directly.
@@ -33,7 +33,7 @@ class CatalogConfig(AppConfig):
 
 | Attribute | Default | Description |
 | --- | --- | --- |
-| `resource` | required | `Resource` class whose query and write policy is shared by these routes. |
+| `resource` | required | `ModelResource` class whose query and write policy is shared by these routes. |
 | `slug` | `None` | URL suffix used for the registered model routes. |
 | `prefix` | `None` | Alternate URL suffix. If both `prefix` and `slug` are set, `prefix` takes precedence. |
 | `list_view` | `None` | `ListView` subclass for the collection page. |

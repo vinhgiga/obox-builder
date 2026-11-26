@@ -164,7 +164,7 @@ class ListView(ModelTemplateMixin, ModelContextMixin, View):
     async def delete_selected(self, request: Request, queryset: Any) -> Response | None:
         resource = self.bound_resource()
         if resource is None:
-            raise ImproperlyConfigured("Bind a Resource to delete selected records.")
+            raise ImproperlyConfigured("Bind a ModelResource to delete selected records.")
         data = await read_form(request)
         if data.get("post") != "yes":
             view = TemplateView(template_name="obox/generic/delete_selected.html")

@@ -7,7 +7,7 @@ registration signatures.
 
 | Import | Purpose |
 | --- | --- |
-| `from obox import Obox, Resource, permission_required, setup` | FastAPI adapter, shared CRUD, route authorization and app loading |
+| `from obox import Obox, ModelResource, permission_required, setup` | FastAPI adapter, shared CRUD, route authorization and app loading |
 | `from obox.apps import AppConfig` | Installed app configuration and declarative registration |
 | `from obox.routes import Route` | HTML route declarations that select templates and permissions |
 | `from obox.components import Component` | Reusable component declarations |
@@ -17,16 +17,16 @@ registration signatures.
 | `from obox.db import atomic` | Async transaction boundary |
 
 `Obox.register(target, *, slug=None, api=True, views=True, list_view=None, detail_view=None, create_view=None, update_view=None, delete_view=None)`
-registers a mapped SQLAlchemy class or a `Resource` subclass. `api` accepts
+registers a mapped SQLAlchemy class or a `ModelResource` subclass. `api` accepts
 `True`, `False` or a `ModelApi` subclass. `AppConfig.register()` accepts the
 same arguments from `ready()` and prefixes URLs with the app's label.
 
-`AppConfig` also declares `views` and `apis` sequences containing `Resource`
+`AppConfig` also declares `views` and `apis` sequences containing `ModelResource`
 classes, `ModelViewSet`/`ModelApi` subclasses, or dotted paths. `components`,
 `routes`, `routers`, `requires`, `ui_prefix`, `view_prefix` and `api_prefix`
 configure the rest of the application.
 
-`Resource` accepts a mapped `model`, optional Pydantic `schema`,
+`ModelResource` accepts a mapped `model`, optional Pydantic `schema`,
 `create_schema`, `update_schema`, `fields`, `readonly_fields`, `ordering`,
 `page_size`, `lookup_field` and `load_options`. Override `get_queryset(self)`
 (the bound principal is `self.principal`), `can(action, obj, actor)`,

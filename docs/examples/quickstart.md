@@ -46,5 +46,5 @@ uv run obox createsuperuser
 uv run uvicorn main:app --reload
 ```
 
-Sign in at `/auth/login` and open `/products`. See [Resource registration](features/register-resource.md)
+Sign in at `/auth/login` and open `/products`. See [ModelResource registration](features/register-resource.md)
 to add shared validation and [access control](../features/access-control.md) to assign model permissions.

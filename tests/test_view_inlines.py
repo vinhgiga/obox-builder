@@ -7,7 +7,7 @@ import httpx
 import pytest
 import sqlalchemy as sa
 from fastapi import Depends, FastAPI
-from obox import Obox, Resource, permission_required
+from obox import ModelResource, Obox, permission_required
 from obox.apps import AppConfig
 from obox.conf import settings
 from obox.core.exceptions import ResourceConflict
@@ -41,7 +41,7 @@ def test_view_inlines_save_parent_children_and_render_errors(layout: Any, direct
         fields = AuthorCreate.fields
         inlines = AuthorCreate.inlines
 
-    class Authors(Resource[Author]):
+    class Authors(ModelResource[Author]):
         model = Author
 
     class AuthorPages(ModelViewSet[Author]):
@@ -64,7 +64,7 @@ def test_view_inlines_save_parent_children_and_render_errors(layout: Any, direct
                 ):
                     app.add_api_route(
                         path,
-                        view.as_view(resource=Resource(model=Author), success_url="/authors"),
+                        view.as_view(resource=ModelResource(model=Author), success_url="/authors"),
                         methods=["GET", "POST"],
                         dependencies=[
                             Depends(permission_required(f"tests.{operation}_author", html=True))
@@ -146,7 +146,7 @@ def test_view_rejects_inline_creation_without_child_add_permission() -> None:
         fields = ("name",)
         inlines = (Books,)
 
-    class Authors(Resource[Author]):
+    class Authors(ModelResource[Author]):
         model = Author
 
     class AuthorPages(ModelViewSet[Author]):

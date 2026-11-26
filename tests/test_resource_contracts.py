@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from fastapi import APIRouter, Depends, FastAPI, Request
 from fastapi.responses import HTMLResponse
 from jinja2 import ChoiceLoader, FileSystemLoader
-from obox import ModelResource, Resource
+from obox import ModelResource
 from obox.api import ModelApi
 from obox.core import (
     BuilderValidationError,
@@ -91,7 +91,7 @@ class EntryService(BaseService):
         return entry
 
 
-class Entries(Resource[Entry]):
+class Entries(ModelResource[Entry]):
     model = Entry
     schema: type[BaseModel] | None = EntryInput
     readonly_fields = ("owner_id",)
@@ -449,7 +449,8 @@ def test_per_action_schemas_defaults_and_invalid_configuration(tmp_path: Path) -
                 await resource.update(entry, {"name": "denied"}, partial=True)
         for options in ({"ordering": "name"}, {"page_size": 0}, {"service_class": object}):
             broken = cast(
-                type[Resource[Entry]], type("Broken", (Resource,), {"model": Entry, **options})
+                type[ModelResource[Entry]],
+                type("Broken", (ModelResource,), {"model": Entry, **options}),
             )
             with pytest.raises(ImproperlyConfigured):
                 broken.check()

@@ -11,7 +11,7 @@ Use a shared Pydantic schema when both surfaces need the same validation.
 ```python
 from decimal import Decimal
 
-from obox import Resource
+from obox import ModelResource
 from pydantic import BaseModel, field_validator
 
 from .models import Product
@@ -29,7 +29,7 @@ class ProductInput(BaseModel):
         return value
 
 
-class ProductResource(Resource[Product]):
+class ProductResource(ModelResource[Product]):
     model = Product
     fields = ("id", "name", "price")
     schema = ProductInput

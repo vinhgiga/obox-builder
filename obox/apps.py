@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
     from obox.api import ModelApi
     from obox.components.declarations import Component
-    from obox.resources import Resource
+    from obox.resources import ModelResource
     from obox.routes import Route
     from obox.runtime.config import RuntimeConfig
     from obox.runtime.context import Context
@@ -38,8 +38,8 @@ def validate_app_prefix(value: str | None, field: str) -> None:
 
 
 class AppConfig:
-    views: ClassVar[Sequence[type[Resource[Any]] | type[ModelViewSet[Any]] | str]] = ()
-    apis: ClassVar[Sequence[type[Resource[Any]] | type[ModelApi[Any]] | str]] = ()
+    views: ClassVar[Sequence[type[ModelResource[Any]] | type[ModelViewSet[Any]] | str]] = ()
+    apis: ClassVar[Sequence[type[ModelResource[Any]] | type[ModelApi[Any]] | str]] = ()
     routers: Sequence[APIRouter] = ()
     requires: Sequence[str] = ()
     components: Sequence[type[Component] | Component] = ()

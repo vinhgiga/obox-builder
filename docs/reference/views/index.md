@@ -17,7 +17,7 @@ They are separate from the generated JSON routes documented in the
 | `CreateView` | Create a model record from a model form. |
 | `UpdateView` | Edit a model record with a model form. |
 | `DeleteView` | Confirm and delete a model record. |
-| `ModelViewSet` | Group a `Resource` and its HTML view classes for registration. |
+| `ModelViewSet` | Group a `ModelResource` and its HTML view classes for registration. |
 
 See [base views](base.md), [display views](display.md),
 [editing views](editing.md), and [ModelViewSet](model-viewset.md).

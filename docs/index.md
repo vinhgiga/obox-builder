@@ -4,7 +4,7 @@ Obox is a small Django/DRF-shaped toolkit on FastAPI and SQLAlchemy. Less code i
 better: each supported public concept maps to Django 5.2 LTS or DRF 3.16.1.
 The installation package is `obox-builder`; Python uses only `obox`.
 
-Use independent forms, generic HTML views, a shared `Resource` for CRUD policy,
+Use independent forms, generic HTML views, a shared `ModelResource` for CRUD policy,
 and `ModelApi` for typed REST endpoints. `Obox(app)` connects them to FastAPI.
 SQLAlchemy models and native requests remain visible; database work is asynchronous.
 

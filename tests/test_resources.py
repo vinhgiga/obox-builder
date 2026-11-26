@@ -7,7 +7,7 @@ import httpx
 import pytest
 import sqlalchemy as sa
 from fastapi import APIRouter, Depends, FastAPI, Request
-from obox import Obox, Resource, permission_required
+from obox import ModelResource, Obox, permission_required
 from obox.api import ModelApi
 from obox.apps import AppConfig
 from obox.conf import settings
@@ -36,7 +36,7 @@ class ItemInput(BaseModel):
         return self
 
 
-class Items(Resource[Item]):
+class Items(ModelResource[Item]):
     model = Item
     schema = ItemInput
     ordering = ("-name",)

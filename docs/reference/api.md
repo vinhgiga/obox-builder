@@ -1,17 +1,17 @@
 # Model REST API
 
 `ModelApi` builds typed FastAPI routes around a SQLAlchemy model or a shared
-`Resource`. A resource keeps record visibility, writable fields, validation, and
+`ModelResource`. A resource keeps record visibility, writable fields, validation, and
 write policy consistent between HTML views and JSON operations.
 
 ```python
 from obox.api import ModelApi
-from obox.resources import Resource
+from obox.resources import ModelResource
 
 from .models import Product
 
 
-class Products(Resource[Product]):
+class Products(ModelResource[Product]):
     model = Product
     fields = ("id", "name", "price", "created_at")
     ordering = ("name",)
@@ -56,7 +56,7 @@ create response includes `Location` when the retrieve route is enabled.
 | Attribute | Default | Description |
 | --- | --- | --- |
 | `model` | required unless `resource` is set | SQLAlchemy model to expose. |
-| `resource` | `None` | `Resource` class shared with HTML views. Set either `model` or `resource`, not both. |
+| `resource` | `None` | `ModelResource` class shared with HTML views. Set either `model` or `resource`, not both. |
 | `prefix` | required | Absolute route prefix such as `/api/products`. |
 | `slug` | `None` | Registration suffix used when mounted through `AppConfig`. |
 | `include_router_methods` | `None` | Generated operations. Defaults to all except `update` when no `update_schema` is declared. |
@@ -76,7 +76,7 @@ create response includes `Location` when the retrieve route is enabled.
 Obox generates a read schema from the resource's readable fields and generates
 create and patch schemas from its writable fields when explicit schemas are not
 provided. With a bare `model`, fields can be inferred from explicit API schemas;
-otherwise use a `Resource` to declare the transport fields and shared policy.
+otherwise use a `ModelResource` to declare the transport fields and shared policy.
 
 Read schemas must subclass `ApiResponse`. Write schemas must subclass
 `ApiRequest`. Both base classes use camelCase aliases at the JSON boundary;

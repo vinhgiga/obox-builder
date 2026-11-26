@@ -3,7 +3,7 @@
 The reference is Django 5.2 LTS and DRF 3.16.1. Obox supports the subset listed in
 [the mapping table](mapping.md). Runtime models are native SQLAlchemy models,
 requests are native Starlette/FastAPI requests, and templates use Jinja2.
-`Obox(app)` installs the FastAPI adapter. `Resource` shares model operations between HTML and REST.
+`Obox(app)` installs the FastAPI adapter. `ModelResource` shares model operations between HTML and REST.
 
 ## Settings and applications
 
@@ -73,15 +73,15 @@ files separately, and close uploads when the view exits. Built-in form templates
 set the encoding automatically.
 See [File forms](examples/views/index.md#file-forms) for routing and list integration.
 
-## Resource registration
+## ModelResource registration
 
-Register a mapped class or a `Resource` on `Obox` or in `AppConfig.ready()`.
+Register a mapped class or a `ModelResource` on `Obox` or in `AppConfig.ready()`.
 The registration builds the selected HTML and REST routes on FastAPI. The shared
 resource owns visibility, input validation and write policy. Pass custom
 `ListView`/`DetailView`/`CreateView`/`UpdateView`/`DeleteView` subclasses and a
 `ModelApi` subclass to choose the form, views and API adapter. `AppConfig.views`
 and `AppConfig.apis` support the same choices declaratively. See
-[Resource registration](examples/features/register-resource.md).
+[ModelResource registration](examples/features/register-resource.md).
 
 Startup checks that routes have a permission policy. Model operations use
 `app_label.view_model`, `add_model`, `change_model` and `delete_model`.

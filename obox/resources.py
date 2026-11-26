@@ -33,7 +33,7 @@ ModelT = TypeVar("ModelT")
 WriteAction = Literal["create", "update", "delete"]
 
 
-class Resource(Generic[ModelT]):
+class ModelResource(Generic[ModelT]):
     """Declare fields, visibility and write rules once for both adapters."""
 
     model: type[ModelT]
@@ -59,7 +59,7 @@ class Resource(Generic[ModelT]):
         if model is not None:
             self.model = model
         if not isinstance(getattr(self, "model", None), type):
-            raise ImproperlyConfigured("Define a mapped model on the Resource.")
+            raise ImproperlyConfigured("Define a mapped model on the ModelResource.")
         self.specs = inspect_fields(self.model)
         mapper = cast("Mapper[ModelT]", sa.inspect(self.model))
         if len(mapper.primary_key) != 1:
@@ -90,12 +90,12 @@ class Resource(Generic[ModelT]):
             if not isinstance(self.update_schema, type) or not issubclass(
                 self.update_schema, BaseModel
             ):
-                raise ImproperlyConfigured("Resource.update_schema must be a Pydantic model.")
+                raise ImproperlyConfigured("ModelResource.update_schema must be a Pydantic model.")
             normalize(self.update_schema.model_fields, self.model, dict.fromkeys(self.writable))
         if (self.create_schema or self.schema) is not None:
             declaration = self.create_schema or self.schema
             if not isinstance(declaration, type) or not issubclass(declaration, BaseModel):
-                raise ImproperlyConfigured("Resource.schema must be a Pydantic model.")
+                raise ImproperlyConfigured("ModelResource.schema must be a Pydantic model.")
             normalize(declaration.model_fields, self.model, dict.fromkeys(self.writable))
             names = set(declaration.model_fields)
             if isinstance(self.update_schema, type) and issubclass(self.update_schema, BaseModel):
@@ -130,36 +130,36 @@ class Resource(Generic[ModelT]):
             not isinstance(self.service_class, type)
             or not issubclass(self.service_class, BaseService)
         ):
-            raise ImproperlyConfigured("Resource.service_class must extend BaseService.")
+            raise ImproperlyConfigured("ModelResource.service_class must extend BaseService.")
         sa.select(self.model).options(*self.load_options)
 
     @classmethod
     def check(cls) -> None:
         cls()
 
-    def bind(self, session: AsyncSession, principal: Identity) -> Resource[ModelT]:
+    def bind(self, session: AsyncSession, principal: Identity) -> ModelResource[ModelT]:
         if self.session is session and self.principal is principal:
             return self
-        if type(self) is Resource:
-            # The base Resource has no request-local state besides these two
+        if type(self) is ModelResource:
+            # The base ModelResource has no request-local state besides these two
             # attributes. Reuse the compiled field/schema definitions instead
             # of reconstructing Pydantic models for every request.
             bound = copy(self)
             bound.session, bound.principal = session, principal
             return bound
-        # Custom Resource constructors may initialize request-local state;
+        # Custom ModelResource constructors may initialize request-local state;
         # preserve their lifecycle rather than copying arbitrary attributes.
         return type(self)(session, principal, model=self.model)
 
     def _session(self) -> AsyncSession:
         if self.session is None:
-            raise ImproperlyConfigured("Bind the Resource to an active session.")
+            raise ImproperlyConfigured("Bind the ModelResource to an active session.")
         return self.session
 
     @cached_property
     def service(self) -> BaseService:
         if self.service_class is None:
-            raise ImproperlyConfigured("Define a service_class on the Resource.")
+            raise ImproperlyConfigured("Define a service_class on the ModelResource.")
         return self.service_class(self._session(), self.principal)
 
     def get_schema(self, action: str) -> type[BaseModel]:
@@ -294,7 +294,7 @@ class Resource(Generic[ModelT]):
         size = page_size if page_size is not None else self.page_size
         paginator = Paginator(size)
         paginator.validate_number(number)
-        if type(self).list is not Resource.list:
+        if type(self).list is not ModelResource.list:
             # Existing resource subclasses may implement their own list execution.
             result = await self.list(
                 queryset=queryset,
@@ -330,7 +330,7 @@ class Resource(Generic[ModelT]):
             self._session(), self.principal, values, None, validate=validate
         )
         try:
-            if instance is not None and type(self).perform_create is Resource.perform_create:
+            if instance is not None and type(self).perform_create is ModelResource.perform_create:
                 return await self._persist(
                     self._session(), self.principal, values, new_instance=instance
                 )
@@ -526,8 +526,8 @@ class Resource(Generic[ModelT]):
                 and column.server_default is None
                 and column is not column.table.autoincrement_column
                 and prop.key not in writable
-                and type(self).prepare_write is Resource.prepare_write
-                and type(self).perform_create is Resource.perform_create
+                and type(self).prepare_write is ModelResource.prepare_write
+                and type(self).perform_create is ModelResource.perform_create
             ):
                 raise ImproperlyConfigured(
                     f"{self.model.__name__}.{prop.key} requires a value for resource creation."
@@ -679,12 +679,9 @@ class Resource(Generic[ModelT]):
         return obj
 
 
-ModelResource = Resource
-
-
-def resolve_resource(target: type[ModelT] | type[Resource[ModelT]]) -> Resource[ModelT]:
+def resolve_resource(target: type[ModelT] | type[ModelResource[ModelT]]) -> ModelResource[ModelT]:
     if not isinstance(target, type):
-        raise ImproperlyConfigured("Register a SQLAlchemy model or Resource class.")
-    if issubclass(target, Resource):
+        raise ImproperlyConfigured("Register a SQLAlchemy model or ModelResource class.")
+    if issubclass(target, ModelResource):
         return target()
-    return Resource(model=target)
+    return ModelResource(model=target)

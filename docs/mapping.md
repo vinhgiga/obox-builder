@@ -15,9 +15,9 @@ explicit; Obox does not implement the rest of either framework.
 | `views.generic` | Django generic display/edit views | per-request instance; setup/dispatch; query/object/context/form hooks; invalid200/redirect303 | native request; Select; awaited DB work | `test_views.py` |
 | `middleware.csrf` | Django CSRF | masked token, cookie/header/form input, origin checks | checked at view dispatch | `test_views.py` |
 | `template.backends.jinja2` | Django Jinja2 backend | directories/app discovery/options; get_template/render | native Jinja2 environment | `test_views.py` |
-| `Resource` | Django model validation and queryset conventions | shared query, input and write policy | async SQLAlchemy and Pydantic | `test_resources.py` |
+| `ModelResource` | Django model validation and queryset conventions | shared query, input and write policy | async SQLAlchemy and Pydantic | `test_resources.py` |
 | `api.ModelApi` | DRF model viewsets and routers | model CRUD; search, order and paging | native FastAPI and generated OpenAPI | `test_api.py` |
-| `views.generic.ModelViewSet` | Django ModelAdmin options | list display/filters/search/actions; fieldsets, inlines and form class | binds view classes to a `Resource` for generated routes | `test_registered_views.py`, `test_view_inlines.py` |
+| `views.generic.ModelViewSet` | Django ModelAdmin options | list display/filters/search/actions; fieldsets, inlines and form class | binds view classes to a `ModelResource` for generated routes | `test_registered_views.py`, `test_view_inlines.py` |
 | `Obox(app)` | adapter exception | settings/apps/template/database/URL integration | FastAPI host adapter | `test_cli.py`, demo integration |
 
 Reference contract tests run the same scalar input cases in a separate

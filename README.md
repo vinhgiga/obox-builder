@@ -30,7 +30,7 @@ obox.register(Product)  # /products and /api/products
 ```
 
 Use `views=False` for REST only or `api=False` for HTML only. Register from
-`AppConfig.ready()` for app-prefixed routes. Declare a `Resource` to share
+`AppConfig.ready()` for app-prefixed routes. Declare a `ModelResource` to share
 field selection, validation and access rules between both surfaces. Customize
 generated HTML with `ListView`, `DetailView`, `CreateView`, `UpdateView` and
 `DeleteView` subclasses, and REST with a `ModelApi` subclass.

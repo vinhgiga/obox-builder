@@ -23,7 +23,7 @@ from obox.core.principal import valid_permission
 from obox.db.fields import ModelField, normalize, schema
 from obox.db.identity import model_label
 from obox.db.query import search_query
-from obox.resources import Resource, resolve_resource
+from obox.resources import ModelResource, resolve_resource
 from obox.runtime.context import Context as Context
 from obox.web.dependencies import _APIContext, api_context, api_principal_context
 from obox.web.routes import ApiRoute
@@ -141,8 +141,8 @@ class ModelApi(BaseApi, Generic[ModelT]):
     model: type[ModelT]
     prefix: str
     slug: str | None = None
-    resource: type[Resource[ModelT]] | None = None
-    _resource: Resource[ModelT]
+    resource: type[ModelResource[ModelT]] | None = None
+    _resource: ModelResource[ModelT]
     _generated: set[str]
     include_router_methods: Sequence[RouterMethod] | None = None
     actions: Collection[Action] | None = None
@@ -182,14 +182,14 @@ class ModelApi(BaseApi, Generic[ModelT]):
             api.name_prefix = name_prefix
         return api.build_router(prefix)
 
-    def get_resource(self, ctx: Context) -> Resource[ModelT]:
+    def get_resource(self, ctx: Context) -> ModelResource[ModelT]:
         resources = ctx.session.info.setdefault("obox.resources", {})
         # A session may be reused with a different identity. The resource's
         # authorization hooks must never see a previous request's principal.
         key = (id(self._resource), id(ctx.principal))
         if key not in resources:
             resources[key] = self._resource.bind(ctx.session, ctx.principal)
-        return cast(Resource[ModelT], resources[key])
+        return cast(ModelResource[ModelT], resources[key])
 
     def build_router(self, prefix: str | None = None) -> APIRouter:
         binding = copy(self)
@@ -198,7 +198,7 @@ class ModelApi(BaseApi, Generic[ModelT]):
             raise ImproperlyConfigured("Specify either model or resource.")
         target = self.resource or model
         if target is None:
-            raise ImproperlyConfigured("Define a Resource or SQLAlchemy model.")
+            raise ImproperlyConfigured("Define a ModelResource or SQLAlchemy model.")
         resource = resolve_resource(target)
         if self.resource is None:
             explicit_fields = tuple(
@@ -215,14 +215,14 @@ class ModelApi(BaseApi, Generic[ModelT]):
                 )
             )
             if explicit_fields:
-                resource = type("ApiResource", (Resource,), {"fields": explicit_fields})(
+                resource = type("ApiResource", (ModelResource,), {"fields": explicit_fields})(
                     model=resource.model
                 )
         return binding.build_resource_router(
             prefix if prefix is not None else getattr(self, "prefix", ""), resource
         )
 
-    def build_resource_router(self, prefix: str, resource: Resource[ModelT]) -> APIRouter:
+    def build_resource_router(self, prefix: str, resource: ModelResource[ModelT]) -> APIRouter:
         if not re.fullmatch(r"/[a-zA-Z0-9_-]+(?:/[a-zA-Z0-9_-]+)*", prefix):
             raise ImproperlyConfigured("Provide an absolute API prefix.")
         if self.include_router_methods is not None and (
@@ -351,7 +351,9 @@ class ModelApi(BaseApi, Generic[ModelT]):
             relationships = cast("Mapper[ModelT]", sa.inspect(self.model)).relationships.keys()
             related = (read.model_fields.keys() & set(relationships)) - specs.keys()
             if related and not resource.load_options:
-                raise ImproperlyConfigured("Declare Resource.load_options for API relationships.")
+                raise ImproperlyConfigured(
+                    "Declare ModelResource.load_options for API relationships."
+                )
             names = _schema_names(read, selected, relations=related)
             readable = {name: specs[name] for name in read.model_fields if name not in related}
         if "list" in methods:
@@ -393,7 +395,7 @@ class ModelApi(BaseApi, Generic[ModelT]):
                 )
             write_names = _schema_names(body, selected, write=True) if body is not None else {}
             if not write_names.keys() <= set(writable):
-                raise ImproperlyConfigured("API fields must be writable on the Resource.")
+                raise ImproperlyConfigured("API fields must be writable on the ModelResource.")
             permission = f"{label}.{permission_action}_{model_name}"
             dependency = require(permission)
             additional = self.permissions.get(action)

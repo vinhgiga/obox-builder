@@ -17,7 +17,7 @@ publish it through the JSON API as well. The
 [route example](../examples/pages/compose-page.md) shows template composition.
 
 Analytics is optional contrib functionality. It does not add chart or pivot
-concepts to `Resource`, the generated HTML views or `ModelApi`. The
+concepts to `ModelResource`, the generated HTML views or `ModelApi`. The
 [analytics integration contract](../extension-spec.md) describes the current boundary.
 
 ## Pivot

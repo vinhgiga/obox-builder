@@ -232,8 +232,8 @@ class ConflictingApi(ItemApi):
     ("fields", "message"),
     [
         ({"views": [Items, ItemViews]}, "declared twice"),
-        ({"views": [ListView]}, "Resource or ModelViewSet"),
-        ({"apis": [ModelOnlyApi]}, "must declare a Resource class"),
+        ({"views": [ListView]}, "ModelResource or ModelViewSet"),
+        ({"apis": [ModelOnlyApi]}, "must declare a ModelResource class"),
         ({"apis": "tests.test_resources.Items"}, "must be a list or tuple"),
         ({"views": ["tests.test_resources.Unknown"]}, "Cannot load"),
         ({"views": [ItemViews], "apis": [ConflictingApi]}, "same slug"),

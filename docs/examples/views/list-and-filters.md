@@ -1,16 +1,16 @@
 # List views and filters
 
-Use a `ListView` subclass for HTML list options and a `Resource` for record
+Use a `ListView` subclass for HTML list options and a `ModelResource` for record
 visibility.
 
 ```python
-from obox import Resource
+from obox import ModelResource
 from obox.views.generic import ListView
 
 from .models import Product
 
 
-class LiveProducts(Resource[Product]):
+class LiveProducts(ModelResource[Product]):
     model = Product
 
     def get_queryset(self):

@@ -6,7 +6,7 @@ from fastapi import Request
 from obox.core.exceptions import ImproperlyConfigured
 from obox.core.principal import has_permission
 from obox.db.identity import model_label
-from obox.resources import Resource, resolve_resource
+from obox.resources import ModelResource, resolve_resource
 from obox.views.generic.base import ContextMixin, TemplateResponseMixin
 
 
@@ -17,7 +17,7 @@ def model_permission(model: type[Any], operation: str) -> str:
 
 class ModelContextMixin(ContextMixin):
     model: type[Any] | None = None
-    resource: type[Resource[Any]] | Resource[Any] | None = None
+    resource: type[ModelResource[Any]] | ModelResource[Any] | None = None
     route_names: ClassVar[Mapping[str, str]] = {}
     request: Request
 
@@ -29,12 +29,12 @@ class ModelContextMixin(ContextMixin):
             raise ImproperlyConfigured("Specify either model or resource.")
         if isinstance(self.resource, type):
             self.resource.check()
-        elif self.resource is not None and not isinstance(self.resource, Resource):
-            raise ImproperlyConfigured("Provide a Resource class.")
+        elif self.resource is not None and not isinstance(self.resource, ModelResource):
+            raise ImproperlyConfigured("Provide a ModelResource class.")
         elif self.model is not None:
             resolve_resource(self.model)
 
-    def bound_resource(self) -> Resource[Any] | None:
+    def bound_resource(self) -> ModelResource[Any] | None:
         if isinstance(self.resource, type):
             if self.model is not None:
                 raise ImproperlyConfigured("Specify either model or resource.")

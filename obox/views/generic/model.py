@@ -1,8 +1,8 @@
-"""Group the HTML views generated for a Resource."""
+"""Group the HTML views generated for a ModelResource."""
 
 from typing import Generic, TypeVar
 
-from obox.resources import Resource
+from obox.resources import ModelResource
 from obox.views.generic.detail import DetailView
 from obox.views.generic.edit import CreateView, DeleteView, UpdateView
 from obox.views.generic.list import ListView
@@ -11,7 +11,7 @@ ModelT = TypeVar("ModelT")
 
 
 class ModelViewSet(Generic[ModelT]):
-    resource: type[Resource[ModelT]]
+    resource: type[ModelResource[ModelT]]
     slug: str | None = None
     prefix: str | None = None
     list_view: type[ListView] | None = None

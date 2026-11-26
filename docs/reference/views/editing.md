@@ -47,7 +47,7 @@ change that status.
 
 ## `ModelFormMixin`
 
-`ModelFormMixin` connects a form to a SQLAlchemy model or shared `Resource`.
+`ModelFormMixin` connects a form to a SQLAlchemy model or shared `ModelResource`.
 
 | Attribute or method | Default | Description |
 | --- | --- | --- |
@@ -62,9 +62,9 @@ change that status.
 | `save_formset(request, form, formset, change)` | — | Async hook for saving one inline formset. |
 | `get_success_url()` | — | Uses `success_url`, the registered list route, or `get_absolute_url()` when available. |
 
-With a `Resource`, the generated model form uses the resource's create/update
+With a `ModelResource`, the generated model form uses the resource's create/update
 schema and writable fields. The form and related formsets save within a
-transactional savepoint. Resource validation errors are returned to the form.
+transactional savepoint. ModelResource validation errors are returned to the form.
 
 ## `CreateView` and `UpdateView`
 
@@ -80,8 +80,8 @@ If `template_name` is unset, both try `<app>/<model>_form.html`, then
 ## `DeleteView`
 
 `DeleteView` displays a confirmation on `GET`. A valid `POST` or `DELETE`
-removes the record through its `Resource` and redirects with status `303`.
-Resource deletion rules are checked before the record is removed. It uses the
+removes the record through its `ModelResource` and redirects with status `303`.
+ModelResource deletion rules are checked before the record is removed. It uses the
 configured `success_url` or the registered list route; a missing redirect
 target is a configuration error.
 

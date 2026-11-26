@@ -6,13 +6,13 @@ Register a mapped model to publish both HTML and REST CRUD.
 obox.register(Product)
 ```
 
-Declare a `Resource` for shared field selection, validation, record visibility
+Declare a `ModelResource` for shared field selection, validation, record visibility
 and write policy.
 
 ```python
 from decimal import Decimal
 
-from obox import Resource
+from obox import ModelResource
 from pydantic import BaseModel
 
 from .models import Product
@@ -23,7 +23,7 @@ class ProductInput(BaseModel):
     price: Decimal
 
 
-class ProductResource(Resource[Product]):
+class ProductResource(ModelResource[Product]):
     model = Product
     fields = ("id", "name", "price")
     schema = ProductInput
@@ -55,7 +55,7 @@ readable fields. Pass a `ModelApi` subclass with `api=...` to replace the REST
 adapter. Use `views=False` or `api=False` to publish a single surface.
 
 Register from `AppConfig.ready()` for app-prefixed routes. `AppConfig.views` and
-`AppConfig.apis` also accept `Resource` classes, `ModelViewSet`/`ModelApi`
+`AppConfig.apis` also accept `ModelResource` classes, `ModelViewSet`/`ModelApi`
 subclasses, or dotted paths for declarative registration.
 
 See the [registration example](../examples/features/register-resource.md),

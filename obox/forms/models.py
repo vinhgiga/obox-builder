@@ -33,7 +33,7 @@ from obox.forms.forms import Form, S
 from obox.forms.formsets import BaseFormSet, formset_factory
 from obox.forms.relations import ModelChoiceField, ModelMultipleChoiceField
 from obox.forms.widgets import HiddenInput
-from obox.resources import Resource
+from obox.resources import ModelResource
 
 
 def _editable_relationship(relation: Any) -> bool:
@@ -283,7 +283,7 @@ class ModelForm(Form[S]):
         initial: Mapping[str, Any] | None = None,
         prefix: str | None = None,
         empty_permitted: bool = False,
-        resource: Resource[Any] | None = None,
+        resource: ModelResource[Any] | None = None,
         schema: type[S] | None = None,
     ) -> None:
         self.resource = resource
@@ -392,12 +392,12 @@ class ModelForm(Form[S]):
                     target = sources.get(name, name)
                     self.add_error(target if target in self.fields else None, messages)
 
-    def _resource(self, session: Any) -> Resource[Any]:
+    def _resource(self, session: Any) -> ModelResource[Any]:
         ctx = session.info.get("obox.runtime.context")
         principal = ctx.principal if ctx is not None else ANONYMOUS
         if self.resource is not None:
             return self.resource.bind(session, principal)
-        return Resource(session, principal, model=type(self.instance))
+        return ModelResource(session, principal, model=type(self.instance))
 
     async def _validate_save(self) -> None:
         if not self._validated:
@@ -715,7 +715,7 @@ class BaseModelFormSet(BaseFormSet):
         if commit:
             async with session_scope() as session:
                 ctx = session.info.get("obox.runtime.context")
-                await Resource(
+                await ModelResource(
                     session, ctx.principal if ctx else ANONYMOUS, model=self.model
                 ).destroy(obj)
 

@@ -7,7 +7,7 @@ import httpx
 import pytest
 import sqlalchemy as sa
 from fastapi import Depends, FastAPI
-from obox import Obox, Resource, permission_required
+from obox import ModelResource, Obox, permission_required
 from obox.apps import AppConfig
 from obox.conf import settings
 from obox.core.exceptions import ImproperlyConfigured
@@ -85,7 +85,7 @@ def test_registered_views_call_form_and_resource_hooks() -> None:
     class ItemDelete(DeleteView):
         success_url = "/items"
 
-    class ItemsResource(Resource[Item]):
+    class ItemsResource(ModelResource[Item]):
         model = Item
         readonly_fields = ("quantity",)
 
@@ -210,7 +210,7 @@ def test_registered_list_links_pagination_and_action_confirmation() -> None:
                 paginate_by = 2
                 search_fields = ("name",)
 
-            class LockedItems(Resource[Item]):
+            class LockedItems(ModelResource[Item]):
                 model = Item
 
                 async def can(self, action: str, obj: Item | None, actor: Any) -> bool:
@@ -262,7 +262,7 @@ def test_registered_list_links_pagination_and_action_confirmation() -> None:
 def test_same_list_view_supports_filters_search_and_actions_on_both_routes() -> None:
     seen = []
 
-    class VisibleItems(Resource[Item]):
+    class VisibleItems(ModelResource[Item]):
         model = Item
 
         def get_queryset(self) -> sa.Select[tuple[Item]]:

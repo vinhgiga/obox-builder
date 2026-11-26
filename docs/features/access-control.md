@@ -5,7 +5,7 @@ An active superuser has all permissions. An API token is limited to its scopes.
 
 Each generated HTML or REST operation uses a model permission such as
 `products.view_product`, `products.add_product`, `products.change_product` or
-`products.delete_product`. A custom `Resource` can further restrict the records
+`products.delete_product`. A custom `ModelResource` can further restrict the records
 returned or the fields a user can write.
 
 Declare a named permission on native FastAPI routes.

@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends
 
 from obox.api import ModelApi
 from obox.core.exceptions import ImproperlyConfigured
-from obox.resources import Resource, resolve_resource
+from obox.resources import ModelResource, resolve_resource
 from obox.views.generic import (
     CreateView,
     DeleteView,
@@ -52,7 +52,7 @@ class Registration:
     ) -> None:
         runtime.check_mutable()
         if type(self.views) is not bool or (self.api is False and not self.views):
-            raise ImproperlyConfigured("Choose at least one Resource surface.")
+            raise ImproperlyConfigured("Choose at least one ModelResource surface.")
         if self.api is True or self.api is False:
             api_class = ModelApi if self.api else None
         elif isinstance(self.api, type) and issubclass(self.api, ModelApi):
@@ -72,7 +72,7 @@ class Registration:
         slug = self.slug if self.slug is not None else _slug(resource.model.__name__)
         if not isinstance(slug, str) or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", slug):
             raise ImproperlyConfigured(
-                "A Resource slug must use lowercase words joined by hyphens."
+                "A ModelResource slug must use lowercase words joined by hyphens."
             )
         view_route = self.view_suffix if self.view_suffix is not None else slug
         api_route = self.api_suffix if self.api_suffix is not None else slug
@@ -108,7 +108,7 @@ class Registration:
                 )
         runtime._resources[identity] = resource.model
 
-    def _build_views(self, prefix: str, resource: Resource[Any]) -> APIRouter:
+    def _build_views(self, prefix: str, resource: ModelResource[Any]) -> APIRouter:
         basename = f"obox:views:{prefix}"
         router = APIRouter(prefix=prefix, include_in_schema=False, route_class=UIRoute)
         viewset = self.viewset
@@ -183,12 +183,12 @@ class Registration:
 
 def _app_bindings(
     app: AppConfig, field: str, adapter: type[AdapterT]
-) -> dict[type[Resource[Any]], type[AdapterT]]:
+) -> dict[type[ModelResource[Any]], type[AdapterT]]:
     declarations = getattr(app, field)
     setting = f"{app.label}.{field}"
     if not isinstance(declarations, Sequence) or isinstance(declarations, (str, bytes)):
         raise ImproperlyConfigured(f"{setting} must be a list or tuple of declarations.")
-    bindings: dict[type[Resource[Any]], type[AdapterT]] = {}
+    bindings: dict[type[ModelResource[Any]], type[AdapterT]] = {}
     for declaration in declarations:
         if isinstance(declaration, str):
             module, _, name = declaration.rpartition(".")
@@ -196,22 +196,22 @@ def _app_bindings(
                 declaration = getattr(import_module(module), name)
             except (ImportError, AttributeError, ValueError) as exc:
                 raise ImproperlyConfigured(f"Cannot load {declaration!r} in {setting}.") from exc
-        if isinstance(declaration, type) and issubclass(declaration, Resource):
+        if isinstance(declaration, type) and issubclass(declaration, ModelResource):
             resource, binding = declaration, adapter
         elif isinstance(declaration, type) and issubclass(declaration, adapter):
             target = getattr(declaration, "resource", None)
             if (
                 not isinstance(target, type)
-                or not issubclass(target, Resource)
+                or not issubclass(target, ModelResource)
                 or getattr(declaration, "model", None) is not None
             ):
                 raise ImproperlyConfigured(
-                    f"{declaration.__name__} in {setting} must declare a Resource class."
+                    f"{declaration.__name__} in {setting} must declare a ModelResource class."
                 )
             resource, binding = target, declaration
         else:
             raise ImproperlyConfigured(
-                f"{setting} must contain Resource or {adapter.__name__} classes."
+                f"{setting} must contain ModelResource or {adapter.__name__} classes."
             )
         if resource in bindings:
             raise ImproperlyConfigured(f"{resource.__name__} is declared twice in {setting}.")

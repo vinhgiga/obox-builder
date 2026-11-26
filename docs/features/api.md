@@ -2,7 +2,7 @@
 
 Use the [ModelApi example](../examples/apis/query-resource.md) for standardized
 REST endpoints. Routes use typed request and response schemas, enforce the
-shared `Resource` policy, and follow the defaults in the
+shared `ModelResource` policy, and follow the defaults in the
 [REST contract](../api-spec.md).
 
 Components expose a separate typed JSON query API. Template-rendered component

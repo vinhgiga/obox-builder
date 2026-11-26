@@ -10,7 +10,7 @@ from obox.core.exceptions import ImproperlyConfigured, NotFound, ValidationError
 from obox.core.principal import Principal
 from obox.forms import CharField, Form, ModelForm
 from obox.forms.models import fields_for_model
-from obox.resources import Resource
+from obox.resources import ModelResource
 from obox.views.generic.edit import FormMixin
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -36,7 +36,7 @@ class Examples(ModelApi[Example]):
 
 def test_api_resource_cache_is_scoped_to_principal() -> None:
     api = Examples()
-    api._resource = Resource(model=Example)
+    api._resource = ModelResource(model=Example)
     session = SimpleNamespace(info={})
     first = Principal(id=1, is_authenticated=True)
     second = Principal(id=2, is_authenticated=True)
@@ -175,7 +175,7 @@ def test_schema_forms_preserve_strict_numeric_validation() -> None:
 
 
 def test_base_resource_binding_reuses_compiled_metadata_without_shared_identity() -> None:
-    source = Resource(model=Example)
+    source = ModelResource(model=Example)
     first = Principal(id=1)
     second = Principal(id=2)
     first_session, second_session = object(), object()
@@ -194,7 +194,7 @@ def test_base_resource_binding_reuses_compiled_metadata_without_shared_identity(
 
 
 def test_subclass_resource_bind_keeps_custom_initialization() -> None:
-    class Custom(Resource[Example]):
+    class Custom(ModelResource[Example]):
         model = Example
         calls = 0
 
@@ -251,7 +251,7 @@ def test_json_form_fields_preserve_empty_containers() -> None:
 
 @pytest.mark.parametrize("invalid", [True, -1, 1.5, "5"])
 def test_resource_rejects_invalid_list_windows(invalid: Any) -> None:
-    resource = Resource(model=Example)
+    resource = ModelResource(model=Example)
     with pytest.raises(ValueError, match="positive limit"):
         asyncio.run(resource.list(offset=invalid))
     with pytest.raises(ValueError, match="positive limit"):
@@ -260,13 +260,13 @@ def test_resource_rejects_invalid_list_windows(invalid: Any) -> None:
 
 @pytest.mark.parametrize("invalid", [True, -1, 0, 1.5, "2"])
 def test_resource_rejects_invalid_page_numbers(invalid: Any) -> None:
-    resource = Resource(model=Example)
+    resource = ModelResource(model=Example)
     with pytest.raises(NotFound):
         asyncio.run(resource.paginate(number=invalid))
 
 
 @pytest.mark.parametrize("invalid", [True, -1, 0, 1.5, "2"])
 def test_resource_rejects_invalid_page_sizes(invalid: Any) -> None:
-    resource = Resource(model=Example)
+    resource = ModelResource(model=Example)
     with pytest.raises(ImproperlyConfigured):
         asyncio.run(resource.paginate(page_size=invalid))
