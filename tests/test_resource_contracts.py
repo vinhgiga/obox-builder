@@ -193,7 +193,9 @@ def test_html_and_api_share_page_order_and_scoped_lookup(tmp_path: Path) -> None
                     "pages": 3,
                 }
                 assert len((await client.get("/api/entries?per_page=2")).json()["items"]) == 2
-                assert (await client.get("/api/entries?per_page=3")).status_code == 422
+                capped = await client.get("/api/entries?per_page=3")
+                assert capped.status_code == 200
+                assert capped.json()["page_size"] == 2
                 for prefix in ("/entries", "/api/entries"):
                     assert (await client.get(f"{prefix}?page={10**40}")).status_code == 404
                     assert (await client.get(f"{prefix}/private")).status_code == 404
@@ -211,7 +213,13 @@ def test_html_and_api_share_page_order_and_scoped_lookup(tmp_path: Path) -> None
                 assert set(paths["/api/entries"]) == {"get"}
                 listing = paths["/api/entries"]["get"]
                 assert listing["tags"] == ["entries"]
-                assert {param["name"] for param in listing["parameters"]} == {"page", "per_page"}
+                assert {param["name"] for param in listing["parameters"]} == {
+                    "page",
+                    "per_page",
+                    "filter",
+                    "search",
+                    "order",
+                }
                 lookup = paths["/api/entries/{slug}"]["get"]["parameters"][0]
                 assert lookup["name"] == "slug"
                 assert lookup["schema"]["type"] == "string"

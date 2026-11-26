@@ -9,10 +9,12 @@ import httpx
 import pytest
 import sqlalchemy as sa
 from fastapi import FastAPI, Request
+from obox import ModelResource
 from obox.contrib.files import IMAGES, File, Files, attachments
 from obox.contrib.files.models import Base as FileBase
 from obox.core.principal import Principal
 from obox.runtime.config import RuntimeConfig
+from obox.runtime.registration import Registration
 from obox.runtime.runtime import _Runtime
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -29,6 +31,11 @@ class Document(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(sa.String(50))
     attachments: Mapped[list[File]] = attachments(types=IMAGES)
+
+
+class Documents(ModelResource[Document]):
+    model = Document
+    fields = ("id", "name", "attachments")
 
 
 PNG = b"\x89PNG\r\n\x1a\ncontent"
@@ -53,6 +60,7 @@ async def application(tmp_path: Path) -> AsyncIterator[tuple[_Runtime, httpx.Asy
             ),
             features=[Files(root=tmp_path / "media", models=(Document,))],
         )
+        Registration(Documents, "documents", True, False).mount(app)
         async with (
             app.app.router.lifespan_context(app.app),
             httpx.AsyncClient(
@@ -68,6 +76,8 @@ def test_file_json_contract_across_upload_resume_claim_and_widget(tmp_path: Path
 
     async def scenario() -> None:
         async with application(tmp_path) as (app, client):
+            files = app.feature("files")
+            assert isinstance(files, Files)
             created = await client.post(
                 "/files",
                 json={
@@ -113,13 +123,28 @@ def test_file_json_contract_across_upload_resume_claim_and_widget(tmp_path: Path
             async with app.uow(
                 principal=Principal(id=1, is_authenticated=True, is_superuser=True)
             ) as ctx:
-                values = await app.feature("files").resolve(
+                values = await files.resolve(
                     Document, {"name": "Example", "attachments": [upload["id"]]}, ctx
                 )
                 document = Document(**values)
                 ctx.session.add(document)
+                ctx.session.add(Document(name="Empty"))
                 await ctx.session.flush()
                 record_id = str(document.id)
+            for expression, name in [
+                ("attachments.is.null", "Empty"),
+                ("attachments.not.is.null", "Example"),
+            ]:
+                filtered = await client.get("/v0/documents", params={"filter": expression})
+                assert filtered.status_code == 200, filtered.text
+                assert [row["name"] for row in filtered.json()["items"]] == [name]
+            for params, code in [
+                ({"filter": "attachments.is.empty"}, "unsupported_operator"),
+                ({"order": "attachments"}, "unknown_field"),
+            ]:
+                invalid = await client.get("/v0/documents", params=params)
+                assert invalid.status_code == 422
+                assert invalid.json()["code"] == code
             reordered = await client.put(
                 f"/files/{record_id}/order",
                 json={"field": "file_documents.attachments", "ids": [upload["id"]]},
@@ -133,8 +158,9 @@ def test_file_json_contract_across_upload_resume_claim_and_widget(tmp_path: Path
             async with app.uow(
                 principal=Principal(id=1, is_authenticated=True, is_superuser=True)
             ) as ctx:
-                document = await ctx.session.get(Document, int(record_id))
-                config = app.feature("files").form_config(Document, "attachments", document, ctx)
+                stored = await ctx.session.get(Document, int(record_id))
+                assert stored is not None
+                config = files.form_config(Document, "attachments", stored, ctx)
                 assert config["files"] == [renamed.json()]
             owned_upload = await client.post(
                 "/files",

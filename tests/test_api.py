@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from pathlib import Path
 from types import MappingProxyType
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 from uuid import UUID, uuid4
 
 import httpx
@@ -13,8 +13,8 @@ import pytest
 import sqlalchemy as sa
 from fastapi import APIRouter, Depends, FastAPI, Request
 from obox import ModelResource
-from obox.api import ApiRequest, ApiResponse, BaseApi, Context, ModelApi
-from obox.core.exceptions import ImproperlyConfigured
+from obox.api import ApiRequest, ApiResponse, BaseApi, Context, ModelApi, RouterMethod
+from obox.core.exceptions import ImproperlyConfigured, PermissionDenied
 from obox.core.principal import Principal
 from obox.runtime.config import RuntimeConfig
 from obox.runtime.runtime import _Runtime
@@ -112,7 +112,8 @@ class Posts(ModelApi[Post]):
     create_schema: type[ApiRequest] | None = PostWrite
     update_schema: type[ApiRequest] | None = PostWrite
     patch_schema: type[ApiRequest] | None = PostPatch
-    search_fields = ordering_fields = ("title_text",)
+    search_fields: Sequence[str] = ("title_text",)
+    ordering_fields: Sequence[str] = ("title_text",)
 
 
 class Albums(ModelApi[Album]):
@@ -137,6 +138,14 @@ def principal(request: Request) -> Principal:
         )
     if who == "viewer":
         return Principal(id=1, is_authenticated=True, permissions=frozenset({"tests.view_post"}))
+    if who == "album-viewer":
+        return Principal(
+            id=1,
+            is_authenticated=True,
+            permissions=frozenset(
+                {"tests.view_post", "tests.view_album", "tests.view_albumwithrelationship"}
+            ),
+        )
     if who in {"member", "inactive"}:
         return Principal(id=1, is_authenticated=True, is_active=who == "member")
     return Principal()
@@ -254,6 +263,7 @@ def test_album_api_response_uses_columns_with_or_without_relationship(tmp_path: 
         async with database(tmp_path / "album-api.sqlite3", (Base.metadata,)) as sessions:
             async with sessions.begin() as session:
                 session.add(Artist(artist_id=1))
+                await session.flush()
                 session.add_all(
                     [
                         Album(
@@ -283,10 +293,15 @@ def test_album_api_response_uses_columns_with_or_without_relationship(tmp_path: 
                     ),
                 )
                 app.include_router(api().build_router("/v0/album"))
-                async with app.router.lifespan_context(app), httpx.AsyncClient(
-                    transport=httpx.ASGITransport(app=app), base_url="http://test"
-                ) as client:
-                    response = await client.get("/v0/album/1", headers=VIEWER)
+                async with (
+                    app.router.lifespan_context(app),
+                    httpx.AsyncClient(
+                        transport=httpx.ASGITransport(app=app), base_url="http://test"
+                    ) as client,
+                ):
+                    response = await client.get(
+                        "/v0/album/1", headers={"x-test-user": "album-viewer"}
+                    )
                     assert response.status_code == 200, response.text
                     assert response.json() == expected
 
@@ -323,9 +338,11 @@ def test_list_scope_search_sort_and_pagination(tmp_path: Path) -> None:
             assert not second.json()["hasMore"]
             assert second.json()["total"] is None
             assert second.json()["items"][0]["headlineText"] == "A%"
+            capped = await client.get(f"{POSTS}?limit=101", headers=EDITOR)
+            assert capped.status_code == 200
+            assert capped.json()["limit"] == 100
             for query in (
                 "limit=0",
-                "limit=101",
                 "offset=-1",
                 "order=ownerId",
                 "order=title_text.asc",
@@ -334,6 +351,145 @@ def test_list_scope_search_sort_and_pagination(tmp_path: Path) -> None:
                 "unknown=x",
             ):
                 assert (await client.get(f"{POSTS}?{query}", headers=EDITOR)).status_code == 422
+
+    asyncio.run(scenario())
+
+
+def test_group_shares_list_permissions_and_scopes(tmp_path: Path) -> None:
+    class Resource(PostResource):
+        async def check_permission(self, action: str, obj: Post | None = None) -> None:
+            if action == "list" and self.principal.id == 2:
+                raise PermissionDenied("Listing is unavailable.")
+            await super().check_permission(action, obj)
+
+    class ScopedPosts(Posts):
+        resource = Resource
+        group_fields = ("summary_text",)
+        permissions = MappingProxyType({"list": "tests.add_record"})
+
+        def get_queryset(self, ctx: Context, *, action: RouterMethod) -> sa.Select[tuple[Post]]:
+            assert action == "list"
+            return sa.select(Post).where(Post.id >= 2).order_by(Post.id).limit(3)
+
+    class JoinedPosts(Posts):
+        prefix = "/joined-posts"
+
+        def get_queryset(self, ctx: Context, *, action: RouterMethod) -> sa.Select[tuple[Post]]:
+            repeated = sa.union_all(
+                sa.select(sa.literal(2).label("post_id")), sa.select(sa.literal(2))
+            ).subquery()
+            return (
+                super()
+                .get_queryset(ctx, action=action)
+                .join(repeated, repeated.c.post_id == Post.id)
+            )
+
+    async def scenario() -> None:
+        router = APIRouter()
+        router.include_router(ScopedPosts().build_router())
+        router.include_router(JoinedPosts().build_router())
+        async with application(tmp_path, router) as (runtime, client):
+            async with runtime.session_factory.begin() as session:
+                session.add_all(
+                    Post(
+                        id=i,
+                        title_text=f"Post {i}",
+                        owner_id=owner,
+                        summary_text=sa.null() if summary is None else summary,
+                    )
+                    for i, owner, summary in [
+                        (1, 1, "Before"),
+                        (2, 1, ""),
+                        (3, 2, "Other"),
+                        (4, 1, None),
+                        (5, 1, "After"),
+                    ]
+                )
+            path = POSTS + ":groups"
+            params = {"by": "summaryText", "includeTotal": "true", "order": "count.asc"}
+            for headers, status in [({}, 401), (VIEWER, 403), (OTHER, 403)]:
+                assert (await client.get(POSTS, headers=headers)).status_code == status
+                assert (
+                    await client.get(path, headers=headers, params=params)
+                ).status_code == status
+            allowed = await client.get(path, headers=EDITOR, params=params)
+            assert allowed.status_code == 200, allowed.text
+            assert allowed.json()["items"] == [
+                {"key": {"summaryText": ""}, "count": 1},
+                {"key": {"summaryText": None}, "count": 1},
+            ]
+            assert allowed.json()["total"] == 2
+            for url, query in [
+                (path, {"by": "summaryText", "search": "5"}),
+                (path, {"by": "summaryText", "filter": "id.eq.5"}),
+                (POSTS, {"filter": "id.eq.5"}),
+            ]:
+                response = await client.get(url, headers=EDITOR, params=query)
+                assert response.status_code == 200, response.text
+                assert response.json()["items"] == []
+            excluded = await client.get(path, headers=EDITOR, params={"by": "headlineText"})
+            assert excluded.status_code == 422
+            assert excluded.json()["code"] == "unknown_field"
+            joined = await client.get(
+                "/api/joined-posts:groups", headers=EDITOR, params={"by": "headlineText"}
+            )
+            assert joined.status_code == 200, joined.text
+            assert joined.json()["items"] == [{"key": {"headlineText": "Post 2"}, "count": 1}]
+
+    asyncio.run(scenario())
+
+
+def test_numbered_list_caps_size_and_honors_explicit_fields(tmp_path: Path) -> None:
+    class Resource(PostResource):
+        def get_ordering(self) -> Sequence[Any]:
+            return ()
+
+    class Numbered(Posts):
+        resource = Resource
+        pagination: Literal["page"] = "page"
+        page_param = "p"
+        page_size_param = "size"
+        max_page_size = 2
+        search_fields = ("^title_text", "=summary_text")
+        ordering_fields = group_fields = ()
+        filter_fields = ("title_text",)
+
+    async def scenario() -> None:
+        async with application(tmp_path, Numbered().build_router()) as (runtime, client):
+            async with runtime.session_factory.begin() as session:
+                session.add_all(
+                    Post(id=i, title_text=title, summary_text=summary, owner_id=1)
+                    for i, title, summary in [
+                        (3, "Chairs", "blue velvet"),
+                        (1, "Chairs red", "Blue"),
+                        (2, "Chairs green", "blue"),
+                    ]
+                )
+            first = await client.get(POSTS, headers=EDITOR, params={"p": 1, "size": 99})
+            second = await client.get(POSTS, headers=EDITOR, params={"p": 2, "size": 99})
+            assert first.status_code == second.status_code == 200
+            assert first.json()["page_size"] == second.json()["page_size"] == 2
+            assert [row["id"] for row in first.json()["items"] + second.json()["items"]] == [
+                1,
+                2,
+                3,
+            ]
+            result = await client.get(
+                POSTS,
+                headers=EDITOR,
+                params={"filter": "headlineText.ilike.*green", "search": "cha blue"},
+            )
+            assert result.status_code == 200, result.text
+            assert [row["id"] for row in result.json()["items"]] == [2]
+            for query, code in [
+                ({"order": "headlineText"}, "unknown_parameter"),
+                ({"filter": "summaryText.eq.blue"}, "unknown_field"),
+                ({"size": "0"}, "validation_error"),
+            ]:
+                invalid_query = await client.get(POSTS, headers=EDITOR, params=query)
+                assert invalid_query.status_code == 422
+                assert invalid_query.json()["code"] == code
+            assert (await client.get(POSTS + ":groups", headers=EDITOR)).status_code == 404
 
     asyncio.run(scenario())
 
@@ -473,3 +629,10 @@ def test_rejects_bad_schema_and_duplicate_routes() -> None:
     app.add_api_route(POSTS + "/{other_id}", lambda: None, methods=["GET"])
     with pytest.raises(ImproperlyConfigured, match="Duplicate API route"):
         runtime.check()
+
+    grouped = FastAPI()
+    group_runtime = _Runtime(grouped, settings=RuntimeConfig(database_url="sqlite+aiosqlite://"))
+    grouped.include_router(Posts().build_router(), prefix="/api")
+    grouped.add_api_route(POSTS + ":groups", lambda: None, methods=["GET"])
+    with pytest.raises(ImproperlyConfigured, match="Duplicate API route"):
+        group_runtime.check()

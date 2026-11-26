@@ -86,7 +86,7 @@ async def application(
     async def history(id: int, ctx: Context = history_context) -> Any:
         return {}
 
-    app.include_router(router)
+    app.include_router(router, app_api=True)
     try:
         async with app.app.router.lifespan_context(app.app):
             async with engine.begin() as conn:

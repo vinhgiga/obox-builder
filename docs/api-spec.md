@@ -9,6 +9,10 @@ an explicit `update_schema` can define its request contract. PUT does not create
 a record when the requested ID is unavailable.
 The API returns a paginated object with `items`, `limit`, `offset`, `hasMore`
 and `total`. Request `includeTotal=true` to include a count.
+The list route accepts `filter`, `search`, and `order` on allowed readable
+fields, and caps the requested `limit` at the configured maximum. The
+`GET /{prefix}:groups` route uses list permissions and filters to count
+records in each group. See the [query reference](reference/api.md#collection-parameters-and-response).
 
 Schemas use camelCase by default. Use `read_schema`, `create_schema` or
 `patch_schema` for an explicit transport contract. The resource still enforces

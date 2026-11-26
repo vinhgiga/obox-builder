@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Model REST lists now support bounded filters and sorting on readable fields,
+  plus a `:groups` route with the same record scope and permissions as list.
+- REST search now splits on whitespace and requires every word to match a
+  searchable field. A `None` field declaration infers eligible readable
+  fields. An empty tuple disables the corresponding control.
+- Oversized `limit` and `page_size` values are capped. Responses report the
+  effective size.
 - Replace `Page` with `AppConfig.routes` and template-owned component placement via
   `component("package.module.Class")`.
 - Template component data routes now live under the owning app's UI prefix and

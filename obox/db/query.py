@@ -27,6 +27,20 @@ def scope_query(query: Any, model: type[Any]) -> Any:
     )
 
 
+def group_query(query: Any, key: Any, columns: Sequence[Any], *, order: str) -> Any:
+    """Count model records in each group of the scoped selection."""
+    identities = query.order_by(None).with_only_columns(key, maintain_column_froms=True)
+    count = sa.func.count()
+    sort, _, direction = order.partition(".")
+    keys = [
+        (column.desc() if sort == "key" and direction == "desc" else column.asc()).nulls_last()
+        for column in columns
+    ]
+    if sort == "count":
+        keys.insert(0, count.desc() if direction == "desc" else count.asc())
+    return sa.select(*columns, count).where(key.in_(identities)).group_by(*columns).order_by(*keys)
+
+
 def model_column(model: type[Any], name: str) -> Any | None:
     """Return a mapped scalar column for a directly addressable model field."""
     attribute = getattr(model, name, None)
@@ -164,7 +178,7 @@ def search_query(
             predicates.append(
                 column.istartswith(word, autoescape=True)
                 if prefix == "^"
-                else sa.func.lower(column) == word.lower()
+                else sa.func.lower(column) == sa.func.lower(sa.literal(word))
                 if prefix == "="
                 else column.icontains(word, autoescape=True)
             )

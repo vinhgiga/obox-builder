@@ -36,6 +36,7 @@ omitted, `PUT` uses a schema inferred from the resource's writable fields.
 | Operation | Method and path | Success status | Default model permission |
 | --- | --- | --- | --- |
 | `list` | `GET /{prefix}` | `200` | `app.view_model` |
+| Groups | `GET /{prefix}:groups` | `200` | Same as `list` |
 | `retrieve` | `GET /{prefix}/{id}` | `200` | `app.view_model` |
 | `create` | `POST /{prefix}` | `201` | `app.add_model` |
 | `update` | `PUT /{prefix}/{id}` | `200` | `app.change_model` |
@@ -46,6 +47,7 @@ omitted, `PUT` uses a schema inferred from the resource's writable fields.
 lower-case model name. `include_router_methods` can select a unique sequence of
 `list`, `retrieve`, `create`, `update`, `patch`, and `delete`. An explicit
 sequence replaces the default route set.
+The groups route is generated with `list` when at least one field can be grouped.
 
 The `{id}` parameter is the model's primary key. Resources used by this API
 require a single primary key of type `int`, `str`, or `UUID`. A successful
@@ -66,10 +68,17 @@ create response includes `Location` when the retrieve route is enabled.
 | `update_schema` | `None` | Optional `ApiRequest` subclass for `PUT` input; otherwise generated from writable resource fields. |
 | `patch_schema` | generated from resource | `ApiRequest` subclass for partial `PATCH` input. |
 | `dependencies` | `()` | FastAPI dependencies applied to the generated router. |
-| `search_fields` | `()` | Readable text fields available to list search, named with Python field names. |
-| `ordering_fields` | `()` | Readable fields available to list ordering, named with Python field names. |
+| `search_fields` | `None` | Readable text fields. Prefix a field with `^` for starts-with or `=` for exact matching. |
+| `ordering_fields` | `None` | Readable scalar fields. |
+| `filter_fields` | `None` | Readable scalar fields and attachments. |
+| `group_fields` | `None` | Readable strings, enums, booleans, integers, and dates. |
 | `default_limit` | `50` | Default collection page size. |
-| `max_limit` | `100` | Largest accepted collection page size. |
+| `max_limit` | `100` | Cap for the collection and groups result size. |
+
+Use Python field names in these declarations. `None` infers fields from the
+read schema and `()` disables that control. The API accepts their response
+aliases in `filter`, `order`, and `by`. JSON fields are excluded from all
+four controls. Attachments support `is.null` and `not.is.null` in filters.
 
 ## Schemas
 
@@ -118,21 +127,75 @@ The list operation accepts:
 
 | Parameter | Default | Constraints |
 | --- | --- | --- |
-| `limit` | `default_limit` | Integer from `1` through `max_limit`. |
-| `offset` | `0` | Non-negative integer. |
+| `limit` | `default_limit` | Positive integer. Values above `max_limit` are capped. |
+| `offset` | `0` | Integer from `0` through `2147483647`. |
 | `includeTotal` | `false` | Include a count in `total` when `true`. |
-| `search` | omitted | Available when `search_fields` is non-empty; at most 256 characters. |
-| `order` | resource ordering | Available when `ordering_fields` is non-empty; comma-separated field aliases with optional `.asc` or `.desc`. |
+| `filter` | omitted | Up to 4,000 characters and 50 conditions or groups. |
+| `search` | omitted | Up to 256 characters and ten whitespace-separated words. |
+| `order` | resource ordering | Up to five unique comma-separated field aliases with optional `.asc` or `.desc`. |
 
-Ordering accepts only fields listed in `ordering_fields`. Obox appends the
-primary key as a stable tie-breaker when it is not part of the requested order.
-Search fields must be readable SQL string columns; JSON fields cannot be used
-for ordering.
+Each search word must match at least one searchable field. Search is
+case-insensitive and matches substrings by default. Case conversion follows
+the database, so SQLite folds ASCII by default. Search and filter both narrow
+the same record selection. An explicit `order` uses ascending order when the
+direction is omitted and puts nulls last in both directions. The primary key
+breaks sort ties and provides a default order when the resource has none.
 
 The collection response is an object with `items`, `limit`, `offset`,
-`hasMore`, and `total`. `total` is `null` unless `includeTotal=true`. `PATCH`
-and a generated `PUT` update only fields present in the request body. An
-explicit `update_schema` defines the `PUT` request contract.
+`hasMore`, and `total`. Advance the offset by the returned `limit` when
+`hasMore` is true. `total` is `null` unless `includeTotal=true`.
+Numbered lists cap `page_size` at `max_page_size` and return the effective size.
+
+`PATCH` and a generated `PUT` update only fields present in the request body.
+An explicit `update_schema` defines the `PUT` request contract.
+
+### Filter expressions
+
+Write conditions as `field.operator.value`. Commas at the top level join
+conditions with AND. Use `and(...)`, `or(...)`, `not.and(...)`, or
+`not.or(...)` for up to two explicit levels. Percent-encode query values.
+Quote literals containing commas, parentheses, or double quotes, and escape
+quotes and backslashes inside quoted literals.
+
+| Operators | Supported fields and behavior |
+| --- | --- |
+| `eq`, `neq`, `isdistinct` | Scalars. `isdistinct` includes nulls when comparing to a non-null value. |
+| `gt`, `gte`, `lt`, `lte` | Numbers, dates, datetimes, and times. |
+| `in.(one,two)` | Scalars except booleans. Accepts up to 100 values. `in.()` matches no rows. |
+| `like`, `ilike` | Text. `*` and `%` match any sequence, `_` matches one character, and `\` escapes the next character. |
+| `is.null`, `is.empty` | `null` tests nulls. On text, `empty` matches both nulls and empty strings. |
+| `is.true`, `is.false` | Booleans. |
+
+Prefix an operator with `not.` to negate it. `neq` and `not.eq` exclude null
+rows. On a text field, `eq.null` matches the literal string `null`.
+
+Dates use `YYYY-MM-DD`. Datetimes use an RFC 3339 timestamp with an offset, or
+a date representing the UTC interval from midnight up to the next midnight.
+`eq` and `in` match within the interval, `neq` matches outside it, and
+`isdistinct` also matches nulls. For date-only ranges, `gte` and `lt` compare to
+the start of the day. `gt` and `lte` compare to the start of the next day.
+Times use `HH:MM` or `HH:MM:SS` with optional microseconds and are interpreted
+as UTC for time columns with an offset.
+
+```text
+GET /api/customers?filter=country.in.(USA,Canada),state.not.is.null&order=lastName.asc
+GET /api/invoices?filter=invoiceDate.eq.2021-01-01
+```
+
+### Groups
+
+`GET /api/customers:groups?by=country,state&order=count.desc&limit=20`
+returns one item per distinct combination of the one to three aliases in
+`by`. Each item contains a `key` object with all requested aliases and a
+record `count`. Filters, search, and list permissions apply to records before
+grouping. The group key distinguishes nulls and empty strings.
+
+Use `order=key.asc` (default), `key.desc`, `count.asc`, or `count.desc`.
+Keys compare in the order listed in `by`, with nulls last at each position.
+Count ties use ascending keys. The `limit`, `offset`, and `hasMore` response
+fields apply to groups. `includeTotal=true` adds `total` with the number of
+groups before pagination. To fetch records for a group, send its key as a
+list filter, for example `filter=country.eq.USA,state.is.null`.
 
 ## Permissions, authentication, and errors
 

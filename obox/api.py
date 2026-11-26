@@ -13,16 +13,18 @@ from uuid import UUID
 import sqlalchemy as sa
 from fastapi import APIRouter, Depends, Path, Query, Request, Response
 from fastapi.routing import RouteContext, iter_route_contexts
-from pydantic import BaseModel, Field, SkipValidation, create_model
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, SkipValidation, create_model
 from sqlalchemy.orm import Mapper
 
-from obox.components.query import invalid, parameters
+from obox.components.query import invalid, parameters, parse_expression
 from obox.core.async_utils import invoke
 from obox.core.exceptions import DomainError, ImproperlyConfigured
+from obox.core.pagination import Paginator
 from obox.core.principal import valid_permission
-from obox.db.fields import ModelField, normalize, schema
+from obox.db.fields import ModelField, normalize, schema, validate_text
+from obox.db.filters import FilterTerm, compile_filter, compile_predicate
 from obox.db.identity import model_label
-from obox.db.query import search_query
+from obox.db.query import group_query, scope_query, search_query
 from obox.resources import ModelResource, resolve_resource
 from obox.runtime.context import Context as Context
 from obox.web.dependencies import _APIContext, api_context, api_principal_context
@@ -66,13 +68,18 @@ class _ModelRoute(ApiRoute):
     cache_control = "private, no-store"
 
 
-class _ListParams(ApiRequest):
+class _QueryParams(ApiRequest):
+    # parameters() validates the original keys and detects repeated query parameters.
+    model_config = ConfigDict(extra="ignore")
+
+
+class _ListParams(_QueryParams):
     limit: int
     offset: int = Field(default=0, ge=0, le=2**31 - 1)
     include_total: bool = False
 
 
-class _NumberedListParams(ApiRequest):
+class _NumberedListParams(_QueryParams):
     page: int
     page_size: int
 
@@ -82,6 +89,26 @@ class _Page(ApiResponse):
     offset: int
     has_more: bool
     total: int | None
+
+
+class _Group(ApiResponse):
+    key: dict[str, Any]
+    count: int
+
+
+class _Groups(_Page):
+    by: list[str]
+    items: list[_Group]
+    total: int | None = None
+
+
+class _GroupParams(_ListParams):
+    by: str = Field(description="One to three unique groupable response aliases.")
+    order: Literal["key.asc", "key.desc", "count.asc", "count.desc"] = "key.asc"
+
+
+def _capped_int(maximum: int) -> Any:
+    return Annotated[int, AfterValidator(lambda value: min(value, maximum))]
 
 
 class PageOut(BaseModel, Generic[ReadT]):
@@ -153,8 +180,14 @@ class ModelApi(BaseApi, Generic[ModelT]):
     patch_schema: type[ApiRequest] | None = None
     dependencies: Sequence[Any] = ()
     principal_dependency: Callable[..., Any] | None = None
-    search_fields: Sequence[str] = ()
-    ordering_fields: Sequence[str] = ()
+    search_fields: Sequence[str] | None = None
+    ordering_fields: Sequence[str] | None = None
+    filter_fields: Sequence[str] | None = None
+    group_fields: Sequence[str] | None = None
+    _search_fields: tuple[str, ...]
+    _ordering_fields: dict[str, ModelField]
+    _filter_fields: dict[str, ModelField]
+    _group_fields: dict[str, ModelField]
     default_limit: int = 50
     max_limit: int = 100
     pagination: Literal["offset", "page"] = "offset"
@@ -276,7 +309,7 @@ class ModelApi(BaseApi, Generic[ModelT]):
                 for name in (self.page_param, self.page_size_param)
             )
             or self.page_param == self.page_size_param
-            or {self.page_param, self.page_size_param} & {"search", "order"}
+            or {self.page_param, self.page_size_param} & {"search", "order", "filter"}
         ):
             raise ImproperlyConfigured(
                 "Choose valid, distinct page parameters and a positive limit."
@@ -359,7 +392,7 @@ class ModelApi(BaseApi, Generic[ModelT]):
             names = _schema_names(read, selected, relations=related)
             readable = {name: specs[name] for name in read.model_fields if name not in related}
         if "list" in methods:
-            self._check_list_fields(readable)
+            self._bind_list_fields(readable, names)
 
         router = APIRouter(
             prefix=prefix,
@@ -416,7 +449,6 @@ class ModelApi(BaseApi, Generic[ModelT]):
                 lookup,
                 readable,
                 related,
-                names,
                 "retrieve" in methods,
                 action in generated,
             )
@@ -445,27 +477,119 @@ class ModelApi(BaseApi, Generic[ModelT]):
                     name=name if index == 0 else f"{name}:trailing-slash",
                     route_class_override=route_class,
                 )
+            if action == "list" and self._group_fields:
+                router.add_api_route(
+                    ":groups",
+                    self._group_endpoint(dependency, specs[pk]),
+                    methods=["GET"],
+                    response_model=_Groups,
+                    response_model_exclude_unset=True,
+                    dependencies=extra,
+                    name=f"{name.removesuffix('list')}groups",
+                    route_class_override=route_class,
+                )
         check_route_conflicts(iter_route_contexts(router.routes), all_routes=True)
         return router
 
-    def _check_list_fields(self, readable: Mapping[str, ModelField]) -> None:
-        if any(
-            isinstance(fields, str)
-            or not isinstance(fields, Sequence)
-            or not all(isinstance(name, str) for name in fields)
-            for fields in (self.search_fields, self.ordering_fields)
-        ):
-            raise ImproperlyConfigured(
-                "Use sequences of Python field names for search and ordering."
-            )
-        for name in normalize(self.search_fields, self.model, readable):
-            if not isinstance(readable[name].column.type, sa.String) or isinstance(
-                readable[name].column.type, sa.Enum
+    def _bind_list_fields(
+        self, readable: Mapping[str, ModelField], names: Mapping[str, str]
+    ) -> None:
+        searchable, sortable, filterable, groupable = {}, {}, {}, {}
+        for name, field in readable.items():
+            type_ = field.column.type
+            if "obox_files" in field.column.info:
+                filterable[name] = field
+                continue
+            if isinstance(type_, sa.JSON):
+                continue
+            filterable[name] = sortable[name] = field
+            if isinstance(type_, sa.String) and not isinstance(type_, sa.Enum):
+                searchable[name] = field
+            if isinstance(type_, sa.String | sa.Boolean | sa.Integer | sa.Date):
+                groupable[name] = field
+
+        def fields(
+            attr: str, configured: Sequence[str] | None, available: Mapping[str, ModelField]
+        ) -> tuple[str, ...]:
+            if configured is None:
+                return tuple(available)
+            if (
+                not isinstance(configured, Sequence)
+                or isinstance(configured, str)
+                or not all(isinstance(name, str) for name in configured)
             ):
-                raise ImproperlyConfigured(f"Search requires a text field: {name!r}.")
-        for name in normalize(self.ordering_fields, self.model, readable):
-            if isinstance(readable[name].column.type, sa.JSON):
-                raise ImproperlyConfigured(f"Cannot order by field {name!r}.")
+                raise ImproperlyConfigured(f"Use sequences of Python field names for {attr}.")
+            normalize(
+                tuple(name[1:] if name.startswith(("^", "=")) else name for name in configured)
+                if attr == "search_fields"
+                else configured,
+                self.model,
+                available,
+            )
+            return tuple(configured)
+
+        def aliases(
+            attr: str, configured: Sequence[str] | None, available: Mapping[str, ModelField]
+        ) -> dict[str, ModelField]:
+            return {names[name]: available[name] for name in fields(attr, configured, available)}
+
+        self._search_fields = fields("search_fields", self.search_fields, searchable)
+        self._ordering_fields = aliases("ordering_fields", self.ordering_fields, sortable)
+        self._filter_fields = aliases("filter_fields", self.filter_fields, filterable)
+        self._group_fields = aliases("group_fields", self.group_fields, groupable)
+
+    def _predicate_fields(self) -> dict[str, Any]:
+        fields: dict[str, Any] = {}
+        if self._search_fields:
+            fields["search"] = (
+                str | None,
+                Field(default=None, max_length=256, description="Match all of up to ten words."),
+            )
+        if self._filter_fields:
+            fields["filter"] = (
+                str | None,
+                Field(
+                    default=None, max_length=4000, description="Filter using field.operator.value."
+                ),
+            )
+        return fields
+
+    def _limit_field(self) -> tuple[Any, Any]:
+        return (
+            _capped_int(self.max_limit),
+            Field(
+                default=self.default_limit,
+                ge=1,
+                description=f"Result limit. Values above {self.max_limit} are capped.",
+            ),
+        )
+
+    async def _filtered_queryset(
+        self, ctx: Context, params: _QueryParams
+    ) -> sa.Select[tuple[ModelT]]:
+        stmt = scope_query(await invoke(self.get_queryset, ctx, action="list"), self.model)
+        if (raw := getattr(params, "filter", None)) is not None:
+            dialect = ctx.session.get_bind().dialect.name
+
+            def predicate(term: FilterTerm) -> Any:
+                spec = self._filter_fields.get(term.field)
+                if spec is None:
+                    raise invalid(term.field, "Unknown filter field.", "unknown_field")
+                return compile_predicate(
+                    spec, getattr(self.model, spec.name), term, dialect, rest=True
+                )
+
+            _, expression, _ = compile_filter(parse_expression(raw), predicate)
+            stmt = stmt.where(expression)
+        if search := getattr(params, "search", None):
+            if len(search.split()) > 10:
+                raise invalid("search", "Supply at most ten search words.")
+            try:
+                validate_text(search)
+            except ValueError as exc:
+                raise invalid("search", str(exc)) from exc
+            stmt = search_query(stmt, self.model, self._search_fields, search)
+        return cast("sa.Select[tuple[ModelT]]", stmt)
 
     def _endpoint(
         self,
@@ -477,7 +601,6 @@ class ModelApi(BaseApi, Generic[ModelT]):
         lookup_field: ModelField,
         readable: dict[str, ModelField],
         related: set[str],
-        names: dict[str, str],
         has_retrieve: bool,
         generated: bool,
     ) -> Callable[..., Any]:
@@ -514,29 +637,37 @@ class ModelApi(BaseApi, Generic[ModelT]):
 
         if action == "list":
             numbered = self.pagination == "page"
+            query_fields = self._predicate_fields()
             if numbered:
                 size = min(self._resource.page_size or self.default_limit, self.max_page_size)
-                query_fields: dict[str, Any] = {
-                    "page": (int, Field(default=1, ge=1, alias=self.page_param)),
-                    "page_size": (
-                        int,
-                        Field(
-                            default=size, ge=1, le=self.max_page_size, alias=self.page_size_param
+                query_fields.update(
+                    {
+                        "page": (int, Field(default=1, ge=1, alias=self.page_param)),
+                        "page_size": (
+                            _capped_int(self.max_page_size),
+                            Field(
+                                default=size,
+                                ge=1,
+                                alias=self.page_size_param,
+                                description=f"Page size, capped at {self.max_page_size}.",
+                            ),
                         ),
-                    ),
-                }
+                    }
+                )
                 allowed = {self.page_param, self.page_size_param}
             else:
-                query_fields = {
-                    "limit": (int, Field(default=self.default_limit, ge=1, le=self.max_limit)),
-                }
+                query_fields["limit"] = self._limit_field()
                 allowed = {"limit", "offset", "includeTotal"}
-            if self.search_fields:
-                query_fields["search"] = (str | None, Field(default=None, max_length=256))
-                allowed.add("search")
-            if self.ordering_fields:
-                query_fields["order"] = (str | None, Field(default=None, max_length=1024))
-                allowed.add("order")
+            if self._ordering_fields:
+                query_fields["order"] = (
+                    str | None,
+                    Field(
+                        default=None,
+                        max_length=1024,
+                        description="Up to five comma-separated field aliases with .asc or .desc.",
+                    ),
+                )
+            allowed.update(query_fields.keys() - {"page", "page_size"})
             query = create_model(
                 f"{type(self).__name__}ListQuery",
                 __base__=_NumberedListParams if numbered else _ListParams,
@@ -549,15 +680,10 @@ class ModelApi(BaseApi, Generic[ModelT]):
                 ctx: Context = dependency,
             ) -> Any:
                 parameters(request.query_params.multi_items(), allowed)
-                stmt = await invoke(self.get_queryset, ctx, action="list")
-                search = getattr(params, "search", None)
-                if search:
-                    stmt = search_query(
-                        stmt, self.model, self.search_fields, search, split_words=False
-                    )
+                stmt = await self._filtered_queryset(ctx, params)
                 order = getattr(params, "order", None)
-                if not numbered or order is not None:
-                    stmt = stmt.order_by(None).order_by(*self._ordering(order, pk, names))
+                if not numbered or order is not None or not stmt._order_by_clauses:
+                    stmt = stmt.order_by(None).order_by(*self._ordering(order, pk))
                 if isinstance(params, _NumberedListParams):
                     page = await self.get_resource(ctx).paginate(
                         params.page,
@@ -635,23 +761,78 @@ class ModelApi(BaseApi, Generic[ModelT]):
         read_row.__annotations__["id"] = key_type
         return read_row
 
-    def _ordering(self, raw: str | None, pk: ModelField, names: Mapping[str, str]) -> list[Any]:
-        allowed = {names[name]: name for name in self.ordering_fields}
+    def _ordering(self, raw: str | None, pk: ModelField) -> Sequence[Any]:
         seen: set[str] = set()
         if raw is None:
-            return list(self._resource.get_ordering())
+            return self._resource.get_ordering() or (pk.column.asc(),)
+        terms = raw.split(",")
+        if len(terms) > 5:
+            raise invalid("order", "Supply at most five sort fields.")
         ordering = []
-        for term in raw.split(","):
+        for term in terms:
             alias, separator, direction = term.partition(".")
-            name = allowed.get(alias)
-            if name is None or name in seen or (separator and direction not in {"asc", "desc"}):
+            if (
+                not alias
+                or alias.startswith("-")
+                or any(char.isspace() for char in alias)
+                or alias in seen
+                or (separator and direction not in {"asc", "desc"})
+            ):
                 raise invalid("order", "Use unique sortable fields with .asc or .desc.")
-            seen.add(name)
-            column = getattr(self.model, name)
+            field = self._ordering_fields.get(alias)
+            if field is None:
+                raise invalid(alias, "Unknown sort field.", "unknown_field")
+            seen.add(alias)
+            column = getattr(self.model, field.name)
             ordering.append((column.desc() if direction == "desc" else column.asc()).nulls_last())
-        if pk.name not in seen:
+        if all(self._ordering_fields[alias].name != pk.name for alias in seen):
             ordering.append(pk.column.asc())
         return ordering
+
+    def _group_endpoint(self, dependency: Any, pk: ModelField) -> Callable[..., Any]:
+        query_fields = self._predicate_fields()
+        query_fields["limit"] = self._limit_field()
+        allowed = {"by", "order", "offset", "includeTotal", *query_fields}
+        query = create_model(
+            f"{type(self).__name__}GroupQuery", __base__=_GroupParams, **query_fields
+        )
+
+        async def list_groups(
+            request: Request, params: _GroupParams, ctx: Context = dependency
+        ) -> dict[str, Any]:
+            parameters(request.query_params.multi_items(), allowed)
+            by = params.by.split(",")
+            if not 1 <= len(by) <= 3 or len(by) != len(set(by)) or "" in by:
+                raise invalid("by", "Supply one to three unique group fields.")
+            columns = []
+            for alias in by:
+                field = self._group_fields.get(alias)
+                if field is None:
+                    raise invalid(alias, "Unknown group field.", "unknown_field")
+                columns.append(getattr(self.model, field.name))
+
+            resource = self.get_resource(ctx)
+            scoped = await resource._list_query(await self._filtered_queryset(ctx, params))
+            stmt = group_query(scoped, pk.column, columns, order=params.order)
+            rows = (
+                await ctx.session.execute(stmt.offset(params.offset).limit(params.limit + 1))
+            ).all()
+            result = {
+                "by": by,
+                "items": [
+                    {"key": dict(zip(by, row[:-1], strict=True)), "count": row[-1]}
+                    for row in rows[: params.limit]
+                ],
+                "limit": params.limit,
+                "offset": params.offset,
+                "has_more": len(rows) > params.limit,
+            }
+            if params.include_total:
+                result["total"] = await Paginator.count(ctx.session, stmt)
+            return result
+
+        list_groups.__annotations__["params"] = Annotated[query, Query()]
+        return list_groups
 
     def configure_router(self, router: APIRouter) -> None:
         """Register extra FastAPI endpoints before the generated routes."""

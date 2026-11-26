@@ -192,7 +192,6 @@ def test_registered_model_api_supports_crud_and_camel_case_contract() -> None:
             async with default_session_factory().begin() as session:
                 session.add(
                     Album(
-                        album_id=1,
                         title="For Those About To Rock We Salute You",
                         artist_id=1,
                     )
@@ -248,20 +247,14 @@ def test_registered_model_api_supports_crud_and_camel_case_contract() -> None:
                 )
                 assert missing.status_code == 404
                 assert (await client.get("/v0/album/999")).status_code == 404
-                missing_patch = await client.patch(
-                    "/v0/album/999", json={"title": "Missing"}
-                )
+                missing_patch = await client.patch("/v0/album/999", json={"title": "Missing"})
                 assert missing_patch.status_code == 404
                 assert (await client.get("/v0/album/999")).status_code == 404
-                invalid = await client.put(
-                    "/v0/album/1", json={"title": "x" * 161, "artistId": 2}
-                )
+                invalid = await client.put("/v0/album/1", json={"title": "x" * 161, "artistId": 2})
                 assert invalid.status_code == 422
                 assert invalid.json()["title"] == "Unprocessable Content"
                 assert invalid.json()["code"] == "validation_error"
-                invalid_patch = await client.patch(
-                    "/v0/album/1", json={"title": "x" * 161}
-                )
+                invalid_patch = await client.patch("/v0/album/1", json={"title": "x" * 161})
                 assert invalid_patch.status_code == 422
                 assert (await client.get("/v0/album/1")).json() == updated.json()
 

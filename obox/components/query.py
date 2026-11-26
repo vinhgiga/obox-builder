@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from typing import Any
 
 from obox.core.exceptions import BuilderValidationError
@@ -23,7 +23,7 @@ def parameters(items: Iterable[tuple[str, str]], allowed: Iterable[str] = ()) ->
     result: dict[str, str] = {}
     for name, value in items:
         if name not in allowed:
-            raise invalid(name, "Unknown query parameter.", "unknown_parameter")
+            raise invalid(name or "query", "Unknown query parameter.", "unknown_parameter")
         if name in result:
             raise invalid(name, "Supply this parameter once.")
         result[name] = value
@@ -70,11 +70,12 @@ def literal(raw: str) -> str:
     return raw
 
 
-def parse_terms(pairs: Iterable[tuple[str, str]]) -> tuple[dict[str, str], FilterGroup]:
-    controls: dict[str, str] = {}
+def _parse_nodes(
+    terms: Iterable[str], *, base_depth: int, max_in: int | None = None
+) -> FilterGroup:
     count = 0
 
-    def node(raw: str, depth: int = 0) -> FilterTerm | FilterGroup:
+    def node(raw: str, depth: int) -> FilterTerm | FilterGroup:
         nonlocal count
         count += 1
         if count > MAX_FILTER_NODES:
@@ -92,12 +93,16 @@ def parse_terms(pairs: Iterable[tuple[str, str]]) -> tuple[dict[str, str], Filte
             op, value = expression.removeprefix("not.").split(".", 1)
         except ValueError as exc:
             raise invalid("filter", "Use field.operator.value.") from exc
-        if not name.isidentifier():
+        if not name or not op:
+            raise invalid("filter", "Use field.operator.value.")
+        if base_depth == 0 and not name.isidentifier():
             raise invalid(name, "Unknown filter field.", "unknown_field")
         if op == "in":
             if not value.startswith("(") or not value.endswith(")"):
-                raise invalid(name, "Use in.(value1,value2).")
+                raise invalid("filter" if max_in is not None else name, "Use in.(value1,value2).")
             parts = [] if value == "()" else split_terms(value[1:-1])
+            if max_in is not None and len(parts) > max_in:
+                raise invalid("filter", f"Supply at most {max_in} values per in filter.")
             parsed: Any = [literal(part) for part in parts]
         else:
             parsed = literal(value)
@@ -105,23 +110,34 @@ def parse_terms(pairs: Iterable[tuple[str, str]]) -> tuple[dict[str, str], Filte
             name, "pg." + ("not." if expression.startswith("not.") else "") + op, parsed
         )
 
-    nodes = []
-    for name, value in pairs:
-        if name in CONTROLS:
-            if name in controls:
-                raise invalid(name, "Supply this parameter once.")
-            controls[name] = value
-        elif name in GROUPS:
-            if not value.startswith("("):
-                raise invalid(name, "Use a parenthesized filter group.")
-            nodes.append(node(name + value))
-        else:
-            if name in {"fields", "ordering", "filter"} or name.startswith(
-                ("filter.", "filter_op.")
-            ):
-                raise invalid(name, "Unknown query parameter.", "unknown_parameter")
-            nodes.append(node(name + "." + value))
-    return controls, FilterGroup(children=tuple(nodes))
+    return FilterGroup(children=tuple(node(term, base_depth) for term in terms))
+
+
+def parse_expression(raw: str) -> FilterGroup:
+    return _parse_nodes(split_terms(raw), base_depth=1, max_in=100)
+
+
+def parse_terms(pairs: Iterable[tuple[str, str]]) -> tuple[dict[str, str], FilterGroup]:
+    controls: dict[str, str] = {}
+
+    def terms() -> Iterator[str]:
+        for name, value in pairs:
+            if name in CONTROLS:
+                if name in controls:
+                    raise invalid(name, "Supply this parameter once.")
+                controls[name] = value
+            elif name in GROUPS:
+                if not value.startswith("("):
+                    raise invalid(name, "Use a parenthesized filter group.")
+                yield name + value
+            else:
+                if name in {"fields", "ordering", "filter"} or name.startswith(
+                    ("filter.", "filter_op.")
+                ):
+                    raise invalid(name, "Unknown query parameter.", "unknown_parameter")
+                yield name + "." + value
+
+    return controls, _parse_nodes(terms(), base_depth=0)
 
 
 condition = compile_condition
