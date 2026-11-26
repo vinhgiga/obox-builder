@@ -429,17 +429,20 @@ class ModelApi(BaseApi, Generic[ModelT]):
                         items=(cast("type[Any]", GenericAlias(list, read)), ...),
                     )
                 )
-            router.add_api_route(
-                path.replace("{id}", "{" + self.lookup_url_kwarg + "}"),
-                endpoint,
-                methods=[verb],
-                status_code=status,
-                response_model=output,
-                response_model_by_alias=True,
-                dependencies=extra,
-                name=name,
-                route_class_override=route_class,
-            )
+            route_path = path.replace("{id}", "{" + self.lookup_url_kwarg + "}")
+            route_paths = (route_path, "/") if not route_path else (route_path,)
+            for index, route_path in enumerate(route_paths):
+                router.add_api_route(
+                    route_path,
+                    endpoint,
+                    methods=[verb],
+                    status_code=status,
+                    response_model=output,
+                    response_model_by_alias=True,
+                    dependencies=extra,
+                    name=name if index == 0 else f"{name}:trailing-slash",
+                    route_class_override=route_class,
+                )
         check_route_conflicts(iter_route_contexts(router.routes), all_routes=True)
         return router
 

@@ -206,6 +206,17 @@ def test_registered_model_detail_uses_table_route_and_camel_case_contract() -> N
                     headers={"x-test-user": "admin"},
                 ) as client,
             ):
+                created = await client.post(
+                    "/v0/album/", json={"title": "New Album", "artistId": 1}
+                )
+                assert created.status_code == 201, created.text
+                assert created.headers["content-type"].startswith("application/json")
+                assert created.json() == {
+                    "albumId": 2,
+                    "title": "New Album",
+                    "artistId": 1,
+                }
+
                 response = await client.get("/v0/album/1")
                 assert response.status_code == 200, response.text
                 assert response.json() == {
