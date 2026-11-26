@@ -31,7 +31,12 @@ from obox.forms.fields import (
 )
 from obox.forms.forms import Form, S
 from obox.forms.formsets import BaseFormSet, formset_factory
-from obox.forms.relations import ModelChoiceField, ModelMultipleChoiceField
+from obox.forms.relations import (
+    ModelChoiceField,
+    ModelMultipleChoiceField,
+    save_model_relations,
+    validate_model_constraints,
+)
 from obox.forms.widgets import HiddenInput
 from obox.resources import ModelResource
 
@@ -384,9 +389,10 @@ class ModelForm(Form[S]):
     async def post_clean(self) -> None:
         values, sources = self._column_data()
         async with session_scope() as session:
-            resource = self._resource(session)
             try:
-                await resource.validate_constraints(values, self.instance, unique=True)
+                await validate_model_constraints(
+                    session, type(self.instance), values, self.instance, unique=True
+                )
             except BuilderValidationError as exc:
                 for name, messages in exc.errors.items():
                     target = sources.get(name, name)
@@ -528,7 +534,7 @@ class ModelForm(Form[S]):
             collections[name] = value
         if collections:
             async with session_scope() as session:
-                await self._resource(session).save_related(self.instance, collections)
+                await save_model_relations(session, self.instance, collections)
 
 
 def modelform_factory(

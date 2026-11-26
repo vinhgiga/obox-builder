@@ -6,11 +6,24 @@ from collections.abc import Mapping
 from typing import Any, cast
 
 import sqlalchemy as sa
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, declared_attr, foreign, relationship
 from sqlalchemy.orm.attributes import flag_modified
 
 from obox.contrib.files.models import File
 from obox.contrib.files.rules import Rule
+from obox.core.exceptions import ImproperlyConfigured
+
+
+async def resolve_attachment_write(
+    session: AsyncSession, model: type[Any], name: str, value: Any, obj: Any
+) -> list[File]:
+    ctx = session.info.get("obox.runtime.context")
+    feature = ctx._owner.feature("files") if ctx is not None else None
+    if feature is None:
+        raise ImproperlyConfigured("Install Files before writing attachments.")
+    values = await feature.resolve(model, {name: value}, ctx, obj)
+    return cast(list[File], values[name])
 
 
 def changed(target: Any, *args: Any) -> None:
@@ -51,7 +64,7 @@ class _Attachments(declared_attr[list[File]]):
                 collection_class=_FileList,
                 lazy="selectin",  # codespell:ignore selectin
                 order_by=(File.position, File.id),
-                info={"obox_files": rule},
+                info={"obox_files": rule, "obox_resource_write": resolve_attachment_write},
             )
 
         super().__init__(mapping)

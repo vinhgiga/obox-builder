@@ -2,18 +2,104 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from copy import deepcopy
-from typing import Any
+from typing import Any, cast
 
 import sqlalchemy as sa
 from pydantic import ValidationError as PydanticValidationError
-from sqlalchemy.orm import Mapper
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import InstanceState, Mapper
 
 from obox.core.async_utils import invoke
-from obox.core.exceptions import ImproperlyConfigured, ValidationError
+from obox.core.exceptions import BuilderValidationError, ImproperlyConfigured, ValidationError
+from obox.db.fields import model_value
 from obox.db.session import session_scope
 from obox.forms.fields import ChoiceField, type_adapter
 from obox.forms.widgets import SelectMultiple
+
+
+async def save_model_relations(
+    session: AsyncSession, obj: Any, relations: Mapping[str, Any]
+) -> None:
+    mapper = cast("Mapper[Any]", sa.inspect(type(obj)))
+    for name in relations:
+        relation = mapper.relationships.get(name)
+        if (
+            relation is None
+            or relation.viewonly
+            or (relation.secondary is None and relation.uselist)
+        ):
+            raise ImproperlyConfigured("Choose an editable relationship.")
+    session.add(obj)
+    missing = cast("InstanceState[Any]", sa.inspect(obj)).unloaded.intersection(relations)
+    if missing:
+        await session.refresh(obj, attribute_names=list(missing))
+
+    def assign(sync_session: Any) -> None:
+        for name, value in relations.items():
+            if mapper.relationships[name].uselist:
+                value = [sync_session.merge(item, load=False) for item in value]
+            elif value is not None:
+                value = sync_session.merge(value, load=False)
+            setattr(obj, name, value)
+
+    await session.run_sync(assign)
+    await session.flush()
+
+
+async def validate_model_constraints(
+    session: AsyncSession,
+    model: type[Any],
+    values: Mapping[str, Any],
+    obj: Any = None,
+    *,
+    unique: bool = False,
+) -> None:
+    mapper = cast("Mapper[Any]", sa.inspect(model))
+    pk = mapper.primary_key[0]
+    pk_name = mapper.get_property_by_column(pk).key
+    errors: dict[str, list[str]] = {}
+    with session.no_autoflush:
+        for name, prop in mapper.column_attrs.items():
+            if name not in values or values[name] is None:
+                continue
+            for key in prop.columns[0].foreign_keys:
+                if (
+                    await session.scalar(
+                        sa.select(key.column).where(key.column == values[name]).limit(1)
+                    )
+                    is None
+                ):
+                    errors[name] = [
+                        "Select a valid choice. That choice is not one of the available choices."
+                    ]
+        if unique:
+            for constraint in cast(sa.Table, mapper.local_table).constraints:
+                if not isinstance(constraint, (sa.UniqueConstraint, sa.PrimaryKeyConstraint)):
+                    continue
+                names = tuple(column.key for column in constraint.columns)
+                if not all(name in values and values[name] is not None for name in names):
+                    continue
+                query = sa.select(pk).where(
+                    *(
+                        getattr(model, name)
+                        == model_value(mapper.column_attrs[name].columns[0], values[name])
+                        for name in names
+                    )
+                )
+                if (
+                    obj is not None
+                    and not cast("InstanceState[Any]", sa.inspect(obj)).transient
+                ):
+                    query = query.where(pk != getattr(obj, pk_name))
+                if await session.scalar(query.limit(1)) is not None:
+                    label = " and ".join(name.replace("_", " ") for name in names)
+                    errors[names[0] if len(names) == 1 else "__all__"] = [
+                        f"{model.__name__} with this {label} already exists."
+                    ]
+    if errors:
+        raise BuilderValidationError(errors)
 
 
 class ModelChoiceField(ChoiceField):

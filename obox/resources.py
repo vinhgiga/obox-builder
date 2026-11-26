@@ -389,85 +389,6 @@ class ModelResource(Generic[ModelT]):
         await self._session().delete(obj)
         await self._session().flush()
 
-    async def save_related(self, obj: ModelT, relations: Mapping[str, Any]) -> None:
-        session = self._session()
-        mapper = cast("Mapper[ModelT]", sa.inspect(self.model))
-        for name in relations:
-            relation = mapper.relationships.get(name)
-            if (
-                relation is None
-                or relation.viewonly
-                or (relation.secondary is None and relation.uselist)
-            ):
-                raise ImproperlyConfigured("Choose an editable relationship.")
-        session.add(obj)
-        missing = cast("InstanceState[ModelT]", sa.inspect(obj)).unloaded.intersection(relations)
-        if missing:
-            await session.refresh(obj, attribute_names=list(missing))
-
-        def assign(sync_session: Any) -> None:
-            for name, value in relations.items():
-                if mapper.relationships[name].uselist:
-                    value = [sync_session.merge(item, load=False) for item in value]
-                elif value is not None:
-                    value = sync_session.merge(value, load=False)
-                setattr(obj, name, value)
-
-        await session.run_sync(assign)
-        await session.flush()
-
-    async def validate_constraints(
-        self,
-        values: Mapping[str, Any],
-        obj: ModelT | None = None,
-        *,
-        unique: bool = False,
-    ) -> None:
-        mapper = cast("Mapper[ModelT]", sa.inspect(self.model))
-        errors: dict[str, list[str]] = {}
-        session = self._session()
-        with session.no_autoflush:
-            for name, prop in mapper.column_attrs.items():
-                if name not in values or values[name] is None:
-                    continue
-                for key in prop.columns[0].foreign_keys:
-                    if (
-                        await session.scalar(
-                            sa.select(key.column).where(key.column == values[name]).limit(1)
-                        )
-                        is None
-                    ):
-                        errors[name] = [
-                            "Select a valid choice. "
-                            "That choice is not one of the available choices."
-                        ]
-            if unique:
-                for constraint in cast(sa.Table, mapper.local_table).constraints:
-                    if not isinstance(constraint, (sa.UniqueConstraint, sa.PrimaryKeyConstraint)):
-                        continue
-                    names = tuple(column.key for column in constraint.columns)
-                    if not all(name in values and values[name] is not None for name in names):
-                        continue
-                    query = sa.select(self.pk).where(
-                        *(
-                            getattr(self.model, name)
-                            == model_value(mapper.column_attrs[name].columns[0], values[name])
-                            for name in names
-                        )
-                    )
-                    if (
-                        obj is not None
-                        and not cast("InstanceState[ModelT]", sa.inspect(obj)).transient
-                    ):
-                        query = query.where(self.pk != getattr(obj, self.pk_name))
-                    if await session.scalar(query.limit(1)) is not None:
-                        label = " and ".join(name.replace("_", " ") for name in names)
-                        errors[names[0] if len(names) == 1 else "__all__"] = [
-                            f"{self.model.__name__} with this {label} already exists."
-                        ]
-        if errors:
-            raise BuilderValidationError(errors)
-
     async def can(self, action: WriteAction, obj: ModelT | None, actor: Any) -> bool:
         return True
 
@@ -483,11 +404,12 @@ class ModelResource(Generic[ModelT]):
         return values
 
     def load_fields(self, query: Any) -> Any:
+        relationships = cast("Mapper[ModelT]", sa.inspect(self.model)).relationships
         return query.options(
             *self.load_options,
             *(
                 selectinload(getattr(self.model, name))
-                if "obox_files" in self.specs[name].column.info
+                if name in relationships
                 else undefer(getattr(self.model, name))
                 for name in dict.fromkeys((*self.readable, self.lookup_name))
             ),
@@ -645,23 +567,21 @@ class ModelResource(Generic[ModelT]):
                         raise BuilderValidationError(
                             {min(written): ["Referenced record is unavailable."]}
                         )
-            files = [
-                name
+            write_handlers = {
+                name: mapper.relationships[name].info.get("obox_resource_write")
                 for name in values.keys() & mapper.relationships.keys()
-                if "obox_files" in mapper.relationships[name].info
-            ]
-            if files:
-                ctx = session.info.get("obox.runtime.context")
-                feature = ctx._owner.feature("files") if ctx is not None else None
-                if feature is None:
-                    raise ImproperlyConfigured("Install Files before writing attachments.")
-                normalized = await feature.resolve(self.model, normalized, ctx, obj)
-                if obj is not None and (
-                    missing := cast("InstanceState[ModelT]", sa.inspect(obj)).unloaded.intersection(
-                        files
-                    )
-                ):
+                if mapper.relationships[name].info.get("obox_resource_write") is not None
+            }
+            if obj is not None and write_handlers:
+                missing = cast("InstanceState[ModelT]", sa.inspect(obj)).unloaded.intersection(
+                    write_handlers
+                )
+                if missing:
                     await session.refresh(obj, attribute_names=list(missing))
+            for name, handler in write_handlers.items():
+                normalized[name] = await invoke(
+                    handler, session, self.model, name, normalized[name], obj
+                )
         if obj is None:
             for name, value in normalized.items():
                 spec = self.specs.get(name)
