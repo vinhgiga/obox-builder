@@ -4,6 +4,7 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent
 PROJECT_NAME = __PROJECT_NAME__
 DEBUG = os.getenv("OBOX_DEBUG", "true").lower() in {"1", "true", "yes", "on"}
+API_PREFIX = os.getenv("OBOX_API_PREFIX", "/v0")
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = os.getenv(
     "OBOX_SECRET_KEY",

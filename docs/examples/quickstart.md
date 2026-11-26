@@ -33,8 +33,9 @@ from app.products.models import Product
 obox.register(Product)
 ```
 
-This exposes the HTML collection at `/products` and REST at `/api/products`.
-For app-prefixed URLs, move the registration into `AppConfig.ready()` and use
+This exposes the HTML collection at `/products` and REST at `/v0/product`.
+The class-derived `/v0/products` path is also available as an alias. For
+app-prefixed URLs, move the registration into `AppConfig.ready()` and use
 `self.register(Product)`.
 
 Generate a model migration, review it, apply it and create an administrator.

@@ -177,7 +177,7 @@ async def application(
 
 async def subscribe(client: httpx.AsyncClient, **kwargs: Any) -> httpx.Response:
     return await client.post(
-        "/api/webhooks",
+        "/v0/webhooks",
         json={"resource": "tests.record", "url": "https://receiver.example/events", **kwargs},
     )
 
@@ -200,10 +200,10 @@ def test_subscription_ownership_secrets_expiry_filters_and_deletion(tmp_path: Pa
             result = await subscribe(client, actions=["create"])
             assert result.status_code == 201, result.text
             sub = result.json()
-            path = f"/api/webhooks/{sub['id']}"
+            path = f"/v0/webhooks/{sub['id']}"
             assert sub["secret"].startswith("whsec_")
             assert (await subscribe(client)).status_code == 409
-            listed = await client.get("/api/webhooks")
+            listed = await client.get("/v0/webhooks")
             assert listed.headers["cache-control"] == "private, no-store"
             assert len(listed.json()["items"]) == 1
             assert set(listed.json()["items"][0]) == {
@@ -225,7 +225,7 @@ def test_subscription_ownership_secrets_expiry_filters_and_deletion(tmp_path: Pa
                 assert (
                     await client.request(method, path + suffix, headers={"actor": "2"}, **kwargs)
                 ).status_code == 404
-            assert (await client.get("/api/webhooks", headers={"actor": "2"})).json() == {
+            assert (await client.get("/v0/webhooks", headers={"actor": "2"})).json() == {
                 "items": []
             }
             assert (await client.patch(path, json={"enabled": False})).status_code == 200
@@ -246,7 +246,7 @@ def test_subscription_ownership_secrets_expiry_filters_and_deletion(tmp_path: Pa
             assert len(page["items"]) == 1
             assert page["items"][0]["event"]["action"] == "create"
             assert (await client.delete(path)).status_code == 204
-            assert (await client.get("/api/webhooks")).json() == {"items": []}
+            assert (await client.get("/v0/webhooks")).json() == {"items": []}
             assert (await subscribe(client)).status_code == 201
             assert plugin.secret(await _subscription(app, sub["id"])) == base64.b64decode(
                 sub["secret"][6:]
@@ -267,7 +267,7 @@ def test_atomic_outbox_polling_and_no_delete_events(tmp_path: Path) -> None:
     async def scenario() -> None:
         async with application(tmp_path) as (app, client, _, _):
             sub = (await subscribe(client)).json()
-            url = f"/api/webhooks/{sub['id']}/deliveries"
+            url = f"/v0/webhooks/{sub['id']}/deliveries"
             failed = await client.post(
                 "/api/admin/records:batchWrite",
                 json={
@@ -341,7 +341,7 @@ def test_subscription_authentication_csrf_and_no_token_delegation(tmp_path: Path
         async with application(tmp_path) as (_, client, _, _):
             for actor, status in [("anonymous", 401), ("bearer", 403)]:
                 result = await client.post(
-                    "/api/webhooks",
+                    "/v0/webhooks",
                     headers={"actor": actor},
                     json={"resource": "tests.record", "url": "https://receiver.example/events"},
                 )
@@ -367,7 +367,7 @@ def test_delivery_signature_retry_and_pinned_destination(tmp_path: Path) -> None
             await client.post("/api/admin/records", json={"name": "private body"})
             worker = Worker(plugin, transport=httpx.MockTransport(receive))
             assert await worker.run_once()
-            url = f"/api/webhooks/{sub['id']}/deliveries"
+            url = f"/v0/webhooks/{sub['id']}/deliveries"
             pending = (await client.get(url)).json()["items"][0]
             assert pending["status"] == "retry"
             async with app.uow(principal=STAFF) as ctx:
@@ -552,7 +552,7 @@ def test_concurrent_subscription_limits_and_fanout_cursors(tmp_path: Path) -> No
                 *(client.post("/api/admin/records", json={"name": name}) for name in ("one", "two"))
             )
             assert [row.status_code for row in rows] == [201, 201]
-            url = f"/api/webhooks/{subscription['id']}/deliveries"
+            url = f"/v0/webhooks/{subscription['id']}/deliveries"
             first = (await client.get(url, params={"limit": 1})).json()
             second = (await client.get(url, params={"cursor": first["nextCursor"]})).json()
             assert first["items"][0]["sequence"] == 1

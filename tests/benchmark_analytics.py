@@ -52,7 +52,7 @@ async def main() -> None:
                 async def widget(slug: str) -> None:
                     async with semaphore:
                         queried = perf_counter()
-                        response = await client.post(f"/api/admin/components/{slug}:query", json={})
+                        response = await client.post(f"/v0/admin/components/{slug}:query", json={})
                         widget_times.append(perf_counter() - queried)
                         if response.status_code != 200:
                             raise AssertionError(response.text)

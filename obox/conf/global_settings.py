@@ -4,6 +4,7 @@ from typing import Any
 
 DEBUG = False
 SECRET_KEY = ""
+API_PREFIX = "/v0"
 INSTALLED_APPS: list[str] = []
 DATABASES: dict[str, Any] = {}
 TEMPLATES: list[dict[str, Any]] = []

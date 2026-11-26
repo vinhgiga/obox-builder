@@ -118,7 +118,7 @@ async def application(
 
 
 async def csrf(client: httpx.AsyncClient) -> str:
-    response = await client.get("/api/auth/csrf")
+    response = await client.get("/v0/auth/csrf")
     assert response.status_code == 200, response.text
     assert response.headers["cache-control"] == "private, no-store"
     return str(response.json()["csrfToken"])
@@ -126,7 +126,7 @@ async def csrf(client: httpx.AsyncClient) -> str:
 
 async def login(client: httpx.AsyncClient, username: str = "alice") -> dict[str, str]:
     response = await client.post(
-        "/api/auth/login",
+        "/v0/auth/login",
         json={"username": username, "password": PASSWORD},
         headers={"x-csrf-token": await csrf(client)},
     )
@@ -137,7 +137,7 @@ async def login(client: httpx.AsyncClient, username: str = "alice") -> dict[str,
 
 async def issue(client: httpx.AsyncClient, scopes: list[str]) -> dict[str, Any]:
     response = await client.post(
-        "/api/auth/tokens",
+        "/v0/auth/tokens",
         headers={"x-csrf-token": await csrf(client)},
         json={
             "name": "Integration",
@@ -153,22 +153,22 @@ def test_json_session_login_csrf_rotation_and_logout(tmp_path: Path) -> None:
 
     async def scenario() -> None:
         async with application(tmp_path) as (app, client):
-            assert (await client.get("/api/auth/me")).status_code == 401
+            assert (await client.get("/v0/auth/me")).status_code == 401
             credentials = {"username": "alice", "password": PASSWORD}
-            assert (await client.post("/api/auth/login", json=credentials)).status_code == 403
+            assert (await client.post("/v0/auth/login", json=credentials)).status_code == 403
             before = await csrf(client)
             denied = await client.post(
-                "/api/auth/login",
+                "/v0/auth/login",
                 json=credentials,
                 headers={"x-csrf-token": before, "origin": "https://evil.test"},
             )
             assert denied.status_code == 403
             signed_in = await client.post(
-                "/api/auth/login", json=credentials, headers={"x-csrf-token": before}
+                "/v0/auth/login", json=credentials, headers={"x-csrf-token": before}
             )
             assert signed_in.status_code == 200
             assert signed_in.json()["id"] == "1"
-            assert (await client.get("/api/auth/me")).json() == signed_in.json()
+            assert (await client.get("/v0/auth/me")).json() == signed_in.json()
             assert "httponly" in signed_in.headers["set-cookie"].lower()
             stale = await client.post(
                 "/api/admin/notes", json={"titleText": "New"}, headers={"x-csrf-token": before}
@@ -179,13 +179,13 @@ def test_json_session_login_csrf_rotation_and_logout(tmp_path: Path) -> None:
                 await client.post("/api/admin/notes", json={"titleText": "New"}, headers=headers)
             ).status_code == 201
             cookies = httpx.Cookies(client.cookies)
-            assert (await client.post("/api/auth/logout")).status_code == 403
-            assert (await client.post("/api/auth/logout", headers=headers)).status_code == 204
-            assert (await client.get("/api/auth/me")).status_code == 401
+            assert (await client.post("/v0/auth/logout")).status_code == 403
+            assert (await client.post("/v0/auth/logout", headers=headers)).status_code == 204
+            assert (await client.get("/v0/auth/me")).status_code == 401
             async with httpx.AsyncClient(
                 transport=httpx.ASGITransport(app=app.app), base_url="http://test", cookies=cookies
             ) as replay:
-                assert (await replay.get("/api/auth/me")).status_code == 401
+                assert (await replay.get("/v0/auth/me")).status_code == 401
 
     asyncio.run(scenario())
 
@@ -198,7 +198,7 @@ def test_api_token_scopes_hashing_row_scope_and_cookie_isolation(tmp_path: Path)
             issued = await issue(client, ["notes.records.list", "notes.records.retrieve"])
             token = issued.pop("token")
             assert token.startswith("obx_")
-            listed = await client.get("/api/auth/tokens")
+            listed = await client.get("/v0/auth/tokens")
             assert listed.json() == {"items": [issued]}
             assert token not in listed.text
             async with app.session_factory() as db:
@@ -228,7 +228,7 @@ def test_api_token_scopes_hashing_row_scope_and_cookie_isolation(tmp_path: Path)
                     await bearer.post("/api/admin/notes", json={"titleText": "Forbidden"})
                 ).status_code == 403
                 assert (await bearer.get("/api/admin/notes/1/activity")).status_code == 403
-                assert (await bearer.get("/api/auth/tokens")).status_code == 403
+                assert (await bearer.get("/v0/auth/tokens")).status_code == 403
                 assert (await bearer.get("/admin/admin/notes")).status_code == 404
                 async with app.session_factory.begin() as db:
                     role = (await db.scalars(sa.select(Role))).one()
@@ -254,7 +254,7 @@ def test_api_tokens_recheck_expiry_revocation_password_and_user(
             token = await issue(client, ["notes.records.list"])
             if reason == "revoked":
                 response = await client.delete(
-                    "/api/auth/tokens/" + token["id"], headers={"x-csrf-token": await csrf(client)}
+                    "/v0/auth/tokens/" + token["id"], headers={"x-csrf-token": await csrf(client)}
                 )
                 assert response.status_code == 204
             else:
@@ -285,7 +285,7 @@ def test_api_tokens_are_opt_in(tmp_path: Path) -> None:
     async def scenario() -> None:
         async with application(tmp_path, tokens=False) as (_, client):
             await login(client)
-            assert (await client.get("/api/auth/tokens")).status_code == 404
+            assert (await client.get("/v0/auth/tokens")).status_code == 404
 
     asyncio.run(scenario())
 
@@ -299,12 +299,12 @@ def test_token_expiry_is_required_to_be_future_and_timezone_aware(
         async with application(tmp_path) as (_, client):
             await login(client)
             response = await client.post(
-                "/api/auth/tokens",
+                "/v0/auth/tokens",
                 headers={"x-csrf-token": await csrf(client)},
                 json={"name": "Invalid", "scopes": ["notes.records.list"], "expiresAt": expiry},
             )
             assert response.status_code == 422
             assert response.json()["errors"][0]["pointer"] == "#/expiresAt"
-            assert (await client.get("/api/auth/tokens")).json() == {"items": []}
+            assert (await client.get("/v0/auth/tokens")).json() == {"items": []}
 
     asyncio.run(scenario())

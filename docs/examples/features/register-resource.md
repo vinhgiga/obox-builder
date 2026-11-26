@@ -6,6 +6,40 @@ A model alone exposes HTML and REST CRUD.
 obox.register(Product)
 ```
 
+## REST detail response
+
+The default REST prefix is `/v0`. A directly registered model uses its SQLAlchemy
+table name for the API route. For example, map Chinook's `album` table and register it:
+
+```python
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+class Album(Base):
+    __tablename__ = "album"
+
+    album_id: Mapped[int] = mapped_column(primary_key=True)
+    title: Mapped[str]
+    artist_id: Mapped[int]
+
+
+obox.register(Album)
+```
+
+`GET /v0/album/1` returns one detail record with camelCase JSON keys:
+
+```json
+{
+  "albumId": 1,
+  "title": "For Those About To Rock We Salute You",
+  "artistId": 1
+}
+```
+
 Use a shared Pydantic schema when both surfaces need the same validation.
 
 ```python
@@ -52,7 +86,7 @@ class ProductsConfig(AppConfig):
 ```
 
 The app-prefixed collections are `/catalog/products` and
-`/api/catalog/products`. Pass `api=False` or `views=False` to publish a single
+`/v0/catalog/products`. Pass `api=False` or `views=False` to publish a single
 surface.
 
 Customize the generated HTML with view subclasses and the REST adapter with a

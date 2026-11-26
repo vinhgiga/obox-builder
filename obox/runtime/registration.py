@@ -75,25 +75,37 @@ class Registration:
                 "A ModelResource slug must use lowercase words joined by hyphens."
             )
         view_route = self.view_suffix if self.view_suffix is not None else slug
-        api_route = self.api_suffix if self.api_suffix is not None else slug
+        api_route = (
+            self.api_suffix
+            if self.api_suffix is not None
+            else self.slug or resource.model.__table__.name
+        )
         view_suffix = _route_suffix(view_route, "view")
-        api_suffix = _route_suffix(api_route, "API")
+        api_suffix = _route_suffix(api_route, "API") if api_class is not None else api_route
         app_path = f"/{label}" if label else ""
         view_base = view_prefix or app_path
         api_base = api_prefix or runtime.settings.api_prefix + app_path
         view_path = _join_path(view_base, view_suffix)
-        api_path = _join_path(api_base, api_suffix)
 
         if self.views:
             resource.check_create(resource.writable)
         ui = self._build_views(view_path, resource) if self.views else None
-        api = (
-            api_class().build_resource_router(api_path, resource) if api_class is not None else None
+        api_routes = [api_suffix]
+        legacy_api_suffix = self.slug or slug
+        if api_class is not None and legacy_api_suffix != api_suffix and self.api_suffix is None:
+            api_routes.append(_route_suffix(legacy_api_suffix, "API"))
+        apis = (
+            [
+                api_class().build_resource_router(_join_path(api_base, suffix), resource)
+                for suffix in api_routes
+            ]
+            if api_class is not None
+            else []
         )
         if ui is not None:
             runtime.add_ui_prefix(view_path)
             runtime.include_router(ui, ui=True)
-        if api is not None:
+        for api in apis:
             runtime.include_router(api, app_api=api_prefix is not None)
         if self.views and label:
             catalog = runtime._apps.get(label)

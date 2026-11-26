@@ -712,7 +712,7 @@ def test_json_contract_and_openapi(tmp_path: Path) -> None:
 
     async def scenario() -> None:
         async with application(tmp_path) as (app, client, policy):
-            root = "/api/admin/components"
+            root = "/v0/admin/components"
             description = await client.get(root + "/pivot:describe")
             assert description.status_code == 200, description.text
             assert "querySchema" in description.json()
@@ -752,7 +752,7 @@ def test_chart_json_axes_and_widget_keys(tmp_path: Path) -> None:
             drill=False,
         )
         async with application(tmp_path, widgets=(chart,)) as (_, client, _):
-            manifest = await client.get("/api/admin/components:describe")
+            manifest = await client.get("/v0/admin/components:describe")
             assert manifest.json()["components"][0]["name"] == "userKey"
             response = await client.get("/admin/admin/_components/userKey/data")
             assert response.status_code == 200, response.text

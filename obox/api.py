@@ -435,6 +435,7 @@ class ModelApi(BaseApi, Generic[ModelT]):
                 methods=[verb],
                 status_code=status,
                 response_model=output,
+                response_model_by_alias=True,
                 dependencies=extra,
                 name=name,
                 route_class_override=route_class,

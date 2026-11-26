@@ -1,7 +1,7 @@
 # Component query filters
 
 Components published through `AppConfig.components` have a typed JSON `POST`
-query route at `/api/{app_label}/components/{name}:query`. Template-rendered
+query route at `/v0/{app_label}/components/{name}:query`. Template-rendered
 components also use a private GET data route under the configured UI prefix.
 The two routes accept different filter formats.
 

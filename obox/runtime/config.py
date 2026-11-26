@@ -21,7 +21,7 @@ class RuntimeConfig:
     database_url: str | None = field(default=None, repr=False)
     principal_dependency: Callable[..., Any] | None = field(default=None, repr=False)
     ui_prefix: str = "/admin"
-    api_prefix: str = "/api"
+    api_prefix: str = "/v0"
     csrf_secret: str | bytes | None = field(default=None, repr=False)
     template_dirs: Sequence[str | PathLike[str]] = ()
     templates: Jinja2Templates | None = field(default=None, repr=False)
@@ -39,6 +39,7 @@ class RuntimeConfig:
         return cls(
             session_factory=default_session_factory(),
             ui_prefix="",
+            api_prefix=settings.API_PREFIX,
             csrf_secret=settings.SECRET_KEY or None,
             template_dirs=template.get("DIRS", ()),
             static_root=settings.STATIC_ROOT,

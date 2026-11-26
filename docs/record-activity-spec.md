@@ -18,7 +18,7 @@ ACTIVITY = {"models": {Article: ("title", "status")}}
 
 The API model path uses the app label and lowercased model class name, followed
 by the record ID. With the default API prefix, an `Article` in app `products`
-has a path such as `/api/activity/products.article/42/activity`.
+has a path such as `/v0/activity/products.article/42/activity`.
 
 ## Routes
 
@@ -29,12 +29,12 @@ authenticated author must own the comment.
 
 | Method | Path | Query/body | Result |
 | --- | --- | --- | --- |
-| GET | `/api/activity/{model}/{id}/activity` | `kind`, `limit`, `cursor` | Revision and/or comment timeline |
-| GET | `/api/activity/{model}/{id}/comments` | `limit`, `cursor` | Comments only |
-| GET | `/api/activity/{model}/{id}/comments/{comment_id}` | None | One comment and its `ETag` |
-| POST | `/api/activity/{model}/{id}/comments` | `{"body": "..."}` | Creates a comment; returns `201` and `Location` |
-| PATCH | `/api/activity/{model}/{id}/comments/{comment_id}` | `{"body": "..."}` and `If-Match` | Updates the author's comment |
-| DELETE | `/api/activity/{model}/{id}/comments/{comment_id}` | Empty body and `If-Match` | Soft-deletes the author's comment; returns `204` |
+| GET | `/v0/activity/{model}/{id}/activity` | `kind`, `limit`, `cursor` | Revision and/or comment timeline |
+| GET | `/v0/activity/{model}/{id}/comments` | `limit`, `cursor` | Comments only |
+| GET | `/v0/activity/{model}/{id}/comments/{comment_id}` | None | One comment and its `ETag` |
+| POST | `/v0/activity/{model}/{id}/comments` | `{"body": "..."}` | Creates a comment; returns `201` and `Location` |
+| PATCH | `/v0/activity/{model}/{id}/comments/{comment_id}` | `{"body": "..."}` and `If-Match` | Updates the author's comment |
+| DELETE | `/v0/activity/{model}/{id}/comments/{comment_id}` | Empty body and `If-Match` | Soft-deletes the author's comment; returns `204` |
 
 Unsafe comment requests require the host's CSRF token when cookie-authenticated.
 Comment creation rejects `If-Match`, `If-None-Match` and

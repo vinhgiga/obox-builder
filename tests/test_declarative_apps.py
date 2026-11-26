@@ -44,7 +44,7 @@ def test_installed_app_exposes_shared_resource_views_and_api() -> None:
             settings.INSTALLED_APPS = ["tests.test_declarative_apps.InventoryConfig"]
             app = authenticated_app()
             Obox(app)
-            assert "/api/inventory/items" in app.openapi()["paths"]
+            assert "/v0/inventory/items" in app.openapi()["paths"]
             async with (
                 app.router.lifespan_context(app),
                 httpx.AsyncClient(
@@ -68,7 +68,7 @@ def test_installed_app_exposes_shared_resource_views_and_api() -> None:
                     303,
                     "/inventory/items",
                 )
-                listing = await client.get("/api/inventory/items")
+                listing = await client.get("/v0/inventory/items")
                 assert [item["name"] for item in listing.json()["items"]] == ["alpha"]
                 row = listing.json()["items"][0]
                 assert "alpha" in (await client.get(f"/inventory/items/{row['id']}/view")).text
@@ -97,7 +97,7 @@ def test_app_declarations_enable_each_surface_independently(html: bool) -> None:
                 ) as client,
             ):
                 assert (await client.get("/inventory/items")).status_code == (200 if html else 404)
-                assert (await client.get("/api/inventory/items")).status_code == (
+                assert (await client.get("/v0/inventory/items")).status_code == (
                     404 if html else 200
                 )
 
@@ -133,7 +133,7 @@ def test_custom_viewset_api_and_native_router_use_application_prefixes() -> None
             Obox(app)
             schema = app.openapi()["paths"]
             assert set(schema["/service/inventory/stock-items"]) == {"get"}
-            assert "/api/inventory/stock-items" not in schema
+            assert "/v0/inventory/stock-items" not in schema
             async with (
                 app.router.lifespan_context(app),
                 httpx.AsyncClient(

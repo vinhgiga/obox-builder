@@ -84,7 +84,7 @@ ACTOR = Principal(
     is_authenticated=True,
     permissions=frozenset({"tests.view_record", "metrics.components.access"}),
 )
-ROOT = "/api/metrics/components"
+ROOT = "/v0/metrics/components"
 
 
 @asynccontextmanager
@@ -149,7 +149,7 @@ def test_headless_api_and_python_service_with_crud_disabled(tmp_path: Path) -> N
             assert not any(
                 getattr(route, "name", None) == "obox_analytics_static" for route in obox.app.routes
             )
-            assert (await client.get("/api/metrics/records")).status_code == 404
+            assert (await client.get("/v0/metrics/records")).status_code == 404
             response = await client.post(ROOT + "/totals:query", json={})
             assert response.status_code == 200, response.text
             payload = response.json()

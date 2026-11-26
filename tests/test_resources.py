@@ -13,10 +13,23 @@ from obox.apps import AppConfig
 from obox.conf import settings
 from obox.core.exceptions import ImproperlyConfigured
 from obox.core.principal import Principal, ScopedIdentity
+from obox.db.engine import default_session_factory
 from obox.views.generic import DetailView, ModelViewSet
 from pydantic import BaseModel, Field, field_validator, model_validator
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from tests.test_forms_integration import Item, configured
+
+
+class AlbumBase(DeclarativeBase):
+    pass
+
+
+class Album(AlbumBase):
+    __tablename__ = "album"
+    album_id: Mapped[int] = mapped_column(primary_key=True)
+    title: Mapped[str] = mapped_column(sa.String(160))
+    artist_id: Mapped[int]
 
 
 class ItemInput(BaseModel):
@@ -103,21 +116,21 @@ def test_resource_validation_permissions_and_defaults_are_shared() -> None:
                 auth = {"authorization": "Bearer test"}
                 denied = await client.post("/items/add", data={"name": "aa", "price": "2"})
                 assert denied.status_code == 403
-                denied = await client.post("/api/items", json={"name": "aa", "price": "2"})
+                denied = await client.post("/v0/items", json={"name": "aa", "price": "2"})
                 assert denied.status_code == 403
 
                 invalid = {"name": "Alpha", "price": "1"}
                 rejected = await client.post("/items/add", data={**invalid, **token})
                 assert "Total must be at least 2." in rejected.text
-                rejected = await client.post("/api/items", headers=auth, json=invalid)
+                rejected = await client.post("/v0/items", headers=auth, json=invalid)
                 assert rejected.status_code == 422
                 assert "Total must be at least 2." in rejected.text
                 for endpoint, headers, data in [
                     ("/items/add", {}, {**token, "name": "Alpha", "price": "2", "quantity": "3"}),
-                    ("/api/items", auth, {"name": "Alpha", "price": "2", "quantity": 3}),
+                    ("/v0/items", auth, {"name": "Alpha", "price": "2", "quantity": 3}),
                 ]:
                     payload: dict[str, Any] = (
-                        {"json": data} if endpoint.startswith("/api") else {"data": data}
+                        {"json": data} if endpoint.startswith("/v0") else {"data": data}
                     )
                     assert (
                         await client.post(endpoint, headers=headers, **payload)
@@ -129,40 +142,77 @@ def test_resource_validation_permissions_and_defaults_are_shared() -> None:
                     303,
                     "/items",
                 )
-                stored = (await client.get("/api/items/1")).json()
+                stored = (await client.get("/v0/items/1")).json()
                 assert stored["name"] == "alpha"
                 assert stored["quantity"] == 1
 
-                rejected = await client.patch("/api/items/1", headers=auth, json={"price": "1"})
+                rejected = await client.patch("/v0/items/1", headers=auth, json={"price": "1"})
                 assert rejected.status_code == 422
                 assert "Total must" in rejected.text
                 assert (
-                    await client.patch("/api/items/1", headers=auth, json={"quantity": 2})
+                    await client.patch("/v0/items/1", headers=auth, json={"quantity": 2})
                 ).status_code == 403
                 assert (
-                    await client.patch("/api/items/1", headers=auth, json={"price": None})
+                    await client.patch("/v0/items/1", headers=auth, json={"price": None})
                 ).status_code == 422
-                assert (await client.delete("/api/items/1", headers=auth)).status_code == 403
+                assert (await client.delete("/v0/items/1", headers=auth)).status_code == 403
                 assert (await client.post("/items/1/delete", data=token)).status_code == 403
                 assert (
-                    await client.get("/api/items", headers={"x-test-user": "inactive"})
+                    await client.get("/v0/items", headers={"x-test-user": "inactive"})
                 ).status_code == 401
                 assert (
-                    await client.delete("/api/items/1", headers={**auth, "x-test-user": "scoped"})
+                    await client.delete("/v0/items/1", headers={**auth, "x-test-user": "scoped"})
                 ).status_code == 403
 
                 for name in ("private", "zeta"):
                     assert (
                         await client.post(
-                            "/api/items", headers=auth, json={"name": name, "price": "2"}
+                            "/v0/items", headers=auth, json={"name": name, "price": "2"}
                         )
                     ).status_code == 201
-                listing = (await client.get("/api/items?includeTotal=true")).json()
+                listing = (await client.get("/v0/items?includeTotal=true")).json()
                 assert listing["total"] == 2
                 assert [item["name"] for item in listing["items"]] == ["zeta", "alpha"]
                 assert "private" not in (await client.get("/items")).text
-                assert (await client.get("/api/items/2")).status_code == 404
+                assert (await client.get("/v0/items/2")).status_code == 404
                 assert (await client.get("/items/2/view")).status_code == 404
+
+    asyncio.run(scenario())
+
+
+def test_registered_model_detail_uses_table_route_and_camel_case_contract() -> None:
+    async def scenario() -> None:
+        async with configured():
+            engine = default_session_factory().kw["bind"]
+            async with engine.begin() as connection:
+                await connection.run_sync(AlbumBase.metadata.create_all)
+            app = authenticated_app()
+            obox = Obox(app)
+            obox.register(Album)
+            async with default_session_factory().begin() as session:
+                session.add(
+                    Album(
+                        album_id=1,
+                        title="For Those About To Rock We Salute You",
+                        artist_id=1,
+                    )
+                )
+
+            async with (
+                app.router.lifespan_context(app),
+                httpx.AsyncClient(
+                    transport=httpx.ASGITransport(app=app),
+                    base_url="http://test",
+                    headers={"x-test-user": "admin"},
+                ) as client,
+            ):
+                response = await client.get("/v0/album/1")
+                assert response.status_code == 200, response.text
+                assert response.json() == {
+                    "albumId": 1,
+                    "title": "For Those About To Rock We Salute You",
+                    "artistId": 1,
+                }
 
     asyncio.run(scenario())
 
@@ -211,9 +261,9 @@ def test_app_registration_custom_views_and_direct_adapters() -> None:
             nested.include_router(ItemApi().build_router("/items"))
             app.include_router(nested)
             schema = app.openapi()["paths"]
-            assert set(schema["/api/tests/inventory"]) == {"get"}
+            assert set(schema["/v0/tests/inventory"]) == {"get"}
             assert set(schema["/custom/items"]) == {"get"}
-            assert "/api/inventory" not in schema
+            assert "/v0/inventory" not in schema
             async with (
                 app.router.lifespan_context(app),
                 httpx.AsyncClient(
@@ -223,7 +273,7 @@ def test_app_registration_custom_views_and_direct_adapters() -> None:
                 ) as client,
             ):
                 assert (await client.get("/tests/inventory")).status_code == 200
-                assert (await client.get("/api/tests/inventory")).status_code == 200
+                assert (await client.get("/v0/tests/inventory")).status_code == 200
                 await client.get("/tests/inventory/add")
                 assert (
                     await client.post(

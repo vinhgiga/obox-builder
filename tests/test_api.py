@@ -19,7 +19,7 @@ from obox.core.principal import Principal
 from obox.runtime.config import RuntimeConfig
 from obox.runtime.runtime import _Runtime
 from pydantic import Field, StringConstraints
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from tests.storage import database
 
@@ -53,6 +53,26 @@ class Post(Base):
     title_text: Mapped[str] = mapped_column(sa.String(64), unique=True)
     summary_text: Mapped[str | None] = mapped_column(server_default="database default")
     category_id: Mapped[int | None] = mapped_column(sa.ForeignKey(Category.id))
+
+
+class Artist(Base):
+    __tablename__ = "model_api_artists"
+    artist_id: Mapped[int] = mapped_column(primary_key=True)
+
+
+class Album(Base):
+    __tablename__ = "model_api_albums"
+    album_id: Mapped[int] = mapped_column(primary_key=True)
+    title: Mapped[str] = mapped_column(sa.String(160))
+    artist_id: Mapped[int] = mapped_column(sa.ForeignKey(Artist.artist_id))
+
+
+class AlbumWithRelationship(Base):
+    __tablename__ = "model_api_albums_with_relationship"
+    album_id: Mapped[int] = mapped_column(primary_key=True)
+    title: Mapped[str] = mapped_column(sa.String(160))
+    artist_id: Mapped[int] = mapped_column(sa.ForeignKey(Artist.artist_id))
+    artist: Mapped[Artist] = relationship()
 
 
 Title = Annotated[str, StringConstraints(min_length=1, max_length=64)]
@@ -90,9 +110,21 @@ class Posts(ModelApi[Post]):
     prefix = "/posts"
     read_schema: type[ApiResponse] | None = PostRead
     create_schema: type[ApiRequest] | None = PostWrite
-    update_schema = PostWrite
+    update_schema: type[ApiRequest] | None = PostWrite
     patch_schema: type[ApiRequest] | None = PostPatch
     search_fields = ordering_fields = ("title_text",)
+
+
+class Albums(ModelApi[Album]):
+    model = Album
+    include_router_methods = ("retrieve",)
+    permissions = MappingProxyType({"retrieve": "tests.view_post"})
+
+
+class AlbumsWithRelationship(ModelApi[AlbumWithRelationship]):
+    model = AlbumWithRelationship
+    include_router_methods = ("retrieve",)
+    permissions = MappingProxyType({"retrieve": "tests.view_post"})
 
 
 def principal(request: Request) -> Principal:
@@ -213,6 +245,50 @@ def test_crud_permissions_visibility_and_wire_contract(tmp_path: Path) -> None:
             assert "requestBody" in schema["paths"][POSTS]["post"]
             assert "Problem" in schema["components"]["schemas"]
             assert runtime.permissions.keys() >= WRITE
+
+    asyncio.run(scenario())
+
+
+def test_album_api_response_uses_columns_with_or_without_relationship(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        async with database(tmp_path / "album-api.sqlite3", (Base.metadata,)) as sessions:
+            async with sessions.begin() as session:
+                session.add(Artist(artist_id=1))
+                session.add_all(
+                    [
+                        Album(
+                            album_id=1,
+                            title="For Those About To Rock We Salute You",
+                            artist_id=1,
+                        ),
+                        AlbumWithRelationship(
+                            album_id=1,
+                            title="For Those About To Rock We Salute You",
+                            artist_id=1,
+                        ),
+                    ]
+                )
+
+            expected = {
+                "albumId": 1,
+                "title": "For Those About To Rock We Salute You",
+                "artistId": 1,
+            }
+            for api in (Albums, AlbumsWithRelationship):
+                app = FastAPI()
+                _Runtime(
+                    app,
+                    settings=RuntimeConfig(
+                        session_factory=sessions, principal_dependency=principal
+                    ),
+                )
+                app.include_router(api().build_router("/v0/album"))
+                async with app.router.lifespan_context(app), httpx.AsyncClient(
+                    transport=httpx.ASGITransport(app=app), base_url="http://test"
+                ) as client:
+                    response = await client.get("/v0/album/1", headers=VIEWER)
+                    assert response.status_code == 200, response.text
+                    assert response.json() == expected
 
     asyncio.run(scenario())
 

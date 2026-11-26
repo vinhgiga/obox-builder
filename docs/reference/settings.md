@@ -20,6 +20,7 @@ state.
 | --- | --- | --- |
 | `DEBUG` | `False` | Used as the default for the Auth feature's secure cookie setting. |
 | `SECRET_KEY` | `""` | Secret used to configure CSRF signing. Configure a long random value in deployed settings. |
+| `API_PREFIX` | `"/v0"` | Prefix for REST API routes registered directly with `Obox`. |
 | `INSTALLED_APPS` | `[]` | App configuration classes loaded during Obox setup. |
 | `DATABASES` | `{}` | Database configuration. Obox supports only the `default` alias. |
 | `TEMPLATES` | `[]` | Template engine configuration. Obox uses the first entry. |
@@ -127,6 +128,7 @@ options exposed by each feature.
 `obox startproject` writes a project `settings.py` with values that differ from
 the library defaults: `DEBUG` reads `OBOX_DEBUG` and defaults to `True`,
 `SECRET_KEY` reads `OBOX_SECRET_KEY` and falls back to a generated secret,
-SQLite uses `OBOX_DATABASE_NAME` or a project-local `db.sqlite3`, and the
-project sets `TIME_ZONE = "UTC"`. `PROJECT_NAME` is generated from the project
-name and is used as the FastAPI application title.
+`API_PREFIX` reads `OBOX_API_PREFIX` and defaults to `"/v0"`, SQLite uses
+`OBOX_DATABASE_NAME` or a project-local `db.sqlite3`, and the project sets
+`TIME_ZONE = "UTC"`. `PROJECT_NAME` is generated from the project name and is
+used as the FastAPI application title.

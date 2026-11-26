@@ -124,7 +124,7 @@ def test_history_is_scoped_redacted_paginated_and_signed(tmp_path: Path) -> None
                 await ctx.session.flush()
                 entry.name = "Second"
                 await ctx.session.flush()
-            path = "/api/activity/tests.entry/1/activity"
+            path = "/v0/activity/tests.entry/1/activity"
             response = await client.get(path, params={"limit": 1})
             assert response.status_code == 200, response.text
             assert "Sensitive" not in response.text
@@ -134,7 +134,7 @@ def test_history_is_scoped_redacted_paginated_and_signed(tmp_path: Path) -> None
             following = await client.get(path, params={"limit": 1, "cursor": cursor})
             assert following.json()["items"][0]["action"] == "create"
             assert (await client.get(path, params={"cursor": cursor + "x"})).status_code == 422
-            assert (await client.get("/api/activity/tests.entry/2/activity")).status_code == 404
+            assert (await client.get("/v0/activity/tests.entry/2/activity")).status_code == 404
             assert (await client.get(path, params={"limit": 1000})).status_code == 422
             resolver = app.settings.principal_dependency
             app.app.dependency_overrides[resolver] = lambda: Principal()
@@ -158,7 +158,7 @@ def test_comments_enforce_author_and_optimistic_concurrency(tmp_path: Path) -> N
         async with runtime(tmp_path) as (app, _, client):
             async with app.uow(principal=ACTOR) as ctx:
                 ctx.session.add(Entry(name="Entry", tenant=1, private_note="Sensitive"))
-            path = "/api/activity/tests.entry/1/comments"
+            path = "/v0/activity/tests.entry/1/comments"
             created = await client.post(path, json={"body": "Hello <script>"})
             assert created.status_code == 201, created.text
             location = created.headers["location"]

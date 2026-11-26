@@ -247,8 +247,8 @@ def test_api_routers_preserve_dependencies_lifespan_and_security_metadata(
             features=(Auth(admin=False, secure=False),),
         )
         schema = app.openapi()
-        assert "security" not in schema["paths"]["/api/first/public/ping"]["get"]
-        assert schema["paths"]["/api/first/private/report"]["get"]["security"] == [
+        assert "security" not in schema["paths"]["/v0/first/public/ping"]["get"]
+        assert schema["paths"]["/v0/first/private/report"]["get"]["security"] == [
             {"cookieAuth": []}
         ]
         async with (
@@ -258,14 +258,14 @@ def test_api_routers_preserve_dependencies_lifespan_and_security_metadata(
             ) as client,
         ):
             assert order == ["start"]
-            assert (await client.get("/api/first/public/ping")).json() == {"ok": True}
-            assert (await client.get("/api/first/private/report")).status_code == 401
+            assert (await client.get("/v0/first/public/ping")).json() == {"ok": True}
+            assert (await client.get("/v0/first/private/report")).status_code == 401
             identities["principal"] = Principal(is_authenticated=True)
-            assert (await client.get("/api/first/private/report")).status_code == 403
+            assert (await client.get("/v0/first/private/report")).status_code == 403
             identities["principal"] = Principal(
                 is_authenticated=True, permissions=frozenset({"first.pages.custom_action1"})
             )
-            assert (await client.get("/api/first/private/report")).json() == {"source": "api"}
+            assert (await client.get("/v0/first/private/report")).json() == {"source": "api"}
         assert order == ["start", "stop"]
 
     asyncio.run(scenario())
