@@ -180,7 +180,7 @@ def test_resource_validation_permissions_and_defaults_are_shared() -> None:
     asyncio.run(scenario())
 
 
-def test_registered_model_api_supports_create_update_patch_and_camel_case_contract() -> None:
+def test_registered_model_api_supports_crud_and_camel_case_contract() -> None:
     async def scenario() -> None:
         async with configured():
             engine = default_session_factory().kw["bind"]
@@ -264,6 +264,14 @@ def test_registered_model_api_supports_create_update_patch_and_camel_case_contra
                 )
                 assert invalid_patch.status_code == 422
                 assert (await client.get("/v0/album/1")).json() == updated.json()
+
+                missing_delete = await client.delete("/v0/album/999")
+                assert missing_delete.status_code == 404
+                deleted = await client.delete("/v0/album/1")
+                assert deleted.status_code == 204
+                assert deleted.content == b""
+                assert (await client.get("/v0/album/1")).status_code == 404
+                assert (await client.delete("/v0/album/1")).status_code == 404
 
     asyncio.run(scenario())
 
