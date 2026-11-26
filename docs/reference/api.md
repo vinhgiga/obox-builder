@@ -30,8 +30,8 @@ router returned by `ProductApi.as_router()` or
 
 ## Generated routes
 
-By default, Obox generates the following operations. `PUT` is included only
-when `update_schema` is defined.
+By default, Obox generates the following operations. When `update_schema` is
+omitted, `PUT` uses a schema inferred from the resource's writable fields.
 
 | Operation | Method and path | Success status | Default model permission |
 | --- | --- | --- | --- |
@@ -59,11 +59,11 @@ create response includes `Location` when the retrieve route is enabled.
 | `resource` | `None` | `ModelResource` class shared with HTML views. Set either `model` or `resource`, not both. |
 | `prefix` | required | Absolute route prefix such as `/api/products`. |
 | `slug` | `None` | Registration suffix used when mounted through `AppConfig`. |
-| `include_router_methods` | `None` | Generated operations. Defaults to all except `update` when no `update_schema` is declared. |
+| `include_router_methods` | `None` | Generated operations. Defaults to all operations, except page pagination which defaults to list and retrieve. |
 | `permissions` | `{}` | Additional named permission required for an operation, keyed by operation name. |
 | `read_schema` | generated | `ApiResponse` subclass used for list and retrieve results. |
 | `create_schema` | generated from resource | `ApiRequest` subclass for create input. |
-| `update_schema` | `None` | `ApiRequest` subclass for full `PUT` input; defining it enables `update` by default. |
+| `update_schema` | `None` | Optional `ApiRequest` subclass for `PUT` input; otherwise generated from writable resource fields. |
 | `patch_schema` | generated from resource | `ApiRequest` subclass for partial `PATCH` input. |
 | `dependencies` | `()` | FastAPI dependencies applied to the generated router. |
 | `search_fields` | `()` | Readable text fields available to list search, named with Python field names. |
@@ -74,9 +74,10 @@ create response includes `Location` when the retrieve route is enabled.
 ## Schemas
 
 Obox generates a read schema from the resource's readable fields and generates
-create and patch schemas from its writable fields when explicit schemas are not
-provided. With a bare `model`, fields can be inferred from explicit API schemas;
-otherwise use a `ModelResource` to declare the transport fields and shared policy.
+create, update, and patch schemas from its writable fields when explicit schemas
+are not provided. With a bare `model`, fields can be inferred from explicit API
+schemas; otherwise use a `ModelResource` to declare the transport fields and
+shared policy.
 
 Read schemas must subclass `ApiResponse`. Write schemas must subclass
 `ApiRequest`. Both base classes use camelCase aliases at the JSON boundary;
@@ -130,8 +131,8 @@ for ordering.
 
 The collection response is an object with `items`, `limit`, `offset`,
 `hasMore`, and `total`. `total` is `null` unless `includeTotal=true`. `PATCH`
-updates only fields present in the request body. `PUT` sends the configured
-full update schema.
+and a generated `PUT` update only fields present in the request body. An
+explicit `update_schema` defines the `PUT` request contract.
 
 ## Permissions, authentication, and errors
 

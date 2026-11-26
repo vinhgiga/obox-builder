@@ -12,8 +12,8 @@ HTML and native FastAPI REST routes.
    Attach HTML customizations with `list_view=`, `detail_view=`, `create_view=`,
    `update_view=` and `delete_view=`, and a REST adapter with `api=ModelApiSubclass`.
 3. Choose a surface using `views=False` or `api=False`. Check the new
-   collection URLs and the REST OpenAPI contract. Use an explicit
-   `update_schema` when clients need PUT.
+   collection URLs and the REST OpenAPI contract. PUT uses a generated schema
+   from writable model fields unless an explicit `update_schema` is provided.
 4. Replace staff checks with operation permissions assigned through roles.
    The current superuser flag supplies administrator access.
 5. Construct FastAPI with `openapi_url=None`. To publish the schema, add a

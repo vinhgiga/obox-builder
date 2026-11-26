@@ -250,9 +250,7 @@ class ModelApi(BaseApi, Generic[ModelT]):
         elif self.pagination == "page":
             methods = ("list", "retrieve")
         else:
-            methods = tuple(
-                action for action in _ROUTES if action != "update" or self.update_schema
-            )
+            methods = tuple(_ROUTES)
         if not all(isinstance(action, str) and action in _ROUTES for action in methods) or len(
             methods
         ) != len(set(methods)):
@@ -316,7 +314,11 @@ class ModelApi(BaseApi, Generic[ModelT]):
             attr = f"{operation}_schema"
             if operation not in methods or getattr(self, attr) is not None:
                 continue
-            if operation == "update" and self.actions is None:
+            if (
+                operation == "update"
+                and self.actions is None
+                and self.include_router_methods is not None
+            ):
                 continue
             definition = resource.get_schema("create" if operation == "create" else "update")
             fields: dict[str, Any] = {}

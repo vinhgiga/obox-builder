@@ -17,9 +17,9 @@ obox.register(ProductResource, api=ProductApi, views=False)
 ```
 
 The generated collection is `/api/products`; detail routes use `/{id}`. The
-default actions are list, retrieve, create, patch and delete. Set
-`include_router_methods` to select actions and provide an `update_schema` to
-enable PUT.
+default actions are list, retrieve, create, update, patch and delete. The
+generated PUT schema uses the resource's writable fields. When explicitly
+selecting `update` in `include_router_methods`, provide an `update_schema`.
 
 For direct FastAPI integration, attach
 `ProductApi().build_router("/api/products")`. Model permissions apply in both
