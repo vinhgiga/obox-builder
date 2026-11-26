@@ -180,7 +180,7 @@ def test_resource_validation_permissions_and_defaults_are_shared() -> None:
     asyncio.run(scenario())
 
 
-def test_registered_model_api_supports_create_update_and_camel_case_contract() -> None:
+def test_registered_model_api_supports_create_update_patch_and_camel_case_contract() -> None:
     async def scenario() -> None:
         async with configured():
             engine = default_session_factory().kw["bind"]
@@ -225,6 +225,14 @@ def test_registered_model_api_supports_create_update_and_camel_case_contract() -
                     "artistId": 1,
                 }
 
+                patched = await client.patch("/v0/album/1", json={"title": "Updated Album"})
+                assert patched.status_code == 200, patched.text
+                assert patched.json() == {
+                    "albumId": 1,
+                    "title": "Updated Album",
+                    "artistId": 1,
+                }
+
                 updated = await client.put(
                     "/v0/album/1", json={"title": "Updated Album", "artistId": 2}
                 )
@@ -240,12 +248,21 @@ def test_registered_model_api_supports_create_update_and_camel_case_contract() -
                 )
                 assert missing.status_code == 404
                 assert (await client.get("/v0/album/999")).status_code == 404
+                missing_patch = await client.patch(
+                    "/v0/album/999", json={"title": "Missing"}
+                )
+                assert missing_patch.status_code == 404
+                assert (await client.get("/v0/album/999")).status_code == 404
                 invalid = await client.put(
                     "/v0/album/1", json={"title": "x" * 161, "artistId": 2}
                 )
                 assert invalid.status_code == 422
                 assert invalid.json()["title"] == "Unprocessable Content"
                 assert invalid.json()["code"] == "validation_error"
+                invalid_patch = await client.patch(
+                    "/v0/album/1", json={"title": "x" * 161}
+                )
+                assert invalid_patch.status_code == 422
                 assert (await client.get("/v0/album/1")).json() == updated.json()
 
     asyncio.run(scenario())
