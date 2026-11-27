@@ -49,10 +49,12 @@
         <div class="generic-form-fields">
           {% for field in form %}
             <div class="mb-3">
-              {% if not field.is_hidden %}<label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>{% endif %}
+              {% if not field.is_hidden %}<label class="form-label"
+       for="{{ field.id_for_label }}">{{ field.label }}</label>{% endif %}
               {{ field }}
               {% if field.field.help_text %}<div class="form-hint">{{ field.field.help_text }}</div>{% endif %}
-              {% for error in field.errors %}<div class="invalid-feedback d-block" role="alert">{{ error }}</div>{% endfor %}
+              {% for error in field.errors %}<div class="invalid-feedback d-block"
+     role="alert">{{ error }}</div>{% endfor %}
             </div>
           {% endfor %}
         </div>

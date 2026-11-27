@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any
 
 import sqlalchemy as sa
 from pydantic import BaseModel, Field
@@ -26,9 +26,6 @@ class ViewConfig(BaseModel, frozen=True, extra="forbid"):
     filter: FilterGroup | None = None
     sort: tuple[str, ...] = Field(default=(), max_length=5)
     group: tuple[str, ...] = Field(default=(), max_length=3)
-    hidden: tuple[str, ...] = ()
-    order: tuple[str, ...] = ()
-    row_height: Literal["short", "medium", "tall", "extra"] = "short"
 
 
 @dataclass(frozen=True)

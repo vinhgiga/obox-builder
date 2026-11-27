@@ -1,38 +1,24 @@
 import asyncio
+import re
 from importlib import import_module
 from typing import Any, ClassVar
 
 import httpx
 import pytest
 import sqlalchemy as sa
-from fastapi import Depends, FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi import Depends, FastAPI
 from obox import ModelResource, Obox, permission_required
 from obox.apps import AppConfig
 from obox.conf import settings
 from obox.core.exceptions import ResourceConflict
 from obox.core.principal import Principal
 from obox.db.session import session_scope
-from obox.middleware.csrf import get_token
 from obox.views.generic import CreateView, ModelViewSet, StackedInline, TabularInline, UpdateView
 
 from tests.runtime import resource_for
 from tests.test_forms_integration import configured
 from tests.test_formsets import Author, Book, data, seed
 from tests.test_registered_views import Actors
-
-
-class InlineViewTestMixin:
-    request: Request
-
-    def render_to_response(self, context: dict[str, Any], **kwargs: Any) -> HTMLResponse:
-        token = get_token(self.request)
-        errors = [context["form"].errors]
-        errors.extend(group["formset"].errors for group in context.get("inline_formsets", []))
-        return HTMLResponse(
-            f'<input name="csrfmiddlewaretoken" value="{token}">{errors}',
-            status_code=kwargs.get("status_code", 200),
-        )
 
 
 @pytest.mark.parametrize(("layout", "direct"), [(TabularInline, False), (StackedInline, True)])
@@ -43,7 +29,7 @@ def test_view_inlines_save_parent_children_and_error_statuses(layout: Any, direc
         fields = ("title",)
         extra = 1
 
-    class AuthorCreate(InlineViewTestMixin, CreateView):
+    class AuthorCreate(CreateView):
         fields = ("name",)
         inlines = (Books,)
 
@@ -52,7 +38,7 @@ def test_view_inlines_save_parent_children_and_error_statuses(layout: Any, direc
             if form.instance.name == "Roll back":
                 raise ResourceConflict("Cannot save this group.")
 
-    class AuthorUpdate(InlineViewTestMixin, UpdateView):
+    class AuthorUpdate(UpdateView):
         fields = AuthorCreate.fields
         inlines = AuthorCreate.inlines
 
@@ -97,9 +83,12 @@ def test_view_inlines_save_parent_children_and_error_statuses(layout: Any, direc
                 transport=httpx.ASGITransport(app=app), base_url="http://test"
             ) as client:
                 page = await client.get(f"{base_path}/add")
-                assert page.status_code == 200
-                token = page.text.split('value="', 1)[1].split('"', 1)[0]
-                parent = {"name": "New parent", "csrfmiddlewaretoken": token}
+                assert page.status_code == 200, page.text
+                assert 'name="books-TOTAL_FORMS"' in page.text
+                assert 'name="books-0-title"' in page.text
+                token = re.search(r'name="csrfmiddlewaretoken" value="([^"]+)"', page.text)
+                assert token is not None
+                parent = {"name": "New parent", "csrfmiddlewaretoken": token[1]}
                 invalid = await client.post(
                     f"{base_path}/add",
                     data={**parent, **data({"title": ""}, {"title": "x" * 50})},
@@ -154,7 +143,7 @@ def test_view_rejects_inline_creation_without_child_add_permission() -> None:
         resource = resource_for(Book, fields=("title",))
         fields = ("title",)
 
-    class AuthorUpdate(InlineViewTestMixin, UpdateView):
+    class AuthorUpdate(UpdateView):
         fields = ("name",)
         inlines = (Books,)
 
@@ -188,12 +177,13 @@ def test_view_rejects_inline_creation_without_child_add_permission() -> None:
             ) as client:
                 page = await client.get(f"/tests/authors/{author.id}/change")
                 assert page.status_code == 200
-                token = page.text.split('value="', 1)[1].split('"', 1)[0]
+                token = re.search(r'name="csrfmiddlewaretoken" value="([^"]+)"', page.text)
+                assert token is not None
                 forged = await client.post(
                     f"/tests/authors/{author.id}/change",
                     data={
                         "name": "Forged parent",
-                        "csrfmiddlewaretoken": token,
+                        "csrfmiddlewaretoken": token[1],
                         **data(
                             {"id": "1", "title": "First"},
                             {"id": "2", "title": "Second"},

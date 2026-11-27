@@ -5,6 +5,7 @@ import sqlalchemy as sa
 from obox import forms
 from obox.db.session import session_scope
 from obox.db.transaction import atomic
+from obox.resources import ModelResource
 from pydantic import BaseModel
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -112,6 +113,37 @@ def test_inline_rejects_unknown_identity_and_parent(row: dict[str, str]) -> None
     asyncio.run(scenario())
 
 
+def test_inline_uses_both_parent_and_resource_scope() -> None:
+    class VisibleBooks(ModelResource[Book]):
+        model = Book
+        fields = ("title",)
+
+        def get_queryset(self) -> sa.Select[tuple[Book]]:
+            return super().get_queryset().where(Book.title != "Second")
+
+    children = forms.inlineformset_factory(Author, VisibleBooks)
+
+    async def scenario() -> None:
+        async with configured():
+            parent = await seed()
+            async with session_scope() as session:
+                other = Author(name="Other")
+                session.add(other)
+                await session.flush()
+                book = Book(author_id=other.id, title="Other book")
+                session.add(book)
+                await session.flush()
+                other_book_id = book.id
+            unbound = children(instance=parent)
+            await unbound.prepare()
+            assert [form.instance.title for form in unbound.initial_forms] == ["First"]
+            for key in ("2", str(other_book_id)):
+                bound = children(data({"id": key, "DELETE": "on"}, initial=1), instance=parent)
+                assert not await bound.is_valid()
+
+    asyncio.run(scenario())
+
+
 def test_inline_unsaved_parent_duplicates_and_custom_clean() -> None:
     class UniqueBooks(forms.BaseInlineFormSet):
         def clean(self) -> None:
@@ -146,16 +178,10 @@ def test_inline_unsaved_parent_duplicates_and_custom_clean() -> None:
     asyncio.run(scenario())
 
 
-def test_formset_management_limits_ordering_and_deleted_invalid_rows() -> None:
-    class ContactInput(BaseModel):
-        name: str
-
-    class Contact(forms.Form[ContactInput]):
-        schema = ContactInput
-
-    contacts = forms.formset_factory(
-        Contact,
-        can_delete=True,
+def test_inline_management_limits_and_deleted_invalid_rows() -> None:
+    children = forms.inlineformset_factory(
+        Author,
+        resource_for(Book, fields=("title",)),
         max_num=2,
         absolute_max=3,
         min_num=1,
@@ -164,25 +190,19 @@ def test_formset_management_limits_ordering_and_deleted_invalid_rows() -> None:
     )
 
     async def scenario() -> None:
-        missing = contacts({})
-        assert not await missing.is_valid()
-        assert "ManagementForm" in missing.non_form_errors()[0]
-        huge = contacts({"form-TOTAL_FORMS": "10000000", "form-INITIAL_FORMS": "0"})
+        huge = children({"books-TOTAL_FORMS": "10000000", "books-INITIAL_FORMS": "0"})
         assert not await huge.is_valid()
-        assert len(huge) == 3
-        valid = contacts(
-            data(
-                {"name": "Last", "ORDER": "2"},
-                {"name": "First", "ORDER": "1"},
-                {"DELETE": "on"},
-                prefix="form",
+        assert not len(huge)
+        assert huge.non_form_errors() == ["Please submit at most 3 forms."]
+        async with configured():
+            parent = await seed()
+            valid = children(
+                data({"id": "1", "DELETE": "on"}, {"title": "Third"}, initial=1),
+                instance=parent,
             )
-        )
-        assert await valid.is_valid(), valid.errors
-        assert [form.validated_data["name"] for form in valid.forms[:2]] == ["Last", "First"]
-        assert len(valid.deleted_forms) == 1
-        empty = contacts(data({}, prefix="form"))
-        assert not await empty.is_valid()
+            assert await valid.is_valid(), (valid.errors, valid.non_form_errors())
+            assert len(valid.deleted_forms) == 1
+            assert not await children(data({}), instance=parent).is_valid()
 
     asyncio.run(scenario())
 
@@ -238,6 +258,7 @@ def test_inline_disambiguates_foreign_keys_and_requires_explicit_fields() -> Non
         {"TOTAL_FORMS": "-1", "INITIAL_FORMS": "0"},
         {"TOTAL_FORMS": "invalid", "INITIAL_FORMS": "0"},
         {"TOTAL_FORMS": "1", "INITIAL_FORMS": "-1"},
+        {"TOTAL_FORMS": "1", "INITIAL_FORMS": "2"},
     ],
 )
 def test_tampered_management_never_validates(management: dict[str, str]) -> None:
@@ -261,10 +282,10 @@ def test_integer_zero_extra_form_is_changed_and_saved_data_is_retained() -> None
         schema = CountInput
 
     async def scenario() -> None:
-        bound = forms.formset_factory(Count)(data({"value": "0"}, prefix="form"))
+        bound = Count({"value": "0"}, empty_permitted=True)
         assert await bound.is_valid()
-        assert bound.forms[0].has_changed()
-        assert bound.cleaned_data == [{"value": 0}]
+        assert bound.has_changed()
+        assert bound.cleaned_data == CountInput(value=0)
 
     asyncio.run(scenario())
 
@@ -279,12 +300,13 @@ def test_new_inline_commit_false_can_be_saved_with_unsaved_parent() -> None:
     asyncio.run(scenario())
 
 
-def test_inline_rejects_duplicate_existing_primary_keys() -> None:
+@pytest.mark.parametrize("duplicate", [{"title": "Different"}, {"DELETE": "on"}])
+def test_inline_rejects_duplicate_existing_primary_keys(duplicate: dict[str, str]) -> None:
     async def scenario() -> None:
         async with configured():
             parent = await seed()
             bound = Books(
-                data({"id": "1", "title": "First"}, {"id": "1", "title": "Different"}, initial=2),
+                data({"id": "1", "title": "First"}, {"id": "1", **duplicate}, initial=2),
                 instance=parent,
             )
             assert not await bound.is_valid()

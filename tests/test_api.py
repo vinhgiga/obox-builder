@@ -5,7 +5,7 @@ from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from pathlib import Path
 from types import MappingProxyType
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 from uuid import UUID, uuid4
 
 import httpx
@@ -79,21 +79,10 @@ class AlbumWithRelationship(Base):
 Title = Annotated[str, StringConstraints(min_length=1, max_length=64)]
 
 
-class PostRead(ApiResponse):
-    id: int
-    title_text: str = Field(alias="titleText")
-    summary_text: str | None
-    category_id: int | None
-
-
 class PostWrite(ApiRequest):
     title_text: Title = Field(alias="titleText")
     summary_text: str | None = None
     category_id: int | None = Field(default=None, alias="categoryId")
-
-
-class PostPatch(PostWrite):
-    title_text: Title = Field(default_factory=str, alias="titleText")
 
 
 class PostResource(ModelResource[Post]):
@@ -110,23 +99,19 @@ class PostResource(ModelResource[Post]):
 class Posts(ModelApi[Post]):
     resource = PostResource
     prefix = "/posts"
-    read_schema: type[ApiResponse] | None = PostRead
-    create_schema: type[ApiRequest] | None = PostWrite
-    update_schema: type[ApiRequest] | None = PostWrite
-    patch_schema: type[ApiRequest] | None = PostPatch
     search_fields: Sequence[str] = ("title_text",)
     ordering_fields: Sequence[str] = ("title_text",)
 
 
 class Albums(ModelApi[Album]):
     resource = resource_for(Album)
-    actions = ("retrieve",)
+    actions: tuple[Literal["retrieve"]] = ("retrieve",)
     permissions = MappingProxyType({"retrieve": "tests.view_post"})
 
 
 class AlbumsWithRelationship(ModelApi[AlbumWithRelationship]):
     resource = resource_for(AlbumWithRelationship)
-    actions = ("retrieve",)
+    actions: tuple[Literal["retrieve"]] = ("retrieve",)
     permissions = MappingProxyType({"retrieve": "tests.view_post"})
 
 
@@ -185,7 +170,6 @@ def test_crud_permissions_visibility_and_wire_contract(tmp_path: Path) -> None:
             assert (await client.head(POSTS)).status_code == 401
             for method, path in [
                 ("POST", POSTS),
-                ("PUT", POSTS + "/1"),
                 ("PATCH", POSTS + "/1"),
                 ("DELETE", POSTS + "/1"),
             ]:
@@ -215,8 +199,8 @@ def test_crud_permissions_visibility_and_wire_contract(tmp_path: Path) -> None:
             detail = f"{POSTS}/{stored_id}"
             assert created.headers["location"] == detail
             assert (await client.get(detail, headers=VIEWER)).json() == data
-            for method in ("GET", "PUT", "PATCH", "DELETE"):
-                body = {"titleText": "Test"} if method in {"PUT", "PATCH"} else None
+            for method in ("GET", "PATCH", "DELETE"):
+                body = {"titleText": "Test"} if method == "PATCH" else None
                 assert (
                     await client.request(method, detail, headers=OTHER, json=body)
                 ).status_code == 404
@@ -224,14 +208,9 @@ def test_crud_permissions_visibility_and_wire_contract(tmp_path: Path) -> None:
             changed = await client.patch(detail, headers=EDITOR, json={"summaryText": "Changed"})
             assert changed.json() == {**data, "summaryText": "Changed"}
             assert (await client.patch(detail, headers=EDITOR, json={})).json() == changed.json()
-            assert (await client.put(detail, headers=EDITOR, json={})).status_code == 422
-            replaced = await client.put(detail, headers=EDITOR, json={"titleText": "New"})
-            assert replaced.json() == {
-                "id": stored_id,
-                "titleText": "New",
-                "summaryText": None,
-                "categoryId": None,
-            }
+            assert (await client.put(detail, headers=EDITOR, json={})).status_code == 405
+            cleared = await client.patch(detail, headers=EDITOR, json={"summaryText": None})
+            assert cleared.json() == data
             assert (
                 await client.patch(detail, headers=EDITOR, json={"titleText": None})
             ).status_code == 422
@@ -249,10 +228,9 @@ def test_crud_permissions_visibility_and_wire_contract(tmp_path: Path) -> None:
             assert (await client.get(detail, headers=EDITOR)).status_code == 404
 
             schema = runtime.app.openapi()
-            assert (
-                schema["paths"][f"{POSTS}/{{id}}"]["patch"]["parameters"][0]["schema"]["type"]
-                == "integer"
-            )
+            member = schema["paths"][f"{POSTS}/{{id}}"]
+            assert member.keys() == {"get", "patch", "delete"}
+            assert member["patch"]["parameters"][0]["schema"]["type"] == "integer"
             assert "requestBody" in schema["paths"][POSTS]["post"]
             assert "Problem" in schema["components"]["schemas"]
             assert runtime.permissions.keys() >= WRITE

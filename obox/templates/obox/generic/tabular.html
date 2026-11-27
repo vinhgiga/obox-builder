@@ -1,6 +1,6 @@
 <fieldset>
   <legend>{{ group.inline.model.__name__ }}</legend>
-  {{ group.formset.management_form.as_p() }}
+  {% for field in group.formset.management_form %}{{ field }}{% endfor %}
   {% for error in group.formset.non_form_errors() %}<p role="alert">{{ error }}</p>{% endfor %}
   <table>
     {% if group.formset.forms %}<thead><tr>{% for bound in group.formset.forms[0] if not bound.is_hidden %}<th>{{ bound.label }}</th>{% endfor %}</tr></thead>{% endif %}

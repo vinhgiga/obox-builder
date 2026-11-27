@@ -31,15 +31,14 @@ from obox.web.schemas import ApiRequest as ApiRequest
 from obox.web.schemas import ApiResponse as ApiResponse
 
 ModelT = TypeVar("ModelT")
-RouterMethod = Literal["list", "retrieve", "create", "update", "patch", "delete"]
-Action = Literal["list", "retrieve", "create", "update", "partial_update", "destroy"]
+RouterMethod = Literal["list", "retrieve", "create", "patch", "delete"]
+Action = Literal["list", "retrieve", "create", "partial_update", "destroy"]
 ReadT = TypeVar("ReadT", bound=BaseModel)
 
 _ROUTES: dict[RouterMethod, tuple[str, str, int, str]] = {
     "list": ("GET", "", 200, "view"),
     "retrieve": ("GET", "/{id}", 200, "view"),
     "create": ("POST", "", 201, "add"),
-    "update": ("PUT", "/{id}", 200, "change"),
     "patch": ("PATCH", "/{id}", 200, "change"),
     "delete": ("DELETE", "/{id}", 204, "delete"),
 }
@@ -47,7 +46,6 @@ _ACTIONS: dict[Action, RouterMethod] = {
     "list": "list",
     "retrieve": "retrieve",
     "create": "create",
-    "update": "update",
     "partial_update": "patch",
     "destroy": "delete",
 }
@@ -216,9 +214,11 @@ class ModelApi(BaseApi, Generic[ModelT]):
         read = self._read_schema = schema(
             f"{self.model.__name__}Read", specs, resource.readable, base=ApiResponse
         )
-        schemas = {}
-        for operation in ("create", "update", "patch"):
-            definition = resource.get_schema("create" if operation == "create" else "update")
+        schemas: dict[RouterMethod, type[ApiRequest]] = {}
+        for operation in ("create", "patch"):
+            if operation not in methods:
+                continue
+            definition = resource.get_schema("update" if operation == "patch" else operation)
             fields: dict[str, Any] = {}
             for name in writable:
                 if name not in definition.model_fields:
@@ -227,7 +227,7 @@ class ModelApi(BaseApi, Generic[ModelT]):
                 annotation: Any = info.annotation
                 if info.metadata:
                     annotation = Annotated[annotation, *info.metadata]
-                default = ... if operation != "patch" and info.is_required() else None
+                default = ... if operation == "create" and info.is_required() else None
                 fields[name] = (Annotated[annotation, SkipValidation], default)
             schemas[operation] = create_model(
                 f"{self.model.__name__}{operation.title()}", __base__=ApiRequest, **fields
@@ -448,7 +448,7 @@ class ModelApi(BaseApi, Generic[ModelT]):
                 else "update"
                 if action == "patch"
                 else action,
-                for_update=action in {"update", "patch", "delete"},
+                for_update=action in {"patch", "delete"},
             )
 
         def payload(request: Request, data: ApiRequest) -> dict[str, Any]:
@@ -522,15 +522,13 @@ class ModelApi(BaseApi, Generic[ModelT]):
             create_row.__annotations__["data"] = body
             return create_row
 
-        if action in {"update", "patch"}:
+        if action == "patch":
 
             async def change_row(
                 request: Request, id: Any, data: ApiRequest, ctx: Context = dependency
             ) -> BaseModel:
                 obj = await lookup(ctx, id)
-                obj = await self.get_resource(ctx).update(
-                    obj, payload(request, data), partial=action == "patch"
-                )
+                obj = await self.get_resource(ctx).update(obj, payload(request, data))
                 await ctx.session.flush()
                 return await project(ctx, obj)
 

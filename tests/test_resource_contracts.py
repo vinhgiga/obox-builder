@@ -275,7 +275,7 @@ def test_resource_scope_unique_pagination_and_eager_loading(tmp_path: Path, page
                 with pytest.raises(NotFound):
                     await resource.destroy(outside)
                 with pytest.raises(NotFound):
-                    await resource.update(outside, {"name": "stolen"}, partial=True)
+                    await resource.update(outside, {"name": "stolen"})
             assert len(page.items[0].children) == 2
 
     asyncio.run(scenario())
@@ -289,13 +289,13 @@ def test_resource_crud_partial_validation_and_savepoint(tmp_path: Path) -> None:
                 first = declaration.bind(session, Principal(id=1))
                 entry = await first.create(EntryInput(name="limited", amount=2))
                 with pytest.raises(BuilderValidationError):
-                    await first.update(entry, {"amount": 3}, partial=True)
+                    await first.update(entry, {"amount": 3})
                 assert entry.amount == 2
+                await first.update(entry, EntryInput(name="limited"))
+                assert entry.amount == 2
+                await first.update(entry, {"amount": 1})
                 with pytest.raises(BuilderValidationError):
-                    await first.update(entry, {"amount": 1})
-                await first.update(entry, {"amount": 1}, partial=True)
-                with pytest.raises(BuilderValidationError):
-                    await first.update(entry, {"amount": None}, partial=True)
+                    await first.update(entry, {"amount": None})
                 with pytest.raises(ResourceConflict):
                     async with session.begin_nested():
                         await first.create(EntryInput(name="limited"))
@@ -336,7 +336,6 @@ def test_adapters_share_resource_rules_and_transaction_boundary(
     class EntryApi(ModelApi[Entry]):
         resource = Entries
         read_schema = EntryOutput
-        actions = ("list", "retrieve", "create", "update", "partial_update", "destroy")
 
     async def scenario() -> None:
         async with (
@@ -382,17 +381,16 @@ def test_adapters_share_resource_rules_and_transaction_boundary(
                     if surface == "api":
                         assert (response.json()["name"], response.json()["amount"]) == ("ok", 1)
                         detail = response.headers["location"]
-                        assert (await client.put(detail, json={"amount": 3})).status_code == 422
-                        changed = await client.put(detail, json={"name": "limited", "amount": 2})
+                        changed = await client.patch(detail, json={"name": "limited", "amount": 2})
                         assert changed.status_code == 200
                         assert (changed.json()["name"], changed.json()["amount"]) == (
                             "limited",
                             2,
                         )
                         assert (await client.patch(detail, json={"amount": 3})).status_code == 422
-                        reset = await client.put(detail, json={"name": "limited"})
-                        assert reset.status_code == 200
-                        assert reset.json()["amount"] == 1
+                        renamed = await client.patch(detail, json={"name": "changed"})
+                        assert renamed.status_code == 200
+                        assert renamed.json()["amount"] == 2
                         removed = await client.delete(detail)
                         assert removed.status_code == 204
                         assert removed.content == b""
@@ -461,10 +459,10 @@ def test_per_action_schemas_defaults_and_invalid_configuration(tmp_path: Path) -
             resource = Configured(session, Principal(id=1))
             entry = await resource.create({})
             assert entry.name == "default-name"
-            await resource.update(entry, {"amount": 4}, partial=True)
+            await resource.update(entry, {"amount": 4})
             assert entry.amount == 4
             with pytest.raises(PermissionDenied, match="Fields cannot be written"):
-                await resource.update(entry, {"name": "denied"}, partial=True)
+                await resource.update(entry, {"name": "denied"})
         for options in ({"ordering": "name"}, {"page_size": 0}, {"service_class": object}):
             broken = cast(
                 type[ModelResource[Entry]],
@@ -481,10 +479,8 @@ def test_write_rule_violation_restores_object_before_rendering(tmp_path: Path, a
     from obox.views.generic import DeleteView, UpdateView
 
     class Guarded(Entries):
-        async def perform_update(
-            self, obj: Entry, data: dict[str, Any], *, partial: bool = False
-        ) -> Entry:
-            await super().perform_update(obj, data, partial=partial)
+        async def perform_update(self, obj: Entry, data: dict[str, Any]) -> Entry:
+            await super().perform_update(obj, data)
             raise RuleViolation("blocked", "Cannot change this record.")
 
         async def perform_destroy(self, obj: Entry) -> None:

@@ -284,11 +284,6 @@ class ListView(ModelTemplateMixin, ModelContextMixin[ModelT], View, Generic[Mode
                     if not isinstance(resource.specs[name].column.type, sa.JSON)
                 ],
             },
-            "layout": {
-                "hidden": [name for name in self.view.hidden if name in columns[1:]],
-                "order": [name for name in self.view.order if name in columns[1:]],
-                "row_height": self.view.row_height,
-            },
             "rows": rows,
             "total": page.total,
             "actions": self.get_actions(model),

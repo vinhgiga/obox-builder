@@ -345,20 +345,20 @@ class ModelResource(Generic[ModelT]):
         obj: ModelT,
         data: Mapping[str, Any] | BaseModel,
         *,
-        partial: bool = False,
         validate: bool = True,
     ) -> ModelT:
+        """Apply only the supplied fields to the existing record."""
         obj = await self._write_object(obj, "update")
         values = (
-            data.model_dump(exclude_unset=partial, by_alias=False)
+            data.model_dump(exclude_unset=True, by_alias=False)
             if isinstance(data, BaseModel)
             else data
         )
         values = await self._validate(
-            self._session(), self.principal, values, obj, validate=validate, partial=partial
+            self._session(), self.principal, values, obj, validate=validate
         )
         try:
-            return await self.perform_update(obj, values, partial=partial)
+            return await self.perform_update(obj, values)
         except IntegrityError as exc:
             raise ResourceConflict(
                 "The transaction conflicts with current database state."
@@ -376,13 +376,7 @@ class ModelResource(Generic[ModelT]):
     async def perform_create(self, data: dict[str, Any]) -> ModelT:
         return await self._persist(self._session(), self.principal, data)
 
-    async def perform_update(
-        self,
-        obj: ModelT,
-        data: dict[str, Any],
-        *,
-        partial: bool = False,
-    ) -> ModelT:
+    async def perform_update(self, obj: ModelT, data: dict[str, Any]) -> ModelT:
         return await self._persist(self._session(), self.principal, data, obj)
 
     async def perform_destroy(self, obj: ModelT) -> None:
@@ -463,7 +457,6 @@ class ModelResource(Generic[ModelT]):
         obj: ModelT | None,
         *,
         validate: bool = True,
-        partial: bool = True,
     ) -> dict[str, Any]:
         action: WriteAction = "create" if obj is None else "update"
         allowed = await self._writable(action, obj, actor)
@@ -472,19 +465,9 @@ class ModelResource(Generic[ModelT]):
             raise PermissionDenied(f"Fields cannot be written: {', '.join(sorted(denied))}.")
         if not validate:
             return dict(values)
-        input_model = (
-            self._create_schema
-            if obj is None
-            else self._patch_schema
-            if partial
-            else self.get_schema("update")
-        )
+        input_model = self._create_schema if obj is None else self._patch_schema
         data = dict(values)
-        if (
-            obj is not None
-            and partial
-            and (self.schema or self.update_schema or self.create_schema)
-        ):
+        if obj is not None and (self.schema or self.update_schema or self.create_schema):
             missing = input_model.model_fields.keys() - values.keys()
             unloaded = cast("InstanceState[ModelT]", sa.inspect(obj)).unloaded.intersection(missing)
             if unloaded:
@@ -501,12 +484,6 @@ class ModelResource(Generic[ModelT]):
         names: Collection[str] = values.keys()
         if obj is None and (self.schema or self.create_schema):
             names = input_model.model_fields.keys()
-        elif (
-            obj is not None
-            and not partial
-            and (self.schema or self.update_schema or self.create_schema)
-        ):
-            names = input_model.model_fields.keys() & allowed
         return {name: getattr(parsed, name) for name in names}
 
     async def _persist(

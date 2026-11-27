@@ -6,7 +6,7 @@ import pytest
 
 SOURCE = """
 from typing import Any, assert_type
-from obox.forms import Form, ModelForm, formset_factory, modelform_factory
+from obox.forms import BaseInlineFormSet, Form, ModelForm, inlineformset_factory, modelform_factory
 from obox import ModelResource
 from obox.views.generic import GridView, DetailView, UpdateView
 from obox.views.generic.inlines import Inline
@@ -46,7 +46,9 @@ class ReviewInline(Inline):
 class ReviewGrid(GridView[Record]):
     resource = ReviewResource
 
-formset_factory(Review)
+assert_type(
+    inlineformset_factory(Record, ReviewResource, form=ReviewModel), type[BaseInlineFormSet]
+)
 modelform_factory(ReviewResource, form=ReviewModel)
 
 async def validate(raw: dict[str, Any]) -> None:
