@@ -11,7 +11,6 @@ from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstanceState, Mapper
 
-from obox.core.async_utils import invoke
 from obox.core.exceptions import BuilderValidationError, ImproperlyConfigured, ValidationError
 from obox.db.fields import model_value
 from obox.db.session import session_scope
@@ -203,10 +202,7 @@ class ModelChoiceField(ChoiceField):
             if self.required:
                 raise ValidationError(self.error_messages["required"], code="required")
             return None
-        result = (await self._check_values([value]))[0]
-        for validator in self.validators:
-            await invoke(validator, result)
-        return result
+        return (await self._check_values([value]))[0]
 
 
 class ModelMultipleChoiceField(ModelChoiceField):
@@ -227,7 +223,4 @@ class ModelMultipleChoiceField(ModelChoiceField):
             return []
         if not isinstance(value, (list, tuple)):
             raise ValidationError(self.error_messages["invalid_list"], code="invalid_list")
-        result = await self._check_values(list(value))
-        for validator in self.validators:
-            await invoke(validator, result)
-        return result
+        return await self._check_values(list(value))

@@ -14,10 +14,8 @@ from starlette.datastructures import MutableHeaders
 from starlette.exceptions import HTTPException
 from starlette.types import Message, Receive, Scope, Send
 
-from obox.conf import settings
 from obox.core.async_utils import invoke
 from obox.core.exceptions import DomainError, ImproperlyConfigured, PermissionDenied
-from obox.db.session import current_session, session_scope
 from obox.web.identity import identify
 from obox.web.routes import MethodRoute, error_status
 
@@ -96,16 +94,9 @@ class HTMLRoute(MethodRoute):
 
 @asynccontextmanager
 async def _request_session(request: Request) -> AsyncIterator[Any]:
-    actor = request.scope.get("user")
-    runtime = getattr(request.app.state, "obox", None)
-    if runtime is not None:
-        async with runtime.uow(principal=actor, request=request, source="ui") as context:
-            yield context
-    elif settings.configured and settings.DATABASES:
-        async with session_scope():
-            yield None
-    else:
-        yield None
+    runtime = request.app.state.obox
+    async with runtime.uow(principal=request.user, request=request, source="ui") as context:
+        yield context
 
 
 class View:
@@ -176,7 +167,10 @@ class View:
     @classmethod
     def as_view(cls, **initkwargs: Any) -> Any:
         for key in initkwargs:
-            if key in cls.http_method_names or not hasattr(cls, key):
+            if key in cls.http_method_names or not any(
+                key in vars(base) or key in getattr(base, "__annotations__", {})
+                for base in cls.__mro__
+            ):
                 raise TypeError(f"{cls.__name__}.as_view() received an invalid keyword {key!r}.")
 
         cls(**initkwargs).check()
@@ -191,26 +185,21 @@ class View:
             self.setup(request, **request.path_params)
             try:
                 async with _request_session(request) as context:
-                    current = current_session.get()
-                    self.session = (
-                        context.session if context is not None else current[1] if current else None
-                    )
-                    self.principal = request.user
-                    runtime = getattr(request.app.state, "obox", None)
-                    if runtime is not None and context is not None:
-                        from obox.web.i18n import context as translation_context
-                        from obox.web.ui import build_navigation
+                    self.session, self.principal = context.session, context.principal
+                    runtime = request.app.state.obox
+                    from obox.web.i18n import context as translation_context
+                    from obox.web.ui import build_navigation
 
-                        request.state.obox_context = context
-                        request.state.obox_template_context = {
-                            **translation_context(request),
-                            "site_title": runtime.app.title,
-                            "base_template": runtime.settings.base_template,
-                            "navigation": await build_navigation(runtime, request, context),
-                            "principal": context.principal,
-                            "auth": runtime.auth,
-                            "csrf": runtime.csrf.token(request, context.principal),
-                        }
+                    request.state.obox_context = context
+                    request.state.obox_template_context = {
+                        **translation_context(request),
+                        "site_title": runtime.app.title,
+                        "base_template": runtime.settings.base_template,
+                        "navigation": await build_navigation(runtime, request, context),
+                        "principal": context.principal,
+                        "auth": runtime.auth,
+                        "csrf": runtime.csrf.token(request, context.principal),
+                    }
                     from obox.middleware.csrf import check_csrf, set_csrf_cookie
 
                     if self.csrf_protect and not getattr(request.state, "_obox_html_csrf", False):
@@ -289,37 +278,19 @@ class TemplateResponseMixin:
         return [self.template_name]
 
     def render_to_response(self, context: dict[str, Any], **response_kwargs: Any) -> Response:
-        from fastapi.templating import Jinja2Templates
 
         from obox.middleware.csrf import get_token
 
-        runtime = getattr(self.request.app.state, "obox", None)
-        if runtime is not None:
-            templates = runtime.templates
-        elif hasattr(self.request.app.state, "templates"):
-            templates = self.request.app.state.templates
-        else:
-            from importlib import import_module
+        runtime = self.request.app.state.obox
+        templates = runtime.templates
+        from obox.conf import settings
 
-            from obox.template.backends.jinja2 import Jinja2
-
-            config = settings.TEMPLATES[0] if settings.TEMPLATES else {}
-            backend = Jinja2
-            if config.get("BACKEND"):
-                module, _, name = config["BACKEND"].rpartition(".")
-                backend = getattr(import_module(module), name)
-            templates = Jinja2Templates(env=backend(config).env)
-            self.request.app.state.templates = templates
-        if runtime is not None:
-            try:
-                context.setdefault("csrf_token", get_token(self.request))
-            except ImproperlyConfigured:
-                context.setdefault(
-                    "csrf_token",
-                    runtime.csrf.token(self.request, self.request.scope.get("user")),
-                )
-        else:
-            context.setdefault("csrf_token", get_token(self.request))
+        token = (
+            get_token(self.request)
+            if settings.configured
+            else runtime.csrf.token(self.request, self.request.user)
+        )
+        context.setdefault("csrf_token", token)
         context = {
             **getattr(self.request.state, "obox_template_context", {}),
             **context,

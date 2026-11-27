@@ -23,17 +23,11 @@ async def savepoint_scope(session: AsyncSession) -> AsyncIterator[None]:
 
 
 @asynccontextmanager
-async def atomic(
-    using: str | None = None, savepoint: bool = True, durable: bool = False
-) -> AsyncIterator[None]:
-    if using not in (None, "default"):
-        raise ValueError("Only the default database is supported.")
+async def atomic() -> AsyncIterator[None]:
     current = current_session.get()
     nested = current is not None and current[0] is asyncio.current_task()
-    if durable and nested:
-        raise RuntimeError("A durable atomic block cannot be nested.")
     async with session_scope() as session:
-        if nested and savepoint:
+        if nested:
             async with savepoint_scope(session):
                 yield
         else:

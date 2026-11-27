@@ -24,6 +24,7 @@ from obox.views.generic import (
     action,
 )
 
+from tests.runtime import relation_controls, resource_for
 from tests.test_forms_integration import Item, ItemForm, configured
 
 
@@ -66,7 +67,7 @@ def test_registration_uses_generic_views_and_preserves_route_names() -> None:
                 Registration(Item, None, False, True, list_view=ListView)  # type: ignore[call-arg]
 
             class LegacyList(ListView[Item]):
-                model = Item
+                resource = resource_for(Item)
                 list_display = ("name",)
 
             with pytest.raises(ImproperlyConfigured, match="list_display"):
@@ -200,16 +201,15 @@ def test_view_only_actor_sees_readonly_values_and_cannot_change() -> None:
 
 def test_create_view_honors_custom_form_and_factory_metadata() -> None:
     class NameForm(ItemForm):
-        class Meta:
-            model = Item
-            fields = ("name",)
+        resource = resource_for(Item, fields=("name",))
+        field_options = relation_controls(Item, ("name",))
 
     view = CreateView(model=Item, form_class=NameForm)
-    assert list(view.get_form_class().base_fields) == ["name"]
+    assert list(view.get_form_class()().fields) == ["name"]
     from obox.forms import modelform_factory
 
-    renamed = modelform_factory(Item, ItemForm, labels={"name": "Custom label"})
-    assert renamed.base_fields["name"].label == "Custom label"
+    renamed = modelform_factory(resource_for(Item), form=ItemForm)
+    assert renamed().fields["name"].label == "Custom label"
 
 
 def test_registered_list_links_pagination_and_action_confirmation() -> None:

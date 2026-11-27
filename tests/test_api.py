@@ -5,7 +5,7 @@ from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from pathlib import Path
 from types import MappingProxyType
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any
 from uuid import UUID, uuid4
 
 import httpx
@@ -21,6 +21,7 @@ from obox.runtime.runtime import _Runtime
 from pydantic import Field, StringConstraints
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
+from tests.runtime import resource_for, sessions_for
 from tests.storage import database
 
 POSTS = "/api/posts"
@@ -80,23 +81,24 @@ Title = Annotated[str, StringConstraints(min_length=1, max_length=64)]
 
 class PostRead(ApiResponse):
     id: int
-    title_text: str = Field(alias="headlineText")
+    title_text: str = Field(alias="titleText")
     summary_text: str | None
     category_id: int | None
 
 
 class PostWrite(ApiRequest):
-    title_text: Title = Field(alias="headlineText")
+    title_text: Title = Field(alias="titleText")
     summary_text: str | None = None
-    category_id: int | None = Field(default=None, alias="sectionId")
+    category_id: int | None = Field(default=None, alias="categoryId")
 
 
 class PostPatch(PostWrite):
-    title_text: Title = Field(default_factory=str, alias="headlineText")
+    title_text: Title = Field(default_factory=str, alias="titleText")
 
 
 class PostResource(ModelResource[Post]):
     model = Post
+    create_schema = PostWrite
 
     def get_queryset(self) -> sa.Select[tuple[Post]]:
         return super().get_queryset().where(Post.owner_id == self.principal.id)
@@ -117,14 +119,14 @@ class Posts(ModelApi[Post]):
 
 
 class Albums(ModelApi[Album]):
-    model = Album
-    include_router_methods = ("retrieve",)
+    resource = resource_for(Album)
+    actions = ("retrieve",)
     permissions = MappingProxyType({"retrieve": "tests.view_post"})
 
 
 class AlbumsWithRelationship(ModelApi[AlbumWithRelationship]):
-    model = AlbumWithRelationship
-    include_router_methods = ("retrieve",)
+    resource = resource_for(AlbumWithRelationship)
+    actions = ("retrieve",)
     permissions = MappingProxyType({"retrieve": "tests.view_post"})
 
 
@@ -187,7 +189,7 @@ def test_crud_permissions_visibility_and_wire_contract(tmp_path: Path) -> None:
                 ("PATCH", POSTS + "/1"),
                 ("DELETE", POSTS + "/1"),
             ]:
-                body = {"headlineText": "Test"} if method != "DELETE" else None
+                body = {"titleText": "Test"} if method != "DELETE" else None
                 assert (
                     await client.request(method, path, headers=VIEWER, json=body)
                 ).status_code == 403
@@ -196,9 +198,9 @@ def test_crud_permissions_visibility_and_wire_contract(tmp_path: Path) -> None:
                 POSTS,
                 headers=EDITOR,
                 json={
-                    "headlineText": "Hello World",
+                    "titleText": "Hello World",
                     "summaryText": None,
-                    "sectionId": 1,
+                    "categoryId": 1,
                 },
             )
             assert created.status_code == 201, created.text
@@ -206,7 +208,7 @@ def test_crud_permissions_visibility_and_wire_contract(tmp_path: Path) -> None:
             stored_id = data["id"]
             assert data == {
                 "id": stored_id,
-                "headlineText": "Hello World",
+                "titleText": "Hello World",
                 "summaryText": None,
                 "categoryId": 1,
             }
@@ -214,7 +216,7 @@ def test_crud_permissions_visibility_and_wire_contract(tmp_path: Path) -> None:
             assert created.headers["location"] == detail
             assert (await client.get(detail, headers=VIEWER)).json() == data
             for method in ("GET", "PUT", "PATCH", "DELETE"):
-                body = {"headlineText": "Test"} if method in {"PUT", "PATCH"} else None
+                body = {"titleText": "Test"} if method in {"PUT", "PATCH"} else None
                 assert (
                     await client.request(method, detail, headers=OTHER, json=body)
                 ).status_code == 404
@@ -223,23 +225,23 @@ def test_crud_permissions_visibility_and_wire_contract(tmp_path: Path) -> None:
             assert changed.json() == {**data, "summaryText": "Changed"}
             assert (await client.patch(detail, headers=EDITOR, json={})).json() == changed.json()
             assert (await client.put(detail, headers=EDITOR, json={})).status_code == 422
-            replaced = await client.put(detail, headers=EDITOR, json={"headlineText": "New"})
+            replaced = await client.put(detail, headers=EDITOR, json={"titleText": "New"})
             assert replaced.json() == {
                 "id": stored_id,
-                "headlineText": "New",
+                "titleText": "New",
                 "summaryText": None,
                 "categoryId": None,
             }
             assert (
-                await client.patch(detail, headers=EDITOR, json={"headlineText": None})
+                await client.patch(detail, headers=EDITOR, json={"titleText": None})
             ).status_code == 422
             for invalid_body in ({"title_text": "old"}, {"ownerId": 2}, {"id": 9}):
                 assert (
                     await client.patch(detail, headers=EDITOR, json=invalid_body)
                 ).status_code == 422
-            bad_fk = await client.patch(detail, headers=EDITOR, json={"sectionId": 999})
+            bad_fk = await client.patch(detail, headers=EDITOR, json={"categoryId": 999})
             assert bad_fk.status_code == 422
-            assert bad_fk.json()["errors"][0]["pointer"] == "#/sectionId"
+            assert bad_fk.json()["errors"][0]["pointer"] == "#/categoryId"
             assert (await client.get(POSTS + "/bad", headers=EDITOR)).status_code == 422
             deleted = await client.delete(detail, headers=EDITOR)
             assert deleted.status_code == 204
@@ -312,32 +314,32 @@ def test_list_scope_search_sort_and_pagination(tmp_path: Path) -> None:
     async def scenario() -> None:
         async with application(tmp_path, Posts().build_router()) as (_, client):
             for name, headers in [("A%", EDITOR), ("B%", EDITOR), ("C", EDITOR), ("D%", OTHER)]:
-                result = await client.post(POSTS, headers=headers, json={"headlineText": name})
+                result = await client.post(POSTS, headers=headers, json={"titleText": name})
                 assert result.status_code == 201, result.text
             first = await client.get(
                 POSTS,
                 headers=EDITOR,
                 params={
                     "search": "%",
-                    "order": "headlineText.desc",
+                    "order": "titleText.desc",
                     "limit": 1,
                     "includeTotal": "true",
                 },
             )
             assert first.status_code == 200, first.text
             assert first.json() == {
-                "items": [{"id": 2, "headlineText": "B%", "summaryText": None, "categoryId": None}],
+                "items": [{"id": 2, "titleText": "B%", "summaryText": None, "categoryId": None}],
                 "limit": 1,
                 "offset": 0,
                 "hasMore": True,
                 "total": 2,
             }
             second = await client.get(
-                POSTS + "?search=%25&order=headlineText.desc&limit=1&offset=1", headers=EDITOR
+                POSTS + "?search=%25&order=titleText.desc&limit=1&offset=1", headers=EDITOR
             )
             assert not second.json()["hasMore"]
             assert second.json()["total"] is None
-            assert second.json()["items"][0]["headlineText"] == "A%"
+            assert second.json()["items"][0]["titleText"] == "A%"
             capped = await client.get(f"{POSTS}?limit=101", headers=EDITOR)
             assert capped.status_code == 200
             assert capped.json()["limit"] == 100
@@ -427,69 +429,14 @@ def test_group_shares_list_permissions_and_scopes(tmp_path: Path) -> None:
                 response = await client.get(url, headers=EDITOR, params=query)
                 assert response.status_code == 200, response.text
                 assert response.json()["items"] == []
-            excluded = await client.get(path, headers=EDITOR, params={"by": "headlineText"})
+            excluded = await client.get(path, headers=EDITOR, params={"by": "titleText"})
             assert excluded.status_code == 422
             assert excluded.json()["code"] == "unknown_field"
             joined = await client.get(
-                "/api/joined-posts:groups", headers=EDITOR, params={"by": "headlineText"}
+                "/api/joined-posts:groups", headers=EDITOR, params={"by": "titleText"}
             )
             assert joined.status_code == 200, joined.text
-            assert joined.json()["items"] == [{"key": {"headlineText": "Post 2"}, "count": 1}]
-
-    asyncio.run(scenario())
-
-
-def test_numbered_list_caps_size_and_honors_explicit_fields(tmp_path: Path) -> None:
-    class Resource(PostResource):
-        def get_ordering(self) -> Sequence[Any]:
-            return ()
-
-    class Numbered(Posts):
-        resource = Resource
-        pagination: Literal["page"] = "page"
-        page_param = "p"
-        page_size_param = "size"
-        max_page_size = 2
-        search_fields = ("^title_text", "=summary_text")
-        ordering_fields = group_fields = ()
-        filter_fields = ("title_text",)
-
-    async def scenario() -> None:
-        async with application(tmp_path, Numbered().build_router()) as (runtime, client):
-            async with runtime.session_factory.begin() as session:
-                session.add_all(
-                    Post(id=i, title_text=title, summary_text=summary, owner_id=1)
-                    for i, title, summary in [
-                        (3, "Chairs", "blue velvet"),
-                        (1, "Chairs red", "Blue"),
-                        (2, "Chairs green", "blue"),
-                    ]
-                )
-            first = await client.get(POSTS, headers=EDITOR, params={"p": 1, "size": 99})
-            second = await client.get(POSTS, headers=EDITOR, params={"p": 2, "size": 99})
-            assert first.status_code == second.status_code == 200
-            assert first.json()["page_size"] == second.json()["page_size"] == 2
-            assert [row["id"] for row in first.json()["items"] + second.json()["items"]] == [
-                1,
-                2,
-                3,
-            ]
-            result = await client.get(
-                POSTS,
-                headers=EDITOR,
-                params={"filter": "headlineText.ilike.*green", "search": "cha blue"},
-            )
-            assert result.status_code == 200, result.text
-            assert [row["id"] for row in result.json()["items"]] == [2]
-            for query, code in [
-                ({"order": "headlineText"}, "unknown_parameter"),
-                ({"filter": "summaryText.eq.blue"}, "unknown_field"),
-                ({"size": "0"}, "validation_error"),
-            ]:
-                invalid_query = await client.get(POSTS, headers=EDITOR, params=query)
-                assert invalid_query.status_code == 422
-                assert invalid_query.json()["code"] == code
-            assert (await client.get(POSTS + ":groups", headers=EDITOR)).status_code == 404
+            assert joined.json()["items"] == [{"key": {"titleText": "Post 2"}, "count": 1}]
 
     asyncio.run(scenario())
 
@@ -502,23 +449,26 @@ def test_overrides_keep_scoped_lookup_and_rollback(tmp_path: Path) -> None:
             sa.ForeignKey(Category.id, deferrable=True, initially="DEFERRED")
         )
 
-    class FailingPosts(Posts):
-        async def create(self, ctx: Context, values: dict[str, Any]) -> Post:
-            row = await super().create(ctx, values)
+    class FailingResource(PostResource):
+        async def perform_create(self, values: dict[str, Any]) -> Post:
+            row = await super().perform_create(values)
             if row.title_text == "handler failure":
-                await ctx.session.flush()
+                await self._session().flush()
                 raise RuntimeError("internal operation failed")
             if row.title_text == "commit failure":
-                if ctx.session.get_bind().dialect.name == "postgresql":
-                    ctx.session.add(DeferredReference(category_id=999))
-                    await ctx.session.flush()
+                if self._session().get_bind().dialect.name == "postgresql":
+                    self._session().add(DeferredReference(category_id=999))
+                    await self._session().flush()
                     return row
 
-                @sa.event.listens_for(ctx.session.sync_session, "before_commit", once=True)
+                @sa.event.listens_for(self._session().sync_session, "before_commit", once=True)
                 def fail_commit(*args: Any) -> None:
                     raise sa.exc.IntegrityError(None, None, RuntimeError("constraint failure"))
 
             return row
+
+    class FailingPosts(Posts):
+        resource = FailingResource
 
     async def scenario() -> None:
         async with application(tmp_path, FailingPosts().build_router()) as (_, client):
@@ -528,13 +478,13 @@ def test_overrides_keep_scoped_lookup_and_rollback(tmp_path: Path) -> None:
                 ("OK", 201),
                 ("OK", 409),
             ]:
-                response = await client.post(POSTS, headers=EDITOR, json={"headlineText": name})
+                response = await client.post(POSTS, headers=EDITOR, json={"titleText": name})
                 assert response.status_code == expected, response.text
                 if expected != 201:
                     assert response.headers["content-type"] == "application/problem+json"
                     assert "failure" not in response.json()["detail"]
             rows = (await client.get(POSTS, headers=EDITOR)).json()["items"]
-            assert [row["headlineText"] for row in rows] == ["OK"]
+            assert [row["titleText"] for row in rows] == ["OK"]
 
     asyncio.run(scenario())
 
@@ -553,26 +503,31 @@ def test_custom_route_permissions_and_uuid(tmp_path: Path) -> None:
         title_text: str
 
     class Records(ModelApi[Record]):
-        model = Record
+        resource = resource_for(Record)
         prefix = "/records"
-        include_router_methods = ("create", "retrieve")
+        actions = ("create", "retrieve")
         permissions = MappingProxyType({"create": "tests.add_post"})
         read_schema = RecordRead
         create_schema = RecordWrite
 
-        def configure_router(self, router: APIRouter) -> None:
-            @router.get("")
-            async def public() -> dict[str, bool]:
-                return {"public": True}
+    def records_router() -> APIRouter:
+        router = APIRouter()
 
-            @router.get("/stats")
-            async def stats(
-                ctx: Annotated[Context, Depends(BaseApi.permission_required("tests.view_post"))],
-            ) -> dict[str, bool]:
-                return {"allowed": True}
+        @router.get("/records")
+        async def public() -> dict[str, bool]:
+            return {"public": True}
+
+        @router.get("/records/stats")
+        async def stats(
+            ctx: Annotated[Context, Depends(BaseApi.permission_required("tests.view_post"))],
+        ) -> dict[str, bool]:
+            return {"allowed": True}
+
+        router.include_router(Records().build_router())
+        return router
 
     async def scenario() -> None:
-        async with application(tmp_path, Records().build_router()) as (runtime, client):
+        async with application(tmp_path, records_router()) as (runtime, client):
             path = "/api/records"
             assert (await client.get(path)).json() == {"public": True}
             assert (await client.get(path + "/stats")).status_code == 401
@@ -594,44 +549,26 @@ def test_custom_route_permissions_and_uuid(tmp_path: Path) -> None:
 
 
 def test_rejects_bad_schema_and_duplicate_routes() -> None:
-    class HiddenRead(ApiResponse):
-        owner_id: int
-
-    class ForbiddenWrite(ApiRequest):
-        id: int
-
-    class MissingBody(Posts):
-        update_schema = None
-        include_router_methods = ("update",)
-
-    class HiddenField(Posts):
-        read_schema = HiddenRead
-
-    class ReadOnlyField(Posts):
-        create_schema = ForbiddenWrite
-
-    class Duplicate(Posts):
-        def configure_router(self, router: APIRouter) -> None:
-            router.add_api_route("/{other_id}", lambda: None, methods=["GET"])
-
-    for api, error in [
-        (MissingBody, "update_schema"),
-        (HiddenField, "owner_id"),
-        (ReadOnlyField, "Invalid field 'id'"),
-        (Duplicate, "Duplicate API route"),
-    ]:
-        with pytest.raises(ImproperlyConfigured, match=error):
-            api().build_router()
+    with pytest.raises(ImproperlyConfigured):
+        resource_for(Post, fields=("owner_id",))()
+    with pytest.raises(ImproperlyConfigured):
+        resource_for(
+            Post, create_schema=type("BadWrite", (ApiRequest,), {"__annotations__": {"id": int}})
+        )()
 
     app = FastAPI()
-    runtime = _Runtime(app, settings=RuntimeConfig(database_url="sqlite+aiosqlite://"))
+    runtime = _Runtime(
+        app, settings=RuntimeConfig(session_factory=sessions_for("sqlite+aiosqlite://"))
+    )
     app.include_router(Posts().build_router(), prefix="/api")
     app.add_api_route(POSTS + "/{other_id}", lambda: None, methods=["GET"])
     with pytest.raises(ImproperlyConfigured, match="Duplicate API route"):
         runtime.check()
 
     grouped = FastAPI()
-    group_runtime = _Runtime(grouped, settings=RuntimeConfig(database_url="sqlite+aiosqlite://"))
+    group_runtime = _Runtime(
+        grouped, settings=RuntimeConfig(session_factory=sessions_for("sqlite+aiosqlite://"))
+    )
     grouped.include_router(Posts().build_router(), prefix="/api")
     grouped.add_api_route(POSTS + ":groups", lambda: None, methods=["GET"])
     with pytest.raises(ImproperlyConfigured, match="Duplicate API route"):

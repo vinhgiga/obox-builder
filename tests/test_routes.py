@@ -22,7 +22,7 @@ from obox.views.generic import TemplateView
 from obox.web.csrf import PermissionDenied as CSRFPermissionDenied
 from obox.web.dependencies import api_context
 
-from tests.runtime import build_runtime
+from tests.runtime import build_runtime, sessions_for
 
 
 class ContextView(TemplateView):
@@ -73,7 +73,7 @@ def configured(
     configs: tuple[AppConfig, ...], actor: Any = None, *, template_dirs: tuple[Path, ...] = ()
 ) -> RuntimeConfig:
     return RuntimeConfig(
-        database_url="sqlite+aiosqlite://",
+        session_factory=sessions_for("sqlite+aiosqlite://"),
         principal_dependency=actor or (lambda: Principal()),
         csrf_secret="s" * 32,
         template_dirs=template_dirs,
@@ -183,7 +183,7 @@ def test_missing_template_fails_before_opening_database(configs: tuple[AppConfig
     obox = build_runtime(FastAPI(), configured(configs), app_configs=configs)
     with pytest.raises(ImproperlyConfigured, match=r"first/absent\.html"):
         obox.check(strict=True)
-    assert obox.database.engine is None
+    assert not obox.session_factory.kw["bind"].sync_engine.pool.checkedout()
 
 
 def test_dynamic_template_reference_is_diagnostic_not_a_startup_error(

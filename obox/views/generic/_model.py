@@ -10,7 +10,7 @@ from obox.core.exceptions import ImproperlyConfigured
 from obox.core.principal import has_permission
 from obox.db.identity import model_label
 from obox.db.query import field_kind, filter_operators
-from obox.resources import ModelResource, WriteAction, resolve_resource
+from obox.resources import ModelResource, WriteAction
 from obox.views.generic.base import ContextMixin, TemplateResponseMixin
 
 ModelT = TypeVar("ModelT", default=Any)
@@ -44,19 +44,13 @@ def field_options(resource: ModelResource[Any]) -> dict[str, Column]:
     return options
 
 
-def reject_options(view: object, names: tuple[str, ...]) -> None:
-    if removed := [name for name in names if hasattr(view, name)]:
-        raise ImproperlyConfigured(f"{type(view).__name__} removed options: {', '.join(removed)}.")
-
-
 def model_permission(model: type[Any], operation: str) -> str:
     label, name = model_label(model)
     return f"{label}.{operation}_{name}"
 
 
 class ModelContextMixin(ContextMixin, Generic[ModelT]):
-    model: type[ModelT] | None = None
-    resource: type[ModelResource[ModelT]] | ModelResource[ModelT] | None = None
+    resource: type[ModelResource[ModelT]] | ModelResource[ModelT]
     route_names: ClassVar[Mapping[str, str]] = {}
     request: Request
 
@@ -64,33 +58,17 @@ class ModelContextMixin(ContextMixin, Generic[ModelT]):
 
     def check(self) -> None:
         super().check()
-        if self.resource is not None and self.model is not None:
-            raise ImproperlyConfigured("Specify either model or resource.")
-        if isinstance(self.resource, type):
+        if isinstance(getattr(self, "resource", None), type):
             self.resource.check()
-        elif self.resource is not None and not isinstance(self.resource, ModelResource):
-            raise ImproperlyConfigured("Provide a ModelResource class.")
-        elif self.model is not None:
-            resolve_resource(self.model)
+        elif not isinstance(getattr(self, "resource", None), ModelResource):
+            raise ImproperlyConfigured("Define a ModelResource.")
 
-    def bound_resource(self) -> ModelResource[ModelT] | None:
+    def bound_resource(self) -> ModelResource[ModelT]:
         if isinstance(self.resource, type):
-            if self.model is not None:
-                raise ImproperlyConfigured("Specify either model or resource.")
-            self.resource = resolve_resource(self.resource)
-        if (
-            self.resource is not None
-            and getattr(self, "session", None) is not None
-            and (
-                self.resource.session is not self.session
-                or self.resource.principal is not self.request.user
-            )
-        ):
+            self.resource = self.resource()
+        if getattr(self, "session", None) is not None:
             self.resource = self.resource.bind(self.session, self.request.user)
         return self.resource
-
-    def model_resource(self, model: type[ModelT]) -> ModelResource[ModelT]:
-        return self.bound_resource() or resolve_resource(model)
 
     def has_model_permission(self, model: type[Any], operation: str) -> bool:
         return has_permission(self.request.user, model_permission(model, operation))
@@ -122,10 +100,7 @@ class ModelTemplateMixin(TemplateResponseMixin):
     def model_template_names(
         self, model: type[Any], fallback: str, *, suffix: str | None = None
     ) -> list[str]:
-        app, name = model_label(model)
-        table = getattr(model, "__tablename__", name)
+        table = model.__tablename__
         suffix = self.template_name_suffix if suffix is None else suffix
         derived = f"{self.template_prefix}{table}{suffix}.html"
-        legacy = f"{app}/{name}{suffix}.html"
-        alternatives = [derived, legacy] if self.template_prefix else [legacy, derived]
-        return [*alternatives, f"obox/generic/{fallback}.html"]
+        return [derived, f"obox/generic/{fallback}.html"]

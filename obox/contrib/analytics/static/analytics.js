@@ -8,13 +8,6 @@ export function recordURL(base, filters, row, column) {
   return url.href;
 }
 
-export function chartData(data, kind, empty) {
-  const points = data.rows.map((key, index) => ({ key, value: data.rowTotals[index] }));
-  return kind === "pie" || kind === "donut"
-    ? points.filter((point) => Number(point.value) > 0)
-    : points.map((point) => ({ ...point, label: point.key === null ? empty : String(point.key) }));
-}
-
 export async function pooled(items, run, signal, concurrency = 2) {
   let next = 0;
   await Promise.all(
@@ -100,53 +93,7 @@ function node(tag, text, parent) {
 
 function renderTable(widget, data, filters, labels) {
   if (data.series) return renderSeriesTable(widget, data, filters, labels);
-  if (data.rowFields) return renderPivot(widget, data, filters, labels);
-  const parent = widget.querySelector("[data-table]");
-  parent.replaceChildren();
-  const table = node("table", undefined, parent);
-  node("caption", widget.querySelector("h2").textContent, table);
-  const head = node("tr", undefined, node("thead", undefined, table));
-  const first = node("th", widget.dataset.rowLabel, head);
-  first.scope = "col";
-  const hasColumns = Boolean(widget.dataset.columnLabel);
-  const showRowTotals = hasColumns && widget.dataset.rowTotals === "true";
-  for (const value of data.columns) {
-    const th = node(
-      "th",
-      hasColumns ? (value === null ? labels.empty : String(value)) : labels.value,
-      head,
-    );
-    th.scope = "col";
-  }
-  if (showRowTotals) node("th", labels.total, head).scope = "col";
-  const body = node("tbody", undefined, table);
-  function cell(parentRow, value, row, column, header = false) {
-    const td = node(header ? "th" : "td", undefined, parentRow);
-    if (header) td.scope = "row";
-    if (widget.dataset.drill === "false") {
-      td.textContent = value === null ? "—" : String(value);
-      return;
-    }
-    const link = node("a", value === null ? "—" : String(value), td);
-    link.href = recordURL(widget.dataset.recordsUrl, filters, row, column);
-    link.setAttribute("aria-label", `${labels.records}: ${link.textContent}`);
-  }
-  data.rows.forEach((key, index) => {
-    const row = node("tr", undefined, body);
-    node("th", key === null ? labels.empty : String(key), row).scope = "row";
-    data.columns.forEach((column, columnIndex) => {
-      cell(row, data.cells[index][columnIndex], key, hasColumns ? column : undefined);
-    });
-    if (showRowTotals) cell(row, data.rowTotals[index], key, undefined);
-  });
-  if (widget.dataset.columnTotals === "true") {
-    const row = node("tr", undefined, node("tfoot", undefined, table));
-    node("th", labels.total, row).scope = "row";
-    data.columns.forEach((column, index) => {
-      cell(row, data.columnTotals[index], undefined, hasColumns ? column : undefined);
-    });
-    if (showRowTotals) cell(row, data.total, undefined, undefined);
-  }
+  return renderPivot(widget, data, filters, labels);
 }
 
 function pivotEntries(paths, fields, measures, position, folded, labels, { columns, subtotals }) {
@@ -588,53 +535,14 @@ export function chartConfiguration(data, labels, open) {
 
 function renderChart(widget, data, filters, labels, Chart) {
   const holder = widget.querySelector("[data-chart]");
-  if (data.series) {
-    if (!Chart) throw new Error(labels.error);
-    holder.hidden = false;
-    return new Chart(
-      holder.querySelector("canvas"),
-      chartConfiguration(data, labels, (selector) =>
-        globalThis.location.assign(selectionURL(widget.dataset.recordsUrl, filters, selector)),
-      ),
-    );
-  }
-  const points = chartData(data, widget.dataset.kind, labels.empty);
-  if (!points.length) return;
   if (!Chart) throw new Error(labels.error);
-  const canvas = holder.querySelector("canvas");
   holder.hidden = false;
-  const colors = ["#2563eb", "#0891b2", "#7c3aed", "#db2777", "#d97706", "#059669"];
-  return new Chart(canvas, {
-    type: widget.dataset.kind === "donut" ? "doughnut" : widget.dataset.kind,
-    data: {
-      labels: points.map((point) => (point.key === null ? labels.empty : String(point.key))),
-      datasets: [
-        {
-          label: labels.value,
-          data: points.map((point) => (point.value === null ? null : Number(point.value))),
-          backgroundColor: points.map((_, index) => colors[index % colors.length]),
-          borderColor: "#2563eb",
-        },
-      ],
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      animation: false,
-      plugins: {
-        tooltip: {
-          callbacks: { label: (context) => String(points[context.dataIndex].value ?? "—") },
-        },
-      },
-      onClick: (_event, elements) => {
-        if (elements.length) {
-          globalThis.location.assign(
-            recordURL(widget.dataset.recordsUrl, filters, points[elements[0].index].key),
-          );
-        }
-      },
-    },
-  });
+  return new Chart(
+    holder.querySelector("canvas"),
+    chartConfiguration(data, labels, (selector) =>
+      globalThis.location.assign(selectionURL(widget.dataset.recordsUrl, filters, selector)),
+    ),
+  );
 }
 
 export function setWidgetView(widget, view, chart) {
@@ -656,22 +564,13 @@ export function selectWidget(widgets, selected) {
 
 export function widgetRecordSelections(widget, data, filters, labels) {
   if (widget.dataset.drill !== "true") return [];
-  if (data.series) {
-    if (data.grouped || data.series.length !== 1) return [];
-    return data.series[0].points
-      .filter((point) => point.selector)
-      .map((point) => ({
-        label: point.x === null ? labels.empty : String(point.x),
-        url: selectionURL(widget.dataset.recordsUrl, filters, point.selector),
-      }));
-  }
-  return [
-    ...data.rows.map((key) => ({
-      label: key === null ? labels.empty : String(key),
-      url: recordURL(widget.dataset.recordsUrl, filters, key),
-    })),
-    { label: labels.allRecords, url: recordURL(widget.dataset.recordsUrl, filters) },
-  ];
+  if (!data.series || data.grouped || data.series.length !== 1) return [];
+  return data.series[0].points
+    .filter((point) => point.selector)
+    .map((point) => ({
+      label: point.x === null ? labels.empty : String(point.x),
+      url: selectionURL(widget.dataset.recordsUrl, filters, point.selector),
+    }));
 }
 
 const mounted = new WeakMap();
@@ -877,9 +776,7 @@ export function mount(root, { filters, Chart = globalThis.Chart } = {}) {
         const empty =
           !data.records ||
           (isCircle &&
-            (data.series
-              ? !data.series.some((series) => series.points.some((point) => Number(point.y) > 0))
-              : !chartData(data, widget.dataset.kind, labels.empty).length));
+            !data.series.some((series) => series.points.some((point) => Number(point.y) > 0)));
         status.textContent = empty ? labels.noData : "";
         if (!empty && widget.dataset.kind !== "pivot") {
           try {

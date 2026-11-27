@@ -7,11 +7,17 @@ from obox.core.async_utils import invoke
 from obox.core.exceptions import PermissionDenied
 from obox.core.principal import has_permission
 from obox.forms import BaseInlineFormSet, ModelForm, inlineformset_factory
+from obox.resources import ModelResource
 from obox.views.generic._model import model_permission
 
 
 class Inline:
-    model: type[Any]
+    resource: type[ModelResource[Any]]
+
+    @property
+    def model(self) -> type[Any]:
+        return self.resource.model
+
     fk_name: str | None = None
     formset: Any = None
     extra = 3
@@ -20,8 +26,6 @@ class Inline:
     can_delete = True
     template = "obox/generic/stacked.html"
     form: type[ModelForm[Any]] = ModelForm
-    fields: Any = None
-    exclude: Any = None
     readonly_fields: Sequence[str] = ()
     ordering: Sequence[str] = ()
 
@@ -37,17 +41,6 @@ class Inline:
                 for name in self.ordering
             )
         )
-
-    def get_fields(self, request: Any, obj: Any = None) -> Any:
-        if self.fields is not None:
-            return self.fields
-        meta = getattr(self.form, "Meta", None)
-        if getattr(meta, "fields", None) is not None or getattr(meta, "exclude", None) is not None:
-            return None
-        return "__all__"
-
-    def get_exclude(self, request: Any, obj: Any = None) -> Any:
-        return self.exclude
 
     def get_readonly_fields(self, request: Any, obj: Any = None) -> Sequence[str]:
         return self.readonly_fields
@@ -67,46 +60,45 @@ class Inline:
     def has_delete_permission(self, request: Any, obj: Any = None) -> bool:
         return self._permission(request, "delete")
 
-    def get_extra(self, request: Any, obj: Any = None, **kwargs: Any) -> int:
-        return self.extra
-
-    def get_min_num(self, request: Any, obj: Any = None, **kwargs: Any) -> int:
-        return self.min_num
-
-    def get_max_num(self, request: Any, obj: Any = None, **kwargs: Any) -> int | None:
-        return self.max_num
-
     def get_formset(self, request: Any, obj: Any = None, **kwargs: Any) -> Any:
         inline = self
         base: Any = self.formset or BaseInlineFormSet
 
         class PermissionFormSet(base):  # type: ignore[misc]
-            async def save_new(self, form: Any, commit: bool = True) -> Any:
+            async def save_new(
+                self,
+                form: Any,
+            ) -> Any:
                 if not await invoke(inline.has_add_permission, request):
                     raise PermissionDenied()
-                return await super().save_new(form, commit)
+                return await super().save_new(form)
 
-            async def save_existing(self, form: Any, instance: Any, commit: bool = True) -> Any:
+            async def save_existing(
+                self,
+                form: Any,
+                instance: Any,
+            ) -> Any:
                 if not await invoke(inline.has_change_permission, request, instance):
                     raise PermissionDenied()
-                return await super().save_existing(form, instance, commit)
+                return await super().save_existing(form, instance)
 
-            async def delete_existing(self, instance: Any, commit: bool = True) -> None:
+            async def delete_existing(
+                self,
+                instance: Any,
+            ) -> None:
                 if not await invoke(inline.has_delete_permission, request, instance):
                     raise PermissionDenied()
-                await super().delete_existing(instance, commit)
+                await super().delete_existing(instance)
 
         return inlineformset_factory(
             self.parent_model,
-            self.model,
-            self.form,
+            self.resource,
+            form=self.form,
             formset=PermissionFormSet,
             fk_name=self.fk_name,
-            fields=self.get_fields(request, obj),
-            exclude=self.get_exclude(request, obj),
-            extra=self.get_extra(request, obj),
-            min_num=self.get_min_num(request, obj),
-            max_num=self.get_max_num(request, obj),
+            extra=self.extra,
+            min_num=self.min_num,
+            max_num=self.max_num,
             can_delete=self.can_delete,
             **kwargs,
         )

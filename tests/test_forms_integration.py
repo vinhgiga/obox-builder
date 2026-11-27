@@ -10,7 +10,6 @@ import pytest
 import sqlalchemy as sa
 from obox import forms
 from obox.conf import settings
-from obox.core.exceptions import ImproperlyConfigured
 from obox.db.engine import close_engines, default_session_factory
 from obox.db.session import session_scope
 from obox.db.transaction import atomic
@@ -18,6 +17,8 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+from tests.runtime import relation_controls, resource_for
 
 
 class Base(DeclarativeBase):
@@ -44,12 +45,11 @@ class ItemInput(BaseModel):
 
 
 class ItemForm(forms.ModelForm[ItemInput]):
-    schema = ItemInput
+    # Schema belongs to the resource.
 
-    class Meta:
-        model = Item
-        fields = ("name", "price", "quantity")
-        labels: ClassVar[dict[str, str]] = {"name": "Title"}
+    resource = resource_for(Item, fields=("name", "price", "quantity"), create_schema=ItemInput)
+    field_options = relation_controls(Item, ("name", "price", "quantity"))
+    labels: ClassVar[dict[str, str]] = {"name": "Title"}
 
 
 @asynccontextmanager
@@ -124,7 +124,7 @@ def test_form_bound_validation_order_errors_and_per_instance_fields() -> None:
         assert not await Contact().is_valid()
         missing = Contact({})
         assert not await missing.is_valid()
-        assert missing.errors == {"name": ["This field is required."]}
+        assert missing.errors == {"name": ["Field required"]}
         valid = Contact({"name": " ok ", "unknown": "ignored"})
         assert await valid.is_valid()
         assert valid.validated_data == {"name": "OK", "age": None}
@@ -135,7 +135,7 @@ def test_form_bound_validation_order_errors_and_per_instance_fields() -> None:
         first, second = Contact(), Contact()
         first.fields["name"].required = False
         assert second.fields["name"].required
-        assert 'name="name"' in str(first.as_p())
+        assert 'name="name"' in "".join(str(field) for field in first)
 
     asyncio.run(scenario())
 
@@ -149,57 +149,19 @@ def test_model_form_validates_without_saving_and_supports_commit_false() -> None
             assert form.fields["name"].label == "Title"
             async with session_scope() as session:
                 assert await session.scalar(sa.select(sa.func.count()).select_from(Item)) == 0
-            record = await form.save(commit=False)
-            assert record.id is None
+            record = await form.save()
             assert record.price == Decimal("2.50")
-            await form.save()
             assert record.id == 1
             duplicate = ItemForm({"name": "alpha", "price": "1.00"})
             assert not await duplicate.is_valid()
             assert "already exists" in duplicate.errors["name"][0]
-            with pytest.raises(ValueError, match="could not be saved"):
+            with pytest.raises(ValueError, match="cannot be saved"):
                 await duplicate.save()
             edited = ItemForm({"name": "alpha", "price": "3.00"}, instance=record)
             assert await edited.is_valid()
             assert record.price == Decimal("2.50")
             await edited.save()
             assert record.price == Decimal("3.00")
-
-    asyncio.run(scenario())
-
-
-def test_model_form_requires_explicit_field_configuration() -> None:
-    with pytest.raises(ImproperlyConfigured, match="error_messages"):
-
-        class Unsupported(forms.ModelForm):
-            class Meta:
-                model = Item
-                fields = ("name",)
-                error_messages = None
-
-    with pytest.raises(ImproperlyConfigured):
-
-        class Unsafe(forms.ModelForm):
-            class Meta:
-                model = Item
-
-
-def test_model_form_preserves_legacy_declarations_overrides_and_clean_hooks() -> None:
-    class Custom(ItemForm):
-        name = forms.CharField(max_length=4)
-        extra = forms.CharField(required=False)
-
-    class Removed(Custom):
-        extra = None
-
-    async def scenario() -> None:
-        async with configured():
-            form = Custom({"name": " ABC ", "price": "2.00", "extra": "kept"})
-            assert await form.is_valid()
-            assert form.validated_data["name"] == "abc"
-            assert form.validated_data["extra"] == "kept"
-            assert "extra" not in Removed.base_fields
-            assert not await Custom({"name": "ABCDE", "price": "2.00"}).is_valid()
 
     asyncio.run(scenario())
 
@@ -227,9 +189,8 @@ class ManualKey(Base):
 
 def test_manual_primary_key_uniqueness_and_validation_preserves_instance() -> None:
     class KeyForm(forms.ModelForm):
-        class Meta:
-            model = ManualKey
-            fields = ("code", "label")
+        resource = resource_for(ManualKey, fields=("code", "label"))
+        field_options = relation_controls(ManualKey, ("code", "label"))
 
     async def scenario() -> None:
         async with configured():
@@ -295,7 +256,7 @@ def test_prefix_disabled_fields_error_codes_and_widgets_escape_values() -> None:
         assert "checked" in str(form["accepted"])
         form.add_error("name", forms.ValidationError("Reserved", code="reserved"))
         assert form.has_error("name", "reserved")
-        assert not form.has_error("name", "required")
+        assert not form.has_error("name", "missing")
         assert "name" not in form.validated_data
 
     asyncio.run(scenario())
@@ -306,7 +267,7 @@ def test_atomic_task_isolation_savepoint_and_durable_contract() -> None:
         async with configured(), session_scope() as parent:
 
             async def child() -> Any:
-                async with atomic(durable=True), session_scope() as session:
+                async with atomic(), session_scope() as session:
                     return session
 
             assert await asyncio.create_task(child()) is not parent
@@ -318,9 +279,6 @@ def test_atomic_task_isolation_savepoint_and_durable_contract() -> None:
                     await parent.flush()
                     raise RuntimeError("rollback")
             assert (await parent.scalars(sa.select(Item.name))).all() == ["kept"]
-            with pytest.raises(RuntimeError, match="durable"):
-                async with atomic(durable=True):
-                    pass
 
     asyncio.run(scenario())
 
@@ -338,9 +296,8 @@ def test_enum_model_values_are_normalized_for_persistence_and_unique_validation(
         state: Mapped[State] = mapped_column(sa.Enum(State), unique=True)
 
     class ChoiceForm(forms.ModelForm):
-        class Meta:
-            model = Choice
-            fields = ("state",)
+        resource = resource_for(Choice, fields=("state",))
+        field_options = relation_controls(Choice, ("state",))
 
     async def scenario() -> None:
         async with configured():

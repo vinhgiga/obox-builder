@@ -18,6 +18,7 @@ from obox.views.generic import (
 )
 from pydantic import BaseModel, Field, field_validator
 
+from tests.runtime import resource_for
 from tests.test_forms_integration import Item, ItemForm, configured
 from tests.test_registered_views import Actors
 
@@ -84,24 +85,26 @@ def test_typed_form_view_renders_errors_and_reads_validated_attributes() -> None
 
 def test_generic_views_create_update_delete_and_queryset_contract() -> None:
     class Create(CreateView):
-        model = Item
+        resource = resource_for(Item)
         form_class = ItemForm
         template_name = "obox/generic/form.html"
         success_url = "/items/"
 
     class Update(UpdateView):
-        model = Item
+        resource = resource_for(Item)
         form_class = ItemForm
         template_name = "obox/generic/form.html"
-        success_url = "/items/{pk}/"
+
+        def get_success_url(self) -> str:
+            return f"/items/{self.object.id}/"
 
     class Delete(DeleteView):
-        model = Item
+        resource = resource_for(Item)
         template_name = "obox/generic/confirm_delete.html"
         success_url = "/items/"
 
     class List(ListView):
-        model = Item
+        resource = resource_for(Item, fields=("name",))
         fields = ("name",)
 
     async def scenario() -> None:
@@ -134,7 +137,7 @@ def test_generic_views_create_update_delete_and_queryset_contract() -> None:
                 assert denied.status_code == 403
                 invalid = await client.post("/new/", data={"csrfmiddlewaretoken": token[1]})
                 assert invalid.status_code == 422
-                assert "This field is required." in invalid.text
+                assert "Field required" in invalid.text
                 created = await client.post(
                     "/new/", data={"csrfmiddlewaretoken": token[1], "name": "Alpha", "price": "1"}
                 )
@@ -174,6 +177,7 @@ def test_as_view_uses_new_instances_and_preserves_path_parameters() -> None:
     async def scenario() -> None:
         async with configured():
             app = FastAPI()
+            Obox(app)
             router = APIRouter()
             router.add_api_route("/{pk:int}/", Counter.as_view(), methods=["GET", "OPTIONS"])
             app.include_router(router, prefix="/nested")
@@ -201,6 +205,7 @@ def test_native_route_names_and_csrf_origin_checks() -> None:
     async def scenario() -> None:
         async with configured():
             app = FastAPI()
+            Obox(app)
             router = APIRouter(prefix="/group")
             router.add_api_route(
                 "/{key}/", Echo.as_view(), name="test:echo", methods=["GET", "POST"]
@@ -229,8 +234,9 @@ def test_native_route_names_and_csrf_origin_checks() -> None:
 
 def test_jinja_backend_options_errors_and_standalone_template_view(tmp_path: Any) -> None:
     import pytest
+    from jinja2 import TemplateNotFound as TemplateDoesNotExist
+    from jinja2 import TemplateSyntaxError
     from obox.conf import settings
-    from obox.template import TemplateDoesNotExist, TemplateSyntaxError
     from obox.template.backends.jinja2 import Jinja2
     from obox.views.generic import TemplateView
 
@@ -238,18 +244,19 @@ def test_jinja_backend_options_errors_and_standalone_template_view(tmp_path: Any
     config = {"DIRS": [tmp_path], "OPTIONS": {"autoescape": True}}
     backend = Jinja2(config)
     assert (
-        backend.get_template("hello.html").render({"value": "<ok>", "marker": "yes"})
+        backend.env.get_template("hello.html").render({"value": "<ok>", "marker": "yes"})
         == "&lt;ok&gt;:yes"
     )
     with pytest.raises(TemplateDoesNotExist, match="absent"):
-        backend.get_template("absent.html")
+        backend.env.get_template("absent.html")
     with pytest.raises(TemplateSyntaxError):
-        backend.from_string("{% broken %}")
+        backend.env.from_string("{% broken %}")
 
     async def scenario() -> None:
         async with configured():
             settings.TEMPLATES = [{**config, "BACKEND": "obox.template.backends.jinja2.Jinja2"}]
             app = FastAPI()
+            Obox(app)
             app.add_api_route(
                 "/",
                 TemplateView.as_view(
@@ -280,17 +287,18 @@ def test_native_uuid_lookup_works_in_generic_views() -> None:
         name: Mapped[str] = mapped_column(sa.String(20))
 
     class Detail(DetailView):
-        model = Record
+        resource = resource_for(Record)
 
         def render_to_response(self, context: Any, **kwargs: Any) -> HTMLResponse:
             return HTMLResponse(str(context["object"].record_key))
 
     async def scenario() -> None:
         async with configured():
-            form = modelform_factory(Record, fields=("name",))({"name": "first"})
+            form = modelform_factory(resource_for(Record, fields=("name",)))({"name": "first"})
             assert await form.is_valid()
             record = await form.save()
             app = FastAPI()
+            Obox(app)
             app.add_api_route("/records/{pk:uuid}/", Detail.as_view(), methods=["GET"])
             async with httpx.AsyncClient(
                 transport=httpx.ASGITransport(app=app), base_url="http://test"

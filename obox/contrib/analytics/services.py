@@ -5,23 +5,19 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import replace
-from itertools import islice
 from time import monotonic
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import sqlalchemy as sa
 from sqlalchemy.exc import DBAPIError
-from starlette.concurrency import run_in_threadpool
 
 from obox.components.declarations import (
     ComponentQuery,
     ComponentRecords,
     RecordResults,
-    fixed_filters,
 )
 from obox.contrib.analytics.aggregates import encode
-from obox.contrib.analytics.pivot import Member, PivotSpec
-from obox.contrib.analytics.pivot_memory import MemoryRows, execute_memory
+from obox.contrib.analytics.pivot import PivotSpec
 from obox.contrib.analytics.query import execute as chart_data
 from obox.contrib.analytics.query import records as chart_records
 from obox.contrib.analytics.query import selector
@@ -29,16 +25,12 @@ from obox.core.async_utils import invoke
 from obox.core.exceptions import (
     BuilderValidationError,
     DomainError,
-    ImproperlyConfigured,
     NotFound,
-    PermissionDenied,
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
-
     from obox.components.service import ComponentService
-    from obox.contrib.analytics.pivot_memory import Row
+    from obox.contrib.analytics.source import DataSource
     from obox.runtime.context import Context
 
 
@@ -72,45 +64,16 @@ def is_timeout(exc: DBAPIError) -> bool:
     )
 
 
-def memory_rows(
-    component: Any,
-    spec: PivotSpec,
-    ctx: Context,
-    options: dict[str, Any],
-    keys: dict[str, Member] | None = None,
-) -> Iterator[Row]:
-    source = component.data
-    if not isinstance(source, MemoryRows):
-        raise ImproperlyConfigured("Declare in-memory data for this pivot.")
-    readable = set(component.get_fields(ctx))
-    if not readable.issubset(component.fields):
-        raise PermissionDenied("Dynamic component fields must narrow its declared fields.")
-    if not set(spec.fields).issubset(readable):
-        raise PermissionDenied("These fields are not available for this component.")
-    return source.matching(
-        readable=readable,
-        filter_fields=component.fields
-        if component.filter_fields is None
-        else component.filter_fields,
-        fixed=fixed_filters(component.filters),
-        keys=keys,
-        **options,
-    )
-
-
 async def execute(
     service: ComponentService, query: ComponentQuery, ctx: Context, component: Any
 ) -> dict[str, Any]:
     limits = service.app.feature("analytics")
-    resource, spec = service.dataset, service.spec
+    resource, spec = cast("DataSource", service.dataset), service.spec
     options = service.options(query)
     started, outcome = monotonic(), "error"
     try:
-        if resource is not None:
-            await timeout(service, ctx)
+        await timeout(service, ctx)
         if component.kind != "pivot":
-            if resource is None:
-                raise ImproperlyConfigured("Charts require a source model.")
             spec = replace(spec, statement=component.get_statement)
             payload = await chart_data(
                 resource,
@@ -136,15 +99,7 @@ async def execute(
                 "max_columns": limits.max_columns,
                 "max_cells": limits.max_cells,
             }
-            if resource is None:
-                payload = await run_in_threadpool(
-                    execute_memory, memory_rows(component, spec, ctx, options), spec, **bounds
-                )
-            elif spec.legacy is None:
-                payload = await resource.aggregate(spec, ctx=ctx, **options, **bounds)
-            else:
-                result = await resource.aggregate(spec.legacy, ctx=ctx, **options, **bounds)
-                payload = result.to_dict()
+            payload = await resource.aggregate(spec, ctx=ctx, **options, **bounds)
         outcome = "ok"
         return payload
     except DBAPIError as exc:
@@ -166,15 +121,11 @@ async def records(
 ) -> RecordResults:
     if not component.drill:
         raise NotFound("Record inspection is disabled.")
-    resource, spec = service.dataset, service.spec
+    resource, spec = cast("DataSource", service.dataset), service.spec
     options = service.options(query)
     try:
-        if resource is not None:
-            await timeout(service, ctx)
-        model_records = resource is not None
+        await timeout(service, ctx)
         if component.kind != "pivot":
-            if resource is None:
-                raise ImproperlyConfigured("Charts require a source model.")
             if {"row", "column"}.intersection(query.model_fields_set):
                 raise BuilderValidationError({"selector": ["Use a chart selection."]})
             key = selector(
@@ -195,34 +146,12 @@ async def records(
             if query.selector is not None:
                 raise BuilderValidationError({"selector": ["Use pivot row and column keys."]})
             pivot_spec: PivotSpec = spec
-            aggregation = pivot_spec.legacy
-            if resource is None:
-                rows = memory_rows(component, pivot_spec, ctx, options, pivot_spec.selection(query))
-                objects = await run_in_threadpool(
-                    lambda: list(islice(rows, query.offset, query.offset + query.limit + 1))
-                )
-            else:
-                keys: dict[str, Any] = {}
-                if aggregation is None:
-                    keys = {name: value for name, (_, value) in pivot_spec.selection(query).items()}
-                else:
-                    for name, field in (("row", aggregation.rows), ("column", aggregation.columns)):
-                        if name in query.model_fields_set:
-                            if field is None:
-                                raise BuilderValidationError(
-                                    {name: ["This pivot has no column dimension."]}
-                                )
-                            keys[field] = getattr(query, name)
-                objects = await resource.aggregate_records(
-                    aggregation or pivot_spec,
-                    ctx=ctx,
-                    keys=keys,
-                    offset=query.offset,
-                    limit=query.limit,
-                    **options,
-                )
-        dataset = resource.dataset if resource else None
-        readable = set(dataset.readable(ctx) if dataset else component.get_fields(ctx))
+            keys = {name: value for name, (_, value) in pivot_spec.selection(query).items()}
+            objects = await resource.aggregate_records(
+                pivot_spec, ctx=ctx, keys=keys, offset=query.offset, limit=query.limit, **options
+            )
+        dataset = resource.dataset
+        readable = set(dataset.readable(ctx))
         from pydantic.alias_generators import to_camel
 
         permitted = [
@@ -233,8 +162,8 @@ async def records(
         values = [
             {
                 to_camel(name): str(getattr(obj, name))
-                if dataset is not None and name == dataset.pk_name
-                else encode(getattr(obj, name) if model_records else obj.get(name))
+                if name == dataset.pk_name
+                else encode(getattr(obj, name))
                 for name in await invoke(component.get_record_fields, ctx, obj)
                 if name in readable
             }
@@ -244,7 +173,7 @@ async def records(
             records=values,
             offset=query.offset,
             limit=query.limit,
-            has_more=len(objects) == query.limit if model_records else len(objects) > query.limit,
+            has_more=len(objects) == query.limit,
         )
         result._objects = permitted
         return result

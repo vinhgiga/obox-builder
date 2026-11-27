@@ -15,6 +15,7 @@ from obox.core.principal import Principal
 from obox.db.session import session_scope
 from obox.views.generic import CreateView, ModelViewSet, StackedInline, TabularInline, UpdateView
 
+from tests.runtime import resource_for
 from tests.test_forms_integration import configured
 from tests.test_formsets import Author, Book, data, seed
 from tests.test_registered_views import Actors
@@ -24,7 +25,7 @@ from tests.test_registered_views import Actors
 def test_view_inlines_save_parent_children_and_render_errors(layout: Any, direct: bool) -> None:
     class Books(TabularInline):
         template = layout.template
-        model = Book
+        resource = resource_for(Book, fields=("title",))
         fields = ("title",)
         extra = 1
 
@@ -139,7 +140,7 @@ def test_view_inlines_save_parent_children_and_render_errors(layout: Any, direct
 
 def test_view_rejects_inline_creation_without_child_add_permission() -> None:
     class Books(TabularInline):
-        model = Book
+        resource = resource_for(Book, fields=("title",))
         fields = ("title",)
 
     class AuthorUpdate(UpdateView):

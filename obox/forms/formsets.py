@@ -7,15 +7,14 @@ from collections.abc import Iterator
 from functools import cached_property
 from typing import Any, ClassVar
 
-from markupsafe import Markup
-from pydantic import BaseModel
+from pydantic import BaseModel, TypeAdapter
 from pydantic import Field as SchemaField
 
 from obox.core.async_utils import invoke
 from obox.core.exceptions import ValidationError
-from obox.forms.fields import BooleanField, IntegerField
+from obox.forms.fields import BooleanField
 from obox.forms.forms import Form
-from obox.forms.widgets import CheckboxInput, HiddenInput, NumberInput
+from obox.forms.widgets import CheckboxInput, HiddenInput
 
 TOTAL_FORM_COUNT = "TOTAL_FORMS"
 INITIAL_FORM_COUNT = "INITIAL_FORMS"
@@ -48,9 +47,7 @@ class BaseFormSet:
     validate_max = False
     can_delete = False
     can_delete_extra = True
-    can_order = False
     deletion_widget = CheckboxInput
-    ordering_widget = NumberInput
     default_error_messages: ClassVar[dict[str, str]] = {
         "missing_management_form": "ManagementForm data is missing or has been tampered with. "
         "Missing fields: "
@@ -101,8 +98,10 @@ class BaseFormSet:
 
     def _count(self, name: str) -> int:
         try:
-            return max(0, IntegerField().to_python(self.data.get(self.add_prefix(name))) or 0)
-        except ValidationError:
+            return max(
+                0, TypeAdapter(int).validate_python(self.data.get(self.add_prefix(name))) or 0
+            )
+        except (ValueError, TypeError):
             return 0
 
     def initial_form_count(self) -> int:
@@ -150,14 +149,6 @@ class BaseFormSet:
         return self.construct_form(None)
 
     def add_fields(self, form: Form[Any], index: int | None) -> None:
-        if self.can_order:
-            initial = index + 1 if index is not None and index < self.initial_form_count() else None
-            form.fields[ORDERING_FIELD_NAME] = IntegerField(
-                label="Order",
-                required=False,
-                initial=initial,
-                widget=self.ordering_widget,
-            )
         if self.can_delete and (
             self.can_delete_extra or (index is not None and index < self.initial_form_count())
         ):
@@ -194,23 +185,6 @@ class BaseFormSet:
     def deleted_forms(self) -> list[Form[Any]]:
         return (
             [form for form in self.forms if self.should_delete_form(form)] if self._valid() else []
-        )
-
-    @property
-    def ordered_forms(self) -> list[Form[Any]]:
-        if not self.can_order or not self._valid():
-            raise AttributeError("ordered_forms is available on valid ordered formsets.")
-        return sorted(
-            (
-                form
-                for form in self.forms
-                if form.has_changed() or form in self.initial_forms
-                if not self.should_delete_form(form)
-            ),
-            key=lambda form: (
-                form.validated_data.get(ORDERING_FIELD_NAME) is None,
-                form.validated_data.get(ORDERING_FIELD_NAME) or 0,
-            ),
         )
 
     @property
@@ -283,16 +257,12 @@ class BaseFormSet:
     def has_changed(self) -> bool:
         return any(form.has_changed() for form in self.forms)
 
-    def as_p(self) -> Markup:
-        return self.management_form.as_p() + Markup("").join(form.as_p() for form in self.forms)
-
 
 def formset_factory(
     form: type[Form[Any]],
     formset: type[BaseFormSet] = BaseFormSet,
     *,
     extra: int = 1,
-    can_order: bool = False,
     can_delete: bool = False,
     max_num: int | None = None,
     validate_max: bool = False,
@@ -321,14 +291,9 @@ def formset_factory(
             "min_num": minimum,
             "max_num": maximum,
             "absolute_max": absolute,
-            "can_order": can_order,
             "can_delete": can_delete,
             "can_delete_extra": can_delete_extra,
             "validate_min": validate_min,
             "validate_max": validate_max,
         },
     )
-
-
-async def all_valid(formsets: Any) -> bool:
-    return all([await formset.is_valid() for formset in formsets])

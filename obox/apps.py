@@ -46,7 +46,6 @@ class AppConfig:
     routes: Sequence[Route] = ()
     tab_bar_color = "#f3f4f6"
     ui_prefix: str | None = None
-    view_prefix: str | None = None
     api_prefix: str | None = None
 
     def __init__(self, app_name: str, app_module: ModuleType) -> None:
@@ -172,7 +171,7 @@ class AppConfig:
         pass
 
     def ui_path(self, settings: RuntimeConfig) -> str:
-        prefix = self.ui_prefix if self.ui_prefix is not None else self.view_prefix
+        prefix = self.ui_prefix
         path = prefix if prefix is not None else f"{settings.ui_prefix}/{self.label}"
         if (
             not isinstance(path, str)

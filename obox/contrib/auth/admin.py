@@ -23,6 +23,7 @@ from obox.core.exceptions import (
 )
 from obox.core.principal import Identity
 from obox.forms import modelform_factory
+from obox.resources import ModelResource
 from obox.web.http import read_form
 from obox.web.i18n import N_, translate
 from obox.web.i18n import context as translation_context
@@ -177,9 +178,12 @@ def admin_error(request: Request, code: str) -> str:
 def router(app: _Runtime, auth: Auth) -> APIRouter:
     routes = APIRouter(prefix=auth.prefix, route_class=OboxRoute)
     password_validators = get_password_validators(app.settings.auth_password_validators)
-    user_form_class = modelform_factory(
-        user_model(auth), fields=("username", "email", "first_name", "last_name", "department")
-    )
+
+    class UserResource(ModelResource[Any]):
+        model = user_model(auth)
+        fields = ("username", "email", "first_name", "last_name", "department")
+
+    user_form_class = modelform_factory(UserResource)
 
     async def superuser(request: Request) -> Identity:
         principal = await auth.principal(request)
@@ -308,7 +312,14 @@ def router(app: _Runtime, auth: Auth) -> APIRouter:
                 if name == "username" and any("already exists" in message for message in messages):
                     errors[name] = [N_("This username is already taken.")]
                 elif name in user_form.fields:
-                    limit = getattr(user_form.fields[name], "max_length", None)
+                    limit = next(
+                        (
+                            getattr(value, "max_length", None)
+                            for value in user_form._schema.model_fields[name].metadata
+                            if getattr(value, "max_length", None) is not None
+                        ),
+                        None,
+                    )
                     if limit and any("at most" in message for message in messages):
                         errors[name] = [N_("Use at most %(limit)s characters.", limit=limit)]
             username = str(form.get("username", "")).strip()

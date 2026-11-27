@@ -83,8 +83,8 @@ def test_validation_error_locations_codes_and_cross_field_errors() -> None:
 
     invalid = forms.Form({"quantity": "0"}, schema=Input)
     assert not validate(invalid)
-    assert invalid.has_error("name", "required")
-    assert invalid.has_error("quantity", "min_value")
+    assert invalid.has_error("name", "missing")
+    assert invalid.has_error("quantity", "greater_than_equal")
     reserved = forms.Form({"name": "reserved", "quantity": "1"}, schema=Input)
     assert not validate(reserved)
     assert "Choose another name" in reserved.non_field_errors()[0]
@@ -109,7 +109,7 @@ def test_missing_blank_nullable_and_default_values_are_distinct() -> None:
     assert not validate(forms.Form({"required": "", "nullable": ""}, schema=Input))
     missing = forms.Form({"required": "value"}, schema=Input)
     assert not validate(missing)
-    assert missing.has_error("nullable", "required")
+    assert missing.has_error("nullable", "missing")
 
 
 def test_defaults_are_cached_per_instance_and_initial_is_display_only() -> None:
@@ -197,9 +197,9 @@ def test_prefix_checkbox_multiple_values_and_html_escaping() -> None:
     assert form.cleaned_data.enabled is False
     assert form.cleaned_data.tags == [1, 2]
     assert form.cleaned_data.password == raw["p-password"]
-    assert "&lt;script&gt;" in str(form.as_p())
-    assert "&lt;Name&gt;" in str(form.as_p())
-    assert "&lt;Help&gt;" in str(form.as_p())
+    assert "&lt;script&gt;" in "".join(str(field) for field in form)
+    assert form["name"].label == "<Name>"
+    assert form.fields["name"].help_text == "<Help>"
     assert "secret" not in str(form["password"])
     assert 'name="p-name"' in str(form["name"])
     second = Profile()
@@ -261,7 +261,7 @@ def test_multipart_upload_size_and_stream_lifetime(size: int, valid: bool) -> No
 
     stream = BytesIO(b"x" * size)
     upload = UploadFile(stream, filename="file.bin", size=size)
-    form = Upload.from_formdata(Input, FormData([("upload", upload)]))
+    form = Upload(FormData([("upload", upload)]), schema=Input)
     assert form.is_multipart()
     assert validate(form) is valid
     assert not stream.closed
@@ -273,9 +273,9 @@ def test_multipart_upload_size_and_stream_lifetime(size: int, valid: bool) -> No
 
 
 def test_empty_form_and_configuration_errors() -> None:
-    assert validate(forms.Form({}))
+    assert validate(forms.Form({}, schema=type("EmptyInput", (BaseModel,), {})))
     with pytest.raises(ImproperlyConfigured, match="schema"):
-        type("Broken", (forms.Form,), {"schema": str})
+        type("Broken", (forms.Form,), {"schema": str})()
 
 
 @pytest.mark.parametrize(
@@ -299,7 +299,7 @@ def test_schema_error_locations_are_preserved_and_control_metadata_survives_bind
         schema = Input
         field_options: ClassVar[dict[str, Any]] = {"values": forms.JSONField(widget=forms.Textarea)}
 
-    form = Numbers.from_formdata(Input, FormData([("values", '[1, "invalid"]')]))
+    form = Numbers(FormData([("values", '[1, "invalid"]')]), schema=Input)
     assert isinstance(form.fields["values"].widget, forms.Textarea)
     assert not validate(form)
     assert form.error_details[0]["loc"] == ("values", 1)

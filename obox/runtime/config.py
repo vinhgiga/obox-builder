@@ -9,7 +9,6 @@ from os import PathLike
 from types import MappingProxyType
 from typing import Any
 
-from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from obox.core.exceptions import ImproperlyConfigured
@@ -17,14 +16,12 @@ from obox.core.exceptions import ImproperlyConfigured
 
 @dataclass(frozen=True)
 class RuntimeConfig:
-    session_factory: async_sessionmaker[AsyncSession] | None = field(default=None, repr=False)
-    database_url: str | None = field(default=None, repr=False)
+    session_factory: async_sessionmaker[AsyncSession] = field(repr=False)
     principal_dependency: Callable[..., Any] | None = field(default=None, repr=False)
     ui_prefix: str = "/admin"
     api_prefix: str = "/v0"
     csrf_secret: str | bytes | None = field(default=None, repr=False)
     template_dirs: Sequence[str | PathLike[str]] = ()
-    templates: Jinja2Templates | None = field(default=None, repr=False)
     base_template: str = "obox/base.html"
     static_root: str | PathLike[str] | None = None
     auth_password_validators: Sequence[Mapping[str, Any]] = ()
@@ -48,12 +45,8 @@ class RuntimeConfig:
         )
 
     def __post_init__(self) -> None:
-        if (self.database_url is None) == (self.session_factory is None):
-            raise ImproperlyConfigured("Provide exactly one of DATABASE_URL or SESSION_FACTORY.")
-        if self.database_url is not None and (
-            not isinstance(self.database_url, str) or not self.database_url.strip()
-        ):
-            raise ImproperlyConfigured("DATABASE_URL must be a nonempty string.")
+        if not isinstance(self.session_factory, async_sessionmaker):
+            raise ImproperlyConfigured("Provide an async session factory.")
         if self.csrf_secret is not None and (
             not isinstance(self.csrf_secret, str | bytes)
             or len(
@@ -100,7 +93,5 @@ class RuntimeConfig:
                     "Use absolute surface paths; only UI_PREFIX may be empty."
                 )
             object.__setattr__(self, name, prefix)
-        if self.templates is not None and self.template_dirs:
-            raise ImproperlyConfigured("Pass either templates or template_dirs, not both.")
         object.__setattr__(self, "template_dirs", tuple(self.template_dirs))
         object.__setattr__(self, "auth_password_validators", tuple(validators))

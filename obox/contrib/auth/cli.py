@@ -13,11 +13,12 @@ from typing import Any
 
 import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError, OperationalError
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from obox.contrib.auth import passwords
 from obox.contrib.auth.models import User
 from obox.contrib.auth.password_validation import PasswordValidator, get_password_validators
 from obox.core.exceptions import BuilderValidationError
-from obox.db.engine import Database
 from obox.runtime.config import RuntimeConfig
 
 
@@ -28,37 +29,11 @@ def add_parser(commands: Any) -> None:
     parser.add_argument("--noinput", action="store_false", dest="interactive")
 
 
-async def _hash_password(
-    password: str,
-    validators: tuple[PasswordValidator, ...],
-    user: Any,
-    *,
-    validate: bool = True,
-) -> str:
-    from obox.contrib.auth.passwords import hash_password
-
+async def _check_database(
+    database: async_sessionmaker[AsyncSession], username: str | None = None
+) -> None:
     try:
-        return await hash_password(password, validate=validate, validators=validators, user=user)
-    except ModuleNotFoundError as error:
-        if error.name != "pwdlib":
-            raise
-        raise ValueError("Install obox-builder[auth] to enable password hashing.") from error
-
-
-def _check_password_support() -> None:
-    try:
-        from pwdlib import PasswordHash
-
-        PasswordHash.recommended()
-    except ModuleNotFoundError as error:
-        if error.name != "pwdlib":
-            raise
-        raise ValueError("Install obox-builder[auth] to enable password hashing.") from error
-
-
-async def _check_database(database: Database, username: str | None = None) -> None:
-    try:
-        async with database.lifespan(), database.sessions() as session:
+        async with database() as session:
             await session.execute(sa.select(User).limit(1))
             if username is not None:
                 exists = await session.scalar(sa.select(User.id).where(User.username == username))
@@ -67,12 +42,6 @@ async def _check_database(database: Database, username: str | None = None) -> No
     except OperationalError as error:
         raise ValueError(
             "Run `uv run alembic upgrade head` before creating a superuser."
-        ) from error
-    except ModuleNotFoundError as error:
-        if error.name != "aiosqlite":
-            raise
-        raise ValueError(
-            "Install obox-builder[sqlite] to use the default SQLite database."
         ) from error
 
 
@@ -90,7 +59,7 @@ async def _prompt_password_hash(validators: tuple[PasswordValidator, ...], user:
             print("Use at most 1024 characters for the password.")
             continue
         try:
-            return await _hash_password(password, validators, user)
+            return await passwords.hash_password(password, validators=validators, user=user)
         except BuilderValidationError as error:
             for message in error.errors.get("password", []):
                 print(f"Error: {message}")
@@ -98,7 +67,9 @@ async def _prompt_password_hash(validators: tuple[PasswordValidator, ...], user:
                 input, "Bypass password validation and create user anyway? [y/N]: "
             )
             if bypass.lower() == "y":
-                return await _hash_password(password, validators, user, validate=False)
+                return await passwords.hash_password(
+                    password, validators=validators, user=user, validate=False
+                )
 
 
 async def _run_command(arguments: argparse.Namespace) -> None:
@@ -112,8 +83,7 @@ async def _run_command(arguments: argparse.Namespace) -> None:
         os.environ["OBOX_SETTINGS_MODULE"] = settings_module
     config = RuntimeConfig.from_settings()
     validators = get_password_validators(config.auth_password_validators)
-    database = Database(config)
-    _check_password_support()
+    database = config.session_factory
     await _check_database(database)
 
     username = arguments.username
@@ -143,14 +113,14 @@ async def _run_command(arguments: argparse.Namespace) -> None:
         if password is None:
             raise ValueError("Set OBOX_SUPERUSER_PASSWORD with --noinput.")
         try:
-            password_hash = await _hash_password(
-                password, validators, SimpleNamespace(username=username)
+            password_hash = await passwords.hash_password(
+                password, validators=validators, user=SimpleNamespace(username=username)
             )
         except BuilderValidationError as error:
             raise ValueError(" ".join(error.errors.get("password", []))) from error
 
     try:
-        async with database.lifespan(), database.sessions.begin() as session:
+        async with database.begin() as session:
             exists = await session.scalar(sa.select(User.id).where(User.username == username))
             if exists is not None:
                 raise ValueError(f"A user named {username!r} already exists.")
@@ -165,12 +135,6 @@ async def _run_command(arguments: argparse.Namespace) -> None:
     except OperationalError as error:
         raise ValueError(
             "Run `uv run alembic upgrade head` before creating a superuser."
-        ) from error
-    except ModuleNotFoundError as error:
-        if error.name != "aiosqlite":
-            raise
-        raise ValueError(
-            "Install obox-builder[sqlite] to use the default SQLite database."
         ) from error
     except IntegrityError as error:
         raise ValueError(f"A user named {username!r} already exists.") from error

@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Mapped, mapped_column, relationship, selectinload, with_loader_criteria
 from starlette.datastructures import FormData
 
+from tests.runtime import relation_controls, resource_for
 from tests.test_forms_integration import Base, ManualKey, configured
 
 product_tags = sa.Table(
@@ -71,9 +72,8 @@ class Product(Base):
 
 
 class ProductForm(forms.ModelForm):
-    class Meta:
-        model = Product
-        fields = ("name", "category", "featured", "tags")
+    resource = resource_for(Product, fields=("name", "category", "featured", "tags"))
+    field_options = relation_controls(Product, ("name", "category", "featured", "tags"))
 
     def __init__(self, *args: Any, tenant: int = 1, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
@@ -121,7 +121,7 @@ def test_unbound_model_form_and_missing_bound_values_need_no_database() -> None:
     async def scenario() -> None:
         form = ProductForm()
         assert not await form.is_valid()
-        with pytest.raises(ValueError, match="could not be saved"):
+        with pytest.raises(ValueError, match="cannot be saved"):
             await form.save()
         missing = Contact({})["name"]
         assert missing.value() is None
@@ -130,42 +130,28 @@ def test_unbound_model_form_and_missing_bound_values_need_no_database() -> None:
     asyncio.run(scenario())
 
 
-def test_generated_fields_metadata_and_scalar_backwards_compatibility() -> None:
-    fields = forms.fields_for_model(
-        Product,
-        ("category", "featured", "tags"),
-        labels={"category": "Group"},
-        help_texts={"tags": "Pick tags"},
-    )
-    assert isinstance(fields["category"], forms.ModelChoiceField)
-    assert fields["category"].required
-    assert fields["category"].label == "Group"
-    assert not fields["featured"].required
-    assert isinstance(fields["tags"], forms.ModelMultipleChoiceField)
-    assert isinstance(fields["tags"].widget, forms.SelectMultiple)
-    assert fields["tags"].help_text == "Pick tags"
-    assert isinstance(
-        forms.fields_for_model(Product, ("category_id",))["category_id"], forms.IntegerField
-    )
-    all_fields = forms.fields_for_model(Product, "__all__", exclude=("scored",))
-    assert {"category", "featured", "tags"} <= all_fields.keys()
-    assert not {"category_id", "featured_id", "visible_tags"} & all_fields.keys()
-    assert "products" not in forms.fields_for_model(Category)
-
-
 @pytest.mark.parametrize("names", [("category", "category_id"), ("scored",), ("visible_tags",)])
 def test_unsupported_or_conflicting_relationships_fail_explicitly(names: tuple[str, ...]) -> None:
     with pytest.raises(ImproperlyConfigured):
-        forms.fields_for_model(Product, names)
+        forms.modelform_factory(
+            resource_for(Product),
+            form=type(
+                "RelationshipForm",
+                (forms.ModelForm,),
+                {"field_options": relation_controls(Product, names)},
+            ),
+        )()
     with pytest.raises(ImproperlyConfigured):
-        forms.fields_for_model(Category, ("products",))
+        relation_controls(Category, ("products",))
 
 
 def test_declared_scalar_cannot_bypass_the_relationship_scope() -> None:
     with pytest.raises(ImproperlyConfigured, match="not both"):
 
         class Conflicting(ProductForm):
-            category_id = forms.IntegerField()
+            field_options = {**ProductForm.field_options, "category_id": forms.Field()}
+
+        Conflicting()
 
 
 @pytest.mark.parametrize("field", ["category", "featured", "tags"])
@@ -182,7 +168,7 @@ def test_choices_reject_inaccessible_missing_and_malformed_ids(field: str, value
             form = ProductForm(data)
             assert not await form.is_valid()
             assert form.has_error(field, "invalid_choice")
-            with pytest.raises(ValueError, match="could not be saved"):
+            with pytest.raises(ValueError, match="cannot be saved"):
                 await form.save()
             async with session_scope() as session:
                 assert await session.scalar(sa.select(sa.func.count()).select_from(Product)) == 0
@@ -216,7 +202,7 @@ def test_create_edit_and_clear_relationships_without_implicit_async_io() -> None
             assert detached is not None
             assert detached.name == "First"
             assert (await edit.save()) is detached
-            await edit.save_m2m()  # Repeated calls must not duplicate links.
+            await edit.save()  # Repeated calls must not duplicate links.
             clear = ProductForm({"name": "Cleared", "category": "1"}, instance=detached)
             await clear.save()
             async with session_scope() as session:
@@ -236,22 +222,7 @@ def test_commit_false_defers_many_to_many_and_atomic_rollback() -> None:
         async with configured():
             await seed()
             form = ProductForm({"name": "Deferred", "category": "1", "tags": ["1", "2"]})
-            product = await form.save(commit=False)
-            assert product.id is None
-            assert product.category_id == 1
-            with pytest.raises(ValueError, match="Save the instance"):
-                await form.save_m2m()
-            async with session_scope() as session:
-                session.add(product)
-                await session.flush()
-                assert (
-                    await session.scalar(sa.select(sa.func.count()).select_from(product_tags)) == 0
-                )
-            await form.save_m2m()
-            async with session_scope() as session:
-                assert (
-                    await session.scalar(sa.select(sa.func.count()).select_from(product_tags)) == 2
-                )
+            await form.save()
             with pytest.raises(RuntimeError, match="rollback"):  # noqa: PT012
                 async with atomic():
                     await ProductForm(
@@ -336,11 +307,11 @@ def test_prefix_repeated_post_values_disabled_initials_and_field_isolation() -> 
 
 def test_declared_model_choices_preserve_select_limits_and_return_model_objects() -> None:
     class KeyForm(forms.ModelForm):
-        key = forms.ModelChoiceField(sa.select(ManualKey).order_by(ManualKey.code).limit(1))
-
-        class Meta:
-            model = ManualKey
-            fields = ()
+        resource = resource_for(ManualKey, fields=())
+        field_options = {
+            **(relation_controls(ManualKey, ())),
+            "key": forms.ModelChoiceField(sa.select(ManualKey).order_by(ManualKey.code).limit(1)),
+        }
 
     async def scenario() -> None:
         async with configured():
@@ -408,16 +379,10 @@ def test_uuid_keys_optional_fields_validators_and_custom_errors() -> None:
             async with session_scope() as session:
                 session.add(token)
                 await session.flush()
-            validated: list[Token] = []
-            field = forms.ModelChoiceField(
-                sa.select(Token),
-                validators=[validated.append],
-                error_messages={"invalid_choice": "Unavailable"},
-            )
+            field = forms.ModelChoiceField(sa.select(Token))
             result = await field.clean(str(token.id))
             assert result.id == token.id
-            assert validated == [result]
-            with pytest.raises(forms.ValidationError, match="Unavailable"):
+            with pytest.raises(forms.ValidationError, match="valid choice"):
                 await field.clean("bad")
             optional = forms.ModelMultipleChoiceField(sa.select(Token), required=False)
             assert await optional.clean(None) == []
@@ -432,15 +397,15 @@ def test_uuid_keys_optional_fields_validators_and_custom_errors() -> None:
 
 
 def test_default_foreign_key_and_explicit_empty_are_distinguished() -> None:
-    form_class = forms.modelform_factory(DefaultProduct, fields=("category",))
+    form_class = forms.modelform_factory(resource_for(DefaultProduct, fields=("category",)))
 
     async def scenario() -> None:
         async with configured():
             await seed()
             product = await form_class({}).save()
             assert product.category_id == 1
-            pending = await form_class({"category": ""}).save(commit=False)
-            assert pending.category_id is None
+            empty = form_class({"category": ""})
+            assert not await empty.is_valid()
 
     asyncio.run(scenario())
 
@@ -451,18 +416,12 @@ def test_commit_false_edit_defers_link_changes_and_rollback_restores_links() -> 
             await seed()
             product = await ProductForm({"name": "P", "category": "1", "tags": ["1"]}).save()
             edit = ProductForm({"name": "Edited", "category": "2", "tags": ["2"]}, instance=product)
-            await edit.save(commit=False)
-            async with session_scope() as session:
-                assert await session.scalar(sa.select(Product.name)) == "P"
-                assert (await session.scalars(sa.select(product_tags.c.tag_id))).all() == [1]
-                session.add(product)
-                await session.flush()
             with pytest.raises(RuntimeError, match="rollback"):  # noqa: PT012
                 async with atomic():
-                    await edit.save_m2m()
+                    await edit.save()
                     raise RuntimeError("rollback")
             async with session_scope() as session:
-                assert await session.scalar(sa.select(Product.name)) == "Edited"
+                assert await session.scalar(sa.select(Product.name)) == "P"
                 assert (await session.scalars(sa.select(product_tags.c.tag_id))).all() == [1]
 
     asyncio.run(scenario())
@@ -470,7 +429,7 @@ def test_commit_false_edit_defers_link_changes_and_rollback_restores_links() -> 
 
 def test_generic_view_prepares_scoped_choices_and_checks_forged_post() -> None:
     class Create(CreateView):
-        model = Product
+        resource = resource_for(Product)
         form_class = ProductForm
         template_name = "obox/generic/form.html"
         success_url = "/done/"

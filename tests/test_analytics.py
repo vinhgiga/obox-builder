@@ -34,7 +34,8 @@ from obox.contrib.analytics import (
     Pivot,
     Sum,
 )
-from obox.contrib.analytics.aggregates import Aggregation, Measure
+from obox.contrib.analytics.aggregates import Measure
+from obox.contrib.analytics.schemas import PivotMatrix
 from obox.core.exceptions import ImproperlyConfigured
 from obox.core.principal import Principal, ScopedIdentity
 from obox.db.filters import FilterGroup, FilterTerm
@@ -116,7 +117,7 @@ WIDGETS = (
         source=Sale,
         fields=FIELDS,
         rows="distributor",
-        measure=Measure("sum", "amount"),
+        values=(Measure("sum", "amount"),),
         columns="region",
         title="Revenue",
         drill=True,
@@ -308,25 +309,42 @@ def test_aggregates_and_totals(tmp_path: Path, operation: Any, total: Any) -> No
         async with application(tmp_path) as (app, _, policy):
             service = app.component("pivot", app_label="admin").dataset
             assert service is not None
-            query = Aggregation(
-                "distributor",
-                Measure(operation, None if operation == "count" else "amount"),
-                "region",
+            query = Pivot(
+                rows="distributor",
+                values=(Measure(operation, None if operation == "count" else "amount"),),
+                columns="region",
             )
             async with app.uow(principal=STAFF) as ctx:
-                result = await service.aggregate(query, ctx=ctx)
+                result = PivotMatrix.model_validate(
+                    await service.aggregate(query._layout(), ctx=ctx)
+                )
                 assert result.records == 7
-                assert result.rows == ["", "A", "B", None]
-                assert result.columns == ["East", "West"]
-                assert Decimal(str(result.total)) == Decimal(str(total))
-                assert result.cells[0][0] == (0 if operation == "count" else None)
+                assert result.rows == [
+                    [("str", "")],
+                    [("str", "A")],
+                    [("str", "B")],
+                    [("NoneType", None)],
+                ]
+                assert result.columns == [[("str", "East")], [("str", "West")]]
+                assert Decimal(str(result.total[0])) == Decimal(str(total))
+                assert result.cells[0][0] == [None]
                 if operation == "sum":
-                    assert result.row_totals == [Decimal(-5), Decimal(60), Decimal(30), Decimal(0)]
-                    assert result.column_totals == [Decimal(50), Decimal(35)]
-                before = result.to_dict()
+                    assert [[Decimal(str(v)) for v in row] for row in result.row_totals] == [
+                        [Decimal(-5)],
+                        [Decimal(60)],
+                        [Decimal(30)],
+                        [Decimal(0)],
+                    ]
+                    assert [[Decimal(str(v)) for v in col] for col in result.column_totals] == [
+                        [Decimal(50)],
+                        [Decimal(35)],
+                    ]
+                before = result.model_dump()
             policy.joined = True
             async with app.uow(principal=STAFF) as ctx:
-                assert (await service.aggregate(query, ctx=ctx)).to_dict() == before
+                assert (
+                    PivotMatrix.model_validate(await service.aggregate(query._layout(), ctx=ctx))
+                ).model_dump() == before
 
     asyncio.run(scenario())
 
@@ -338,45 +356,55 @@ def test_filters_weighted_average_empty_and_null(tmp_path: Path) -> None:
             async with app.uow(principal=STAFF) as ctx:
                 service = app.component("pivot", app_label="admin").dataset
                 assert service is not None
-                query = Aggregation(
-                    "distributor",
-                    Measure("avg", "amount"),
-                    "region",
+                query = Pivot(
+                    rows="distributor",
+                    values=(Measure("avg", "amount"),),
+                    columns="region",
                     row_sort="value",
                     row_descending=True,
                 )
-                result = await service.aggregate(
-                    query,
-                    ctx=ctx,
-                    filter_group=FilterGroup(
-                        children=(FilterTerm("distributor", "contains", "A"),)
-                    ),
+                result = PivotMatrix.model_validate(
+                    await service.aggregate(
+                        query._layout(),
+                        ctx=ctx,
+                        filter_group=FilterGroup(
+                            children=(FilterTerm("distributor", "contains", "A"),)
+                        ),
+                    )
                 )
-                assert result.total == Decimal(20)
-                assert result.cells == [[Decimal(10), Decimal(40)]]
-                empty = await service.aggregate(query, ctx=ctx, search="missing")
+                assert result.total == ["20.00"]
+                assert result.cells == [[["10.00"], ["40.00"]]]
+                empty = PivotMatrix.model_validate(
+                    await service.aggregate(query._layout(), ctx=ctx, search="missing")
+                )
                 assert empty.records == 0
                 assert empty.rows == []
-                assert empty.total is None
-                count = await service.aggregate(Aggregation("region"), ctx=ctx, search="missing")
-                assert count.total == 0
-                null = await service.aggregate(
-                    query,
-                    ctx=ctx,
-                    filter_group=FilterGroup(
-                        children=(
-                            FilterTerm("distributor", "is", "B"),
-                            FilterTerm("region", "is", "West"),
-                        )
-                    ),
+                assert empty.total == [None]
+                count = PivotMatrix.model_validate(
+                    await service.aggregate(
+                        Pivot(rows="region")._layout(), ctx=ctx, search="missing"
+                    )
                 )
-                assert null.total is None
+                assert count.total == [None]
+                null = PivotMatrix.model_validate(
+                    await service.aggregate(
+                        query._layout(),
+                        ctx=ctx,
+                        filter_group=FilterGroup(
+                            children=(
+                                FilterTerm("distributor", "is", "B"),
+                                FilterTerm("region", "is", "West"),
+                            )
+                        ),
+                    )
+                )
+                assert null.total == [None]
                 assert null.records == 1
             response = await client.get(
                 "/admin/admin/_components/fixed/data",
                 params={"fixed.filter.distributor": "A"},
             )
-            assert response.json()["total"] == 2
+            assert response.json()["total"] == [2]
             assert (
                 await client.get(
                     "/admin/admin/_components/fixed/data",
@@ -422,24 +450,26 @@ def test_http_page_data_records_and_permissions(tmp_path: Path) -> None:
             response = await client.get("/admin/admin/_components/pivot/data")
             assert response.status_code == 200, response.text
             assert response.headers["cache-control"] == "private, no-store"
-            assert response.json()["total"] == "85.00"
+            assert response.json()["total"] == ["85.00"]
             assert "SECRET" not in response.text
             rows = await client.get(
                 "/admin/admin/_components/pivot/records",
-                params={"row": '"A"', "column": '"East"', "limit": 1},
+                params={"row": '[["str", "A"]]', "column": '[["str", "East"]]', "limit": 1},
             )
             assert rows.status_code == 200, rows.text
             assert "Next" in rows.text
             assert "10.00" in rows.text
             null = await client.get(
-                "/admin/admin/_components/pivot/records", params={"row": "null"}
+                "/admin/admin/_components/pivot/records", params={"row": '[["NoneType", null]]'}
             )
-            blank = await client.get("/admin/admin/_components/pivot/records", params={"row": '""'})
+            blank = await client.get(
+                "/admin/admin/_components/pivot/records", params={"row": '[["str", ""]]'}
+            )
             assert "0.00" in null.text
             assert "-5.00" not in null.text
             assert "-5.00" in blank.text
             denied = await client.get(
-                "/admin/admin/_components/pivot/records", params={"row": '"B"'}
+                "/admin/admin/_components/pivot/records", params={"row": '[["str", "B"]]'}
             )
             assert denied.status_code == 200
             assert "/admin/admin/sales/4" not in denied.text
@@ -492,7 +522,7 @@ def test_rejects_invalid_queries(tmp_path: Path, params: Any) -> None:
 
 @pytest.mark.parametrize(
     "params",
-    [{"row": "{"}, {"row": "[]"}, {"offset": -1}, {"limit": 0}, {"limit": 201}, {"limit": "bad"}],
+    [{"row": "{"}, {"row": "[[]]"}, {"offset": -1}, {"limit": 0}, {"limit": 201}, {"limit": "bad"}],
 )
 def test_rejects_invalid_record_queries(tmp_path: Path, params: Any) -> None:
 
@@ -550,23 +580,30 @@ def test_boundaries_sorting_keys_and_masking(tmp_path: Path) -> None:
             async with app.uow(principal=STAFF) as ctx:
                 service = app.component("pivot", app_label="admin").dataset
                 assert service is not None
-                result = await service.aggregate(
-                    Aggregation(
-                        "distributor",
-                        Measure("sum", "amount"),
-                        row_sort="value",
-                        row_descending=True,
-                    ),
-                    ctx=ctx,
+                result = PivotMatrix.model_validate(
+                    await service.aggregate(
+                        Pivot(
+                            rows="distributor",
+                            values=(Measure("sum", "amount"),),
+                            row_sort="value",
+                            row_descending=True,
+                        )._layout(),
+                        ctx=ctx,
+                    )
                 )
-                assert result.rows == ["A", "B", "", None]
+                assert result.rows == [
+                    [("str", "A")],
+                    [("str", "B")],
+                    [("str", "")],
+                    [("NoneType", None)],
+                ]
                 obj = await ctx.session.get(Sale, 1)
                 assert obj
                 obj.quantity = 9
                 obj.distributor = '<img src=x onerror="alert(1)">'
             response = await client.get(
                 "/admin/admin/_components/pivot/records",
-                params={"row": json.dumps('<img src=x onerror="alert(1)">')},
+                params={"row": json.dumps([["str", '<img src=x onerror="alert(1)">']])},
             )
             assert "&lt;img" in response.text
             assert "<img src=x" not in response.text
@@ -584,20 +621,20 @@ def test_boundaries_sorting_keys_and_masking(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     "query",
     [
-        Aggregation("missing"),
-        Aggregation("extra"),
-        Aggregation("region", Measure("sum", "active")),
-        Aggregation("region", columns="region"),
+        Pivot(rows="missing"),
+        Pivot(rows="extra"),
+        Pivot(rows="region", values=(Measure("sum", "active"),)),
+        Pivot(rows="region", columns="region"),
     ],
 )
-def test_invalid_fields_fail_at_installation(tmp_path: Path, query: Aggregation) -> None:
+def test_invalid_fields_fail_at_installation(tmp_path: Path, query: Pivot) -> None:
 
     async def scenario() -> None:
         async with application(tmp_path) as (app, _, _):
             service = app.component("pivot", app_label="admin").dataset
             assert service is not None
             with pytest.raises(ImproperlyConfigured):
-                query.validate(service.dataset)
+                query.build(service.dataset, "invalid")
 
     asyncio.run(scenario())
 
@@ -676,7 +713,7 @@ def test_reference_component_totals_match_all_widgets(tmp_path: Path) -> None:
                 data = response.json()
                 assert data["records"] == 12
                 values = (
-                    data["rowTotals"]
+                    [row[0] for row in data["rowTotals"]]
                     if widget == "pivot"
                     else [point["y"] for point in data["series"][0]["points"]]
                 )
@@ -701,7 +738,7 @@ def test_postgres_timeout_rolls_back_and_connection_recovers(tmp_path: Path) -> 
             policy.slow = False
             response = await client.get("/admin/admin/_components/pivot/data")
             assert response.status_code == 200, response.text
-            assert response.json()["total"] == "85.00"
+            assert response.json()["total"] == ["85.00"]
             response = await client.get("/admin/admin/_components/pivot/records")
             assert response.status_code == 200
 
@@ -892,65 +929,5 @@ def test_sql_pivot_without_dimensions_returns_one_grand_total(tmp_path: Path) ->
             assert data["cells"] == [[[7, "85.00"]]]
             assert data["total"] == [7, "85.00"]
             assert data["records"] == 7
-
-    asyncio.run(scenario())
-
-
-def test_registered_memory_pivot_supports_filters_search_and_matrix_api(tmp_path: Path) -> None:
-    widget = Pivot(
-        name="memory",
-        data=[
-            {
-                "distributor": "A",
-                "region": "East",
-                "amount": 10,
-                "active": True,
-                "occurred_on": "2026-01-01",
-            },
-            {
-                "distributor": "A",
-                "region": "West",
-                "amount": 20,
-                "active": True,
-                "occurred_on": "2026-01-01",
-            },
-            {
-                "distributor": "B",
-                "region": "East",
-                "amount": None,
-                "active": False,
-                "occurred_on": "2026-01-02",
-            },
-        ],
-        rows=("distributor", "region"),
-        columns=("active", "occurred_on"),
-        values=(Count("distributor"), Sum("amount")),
-    )
-
-    async def scenario() -> None:
-        async with application(tmp_path, widgets=(widget,)) as (_, client, _):
-            response = await client.get("/admin/admin/_components/memory/data")
-            assert response.status_code == 200, response.text
-            data = response.json()
-            assert data["rowFields"] == ["distributor", "region"]
-            assert data["columnFields"] == ["active", "occurred_on"]
-            assert data["records"] == 3
-            assert data["total"] == [3, 30]
-
-            filtered = await client.get(
-                "/admin/admin/_components/memory/data",
-                params={"memory.filter.region": "East"},
-            )
-            assert filtered.status_code == 200, filtered.text
-            assert filtered.json()["records"] == 2
-            assert filtered.json()["total"] == [2, 10]
-
-            searched = await client.get(
-                "/admin/admin/_components/memory/data",
-                params={"memory.search": "West"},
-            )
-            assert searched.status_code == 200, searched.text
-            assert searched.json()["records"] == 1
-            assert searched.json()["total"] == [1, 20]
 
     asyncio.run(scenario())

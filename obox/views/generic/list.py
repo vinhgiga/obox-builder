@@ -19,7 +19,6 @@ from obox.views.generic._model import (
     ModelT,
     ModelTemplateMixin,
     field_options,
-    reject_options,
 )
 from obox.views.generic._query import QUERY_PARAMETERS, ViewConfig, ViewQuery
 from obox.views.generic.base import TemplateView, View
@@ -43,22 +42,6 @@ class ListView(ModelTemplateMixin, ModelContextMixin[ModelT], View, Generic[Mode
 
     def check(self) -> None:
         super().check()
-        reject_options(
-            self,
-            (
-                "queryset",
-                "context_object_name",
-                "page_kwarg",
-                "page_start",
-                "allow_empty",
-                "ordering",
-                "list_display",
-                "list_display_links",
-                "list_filter",
-                "add_url",
-                "paginate_by",
-            ),
-        )
         if "template_name_suffix" in vars(self) or any(
             "template_name_suffix" in vars(cls)
             for cls in type(self).__mro__
@@ -83,24 +66,14 @@ class ListView(ModelTemplateMixin, ModelContextMixin[ModelT], View, Generic[Mode
             raise ImproperlyConfigured("Choose a page size between 1 and 100.")
         if not isinstance(self.view, ViewConfig):
             raise ImproperlyConfigured("Provide a ViewConfig for view.")
-        if (
-            self.model is None
-            and self.resource is None
-            and type(self).get_queryset is ListView.get_queryset
-        ):
-            raise ImproperlyConfigured("Define model, resource or get_queryset().")
 
     def get_queryset(self) -> sa.Select[tuple[ModelT]]:
-        if resource := self.bound_resource():
-            return resource.get_queryset()
-        if self.model is not None:
-            return sa.select(self.model)
-        raise ImproperlyConfigured("Define model, resource or get_queryset().")
+        return self.bound_resource().get_queryset()
 
     async def _resolve_collection(self) -> tuple[ModelResource[ModelT], Any, ViewQuery]:
         queryset = await invoke(self.get_queryset)
-        model = queryset.column_descriptions[0]["entity"]
-        resource = self.model_resource(model)
+        resource = self.bound_resource()
+        model = resource.model
         allowed = {
             name
             for name in resource.readable
@@ -139,8 +112,6 @@ class ListView(ModelTemplateMixin, ModelContextMixin[ModelT], View, Generic[Mode
     @action(permissions=("delete",), description="Delete selected objects")
     async def delete_selected(self, request: Request, queryset: Any) -> Response | None:
         resource = self.bound_resource()
-        if resource is None:
-            raise ImproperlyConfigured("Bind a ModelResource to delete selected records.")
         data = await read_form(request)
         if data.get("post") != "yes":
             view = TemplateView(template_name="obox/generic/delete_selected.html")

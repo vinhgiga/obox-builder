@@ -25,6 +25,7 @@ from pydantic.alias_generators import to_camel
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
+from tests.runtime import resource_for
 from tests.storage import database
 
 CUSTOMERS = "/api/customers"
@@ -512,7 +513,7 @@ def test_collection_query_validation(tmp_path: Path) -> None:
 
 def test_list_field_configuration() -> None:
     class TypesApi(ModelApi[TypedRow]):
-        model = TypedRow
+        resource = resource_for(TypedRow)
         prefix = "/types"
         actions: tuple[Literal["list"]] = ("list",)
 
@@ -527,9 +528,3 @@ def test_list_field_configuration() -> None:
         setattr(api, attr, (field,))
         with pytest.raises(ImproperlyConfigured, match=field):
             api.build_router()
-
-    api = TypesApi()
-    api.pagination = "page"
-    api.page_param = "filter"
-    with pytest.raises(ImproperlyConfigured, match="page parameters"):
-        api.build_router()

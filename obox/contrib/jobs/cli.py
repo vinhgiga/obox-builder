@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from obox.contrib.jobs.models import Task, TaskAttempt, utcnow
 from obox.contrib.jobs.services import enqueue, retry, revoke
 from obox.contrib.jobs.worker import Worker, shutdown
-from obox.db.engine import Database
+from obox.db.engine import close_engines
 from obox.runtime.config import RuntimeConfig
 
 
@@ -50,9 +50,10 @@ async def _run_command(arguments: argparse.Namespace) -> None:
     settings_module = arguments.settings or os.environ.get("OBOX_SETTINGS_MODULE", "settings")
     if settings_module:
         os.environ["OBOX_SETTINGS_MODULE"] = settings_module
-    database = Database(RuntimeConfig.from_settings())
-    async with database.lifespan():
-        await _run(arguments, database.sessions)
+    try:
+        await _run(arguments, RuntimeConfig.from_settings().session_factory)
+    finally:
+        await close_engines()
 
 
 async def _run(arguments: argparse.Namespace, sessions: async_sessionmaker[AsyncSession]) -> None:

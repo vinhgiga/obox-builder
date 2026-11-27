@@ -31,10 +31,8 @@ class Obox:
         apps.populate(settings.INSTALLED_APPS)
         entries = list(apps.get_app_configs())
         for entry in entries:
-            ui_prefix = entry.ui_prefix if entry.ui_prefix is not None else entry.view_prefix
-            validate_app_prefix(
-                ui_prefix, "ui_prefix" if entry.ui_prefix is not None else "view_prefix"
-            )
+            ui_prefix = entry.ui_prefix
+            validate_app_prefix(ui_prefix, "ui_prefix")
             runtime.add_app(entry)
         for entry in entries:
             factory = getattr(entry, "_service_factory", None)
@@ -43,15 +41,6 @@ class Obox:
                 runtime.activate(feature)
         runtime._loading_apps = False
         runtime.finish_apps()
-        if settings.TEMPLATES:
-            from importlib import import_module
-
-            from fastapi.templating import Jinja2Templates
-
-            definition = settings.TEMPLATES[0]
-            module, _, name = definition["BACKEND"].rpartition(".")
-            backend = getattr(import_module(module), name)(definition)
-            runtime.templates = Jinja2Templates(env=backend.env)
         runtime.bind_templates()
         lifespan = app.router.lifespan_context
 
@@ -65,7 +54,7 @@ class Obox:
 
         app.router.lifespan_context = managed
         for entry in entries:
-            ui_prefix = entry.ui_prefix if entry.ui_prefix is not None else entry.view_prefix
+            ui_prefix = entry.ui_prefix
             for registration in [*app_registrations(entry), *entry._registrations]:
                 registration.mount(
                     runtime, entry.label, view_prefix=ui_prefix, api_prefix=entry.api_prefix

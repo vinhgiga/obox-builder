@@ -34,7 +34,7 @@ from obox.web.schemas import ApiRequest, ApiResponse
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-from tests.runtime import build_runtime
+from tests.runtime import build_runtime, sessions_for
 
 
 class Base(DeclarativeBase):
@@ -549,7 +549,7 @@ def test_nonliteral_component_call_fails_with_template_line(tmp_path: Path) -> N
     obox = _Runtime(
         FastAPI(),
         settings=RuntimeConfig(
-            database_url="sqlite+aiosqlite://",
+            session_factory=sessions_for("sqlite+aiosqlite://"),
             principal_dependency=lambda: ACTOR,
             csrf_secret="a" * 32,
             template_dirs=(tmp_path,),
@@ -561,7 +561,7 @@ def test_nonliteral_component_call_fails_with_template_line(tmp_path: Path) -> N
     obox.finish_apps()
     with pytest.raises(ImproperlyConfigured, match=r"metrics/dynamic\.html:2"):
         obox.bind_templates()
-    assert obox.database.engine is None
+    assert not obox.session_factory.kw["bind"].sync_engine.pool.checkedout()
 
 
 def test_component_import_fails_before_database_startup(tmp_path: Path) -> None:
@@ -575,7 +575,7 @@ def test_component_import_fails_before_database_startup(tmp_path: Path) -> None:
     obox = _Runtime(
         FastAPI(),
         settings=RuntimeConfig(
-            database_url="sqlite+aiosqlite://",
+            session_factory=sessions_for("sqlite+aiosqlite://"),
             principal_dependency=lambda: ACTOR,
             csrf_secret="a" * 32,
             template_dirs=(tmp_path,),
@@ -587,7 +587,7 @@ def test_component_import_fails_before_database_startup(tmp_path: Path) -> None:
     obox.finish_apps()
     with pytest.raises(ImproperlyConfigured, match="Cannot import component"):
         obox.bind_templates()
-    assert obox.database.engine is None
+    assert not obox.session_factory.kw["bind"].sync_engine.pool.checkedout()
 
 
 @pytest.mark.parametrize(
@@ -614,14 +614,14 @@ def test_invalid_components_fail_before_database_startup(
         obox = build_runtime(
             FastAPI(),
             settings=RuntimeConfig(
-                database_url="sqlite+aiosqlite://",
+                session_factory=sessions_for("sqlite+aiosqlite://"),
                 principal_dependency=lambda: ACTOR,
                 csrf_secret="a" * 32,
             ),
             app_configs=(config,),
             features=(Analytics(),),
         )
-        assert obox.database.engine is None
+        assert not obox.session_factory.kw["bind"].sync_engine.pool.checkedout()
         obox.check(strict=True)
 
     with pytest.raises(ImproperlyConfigured):

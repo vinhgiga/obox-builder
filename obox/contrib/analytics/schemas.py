@@ -7,16 +7,6 @@ from pydantic import JsonValue
 from obox.web.schemas import ApiResponse
 
 
-class PivotData(ApiResponse):
-    rows: list[JsonValue]
-    columns: list[JsonValue]
-    cells: list[list[JsonValue]]
-    row_totals: list[JsonValue]
-    column_totals: list[JsonValue]
-    total: JsonValue
-    records: int
-
-
 class PivotMatrix(ApiResponse):
     row_fields: list[str]
     column_fields: list[str]

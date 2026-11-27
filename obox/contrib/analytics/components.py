@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Literal, cast
 
-from obox.components.declarations import Component, ComponentQuery, fixed_filters
-from obox.contrib.analytics.aggregates import Aggregation, FieldCount, Measure
+from obox.components.declarations import Component, ComponentQuery
+from obox.contrib.analytics.aggregates import FieldCount, Measure
 from obox.contrib.analytics.charts import (
     Axis,
     ChartSpec,
@@ -14,9 +14,8 @@ from obox.contrib.analytics.charts import (
     chart_spec,
 )
 from obox.contrib.analytics.pivot import PivotSpec, ValuesAxis, axis
-from obox.contrib.analytics.pivot_memory import MemoryRows, condition, execute_memory
-from obox.contrib.analytics.schemas import ChartData, PivotData, PivotMatrix
-from obox.core.exceptions import BuilderValidationError, ImproperlyConfigured
+from obox.contrib.analytics.schemas import ChartData, PivotMatrix
+from obox.core.exceptions import ImproperlyConfigured
 from obox.web.schemas import ApiResponse
 
 if TYPE_CHECKING:
@@ -128,16 +127,13 @@ class Donut(Chart):
 
 
 class Pivot(Component):
-    _supports_memory = True
     plugin = "analytics"
     kind = "pivot"
     query_model = ComponentQuery
-    result_model: type[ApiResponse] | None = PivotData
-    data: Any = None
+    result_model: type[ApiResponse] | None = PivotMatrix
     rows: str | tuple[str, ...] | list[str] = ""
     columns: str | tuple[str, ...] | list[str] | None = None
-    measure = Measure()
-    values: tuple[Measure, ...] | list[Measure] | None = None
+    values: tuple[Measure, ...] = (Measure(),)
     values_axis: ValuesAxis = "columns"
     values_position: int | None = None
     row_sort: Literal["group", "value"] = "group"
@@ -151,20 +147,11 @@ class Pivot(Component):
     drill = False
     height = "md"
 
-    def __init__(self, *, data: Any = None, **options: Any) -> None:
-        super().__init__(**options)
-        data = self.data if data is None else data
-        if data is not None:
-            if self.source is not None:
-                raise ImproperlyConfigured("Choose a model source or in-memory pivot data.")
-            self.data = MemoryRows.from_data(data, tuple(self.fields))
-            self.fields = self.data.columns
-
-    def _layout(self, *, model: bool = False) -> PivotSpec:
+    def _layout(self) -> PivotSpec:
         rows, columns = axis(self.rows), axis(self.columns)
         if len(set(rows + columns)) != len(rows + columns):
             raise ImproperlyConfigured("Each pivot dimension can occur once across the axes.")
-        values = self.values if self.values is not None else (self.measure,)
+        values = self.values
         if (
             not isinstance(values, (list, tuple))
             or not values
@@ -194,28 +181,6 @@ class Pivot(Component):
             or not 0 <= position <= depth
         ):
             raise ImproperlyConfigured("Invalid pivot presentation.")
-        legacy = None
-        if (
-            model
-            and isinstance(self.rows, str)
-            and self.rows
-            and (self.columns is None or isinstance(self.columns, str))
-            and self.values is None
-            and self.values_axis == "columns"
-            and self.values_position is None
-            and self.measure.label is None
-            and self.measure.operation != "count_numbers"
-            and not (self.measure.operation == "count" and self.measure.field is not None)
-        ):
-            legacy = Aggregation(
-                self.rows,
-                self.measure,
-                self.columns,
-                self.row_sort,
-                self.column_sort,
-                self.row_descending,
-                self.column_descending,
-            )
         return PivotSpec(
             rows,
             columns,
@@ -230,63 +195,12 @@ class Pivot(Component):
             self.show_column_subtotals,
             self.show_row_totals,
             self.show_column_totals,
-            legacy,
         )
 
     def build(self, builder: Any, name: str) -> PivotSpec:
-        spec = self._layout(model=builder is not None)
-        if builder is not None:
-            if spec.legacy is None:
-                spec.validate_model(builder)
-            else:
-                spec.legacy.validate(builder)
-        else:
-            if not isinstance(self.data, MemoryRows):
-                raise ImproperlyConfigured("Declare a pivot source or data.")
-            self.fields = self._memory_fields(self.data, spec)
-            try:
-                condition(
-                    fixed_filters(self.filters),
-                    set(self.fields).intersection(
-                        self.fields if self.filter_fields is None else self.filter_fields
-                    ),
-                )
-            except BuilderValidationError as exc:
-                raise ImproperlyConfigured("Invalid fixed pivot filter.") from exc
-        if spec.legacy is None:
-            self.result_model = PivotMatrix
-        return spec
-
-    def _memory_fields(self, data: MemoryRows, spec: PivotSpec) -> tuple[str, ...]:
-        columns = data.columns if data.columns or data.rows else spec.fields
-        if not set(spec.fields).issubset(columns):
-            raise ImproperlyConfigured("Pivot data is missing configured fields.")
-        return columns
-
-    def compute(
-        self,
-        data: Any = None,
-        *,
-        max_rows: int = 200,
-        max_columns: int = 50,
-        max_cells: int = 10_000,
-    ) -> PivotMatrix:
-        """Compute a matrix from records or a DataFrame without binding to an application."""
         spec = self._layout()
-        source = self.data if data is None else MemoryRows.from_data(data, tuple(self.fields))
-        if not isinstance(source, MemoryRows):
-            raise ImproperlyConfigured("Provide records or a DataFrame to compute a pivot.")
-        fields = self._memory_fields(source, spec)
-        rows = source.matching(
-            readable=set(fields),
-            filter_fields=fields if self.filter_fields is None else self.filter_fields,
-            fixed=fixed_filters(self.filters),
-        )
-        return PivotMatrix.model_validate(
-            execute_memory(
-                rows, spec, max_rows=max_rows, max_columns=max_columns, max_cells=max_cells
-            )
-        )
+        spec.validate_model(builder)
+        return spec
 
     async def execute(self, service: ComponentService, query: Any, ctx: Context) -> Any:
         from obox.contrib.analytics.services import execute

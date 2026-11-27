@@ -16,6 +16,7 @@ from obox.contrib.auth.passwords import hash_password
 from obox.core.exceptions import ImproperlyConfigured
 from obox.views.generic import DetailView, ListView, ModelViewSet
 
+from tests.runtime import resource_for
 from tests.test_auth_api import PASSWORD, issue, login
 from tests.test_forms_integration import Item, configured
 from tests.test_resources import Items, authenticated_app
@@ -37,7 +38,7 @@ class ItemViews(ModelViewSet[Item]):
 
 class ItemApi(ModelApi[Item]):
     resource = Items
-    include_router_methods = ("list", "retrieve")
+    actions = ("list", "retrieve")
 
 
 def test_installed_app_exposes_shared_resource_views_and_api() -> None:
@@ -120,7 +121,7 @@ def test_custom_viewset_api_and_native_router_use_application_prefixes() -> None
 
     class Inventory(AppConfig):
         label = "inventory"
-        view_prefix = "/manage/inventory"
+        ui_prefix = "/manage/inventory"
         api_prefix = "/service/inventory"
         views: ClassVar[list[type[StockViews]]] = [StockViews]
         apis: ClassVar[list[type[ItemApi]]] = [ItemApi]
@@ -174,7 +175,7 @@ def test_custom_api_prefix_keeps_token_auth_on_installed_api_routes() -> None:
     router.add_api_route("/status", status, methods=["GET"], dependencies=guard)
 
     class Inventory(AppConfig):
-        view_prefix = "/inventory/html"
+        ui_prefix = "/inventory/html"
         api_prefix = "/inventory"
         views: ClassVar[list[type[Items]]] = [Items]
         apis: ClassVar[list[type[Items]]] = [Items]
@@ -222,7 +223,7 @@ def test_custom_api_prefix_keeps_token_auth_on_installed_api_routes() -> None:
 
 
 class ModelOnlyApi(ModelApi[Item]):
-    model = Item
+    resource = resource_for(Item)
 
 
 class ConflictingApi(ItemApi):
@@ -238,7 +239,7 @@ class ConflictingApi(ItemApi):
         ({"apis": "tests.test_resources.Items"}, "must be a list or tuple"),
         ({"views": ["tests.test_resources.Unknown"]}, "Cannot load"),
         ({"views": [ItemViews], "apis": [ConflictingApi]}, "same slug"),
-        ({"view_prefix": "manage"}, "view_prefix must be an absolute URL path"),
+        ({"ui_prefix": "manage"}, "ui_prefix must be an absolute URL path"),
         ({"api_prefix": "/{app}"}, "api_prefix must be an absolute URL path"),
     ],
 )

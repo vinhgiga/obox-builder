@@ -7,7 +7,6 @@ from collections.abc import Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar, Token
 from typing import TYPE_CHECKING, Any, cast
-from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
@@ -18,13 +17,13 @@ from starlette.types import Receive, Scope, Send
 from obox.components.declarations import ComponentQuery, ComponentRecords
 from obox.components.scan import ComponentUse, component_signature
 from obox.core.exceptions import BuilderValidationError, ImproperlyConfigured
-from obox.db.filters import FilterGroup, FilterTerm
+from obox.db.filters import FilterGroup, FilterTerm, parse_filter
 from obox.runtime.context import Context
 from obox.web.dependencies import permission_required
 from obox.web.i18n import context as translation_context
 from obox.web.i18n import localize, translate
 from obox.web.routes import ApiRoute
-from obox.web.ui import build_navigation, filter_columns, query_options
+from obox.web.ui import build_navigation, filter_columns
 
 if TYPE_CHECKING:
     from obox.components.service import ComponentService
@@ -91,34 +90,31 @@ def _query(request: Request, service: ComponentService, *, records: bool = False
         query = ComponentRecords.model_validate(selection) if records else ComponentQuery()
     except ValidationError as exc:
         raise BuilderValidationError({"records": [error["msg"] for error in exc.errors()]}) from exc
-    if service.dataset is not None or service.definition._supports_memory:
-        values = query_options(
-            Request(dict(request.scope, query_string=urlencode(pairs).encode())),
-            service.dataset.dataset if service.dataset else None,
-            pagination=False,
-        )
-        if "ordering" in values:
-            raise BuilderValidationError(
-                {"ordering": ["Component ordering is defined on the server."]}
-            )
-        for key in tuple(values["filters"]):
-            if values["filters"][key] == "" and values["filter_ops"].get(key) not in {
-                "is_empty",
-                "is_not_empty",
-            }:
-                values["filters"].pop(key)
-                values["filter_ops"].pop(key, None)
-        if set(values["filter_ops"]) - set(values["filters"]):
+    if service.dataset is not None:
+        filters, operators, predicate, search = {}, {}, None, None
+        for key, value in pairs:
+            if key == "search":
+                search = value
+            elif key == "filter":
+                predicate = parse_filter(value)
+            elif key.startswith("filter."):
+                filters[key[7:]] = value
+            elif key.startswith("filter_op."):
+                operators[key[10:]] = value
+            else:
+                raise BuilderValidationError({key: ["Unknown query parameter."]})
+        if set(operators) - set(filters):
             raise BuilderValidationError({"filter": ["Filter operator has no value."]})
-        terms = [
-            FilterTerm(name, values["filter_ops"].get(name, "is"), value)
-            for name, value in values["filters"].items()
+        terms: list[FilterGroup | FilterTerm] = [
+            FilterTerm(name, operators.get(name, "is"), value)
+            for name, value in filters.items()
+            if value != "" or operators.get(name) in {"is_empty", "is_not_empty"}
         ]
-        if values["filter_group"] is not None:
-            terms.append(values["filter_group"])
+        if predicate is not None:
+            terms.append(predicate)
         query._options = {
             "filter_group": FilterGroup(children=tuple(terms)),
-            "search": values["search"],
+            "search": search,
         }
     elif pairs:
         raise BuilderValidationError({"query": ["This component has no source filters."]})
@@ -260,7 +256,6 @@ async def resolve_components(
     ctx: Context,
 ) -> dict[str, Any]:
     from obox.contrib.analytics.charts import ChartSpec
-    from obox.contrib.analytics.pivot import PivotSpec
 
     bindings: Sequence[tuple[ComponentUse, ComponentService]] = obox._route_components[
         app_label, route_name
@@ -325,34 +320,7 @@ async def resolve_components(
                 ),
                 search_enabled=any(name in readable for name in builder.search_fields),
             )
-        elif isinstance(spec, PivotSpec):
-            readable = set(definition.get_fields(ctx)).intersection(definition.fields)
-            fields = (
-                definition.fields if definition.filter_fields is None else definition.filter_fields
-            )
-            item.update(
-                filters=[
-                    {
-                        "name": name,
-                        "label": name.replace("_", " ").capitalize(),
-                        "kind": "text",
-                        "choices": [],
-                        "operators": [
-                            "is",
-                            "is_not",
-                            "contains",
-                            "does_not_contain",
-                            "is_empty",
-                            "is_not_empty",
-                        ],
-                    }
-                    for name in fields
-                    if name in readable
-                ],
-                search_enabled=bool(readable),
-            )
         chart = spec if isinstance(spec, ChartSpec) else None
-        legacy = spec.legacy if isinstance(spec, PivotSpec) else None
         widget_config[service.name] = {
             "slug": service.name,
             "title": item["title"],
@@ -369,12 +337,7 @@ async def resolve_components(
             )
             if description.get("drill", False)
             else "",
-            "rowLabel": chart.dimension.label or chart.dimension.field
-            if chart is not None
-            else legacy.rows
-            if legacy
-            else "",
-            "columnLabel": (legacy.columns or "") if legacy else "",
+            "rowLabel": chart.dimension.label or chart.dimension.field if chart is not None else "",
             "rowTotals": description.get("rowTotals", True),
             "columnTotals": description.get("columnTotals", True),
         }

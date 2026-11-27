@@ -36,7 +36,6 @@ from obox.core.exceptions import (
     ResourceConflict,
 )
 from obox.core.principal import Permission, Principal
-from obox.db.engine import Database
 from obox.db.session import bind_session
 from obox.routes import Route
 from obox.runtime.config import RuntimeConfig
@@ -158,8 +157,7 @@ class _Runtime:
 
         app.add_exception_handler(StarletteHTTPException, http_error)
         app.exception_handlers.setdefault(DomainError, http_error)
-        self.database = Database(self.settings)
-        self.session_factory = self.database.sessions
+        self.session_factory = self.settings.session_factory
         self._features: dict[str, Any] = {}
         self._loading_apps = True
         self._enforce_permissions = enforce_permissions
@@ -191,7 +189,7 @@ class _Runtime:
         async def lifespan(app: FastAPI) -> AsyncIterator[Any]:
             self.check(strict=True)
             self._frozen = True
-            async with self.database.lifespan(), AsyncExitStack() as stack:
+            async with AsyncExitStack() as stack:
                 for plugin in self._features.values():
                     if callable(getattr(plugin, "lifespan", None)):
                         await stack.enter_async_context(plugin.lifespan(self))
@@ -336,10 +334,9 @@ class _Runtime:
         from obox.web.ui import create_templates
 
         self._check_apps()
-        if self.settings.templates is None:
-            self.templates.env.loader = create_templates(
-                self.settings, tuple(self._apps.values())
-            ).env.loader
+        self.templates.env.loader = create_templates(
+            self.settings, tuple(self._apps.values())
+        ).env.loader
         for config in self._apps.values():
             for declaration in config.components:
                 service = ComponentService.bind(self, declaration, app_label=config.label)
@@ -647,7 +644,6 @@ class _Runtime:
         ctx = None
         committing = False
         try:
-            self.database.check()
             async with self.session_factory(
                 expire_on_commit=False, close_resets_only=False
             ) as session:

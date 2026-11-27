@@ -275,7 +275,7 @@ def test_registered_model_api_supports_crud_and_camel_case_contract() -> None:
 def test_app_registration_custom_views_and_direct_adapters() -> None:
     class ItemApi(ModelApi[Item]):
         resource = Items
-        include_router_methods = ("list", "retrieve")
+        actions = ("list", "retrieve")
 
     class ItemDetail(DetailView):
         resource = Items

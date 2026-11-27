@@ -10,7 +10,7 @@ from typing import Any, Literal
 
 import sqlalchemy as sa
 
-from obox.contrib.analytics.aggregates import Aggregation, Measure, State, encode, exceeded
+from obox.contrib.analytics.aggregates import Measure, State, encode, exceeded
 from obox.core.config import require_positive_integers
 from obox.core.exceptions import BuilderValidationError, ImproperlyConfigured
 
@@ -56,7 +56,6 @@ class PivotSpec:
     show_column_subtotals: bool
     show_row_totals: bool
     show_column_totals: bool
-    legacy: Aggregation | None
 
     @property
     def fields(self) -> tuple[str, ...]:

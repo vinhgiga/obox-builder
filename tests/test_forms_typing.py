@@ -31,25 +31,23 @@ class Record(Base):
     rate: Mapped[int]
     note: Mapped[str | None]
 
-class ReviewModel(ModelForm[ReviewInput, Record]):
-    schema = ReviewInput
-
-    class Meta:
-        model = Record
-        fields = ("name", "rate", "note")
-
-class ReviewInline(Inline):
-    model = Record
-    form = ReviewModel
-
 class ReviewResource(ModelResource[Record]):
     model = Record
+    fields = ("name", "rate", "note")
+    schema = ReviewInput
+
+class ReviewModel(ModelForm[ReviewInput, Record]):
+    resource = ReviewResource
+
+class ReviewInline(Inline):
+    resource = ReviewResource
+    form = ReviewModel
 
 class ReviewGrid(GridView[Record]):
     resource = ReviewResource
 
 formset_factory(Review)
-modelform_factory(Record, form=ReviewModel, fields=("name", "rate", "note"))
+modelform_factory(ReviewResource, form=ReviewModel)
 
 async def validate(raw: dict[str, Any]) -> None:
     form = Review(raw)

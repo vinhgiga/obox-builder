@@ -5,9 +5,8 @@ from typing import Any
 import sqlalchemy as sa
 
 from obox.contrib._models import authorize
-from obox.contrib.analytics.aggregates import execute
-from obox.contrib.analytics.filters import filter_condition, filter_tree
-from obox.contrib.analytics.pivot import PivotSpec, execute_sql
+from obox.contrib.analytics.filters import filter_tree
+from obox.contrib.analytics.pivot import execute_sql
 from obox.core.async_utils import invoke
 from obox.core.exceptions import BuilderValidationError, ImproperlyConfigured, PermissionDenied
 from obox.db.fields import inspect_fields
@@ -76,19 +75,11 @@ class DataSource:
         self,
         *,
         ctx: Any,
-        filters: Any = None,
-        filter_ops: Any = None,
         filter_group: Any = None,
         search: Any = None,
     ) -> Any:
         readable = set(self.dataset.readable(ctx))
         stmt = self.statement("list", ctx)
-        for name, value in (filters or {}).items():
-            stmt = stmt.where(
-                filter_condition(
-                    self.dataset, readable, name, (filter_ops or {}).get(name, "is"), value
-                )
-            )
         if filter_group is not None:
             condition = filter_tree(
                 self.dataset, readable, filter_group, ctx.session.get_bind().dialect.name
@@ -124,9 +115,7 @@ class DataSource:
     ) -> Any:
         stmt = await self._aggregate_statement(query, ctx, filter_group, search)
         bounds = {"max_rows": 200, "max_columns": 50, "max_cells": 10000, **limits}
-        if isinstance(query, PivotSpec):
-            return await execute_sql(stmt, self.dataset, ctx.session, query, **bounds)
-        return await execute(stmt, self.dataset, ctx.session, query, **bounds)
+        return await execute_sql(stmt, self.dataset, ctx.session, query, **bounds)
 
     async def aggregate_records(
         self,
@@ -142,11 +131,7 @@ class DataSource:
         from pydantic import TypeAdapter, ValidationError
 
         stmt = await self._aggregate_statement(query, ctx, filter_group, search)
-        dimensions = (
-            set(query.rows + query.columns)
-            if isinstance(query, PivotSpec)
-            else {query.rows, query.columns}
-        )
+        dimensions = set(query.rows + query.columns)
         if not set(keys) <= dimensions:
             raise BuilderValidationError({"keys": ["Unknown grouping field."]})
         for name, value in keys.items():

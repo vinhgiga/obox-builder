@@ -84,9 +84,7 @@ class ComponentService:
                 filter_tree(dataset.dataset, set(dataset.dataset.fields), predicate, "sqlite")
             except BuilderValidationError as exc:
                 raise ImproperlyConfigured("Invalid fixed component filter.") from exc
-        elif not component._supports_memory and (
-            component.plugin == "analytics" or predicate.children
-        ):
+        elif component.plugin == "analytics" or predicate.children:
             raise ImproperlyConfigured("Data filters require a source model.")
         spec = component.build(dataset.dataset if dataset else None, component.name)
         if (
@@ -141,25 +139,12 @@ class ComponentService:
             readable = set(self.dataset.dataset.readable(ctx))
             fields = set(definition.required_fields)
             if self.spec is not None:
-                fields.update(
-                    self.spec.fields
-                    if hasattr(self.spec, "fields")
-                    else self.spec.aggregation.fields
-                )
+                fields.update(self.spec.fields)
 
             if not fields.issubset(readable):
                 raise PermissionDenied("These fields are not available for this component.")
             # Recheck dynamic field restrictions on fixed filters.
             self.dataset.statement("list", ctx)
-        elif definition._supports_memory:
-            if not await invoke(definition.has_permission, ctx):
-                raise PermissionDenied("This component is not permitted.")
-            readable = set(definition.get_fields(ctx))
-            if not readable.issubset(definition.fields):
-                raise PermissionDenied("Dynamic component fields must narrow its declared fields.")
-            fields = set(definition.required_fields).union(self.spec.fields)
-            if not fields.issubset(readable):
-                raise PermissionDenied("These fields are not available for this component.")
         return ctx
 
     async def permitted(self, ctx: Context) -> bool:
@@ -172,7 +157,7 @@ class ComponentService:
     def options(self, query: ComponentQuery) -> dict[str, Any]:
         if query._options is not None:
             return query._options
-        if self.dataset is None and not self._prototype._supports_memory:
+        if self.dataset is None:
             return {}
         for key, _ in query.query:
             if key in CONTROLS - {"search"}:

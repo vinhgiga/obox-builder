@@ -9,6 +9,7 @@ from obox.db.transaction import atomic
 from pydantic import BaseModel
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from tests.runtime import resource_for
 from tests.test_forms_integration import Base, configured
 
 
@@ -28,7 +29,7 @@ class Book(Base):
     title: Mapped[str] = mapped_column(sa.String(40))
 
 
-Books = forms.inlineformset_factory(Author, Book, fields=("title",))
+Books = forms.inlineformset_factory(Author, resource_for(Book, fields=("title",)))
 
 
 def data(*rows: dict[str, str], initial: int = 0, prefix: str = "books") -> dict[str, str]:
@@ -64,8 +65,10 @@ def test_inline_load_add_update_delete_and_unchanged() -> None:
             assert len(unbound) == 5
             assert len(unbound.initial_forms) == 2
             assert not await unbound.is_valid()
-            assert 'name="books-TOTAL_FORMS"' in str(unbound.management_form.as_p())
-            assert "books-__prefix__-title" in str(unbound.empty_form.as_p())
+            assert 'name="books-TOTAL_FORMS"' in "".join(
+                str(field) for field in unbound.management_form
+            )
+            assert "books-__prefix__-title" in "".join(str(field) for field in unbound.empty_form)
             assert "required" not in str(unbound.empty_form["title"])
             edit = Books(
                 data(
@@ -117,7 +120,9 @@ def test_inline_unsaved_parent_duplicates_and_custom_clean() -> None:
             if any(form.validated_data.get("title") == "Rejected" for form in self.forms):
                 raise forms.ValidationError("Choose another title.")
 
-    custom = forms.inlineformset_factory(Author, Book, fields=("title",), formset=UniqueBooks)
+    custom = forms.inlineformset_factory(
+        Author, resource_for(Book, fields=("title",)), formset=UniqueBooks
+    )
 
     async def scenario() -> None:
         async with configured():
@@ -152,7 +157,6 @@ def test_formset_management_limits_ordering_and_deleted_invalid_rows() -> None:
     contacts = forms.formset_factory(
         Contact,
         can_delete=True,
-        can_order=True,
         max_num=2,
         absolute_max=3,
         min_num=1,
@@ -176,7 +180,7 @@ def test_formset_management_limits_ordering_and_deleted_invalid_rows() -> None:
             )
         )
         assert await valid.is_valid(), valid.errors
-        assert [form.validated_data["name"] for form in valid.ordered_forms] == ["First", "Last"]
+        assert [form.validated_data["name"] for form in valid.forms[:2]] == ["Last", "First"]
         assert len(valid.deleted_forms) == 1
         empty = contacts(data({}, prefix="form"))
         assert not await empty.is_valid()
@@ -188,15 +192,6 @@ def test_inline_save_commit_false_and_transaction_rollback() -> None:
     async def scenario() -> None:
         async with configured():
             author = await seed()
-            bound = Books(
-                data({"id": "1", "title": "Changed"}, {"id": "2", "DELETE": "on"}, initial=2),
-                instance=author,
-            )
-            instances = await bound.save(commit=False)
-            assert instances[0].title == "Changed"
-            async with session_scope() as session:
-                assert await session.scalar(sa.select(Book.title).where(Book.id == 1)) == "First"
-                assert await session.get(Book, 2) is not None
 
             async def rollback() -> None:
                 async with atomic():
@@ -224,15 +219,17 @@ class Link(Base):
 
 def test_inline_disambiguates_foreign_keys_and_requires_explicit_fields() -> None:
     with pytest.raises(ValueError, match="fk_name"):
-        forms.inlineformset_factory(Author, Link, fields=("label", "right_id"))
+        forms.inlineformset_factory(Author, resource_for(Link, fields=("label", "right_id")))
     for name in ("left_id", "left"):
-        cls = forms.inlineformset_factory(Author, Link, fk_name=name, fields=("label", "right_id"))
+        cls = forms.inlineformset_factory(
+            Author, resource_for(Link, fields=("label", "right_id")), fk_name=name
+        )
         assert cls.fk_name == "left_id"
         assert cls.get_default_prefix() == "link_set"
     with pytest.raises(ValueError, match="foreign key"):
-        forms.inlineformset_factory(Author, Book, fk_name="title", fields=("title",))
+        forms.inlineformset_factory(Author, resource_for(Book, fields=("title",)), fk_name="title")
     with pytest.raises(ImproperlyConfigured, match=r"Meta\.fields"):
-        forms.inlineformset_factory(Author, Book)
+        forms.inlineformset_factory(Author, resource_for(Book))
 
 
 @pytest.mark.parametrize(
@@ -276,14 +273,9 @@ def test_integer_zero_extra_form_is_changed_and_saved_data_is_retained() -> None
 def test_new_inline_commit_false_can_be_saved_with_unsaved_parent() -> None:
     async def scenario() -> None:
         async with configured():
-            parent = Author(name="Pending")
-            bound = Books(data({"title": "Pending child"}), instance=parent)
-            children = await bound.save(commit=False)
-            assert children[0].author is parent
-            async with session_scope() as session:
-                session.add_all([parent, *children])
-            async with session_scope() as session:
-                assert await session.scalar(sa.select(Book.author_id)) == parent.id
+            bound = Books(data({"title": "Pending child"}), instance=Author(name="Pending"))
+            with pytest.raises(ValueError, match="Save the parent"):
+                await bound.save()
 
     asyncio.run(scenario())
 

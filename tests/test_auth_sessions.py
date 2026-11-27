@@ -16,7 +16,7 @@ from obox.contrib.auth.passwords import hash_password
 from obox.runtime.config import RuntimeConfig
 from obox.runtime.runtime import _Runtime
 
-from tests.runtime import build_runtime
+from tests.runtime import build_runtime, sessions_for
 
 PASSWORD = "correct horse battery staple"  # noqa: S105 - test fixture
 
@@ -25,14 +25,16 @@ def make_app(path: Path, max_age: int | None = None) -> _Runtime:
     auth = Auth(secure=False) if max_age is None else Auth(secure=False, max_age=max_age)
     return build_runtime(
         FastAPI(),
-        settings=RuntimeConfig(database_url=f"sqlite+aiosqlite:///{path}", csrf_secret="x" * 32),
+        settings=RuntimeConfig(
+            session_factory=sessions_for(f"sqlite+aiosqlite:///{path}"), csrf_secret="x" * 32
+        ),
         features=[auth],
     )
 
 
 async def seed(app: _Runtime) -> None:
-    assert app.database.engine is not None
-    async with app.database.engine.begin() as connection:
+    assert app.session_factory.kw["bind"] is not None
+    async with app.session_factory.kw["bind"].begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
     async with app.session_factory.begin() as db:
         db.add(User(username="alice", password_hash=await hash_password(PASSWORD)))
