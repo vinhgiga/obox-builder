@@ -1,6 +1,7 @@
 """Build isolated runtime instances for integration tests."""
 
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from typing import Any
 
 import sqlalchemy as sa
@@ -64,3 +65,18 @@ def relation_controls(model: type[Any], names: Any) -> dict[str, Any]:
 
 def sessions_for(url: str) -> async_sessionmaker[Any]:
     return async_sessionmaker(create_async_engine(url), expire_on_commit=False)
+
+
+@contextmanager
+def track_checkouts(session_factory: async_sessionmaker[Any]) -> Iterator[list[None]]:
+    engine = session_factory.kw["bind"].sync_engine
+    checkouts: list[None] = []
+
+    def record_checkout(*_: Any) -> None:
+        checkouts.append(None)
+
+    sa.event.listen(engine, "checkout", record_checkout)
+    try:
+        yield checkouts
+    finally:
+        sa.event.remove(engine, "checkout", record_checkout)

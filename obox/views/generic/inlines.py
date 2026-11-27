@@ -16,7 +16,7 @@ class Inline:
 
     @property
     def model(self) -> type[Any]:
-        return self.resource.model
+        return self.resource().model
 
     fk_name: str | None = None
     formset: Any = None

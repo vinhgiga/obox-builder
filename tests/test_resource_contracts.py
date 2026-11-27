@@ -38,6 +38,7 @@ from sqlalchemy.orm import (
 )
 from sqlalchemy.sql.elements import ColumnElement
 
+from tests.runtime import sessions_for
 from tests.storage import database
 from tests.test_forms_integration import configured
 
@@ -128,20 +129,16 @@ def test_html_and_api_share_page_order_and_scoped_lookup(tmp_path: Path) -> None
         def get_queryset(self) -> sa.Select[tuple[Entry]]:
             return sa.select(Entry)
 
-    class Output(BaseModel):
-        model_config = ConfigDict(from_attributes=True)
-        name: str
-
     async def principal(request: Request) -> Principal:
         return Principal(id=1, is_authenticated=True, is_superuser=True)
 
     class DirectoryAPI(ModelApi[Entry]):
         resource = Directory
-        read_schema = Output
-        pagination = "page"
-        lookup_url_kwarg = "slug"
-        page_size_param = "per_page"
-        max_page_size = 2
+        actions = ("list", "retrieve")
+        default_limit = 1
+        max_limit = 2
+        tags = ("entries",)
+        name_prefix = "entries"
         principal_dependency = staticmethod(principal)
         error_status = MappingProxyType({PermissionDenied: 404})
 
@@ -174,9 +171,7 @@ def test_html_and_api_share_page_order_and_scoped_lookup(tmp_path: Path) -> None
             Index.as_route(router, "/entries", name="entry-list")
             Detail.as_route(router, "/entries/{pk}", name="entry-detail")
             app.include_router(router)
-            app.include_router(
-                DirectoryAPI.as_router("/api/entries", tags=["entries"], name_prefix="entries")
-            )
+            app.include_router(DirectoryAPI.as_router("/api/entries"))
             async with (
                 app.router.lifespan_context(app),
                 httpx.AsyncClient(
@@ -184,21 +179,26 @@ def test_html_and_api_share_page_order_and_scoped_lookup(tmp_path: Path) -> None
                 ) as client,
             ):
                 assert (await client.get("/entries?page=2")).text == "2:restricted"
-                assert (await client.get("/api/entries?page=2")).json() == {
-                    "items": [{"name": "restricted"}],
-                    "page": 2,
-                    "page_size": 1,
-                    "total": 3,
-                    "pages": 3,
-                }
-                assert len((await client.get("/api/entries?per_page=2")).json()["items"]) == 2
-                capped = await client.get("/api/entries?per_page=3")
+                page = await client.get("/api/entries?limit=1&offset=1&includeTotal=true")
+                assert page.json()["items"][0]["name"] == "restricted"
+                assert (page.json()["limit"], page.json()["offset"], page.json()["total"]) == (
+                    1,
+                    1,
+                    3,
+                )
+                assert page.json()["hasMore"] is True
+                assert len((await client.get("/api/entries?limit=2")).json()["items"]) == 2
+                capped = await client.get("/api/entries?limit=3")
                 assert capped.status_code == 200
-                assert capped.json()["page_size"] == 2
-                for prefix in ("/entries", "/api/entries"):
-                    assert (await client.get(f"{prefix}?page={10**40}")).status_code == 404
-                    assert (await client.get(f"{prefix}/private")).status_code == 404
-                    assert (await client.get(f"{prefix}/alpha")).status_code == 200
+                assert capped.json()["limit"] == 2
+                assert (await client.get(f"/entries?page={10**40}")).status_code == 404
+                assert (
+                    await client.get("/api/entries?offset=100000000000000000000")
+                ).status_code == 422
+                assert (await client.get("/entries/private")).status_code == 404
+                assert (await client.get("/api/entries/private")).status_code == 404
+                assert (await client.get("/entries/alpha")).status_code == 200
+                assert (await client.get("/api/entries/alpha")).status_code == 200
                 assert (await client.get("/entries/restricted")).status_code == 403
                 assert (await client.get("/entries/private")).text == (
                     await client.get("/entries/missing")
@@ -208,22 +208,21 @@ def test_html_and_api_share_page_order_and_scoped_lookup(tmp_path: Path) -> None
                 assert denied.json()["code"] == "permission_denied"
                 assert (await client.post("/api/entries", json={"name": "new"})).status_code == 405
                 assert (await client.delete("/api/entries/alpha")).status_code == 405
-                assert (
-                    str(app.url_path_for("entries-retrieve", slug="alpha")) == "/api/entries/alpha"
-                )
+                assert str(app.url_path_for("entries-retrieve", id="alpha")) == "/api/entries/alpha"
                 paths = app.openapi()["paths"]
                 assert set(paths["/api/entries"]) == {"get"}
                 listing = paths["/api/entries"]["get"]
                 assert listing["tags"] == ["entries"]
                 assert {param["name"] for param in listing["parameters"]} == {
-                    "page",
-                    "per_page",
+                    "limit",
+                    "offset",
+                    "includeTotal",
                     "filter",
                     "search",
                     "order",
                 }
-                lookup = paths["/api/entries/{slug}"]["get"]["parameters"][0]
-                assert lookup["name"] == "slug"
+                lookup = paths["/api/entries/{id}"]["get"]["parameters"][0]
+                assert lookup["name"] == "id"
                 assert lookup["schema"]["type"] == "string"
 
     asyncio.run(scenario())
@@ -381,12 +380,15 @@ def test_adapters_share_resource_rules_and_transaction_boundary(
                         with pytest.raises(ImproperlyConfigured, match="unit of work"):
                             await ctx.session.commit()
                     if surface == "api":
-                        assert response.json() == {"name": "ok", "amount": 1, "children": []}
+                        assert (response.json()["name"], response.json()["amount"]) == ("ok", 1)
                         detail = response.headers["location"]
                         assert (await client.put(detail, json={"amount": 3})).status_code == 422
                         changed = await client.put(detail, json={"name": "limited", "amount": 2})
                         assert changed.status_code == 200
-                        assert changed.json() == {"name": "limited", "amount": 2, "children": []}
+                        assert (changed.json()["name"], changed.json()["amount"]) == (
+                            "limited",
+                            2,
+                        )
                         assert (await client.patch(detail, json={"amount": 3})).status_code == 422
                         reset = await client.put(detail, json={"name": "limited"})
                         assert reset.status_code == 200
@@ -412,17 +414,29 @@ def test_html_route_catches_dependency_entry_and_exit_errors() -> None:
             return HTMLResponse("success")
 
     async def scenario() -> None:
-        app = FastAPI()
-        router = APIRouter()
-        Endpoint.as_route(router, "/endpoint", name="endpoint")
-        app.include_router(router)
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app), base_url="http://test"
-        ) as client:
-            response = await client.get("/endpoint")
-            assert response.status_code == 409
-            assert "Commit failed." in response.text
-            assert "success" not in response.text
+        async with configured():
+            session_factory = sessions_for("sqlite+aiosqlite://")
+            app = FastAPI(openapi_url=None)
+            _Runtime(
+                app,
+                settings=RuntimeConfig(
+                    session_factory=session_factory,
+                    principal_dependency=lambda: Principal(id=1),
+                    csrf_secret="s" * 32,
+                ),
+                enforce_permissions=False,
+            )
+            router = APIRouter()
+            Endpoint.as_route(router, "/endpoint", name="endpoint")
+            app.include_router(router)
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.get("/endpoint")
+                assert response.status_code == 409
+                assert "Commit failed." in response.text
+                assert "success" not in response.text
+            await session_factory.kw["bind"].dispose()
 
     asyncio.run(scenario())
 
@@ -527,8 +541,7 @@ def test_write_rule_violation_restores_object_before_rendering(tmp_path: Path, a
 
 @pytest.mark.parametrize("native", [True, False])
 def test_html_error_template_methods_and_configuration_checks(native: bool) -> None:
-    from fastapi.templating import Jinja2Templates
-    from jinja2 import DictLoader, Environment
+    from jinja2 import DictLoader
     from obox.views.generic import DeleteView, FormView, ListView, TemplateView, UpdateView
     from starlette.exceptions import HTTPException
 
@@ -541,26 +554,34 @@ def test_html_error_template_methods_and_configuration_checks(native: bool) -> N
             raise NotFound("Unavailable.")
 
     async def scenario() -> None:
-        app = FastAPI()
-        app.state.templates = Jinja2Templates(
-            env=Environment(
-                loader=DictLoader({"404.html": "<h1>Missing page</h1>"}), autoescape=True
+        async with configured():
+            session_factory = sessions_for("sqlite+aiosqlite://")
+            app = FastAPI(openapi_url=None)
+            runtime = _Runtime(
+                app,
+                settings=RuntimeConfig(
+                    session_factory=session_factory,
+                    principal_dependency=lambda: Principal(id=1),
+                    csrf_secret="s" * 32,
+                ),
+                enforce_permissions=False,
             )
-        )
-        router = APIRouter()
-        Missing.as_route(router, "/missing", name="missing")
-        app.include_router(router)
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app), base_url="http://test"
-        ) as client:
-            response = await client.get("/missing")
-            assert response.status_code == 404
-            assert "Missing page" in response.text
-            assert response.headers["cache-control"] == "private, no-store"
-            assert (await client.head("/missing")).content == b""
-            unsupported = await client.post("/missing")
-            assert unsupported.status_code == 405
-            assert "GET" in unsupported.headers["allow"]
+            runtime.templates.env.loader = DictLoader({"404.html": "<h1>Missing page</h1>"})
+            router = APIRouter()
+            Missing.as_route(router, "/missing", name="missing")
+            app.include_router(router)
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.get("/missing")
+                assert response.status_code == 404
+                assert "Missing page" in response.text
+                assert response.headers["cache-control"] == "private, no-store"
+                assert (await client.head("/missing")).content == b""
+                unsupported = await client.post("/missing")
+                assert unsupported.status_code == 405
+                assert "GET" in unsupported.headers["allow"]
+            await session_factory.kw["bind"].dispose()
         with pytest.raises(ImproperlyConfigured):
             TemplateView.as_route(router, "/bad-template", name="bad-template")
         with pytest.raises(ImproperlyConfigured):

@@ -178,7 +178,9 @@ class ModelApi(BaseApi, Generic[ModelT]):
             or len(actions) != len(set(actions))
         ):
             raise ImproperlyConfigured("Use unique, supported ModelApi action names.")
-        methods = tuple(method for action, method in _ACTIONS.items() if action in actions)
+        methods: tuple[RouterMethod, ...] = tuple(
+            method for action, method in _ACTIONS.items() if action in actions
+        )
         if not isinstance(self.permissions, Mapping) or any(
             action not in _ROUTES
             or not isinstance(permission, str)

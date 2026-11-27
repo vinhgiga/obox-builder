@@ -22,7 +22,7 @@ from obox.views.generic import TemplateView
 from obox.web.csrf import PermissionDenied as CSRFPermissionDenied
 from obox.web.dependencies import api_context
 
-from tests.runtime import build_runtime, sessions_for
+from tests.runtime import build_runtime, sessions_for, track_checkouts
 
 
 class ContextView(TemplateView):
@@ -181,9 +181,12 @@ def test_invalid_route_paths_fail(path: str) -> None:
 def test_missing_template_fails_before_opening_database(configs: tuple[AppConfig, ...]) -> None:
     configs[0].routes = (Route("/missing", "first/absent.html"),)
     obox = build_runtime(FastAPI(), configured(configs), app_configs=configs)
-    with pytest.raises(ImproperlyConfigured, match=r"first/absent\.html"):
+    with (
+        track_checkouts(obox.session_factory) as checkouts,
+        pytest.raises(ImproperlyConfigured, match=r"first/absent\.html"),
+    ):
         obox.check(strict=True)
-    assert not obox.session_factory.kw["bind"].sync_engine.pool.checkedout()
+    assert not checkouts
 
 
 def test_dynamic_template_reference_is_diagnostic_not_a_startup_error(

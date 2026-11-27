@@ -3,7 +3,6 @@ import asyncio
 import pytest
 import sqlalchemy as sa
 from obox import forms
-from obox.core.exceptions import ImproperlyConfigured
 from obox.db.session import session_scope
 from obox.db.transaction import atomic
 from pydantic import BaseModel
@@ -55,7 +54,7 @@ async def seed() -> Author:
     return author
 
 
-def test_inline_load_add_update_delete_and_unchanged() -> None:
+def test_inline_load_add_update_delete_and_resubmit() -> None:
     async def scenario() -> None:
         async with configured():
             author = await seed()
@@ -93,7 +92,7 @@ def test_inline_load_add_update_delete_and_unchanged() -> None:
                 ]
             same = Books(data({"id": "1", "title": "Changed"}, initial=1), instance=author)
             assert await same.is_valid()
-            assert await same.save() == []
+            assert len(await same.save()) == 1
 
     asyncio.run(scenario())
 
@@ -228,8 +227,8 @@ def test_inline_disambiguates_foreign_keys_and_requires_explicit_fields() -> Non
         assert cls.get_default_prefix() == "link_set"
     with pytest.raises(ValueError, match="foreign key"):
         forms.inlineformset_factory(Author, resource_for(Book, fields=("title",)), fk_name="title")
-    with pytest.raises(ImproperlyConfigured, match=r"Meta\.fields"):
-        forms.inlineformset_factory(Author, resource_for(Book))
+    default_fields = forms.inlineformset_factory(Author, resource_for(Book))
+    assert default_fields.model is Book
 
 
 @pytest.mark.parametrize(

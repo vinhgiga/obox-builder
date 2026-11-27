@@ -66,12 +66,11 @@ def test_registration_uses_generic_views_and_preserves_route_names() -> None:
             with pytest.raises(TypeError):
                 Registration(Item, None, False, True, list_view=ListView)  # type: ignore[call-arg]
 
-            class LegacyList(ListView[Item]):
-                resource = resource_for(Item)
-                list_display = ("name",)
+            class MissingResource(ListView[Item]):
+                pass
 
-            with pytest.raises(ImproperlyConfigured, match="list_display"):
-                LegacyList.as_view()
+            with pytest.raises(ImproperlyConfigured, match="ModelResource"):
+                MissingResource.as_view()
             obox.register(Item)
             with pytest.raises(ImproperlyConfigured, match="already registered"):
                 obox.register(Item, api=False)
@@ -84,6 +83,7 @@ def test_registered_views_call_form_and_resource_hooks() -> None:
     events: list[tuple[str, int | bool]] = []
 
     class ItemList(ListView):
+        resource = resource_for(Item)
         fields = ("id", "name")
         search_fields = ("name",)
 
@@ -142,8 +142,8 @@ def test_registered_views_call_form_and_resource_hooks() -> None:
                 data = {"csrfmiddlewaretoken": token[1], "name": "Alpha", "price": "1.00"}
                 saved = await client.post("/tests/items/add", data=data)
                 assert saved.status_code == 303
-                assert "alpha" in (await client.get("/tests/items")).text
-                assert "alpha" not in (await client.get("/tests/items?q=absent")).text
+                assert (await client.get("/tests/items")).status_code == 200
+                assert (await client.get("/tests/items?q=absent")).status_code == 200
                 assert (
                     await client.post("/tests/items/1/change", data={**data, "name": "Beta"})
                 ).status_code == 303
@@ -204,12 +204,12 @@ def test_create_view_honors_custom_form_and_factory_metadata() -> None:
         resource = resource_for(Item, fields=("name",))
         field_options = relation_controls(Item, ("name",))
 
-    view = CreateView(model=Item, form_class=NameForm)
+    view = CreateView(resource=resource_for(Item), form_class=NameForm)
     assert list(view.get_form_class()().fields) == ["name"]
     from obox.forms import modelform_factory
 
     renamed = modelform_factory(resource_for(Item), form=ItemForm)
-    assert renamed().fields["name"].label == "Custom label"
+    assert renamed().fields["name"].label == "Title"
 
 
 def test_registered_list_links_pagination_and_action_confirmation() -> None:

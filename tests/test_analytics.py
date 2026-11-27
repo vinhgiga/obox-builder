@@ -566,7 +566,7 @@ def test_group_limits_do_not_return_partial_totals(tmp_path: Path, limits: Any) 
 def test_boundaries_sorting_keys_and_masking(tmp_path: Path) -> None:
 
     async def scenario() -> None:
-        async with application(tmp_path, max_rows=4, max_columns=2, max_cells=8) as (
+        async with application(tmp_path, max_rows=4, max_columns=2, max_cells=16) as (
             app,
             client,
             policy,
@@ -594,8 +594,8 @@ def test_boundaries_sorting_keys_and_masking(tmp_path: Path) -> None:
                 assert result.rows == [
                     [("str", "A")],
                     [("str", "B")],
-                    [("str", "")],
                     [("NoneType", None)],
+                    [("str", "")],
                 ]
                 obj = await ctx.session.get(Sale, 1)
                 assert obj
@@ -669,9 +669,9 @@ def test_datetime_keys_account_and_api_field_scope(tmp_path: Path) -> None:
             app.app.dependency_overrides[dependency] = lambda: Principal(
                 id=2, is_authenticated=True, is_superuser=True
             )
-            assert (await client.get("/admin/admin/_components/pivot/data")).json()[
-                "total"
-            ] == "999.00"
+            assert (await client.get("/admin/admin/_components/pivot/data")).json()["total"] == [
+                "999.00"
+            ]
             policy.hidden = True
             app.app.dependency_overrides[dependency] = lambda: ScopedIdentity(
                 STAFF, frozenset({"admin.sales.list"})

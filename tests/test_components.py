@@ -34,7 +34,7 @@ from obox.web.schemas import ApiRequest, ApiResponse
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-from tests.runtime import build_runtime, sessions_for
+from tests.runtime import build_runtime, sessions_for, track_checkouts
 
 
 class Base(DeclarativeBase):
@@ -70,7 +70,7 @@ class Totals(Selection, Bar):
 class Matrix(Selection, Pivot):
     name = "matrix"
     rows = "region_name"
-    measure = Sum("amount")
+    values = (Sum("amount"),)
     drill = True
 
 
@@ -167,7 +167,7 @@ def test_headless_api_and_python_service_with_crud_disabled(tmp_path: Path) -> N
             filtered = await client.post(
                 ROOT + "/matrix:query", json={"query": [["regionName", "eq.East"]]}
             )
-            assert filtered.json()["total"] == "10.01"
+            assert filtered.json()["total"] == ["10.01"]
             description = await client.get(ROOT + "/totals:describe")
             assert description.json()["capabilities"] == ["query", "records", "view"]
             schema = obox.app.openapi()
@@ -178,7 +178,7 @@ def test_headless_api_and_python_service_with_crud_disabled(tmp_path: Path) -> N
             ] == "OPTIONS, POST"
             async with obox.uow(principal=ACTOR) as ctx:
                 data = await obox.component("matrix", app_label="metrics").query(ctx=ctx)
-                assert data.total == "30.03"
+                assert data.total == ["30.03"]
             with pytest.raises(ImproperlyConfigured, match="active"):
                 await obox.component("matrix", app_label="metrics").query(ctx=ctx)
             with pytest.raises(TypeError):
@@ -254,7 +254,7 @@ def test_template_bindings_are_app_scoped_and_independent(tmp_path: Path) -> Non
         async with runtime(tmp_path, routes=(route,)) as (obox, client):
             local = "/admin/metrics/_components/"
             assert (await client.get(local + "east/data")).status_code == 200
-            assert (await client.get(local + "east/data")).json()["total"] == "10.01"
+            assert (await client.get(local + "east/data")).json()["total"] == ["10.01"]
             assert (await client.get("/admin/metrics/report")).status_code == 403
             assert (await client.post(ROOT + "/matrix:query", json={})).status_code == 200
             actor = replace(ACTOR, permissions=ACTOR.permissions | {"metrics.pages.report"})
@@ -265,8 +265,8 @@ def test_template_bindings_are_app_scoped_and_independent(tmp_path: Path) -> Non
             html = await client.get("/vi/admin/metrics/report")
             assert html.status_code == 200, html.text
             assert "/vi" + local + "east/data" in html.text
-            assert (await client.get(local + "all/data")).json()["total"] == "30.03"
-            assert (await client.get(local + "east/data")).json()["total"] == "10.01"
+            assert (await client.get(local + "all/data")).json()["total"] == ["30.03"]
+            assert (await client.get(local + "east/data")).json()["total"] == ["10.01"]
             narrowed = await client.get(
                 local + "east/data", params={"east.filter.region_name": "West"}
             )
@@ -274,7 +274,7 @@ def test_template_bindings_are_app_scoped_and_independent(tmp_path: Path) -> Non
             records = await client.get(local + "east/records", params={"row": '"West"'})
             assert "20.02" not in records.text
             assert "SECRET" not in records.text
-            assert (await client.get(local + "all/data")).json()["total"] == "30.03"
+            assert (await client.get(local + "all/data")).json()["total"] == ["30.03"]
             assert (await client.post(ROOT + "/component3:query", json={})).status_code == 404
             assert set(obox.components) == {("metrics", "totals"), ("metrics", "matrix")}
             assert obox._template_components["metrics", "all"] is not obox.component(
@@ -559,9 +559,12 @@ def test_nonliteral_component_call_fails_with_template_line(tmp_path: Path) -> N
     obox.add_app(config)
     obox._loading_apps = False
     obox.finish_apps()
-    with pytest.raises(ImproperlyConfigured, match=r"metrics/dynamic\.html:2"):
+    with (
+        track_checkouts(obox.session_factory) as checkouts,
+        pytest.raises(ImproperlyConfigured, match=r"metrics/dynamic\.html:2"),
+    ):
         obox.bind_templates()
-    assert not obox.session_factory.kw["bind"].sync_engine.pool.checkedout()
+    assert not checkouts
 
 
 def test_component_import_fails_before_database_startup(tmp_path: Path) -> None:
@@ -585,9 +588,12 @@ def test_component_import_fails_before_database_startup(tmp_path: Path) -> None:
     obox.add_app(config)
     obox._loading_apps = False
     obox.finish_apps()
-    with pytest.raises(ImproperlyConfigured, match="Cannot import component"):
+    with (
+        track_checkouts(obox.session_factory) as checkouts,
+        pytest.raises(ImproperlyConfigured, match="Cannot import component"),
+    ):
         obox.bind_templates()
-    assert not obox.session_factory.kw["bind"].sync_engine.pool.checkedout()
+    assert not checkouts
 
 
 @pytest.mark.parametrize(
@@ -611,18 +617,20 @@ def test_invalid_components_fail_before_database_startup(
     config.components = (component,)
 
     def build() -> None:
+        session_factory = sessions_for("sqlite+aiosqlite://")
         obox = build_runtime(
             FastAPI(),
             settings=RuntimeConfig(
-                session_factory=sessions_for("sqlite+aiosqlite://"),
+                session_factory=session_factory,
                 principal_dependency=lambda: ACTOR,
                 csrf_secret="a" * 32,
             ),
             app_configs=(config,),
             features=(Analytics(),),
         )
-        assert not obox.session_factory.kw["bind"].sync_engine.pool.checkedout()
-        obox.check(strict=True)
+        with track_checkouts(session_factory) as checkouts:
+            obox.check(strict=True)
+        assert not checkouts
 
     with pytest.raises(ImproperlyConfigured):
         build()

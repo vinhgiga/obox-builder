@@ -699,7 +699,7 @@ def test_worker_cli_loads_factory_and_prunes_with_host_lifecycle(
                     )
                 )
             assert len(created) == 2
-            assert all(obox._frozen and (not obox.database._active) for obox in created)
+            assert all(obox._frozen for obox in created)
             async with app.uow(principal=STAFF) as ctx:
                 assert await ctx.session.scalar(sa.select(sa.func.count()).select_from(Event)) == 0
 

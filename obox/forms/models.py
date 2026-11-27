@@ -427,7 +427,8 @@ class BaseModelFormSet(BaseFormSet):
     async def delete_existing(self, obj: Any) -> None:
         async with session_scope() as session:
             ctx = session.info.get("obox.runtime.context")
-            definition = cast(ModelResource[Any], cast(type[ModelForm[Any]], self.form).resource)
+            form_resource = cast(Any, self.form).resource
+            definition = cast(ModelResource[Any], form_resource)
             await definition.bind(session, ctx.principal if ctx else ANONYMOUS).destroy(obj)
 
     async def save(
@@ -536,7 +537,7 @@ def modelformset_factory(
 ) -> type[BaseModelFormSet]:
     cls = modelform_factory(resource, form=form)
     result = cast(type[BaseModelFormSet], formset_factory(cls, formset, **kwargs))
-    result.model = cast(ModelResource[Any], cls.resource).model
+    result.model = cast(ModelResource[Any], cast(Any, cls).resource).model
     return result
 
 

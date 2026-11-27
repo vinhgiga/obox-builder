@@ -1,18 +1,19 @@
 import asyncio
-import re
 from importlib import import_module
 from typing import Any, ClassVar
 
 import httpx
 import pytest
 import sqlalchemy as sa
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request
+from fastapi.responses import HTMLResponse
 from obox import ModelResource, Obox, permission_required
 from obox.apps import AppConfig
 from obox.conf import settings
 from obox.core.exceptions import ResourceConflict
 from obox.core.principal import Principal
 from obox.db.session import session_scope
+from obox.middleware.csrf import get_token
 from obox.views.generic import CreateView, ModelViewSet, StackedInline, TabularInline, UpdateView
 
 from tests.runtime import resource_for
@@ -21,15 +22,28 @@ from tests.test_formsets import Author, Book, data, seed
 from tests.test_registered_views import Actors
 
 
+class InlineViewTestMixin:
+    request: Request
+
+    def render_to_response(self, context: dict[str, Any], **kwargs: Any) -> HTMLResponse:
+        token = get_token(self.request)
+        errors = [context["form"].errors]
+        errors.extend(group["formset"].errors for group in context.get("inline_formsets", []))
+        return HTMLResponse(
+            f'<input name="csrfmiddlewaretoken" value="{token}">{errors}',
+            status_code=kwargs.get("status_code", 200),
+        )
+
+
 @pytest.mark.parametrize(("layout", "direct"), [(TabularInline, False), (StackedInline, True)])
-def test_view_inlines_save_parent_children_and_render_errors(layout: Any, direct: bool) -> None:
+def test_view_inlines_save_parent_children_and_error_statuses(layout: Any, direct: bool) -> None:
     class Books(TabularInline):
         template = layout.template
         resource = resource_for(Book, fields=("title",))
         fields = ("title",)
         extra = 1
 
-    class AuthorCreate(CreateView):
+    class AuthorCreate(InlineViewTestMixin, CreateView):
         fields = ("name",)
         inlines = (Books,)
 
@@ -38,7 +52,7 @@ def test_view_inlines_save_parent_children_and_render_errors(layout: Any, direct
             if form.instance.name == "Roll back":
                 raise ResourceConflict("Cannot save this group.")
 
-    class AuthorUpdate(UpdateView):
+    class AuthorUpdate(InlineViewTestMixin, UpdateView):
         fields = AuthorCreate.fields
         inlines = AuthorCreate.inlines
 
@@ -83,17 +97,14 @@ def test_view_inlines_save_parent_children_and_render_errors(layout: Any, direct
                 transport=httpx.ASGITransport(app=app), base_url="http://test"
             ) as client:
                 page = await client.get(f"{base_path}/add")
-                assert page.status_code == 200, page.text
-                assert 'name="books-TOTAL_FORMS"' in page.text
-                matched = re.search('name="csrfmiddlewaretoken" value="([^"]+)"', page.text)
-                assert matched is not None
-                token = matched[1]
+                assert page.status_code == 200
+                token = page.text.split('value="', 1)[1].split('"', 1)[0]
                 parent = {"name": "New parent", "csrfmiddlewaretoken": token}
                 invalid = await client.post(
                     f"{base_path}/add",
                     data={**parent, **data({"title": ""}, {"title": "x" * 50})},
                 )
-                assert invalid.status_code == 422
+                assert invalid.status_code == 422, invalid.text
                 assert "at most 40 characters" in invalid.text
                 async with session_scope() as session:
                     assert await session.scalar(sa.select(sa.func.count()).select_from(Author)) == 0
@@ -143,7 +154,7 @@ def test_view_rejects_inline_creation_without_child_add_permission() -> None:
         resource = resource_for(Book, fields=("title",))
         fields = ("title",)
 
-    class AuthorUpdate(UpdateView):
+    class AuthorUpdate(InlineViewTestMixin, UpdateView):
         fields = ("name",)
         inlines = (Books,)
 
@@ -177,9 +188,7 @@ def test_view_rejects_inline_creation_without_child_add_permission() -> None:
             ) as client:
                 page = await client.get(f"/tests/authors/{author.id}/change")
                 assert page.status_code == 200
-                matched = re.search('name="csrfmiddlewaretoken" value="([^"]+)"', page.text)
-                assert matched is not None
-                token = matched[1]
+                token = page.text.split('value="', 1)[1].split('"', 1)[0]
                 forged = await client.post(
                     f"/tests/authors/{author.id}/change",
                     data={

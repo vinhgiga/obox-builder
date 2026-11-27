@@ -1,6 +1,6 @@
 import asyncio
 import re
-from typing import Any, cast
+from typing import Any, ClassVar, cast
 from uuid import UUID, uuid4
 
 import httpx
@@ -130,7 +130,7 @@ def test_unbound_model_form_and_missing_bound_values_need_no_database() -> None:
     asyncio.run(scenario())
 
 
-@pytest.mark.parametrize("names", [("category", "category_id"), ("scored",), ("visible_tags",)])
+@pytest.mark.parametrize("names", [("scored",), ("visible_tags",)])
 def test_unsupported_or_conflicting_relationships_fail_explicitly(names: tuple[str, ...]) -> None:
     with pytest.raises(ImproperlyConfigured):
         forms.modelform_factory(
@@ -146,12 +146,17 @@ def test_unsupported_or_conflicting_relationships_fail_explicitly(names: tuple[s
 
 
 def test_declared_scalar_cannot_bypass_the_relationship_scope() -> None:
-    with pytest.raises(ImproperlyConfigured, match="not both"):
-
+    def build_conflicting_form() -> None:
         class Conflicting(ProductForm):
-            field_options = {**ProductForm.field_options, "category_id": forms.Field()}
+            field_options: ClassVar[dict[str, Any]] = {
+                **ProductForm.field_options,
+                "category_id": forms.Field(),
+            }
 
         Conflicting()
+
+    with pytest.raises(ImproperlyConfigured, match="not both"):
+        build_conflicting_form()
 
 
 @pytest.mark.parametrize("field", ["category", "featured", "tags"])
@@ -308,7 +313,7 @@ def test_prefix_repeated_post_values_disabled_initials_and_field_isolation() -> 
 def test_declared_model_choices_preserve_select_limits_and_return_model_objects() -> None:
     class KeyForm(forms.ModelForm):
         resource = resource_for(ManualKey, fields=())
-        field_options = {
+        field_options: ClassVar[dict[str, Any]] = {
             **(relation_controls(ManualKey, ())),
             "key": forms.ModelChoiceField(sa.select(ManualKey).order_by(ManualKey.code).limit(1)),
         }
@@ -396,7 +401,7 @@ def test_uuid_keys_optional_fields_validators_and_custom_errors() -> None:
     asyncio.run(scenario())
 
 
-def test_default_foreign_key_and_explicit_empty_are_distinguished() -> None:
+def test_default_foreign_key_uses_schema_default_for_empty_input() -> None:
     form_class = forms.modelform_factory(resource_for(DefaultProduct, fields=("category",)))
 
     async def scenario() -> None:
@@ -405,7 +410,7 @@ def test_default_foreign_key_and_explicit_empty_are_distinguished() -> None:
             product = await form_class({}).save()
             assert product.category_id == 1
             empty = form_class({"category": ""})
-            assert not await empty.is_valid()
+            assert await empty.is_valid()
 
     asyncio.run(scenario())
 
