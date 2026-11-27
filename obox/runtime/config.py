@@ -25,7 +25,7 @@ class RuntimeConfig:
     base_template: str = "obox/base.html"
     static_root: str | PathLike[str] | None = None
     auth_password_validators: Sequence[Mapping[str, Any]] = ()
-    login_redirect_url: str = "/accounts/profile/"
+    login_redirect_url: str | None = None
 
     @classmethod
     def from_settings(cls) -> RuntimeConfig:
@@ -61,7 +61,9 @@ class RuntimeConfig:
             raise ImproperlyConfigured("TEMPLATE_DIRS must contain paths.")
         if not self.base_template:
             raise ImproperlyConfigured("BASE_TEMPLATE must be a nonempty string.")
-        if not self.login_redirect_url:
+        if self.login_redirect_url is not None and (
+            not isinstance(self.login_redirect_url, str) or not self.login_redirect_url
+        ):
             raise ImproperlyConfigured("LOGIN_REDIRECT_URL must be a nonempty string.")
         if self.static_root is not None and not os.fspath(self.static_root):
             raise ImproperlyConfigured("STATIC_ROOT must be a nonempty path or None.")

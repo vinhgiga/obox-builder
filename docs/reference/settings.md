@@ -26,7 +26,7 @@ state.
 | `TEMPLATES` | `[]` | Template engine configuration. Obox uses the first entry. |
 | `STATIC_ROOT` | `None` | Persistent output directory used for collected assets. |
 | `MEDIA_ROOT` | `""` | Default root passed to the Files feature. |
-| `LOGIN_REDIRECT_URL` | `"/accounts/profile/"` | Destination used by the Auth feature after login when no profile route is available. |
+| `LOGIN_REDIRECT_URL` | `None` | Optional destination used by the Auth feature after login. When unset, Auth redirects to its profile route or the site root. |
 | `AUTH_PASSWORD_VALIDATORS` | `[]` | Password validator declarations passed to the Auth feature. |
 | `TIME_ZONE` | `"America/Chicago"` | Time zone used to interpret naive datetimes when `USE_TZ` is enabled. |
 | `USE_TZ` | `True` | Controls time-zone handling for form `DateTimeField` values. |
@@ -34,10 +34,9 @@ state.
 Obox serves framework assets under `/_static/` relative to the UI prefix.
 `STATIC_ROOT` controls the output directory for collected assets.
 
-Obox also declares defaults for `MEDIA_URL`, `LANGUAGE_CODE`,
-`LOGIN_URL`, `AUTH_USER_MODEL`, and `AUTHENTICATION_BACKENDS`. The current core
-uses app and feature configuration to mount media URLs, set the UI language,
-change the Auth routes, and select the user model and backend.
+Obox also declares defaults for `MEDIA_URL` and `LANGUAGE_CODE`. Media routes
+and UI language use application configuration. Auth routes, user models, and
+backends use the Auth feature configuration.
 
 ## Database configuration
 

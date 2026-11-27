@@ -11,7 +11,9 @@ import httpx
 import pytest
 import sqlalchemy as sa
 from fastapi import FastAPI
-from obox.contrib.auth import Auth, Base, ModelBackend, Session, User
+from obox.contrib.auth.apps import Auth
+from obox.contrib.auth.backends import ModelBackend
+from obox.contrib.auth.models import Base, Session, User
 from obox.contrib.auth.passwords import hash_password
 from obox.runtime.config import RuntimeConfig
 from obox.runtime.runtime import _Runtime
@@ -140,7 +142,10 @@ def test_clear_browser_data_then_refresh_and_login(tmp_path: Path) -> None:
                 base_url="http://test",
                 follow_redirects=True,
             ) as client:
-                assert (await login(client)).status_code == 303
+                response = await login(client)
+                assert response.status_code == 303
+                assert response.headers["location"] == "/vi/auth/profile"
+                assert (await client.get("/vi/auth/account")).status_code == 404
                 assert (await client.get("/vi/auth/profile")).status_code == 200
                 previous = client.cookies["obox_session"]
                 client.cookies.clear()

@@ -9,7 +9,7 @@ import httpx
 import sqlalchemy as sa
 from fastapi import FastAPI
 from obox.apps import AppConfig
-from obox.contrib.auth import Auth
+from obox.contrib.auth.apps import Auth
 from obox.contrib.auth.models import Base as AuthBase
 from obox.contrib.auth.models import Role, Session, User, user_roles
 from obox.contrib.auth.passwords import hash_password, verify_password
@@ -98,7 +98,7 @@ async def make_app(principal: Principal = SUPERUSER, *, admin: bool = True) -> t
                 },
             ),
         ),
-        app_configs=(config,),
+        app_configs=(config, AppConfig.create("obox.contrib.auth")) if not admin else (config,),
         features=(Auth(backend=StubBackend(principal), secure=False, admin=admin),),
     )
     from fastapi import APIRouter, Depends
@@ -236,6 +236,7 @@ def test_admin_routes_static_and_superuser_access() -> None:
             response = await get(disabled, "/auth/users")
             assert response.status_code == 404
             builder = await get(disabled, "/admin/admin/widgets")
+            assert builder.status_code == 200
             assert "/auth/users" not in builder.text
             assert "/auth/roles" not in builder.text
         finally:

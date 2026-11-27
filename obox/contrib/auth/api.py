@@ -3,26 +3,23 @@
 from __future__ import annotations
 
 import secrets
-from collections.abc import AsyncIterator
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import TYPE_CHECKING, Any, cast
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request, Response
 from pydantic import AwareDatetime, Field, StrictStr, field_serializer
 
-from obox.components.query import parameters
 from obox.contrib.auth.backends import TokenBackend
 from obox.core.exceptions import (
     BuilderValidationError,
-    ImproperlyConfigured,
     NotAuthenticated,
     PermissionDenied,
 )
-from obox.runtime.context import Context
+from obox.core.principal import Identity, has_permission
 from obox.web.dependencies import _RoutePermission
 from obox.web.routes import ApiRoute
-from obox.web.schemas import ApiRequest, ApiResponse
+from obox.web.schemas import ApiRequest, ApiResponse, normalize_datetime
 
 if TYPE_CHECKING:
     from obox.contrib.auth.apps import Auth
@@ -31,6 +28,7 @@ if TYPE_CHECKING:
 
 class AuthRoute(ApiRoute):
     cache_control = "private, no-store"
+    allow_query = False
 
 
 class Credentials(ApiRequest):
@@ -67,7 +65,7 @@ class TokenRead(ApiResponse):
 
     @field_serializer("expires_at", "created_at")
     def utc(self, value: datetime) -> datetime:
-        return value.replace(tzinfo=value.tzinfo or UTC).astimezone(UTC)
+        return normalize_datetime(value)
 
 
 class TokenCreated(TokenRead):
@@ -78,13 +76,19 @@ class TokenList(ApiResponse):
     items: list[TokenRead]
 
 
-def current_user(who: Any) -> CurrentUser:
-    if not getattr(who, "is_authenticated", False) or not getattr(who, "is_active", True):
+def require_authenticated(who: Identity) -> None:
+    if who.is_authenticated is not True or who.is_active is not True:
         raise NotAuthenticated("Authentication is required.")
+
+
+def current_user(who: Identity) -> CurrentUser:
+    require_authenticated(who)
     scopes = getattr(who, "api_scopes", None)
-    permissions = set(getattr(who, "permissions", ()))
-    if scopes is not None:
-        permissions = {scope for scope in scopes if who.has_perm(scope)}
+    permissions = (
+        set(getattr(who, "permissions", ()))
+        if scopes is None
+        else (scope for scope in scopes if has_permission(who, scope))
+    )
     return CurrentUser(
         id=str(who.id),
         username=who.username,
@@ -101,14 +105,6 @@ def build_router(app: _Runtime, auth: Auth) -> APIRouter:
         prefix=app.settings.api_prefix + "/auth",
         route_class=AuthRoute,
         tags=["auth"],
-        responses={
-            status: {
-                "content": {
-                    "application/problem+json": {"schema": {"$ref": "#/components/schemas/Problem"}}
-                }
-            }
-            for status in (400, 401, 403, 404, 405, 406, 409, 415, 422, 500)
-        },
     )
     identity = Depends(auth.principal)
 
@@ -116,11 +112,14 @@ def build_router(app: _Runtime, auth: Auth) -> APIRouter:
         if "authorization" in request.headers:
             raise PermissionDenied("Use a cookie session for this operation.")
 
+    async def empty_body(request: Request) -> None:
+        if await request.body():
+            raise BuilderValidationError({"__all__": ["Request body must be empty."]})
+
     @router.get(
         "/csrf", response_model=CSRFToken, name="obox_api_auth_csrf", openapi_extra={"security": []}
     )
-    async def csrf(request: Request, response: Response, who: Any = identity) -> CSRFToken:
-        parameters(request.query_params.multi_items())
+    async def csrf(request: Request, response: Response, who: Identity = identity) -> CSRFToken:
         cookies = dict(request.cookies)
         if not cookies.get(auth.login_cookie):
             cookies[auth.login_cookie] = secrets.token_urlsafe(32)
@@ -134,7 +133,7 @@ def build_router(app: _Runtime, auth: Auth) -> APIRouter:
         openapi_extra={"security": []},
     )
     async def login(
-        request: Request, response: Response, data: Credentials, who: Any = identity
+        request: Request, response: Response, data: Credentials, who: Identity = identity
     ) -> CurrentUser:
         cookie_request(request)
         if not request.cookies.get(auth.login_cookie):
@@ -145,21 +144,17 @@ def build_router(app: _Runtime, auth: Auth) -> APIRouter:
         )
         if token is None:
             raise NotAuthenticated("Invalid username or password.")
-        backend = auth.backend
-        if backend is None:
-            raise ImproperlyConfigured("Install Auth before using its backend.")
-        result = current_user(await backend.resolve(token, request=request))
+        result = current_user(await auth.backend.resolve(token, request=request))
         auth.set_cookie(response, auth.cookie_name, token, auth.max_age)
         auth.set_cookie(response, auth.login_cookie, "", 0)
         return result
 
     @router.post("/logout", status_code=204, name="obox_api_auth_logout")
-    async def logout(request: Request, who: Any = identity) -> Response:
+    async def logout(request: Request, who: Identity = identity) -> Response:
         cookie_request(request)
-        current_user(who)
+        require_authenticated(who)
         app.csrf.validate(request, who)
-        if await request.body():
-            raise BuilderValidationError({"__all__": ["Request body must be empty."]})
+        await empty_body(request)
         await auth.logout(auth.get_token(request), request=request)
         response = Response(status_code=204)
         auth.set_cookie(response, auth.cookie_name, "", 0)
@@ -172,24 +167,15 @@ def build_router(app: _Runtime, auth: Auth) -> APIRouter:
     )
 
     @router.get("/me", response_model=CurrentUser, name="obox_api_auth_me", dependencies=access)
-    async def me(request: Request, who: Any = identity) -> CurrentUser:
-        parameters(request.query_params.multi_items())
+    async def me(who: Identity = identity) -> CurrentUser:
         return current_user(who)
 
     if auth.api_tokens:
         backend = cast(TokenBackend, auth.backend)
 
-        async def token_context(request: Request, who: Any = identity) -> AsyncIterator[Context]:
-            async with app.uow(
-                principal=who, source="api", request=request, trace_id=request.state.trace_id
-            ) as ctx:
-                yield ctx
-
-        context = Depends(token_context, scope="function")
-
-        def owner(request: Request, who: Any) -> Any:
+        def owner(request: Request, who: Identity) -> Any:
             cookie_request(request)
-            current_user(who)
+            require_authenticated(who)
             return who.id
 
         @router.post(
@@ -200,10 +186,10 @@ def build_router(app: _Runtime, auth: Auth) -> APIRouter:
             dependencies=access,
         )
         async def create_token(
-            request: Request, data: NewToken, ctx: Context = context
+            request: Request, data: NewToken, who: Identity = identity
         ) -> TokenCreated:
-            user_id = owner(request, ctx.principal)
-            app.csrf.validate(request, ctx.principal)
+            user_id = owner(request, who)
+            app.csrf.validate(request, who)
             known = app.permissions
             if len(set(data.scopes)) != len(data.scopes) or any(
                 scope not in known for scope in data.scopes
@@ -211,11 +197,8 @@ def build_router(app: _Runtime, auth: Auth) -> APIRouter:
                 raise BuilderValidationError(
                     {"scopes": ["Choose unique, exposed permission scopes."]}
                 )
-            from obox.core.principal import has_permission
-
-            for scope in data.scopes:
-                if not has_permission(ctx.principal, scope):
-                    raise PermissionDenied("This permission is not granted to the current user.")
+            if any(not has_permission(who, scope) for scope in data.scopes):
+                raise PermissionDenied("This permission is not granted to the current user.")
             row, token = await backend.create_api_token(
                 user_id,
                 name=data.name,
@@ -223,9 +206,7 @@ def build_router(app: _Runtime, auth: Auth) -> APIRouter:
                 expires_at=data.expires_at,
                 request=request,
             )
-            return TokenCreated(
-                **TokenRead.model_validate(row).model_dump(by_alias=False), token=token
-            )
+            return TokenCreated(token=token, **dict(TokenRead.model_validate(row)))
 
         @router.get(
             "/tokens",
@@ -233,19 +214,17 @@ def build_router(app: _Runtime, auth: Auth) -> APIRouter:
             name="obox_api_auth_token_list",
             dependencies=access,
         )
-        async def list_tokens(request: Request, who: Any = identity) -> TokenList:
-            parameters(request.query_params.multi_items())
+        async def list_tokens(request: Request, who: Identity = identity) -> TokenList:
             rows = await backend.list_api_tokens(owner(request, who))
             return TokenList(items=[TokenRead.model_validate(row) for row in rows])
 
         @router.delete(
             "/tokens/{id}", status_code=204, name="obox_api_auth_token_revoke", dependencies=access
         )
-        async def revoke_token(request: Request, id: UUID, who: Any = identity) -> Response:
+        async def revoke_token(request: Request, id: UUID, who: Identity = identity) -> Response:
             user_id = owner(request, who)
             app.csrf.validate(request, who)
-            if await request.body():
-                raise BuilderValidationError({"__all__": ["Request body must be empty."]})
+            await empty_body(request)
             await backend.revoke_api_token(user_id, id)
             return Response(status_code=204)
 

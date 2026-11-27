@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
-import sqlalchemy as sa
+from sqlalchemy import delete, inspect, select
 from sqlalchemy.orm import selectinload
 
 from obox.core.exceptions import (
@@ -16,11 +16,11 @@ from obox.core.exceptions import (
     PermissionDenied,
 )
 from obox.core.principal import valid_permission
-from obox.runtime.context import Context
 from obox.web.i18n import N_
 
 if TYPE_CHECKING:
     from obox.contrib.auth.apps import Auth
+    from obox.runtime.context import Context
     from obox.runtime.runtime import _Runtime
 
 
@@ -48,7 +48,7 @@ class Authorization:
         ):
             raise PermissionDenied(N_("Superuser access is required."))
         user_model = getattr(self.auth.backend, "user_model", None)
-        mapper = sa.inspect(user_model, raiseerr=False)
+        mapper = inspect(user_model, raiseerr=False)
         relation = mapper.relationships.get("roles") if mapper is not None else None
         if relation is None or relation.secondary is None:
             raise ImproperlyConfigured("This backend does not provide model-backed roles.")
@@ -112,7 +112,7 @@ class Authorization:
         )
         selected = self._permissions(permissions, existing=before.get("permissions", ()))
         model = type(role)
-        duplicate = sa.select(model.id).where(model.name == name)
+        duplicate = select(model.id).where(model.name == name)
         if role.id is not None:
             duplicate = duplicate.where(model.id != role.id)
         if await ctx.session.scalar(duplicate) is not None:
@@ -155,7 +155,7 @@ class Authorization:
     ) -> None:
         user_model, role_model = self._models(ctx)
         user = await ctx.session.scalar(
-            sa.select(user_model)
+            select(user_model)
             .where(user_model.id == id)
             .options(selectinload(user_model.roles))
             .with_for_update()
@@ -164,7 +164,7 @@ class Authorization:
             raise NotFound(N_("User not found."))
         requested = set(role_ids)
         roles = list(
-            await ctx.session.scalars(sa.select(role_model).where(role_model.id.in_(requested)))
+            await ctx.session.scalars(select(role_model).where(role_model.id.in_(requested)))
         )
         if {role.id for role in roles} != requested:
             raise BuilderValidationError({"role_ids": [N_("Choose valid roles.")]})
@@ -197,14 +197,14 @@ class Authorization:
         role = await ctx.session.get(role_model, id)
         if role is None:
             raise NotFound(N_("Role not found."))
-        relation = sa.inspect(user_model).relationships["roles"]
-        primary_key = sa.inspect(role_model).primary_key[0]
+        relation = inspect(user_model).relationships["roles"]
+        primary_key = inspect(role_model).primary_key[0]
         column = next(
             column
             for column in relation.secondary.columns
             if any(fk.column is primary_key for fk in column.foreign_keys)
         )
-        await ctx.session.execute(sa.delete(relation.secondary).where(column == role.id))
+        await ctx.session.execute(delete(relation.secondary).where(column == role.id))
         self._audit(
             ctx,
             "auth.roles",

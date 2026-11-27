@@ -14,10 +14,7 @@ MEDIA_ROOT = ""
 LANGUAGE_CODE = "en-us"
 TIME_ZONE = "America/Chicago"
 USE_TZ = True
-LOGIN_URL = "/accounts/login/"
-LOGIN_REDIRECT_URL = "/accounts/profile/"
-AUTH_USER_MODEL = "auth.User"
-AUTHENTICATION_BACKENDS = ["obox.contrib.auth.backends.ModelBackend"]
+LOGIN_REDIRECT_URL: str | None = None
 AUTH_PASSWORD_VALIDATORS: list[dict[str, Any]] = []
 
 CSRF_COOKIE_NAME = "csrftoken"

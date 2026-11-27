@@ -11,13 +11,13 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-import sqlalchemy as sa
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from obox.contrib.auth import passwords
 from obox.contrib.auth.models import User
 from obox.contrib.auth.password_validation import PasswordValidator, get_password_validators
+from obox.contrib.auth.passwords import hash_password
 from obox.core.exceptions import BuilderValidationError
 from obox.runtime.config import RuntimeConfig
 
@@ -34,9 +34,9 @@ async def _check_database(
 ) -> None:
     try:
         async with database() as session:
-            await session.execute(sa.select(User).limit(1))
+            await session.execute(select(User).limit(1))
             if username is not None:
-                exists = await session.scalar(sa.select(User.id).where(User.username == username))
+                exists = await session.scalar(select(User.id).where(User.username == username))
                 if exists is not None:
                     raise ValueError(f"A user named {username!r} already exists.")
     except OperationalError as error:
@@ -59,7 +59,7 @@ async def _prompt_password_hash(validators: tuple[PasswordValidator, ...], user:
             print("Use at most 1024 characters for the password.")
             continue
         try:
-            return await passwords.hash_password(password, validators=validators, user=user)
+            return await hash_password(password, validators=validators, user=user)
         except BuilderValidationError as error:
             for message in error.errors.get("password", []):
                 print(f"Error: {message}")
@@ -67,9 +67,7 @@ async def _prompt_password_hash(validators: tuple[PasswordValidator, ...], user:
                 input, "Bypass password validation and create user anyway? [y/N]: "
             )
             if bypass.lower() == "y":
-                return await passwords.hash_password(
-                    password, validators=validators, user=user, validate=False
-                )
+                return await hash_password(password)
 
 
 async def _run_command(arguments: argparse.Namespace) -> None:
@@ -113,7 +111,7 @@ async def _run_command(arguments: argparse.Namespace) -> None:
         if password is None:
             raise ValueError("Set OBOX_SUPERUSER_PASSWORD with --noinput.")
         try:
-            password_hash = await passwords.hash_password(
+            password_hash = await hash_password(
                 password, validators=validators, user=SimpleNamespace(username=username)
             )
         except BuilderValidationError as error:
@@ -121,7 +119,7 @@ async def _run_command(arguments: argparse.Namespace) -> None:
 
     try:
         async with database.begin() as session:
-            exists = await session.scalar(sa.select(User.id).where(User.username == username))
+            exists = await session.scalar(select(User.id).where(User.username == username))
             if exists is not None:
                 raise ValueError(f"A user named {username!r} already exists.")
             session.add(

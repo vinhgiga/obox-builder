@@ -307,6 +307,7 @@ async def api_problem(request: Request, exc: Exception) -> Response:
 
 class ApiRoute(MethodRoute):
     cache_control: str | None = None
+    allow_query = True
     binary_upload = False
     download = False
     error_status_overrides: Mapping[type[DomainError], int] = MappingProxyType({})
@@ -375,10 +376,10 @@ class ApiRoute(MethodRoute):
                 != "application/json"
             ):
                 raise HTTPException(415, "Use application/json.")
-            if no_store and request.query_params:
+            if (no_store or not self.allow_query) and request.query_params:
                 raise invalid(
                     next(iter(request.query_params)),
-                    "Query string must be empty.",
+                    "Query string must be empty." if no_store else "Unknown query parameter.",
                     "unknown_parameter",
                 )
             await MethodRoute.handle(self, scope, receive, send)

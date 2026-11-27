@@ -14,15 +14,15 @@ from fastapi.responses import HTMLResponse
 from jinja2 import ChoiceLoader, FileSystemLoader
 from obox import ModelResource
 from obox.api import ModelApi
-from obox.core import (
+from obox.core.exceptions import (
     BuilderValidationError,
+    ImproperlyConfigured,
     NotFound,
     PermissionDenied,
-    Principal,
     ResourceConflict,
     RuleViolation,
 )
-from obox.core.exceptions import ImproperlyConfigured
+from obox.core.principal import Principal
 from obox.runtime.config import RuntimeConfig
 from obox.runtime.runtime import _Runtime
 from obox.services import BaseService

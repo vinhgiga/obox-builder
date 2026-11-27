@@ -6,13 +6,12 @@ from collections.abc import Mapping, Sequence
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 
-import sqlalchemy as sa
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import selectinload
 from starlette.datastructures import FormData
 
-from obox.contrib.auth.models import Role, User
 from obox.contrib.auth.password_validation import get_password_validators
 from obox.contrib.auth.passwords import hash_password
 from obox.core.exceptions import (
@@ -25,8 +24,7 @@ from obox.core.principal import Identity
 from obox.forms import modelform_factory
 from obox.resources import ModelResource
 from obox.web.http import read_form
-from obox.web.i18n import N_, translate
-from obox.web.i18n import context as translation_context
+from obox.web.i18n import N_, context, translate
 from obox.web.routes import OboxRoute
 from obox.web.ui import build_navigation
 
@@ -37,16 +35,6 @@ if TYPE_CHECKING:
 
 ACTIONS = ("list", "retrieve", "create", "update", "delete")
 MAX_LENGTH = 150
-EMAIL_MAX_LENGTH = 254
-
-
-def user_model(auth: Auth) -> type[Any]:
-    return cast(type[Any], getattr(auth.backend, "user_model", User))
-
-
-def role_model(auth: Auth) -> type[Any]:
-    relation = sa.inspect(user_model(auth)).relationships.get("roles")
-    return cast(type[Any], relation.mapper.class_ if relation is not None else Role)
 
 
 def permission_tree(app: _Runtime) -> tuple[list[dict[str, Any]], set[str]]:
@@ -175,12 +163,12 @@ def admin_error(request: Request, code: str) -> str:
     return translate(request, message) if message is not None else ""
 
 
-def router(app: _Runtime, auth: Auth) -> APIRouter:
+def router(app: _Runtime, auth: Auth, user_model: type[Any], role_model: type[Any]) -> APIRouter:
     routes = APIRouter(prefix=auth.prefix, route_class=OboxRoute)
     password_validators = get_password_validators(app.settings.auth_password_validators)
 
     class UserResource(ModelResource[Any]):
-        model = user_model(auth)
+        model = user_model
         fields = ("username", "email", "first_name", "last_name", "department")
 
     user_form_class = modelform_factory(UserResource)
@@ -204,7 +192,7 @@ def router(app: _Runtime, auth: Auth) -> APIRouter:
         title: str,
         active: str,
         status: int = 200,
-        **context: Any,
+        **page_context: Any,
     ) -> HTMLResponse:
         return cast(
             HTMLResponse,
@@ -212,8 +200,8 @@ def router(app: _Runtime, auth: Auth) -> APIRouter:
                 request=request,
                 name=template,
                 context={
-                    **translation_context(request),
-                    **context,
+                    **context(request),
+                    **page_context,
                     "title": title,
                     "site_title": app.app.title,
                     "base_template": app.settings.base_template,
@@ -245,24 +233,20 @@ def router(app: _Runtime, auth: Auth) -> APIRouter:
         return form
 
     async def load_user(ctx: Context, id: int) -> Any:
-        model = user_model(auth)
-        statement = sa.select(model).where(model.id == id)
-        if "roles" in sa.inspect(model).relationships:
-            statement = statement.options(selectinload(model.roles))
-        user = (await ctx.session.scalars(statement)).unique().one_or_none()
+        statement = (
+            select(user_model).where(user_model.id == id).options(selectinload(user_model.roles))
+        )
+        user = await ctx.session.scalar(statement)
         if user is None:
             raise NotFound(N_("User not found."))
         return user
 
-    async def all_roles(ctx: Context) -> list[Any]:
-        model = role_model(auth)
-        statement = sa.select(model).order_by(model.id)
-        return list((await ctx.session.scalars(statement)).unique())
+    async def all_roles(ctx: Context) -> Sequence[Any]:
+        return (await ctx.session.scalars(select(role_model).order_by(role_model.id))).all()
 
     async def user_list(request: Request, principal: Identity = Depends(superuser)) -> HTMLResponse:
         async with app.uow(principal=principal, request=request, source="ui") as ctx:
-            model = user_model(auth)
-            users = list((await ctx.session.scalars(sa.select(model).order_by(model.id))).unique())
+            users = (await ctx.session.scalars(select(user_model).order_by(user_model.id))).all()
             return await render(
                 request,
                 ctx,
@@ -281,7 +265,6 @@ def router(app: _Runtime, auth: Auth) -> APIRouter:
         id: int | None = None,
     ) -> HTMLResponse | RedirectResponse:
         async with app.uow(principal=principal, request=request, source="ui") as ctx:
-            model = user_model(auth)
             user = await load_user(ctx, id) if id is not None else None
             roles = await all_roles(ctx)
             if request.method == "GET":
@@ -369,9 +352,9 @@ def router(app: _Runtime, auth: Auth) -> APIRouter:
                     errors["is_active"] = [N_("You cannot deactivate your own account.")]
                 elif user.is_superuser:
                     active_superusers = await ctx.session.scalar(
-                        sa.select(sa.func.count())
-                        .select_from(model)
-                        .where(model.is_superuser.is_(True), model.is_active.is_(True))
+                        select(func.count())
+                        .select_from(user_model)
+                        .where(user_model.is_superuser.is_(True), user_model.is_active.is_(True))
                     )
                     if (active_superusers or 0) <= 1:
                         errors["is_active"] = [N_("At least one superuser must remain active.")]
@@ -407,7 +390,7 @@ def router(app: _Runtime, auth: Auth) -> APIRouter:
                 )
 
             if user is None:
-                user = model(
+                user = user_model(
                     username=username,
                     email=email,
                     password_hash=encoded,
@@ -451,11 +434,10 @@ def router(app: _Runtime, auth: Auth) -> APIRouter:
             if user.id == principal.id:
                 return RedirectResponse(f"{auth.users_url(request)}?error=self", status_code=303)
             if user.is_superuser and user.is_active:
-                model = user_model(auth)
                 active_superusers = await ctx.session.scalar(
-                    sa.select(sa.func.count())
-                    .select_from(model)
-                    .where(model.is_superuser.is_(True), model.is_active.is_(True))
+                    select(func.count())
+                    .select_from(user_model)
+                    .where(user_model.is_superuser.is_(True), user_model.is_active.is_(True))
                 )
                 if (active_superusers or 0) <= 1:
                     return RedirectResponse(
@@ -465,7 +447,7 @@ def router(app: _Runtime, auth: Auth) -> APIRouter:
             session_model = getattr(auth.backend, "session_model", None)
             if session_model is not None:
                 await ctx.session.execute(
-                    sa.delete(session_model).where(session_model.user_id == user.id)
+                    delete(session_model).where(session_model.user_id == user.id)
                 )
             await ctx.session.delete(user)
             return RedirectResponse(f"{auth.users_url(request)}?deleted=1", status_code=303)
@@ -474,7 +456,6 @@ def router(app: _Runtime, auth: Auth) -> APIRouter:
         request: Request, principal: Identity = Depends(superuser)
     ) -> HTMLResponse | RedirectResponse:
         async with app.uow(principal=principal, request=request, source="ui") as ctx:
-            model = role_model(auth)
             roles = await all_roles(ctx)
             tree, known = permission_tree(app)
             if request.method == "GET":
@@ -500,7 +481,9 @@ def router(app: _Runtime, auth: Auth) -> APIRouter:
             elif len(name) > MAX_LENGTH:
                 errors["name"] = [N_("Use at most 150 characters.")]
             else:
-                exists = await ctx.session.scalar(sa.select(model.id).where(model.name == name))
+                exists = await ctx.session.scalar(
+                    select(role_model.id).where(role_model.name == name)
+                )
                 if exists is not None:
                     errors["name"] = [N_("This role name is already taken.")]
             if any(permission not in known for permission in selected):
@@ -525,15 +508,14 @@ def router(app: _Runtime, auth: Auth) -> APIRouter:
                     forms=[role_form(role) for role in roles],
                 )
 
-            await auth.create_role(name, permissions=selected, ctx=ctx)
+            await auth.authorization.create_role(name, permissions=selected, ctx=ctx)
             return RedirectResponse(f"{auth.roles_url(request)}?saved=1", status_code=303)
 
     async def role_update(
         request: Request, id: int, principal: Identity = Depends(superuser)
     ) -> HTMLResponse | RedirectResponse:
         async with app.uow(principal=principal, request=request, source="ui") as ctx:
-            model = role_model(auth)
-            role = await ctx.session.get(model, id)
+            role = await ctx.session.get(role_model, id)
             if role is None:
                 raise NotFound(N_("Role not found."))
             roles = await all_roles(ctx)
@@ -548,7 +530,7 @@ def router(app: _Runtime, auth: Auth) -> APIRouter:
                 errors["name"] = [N_("Use at most 150 characters.")]
             else:
                 exists = await ctx.session.scalar(
-                    sa.select(model.id).where(model.name == name, model.id != role.id)
+                    select(role_model.id).where(role_model.name == name, role_model.id != role.id)
                 )
                 if exists is not None:
                     errors["name"] = [N_("This role name is already taken.")]

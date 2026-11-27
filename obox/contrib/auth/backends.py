@@ -7,11 +7,10 @@ import hmac
 import secrets
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime, timedelta
-from typing import Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 from uuid import UUID
 
-import sqlalchemy as sa
-from fastapi import Request
+from sqlalchemy import delete, inspect, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import selectinload
 
@@ -24,7 +23,10 @@ from obox.core.exceptions import (
     NotAuthenticated,
     NotFound,
 )
-from obox.core.principal import Identity, Principal, ScopedIdentity, valid_permission
+from obox.core.principal import ANONYMOUS, Identity, Principal, ScopedIdentity, valid_permission
+
+if TYPE_CHECKING:
+    from fastapi import Request
 
 
 class Backend(Protocol):
@@ -84,8 +86,8 @@ class ModelBackend:
         self.session_factory = session_factory
         self.user_model, self.session_model = user_model, session_model
         self.token_model = token_model
-        user_pk = sa.inspect(user_model).primary_key
-        session_user = sa.inspect(session_model).columns["user_id"]
+        user_pk = inspect(user_model).primary_key
+        session_user = inspect(session_model).columns["user_id"]
         if len(user_pk) != 1 or not any(
             fk.column is user_pk[0] for fk in session_user.foreign_keys
         ):
@@ -111,7 +113,7 @@ class ModelBackend:
         return getattr(user, "is_active", False) is True
 
     def get_user_id(self, user: Any) -> Any:
-        identity = sa.inspect(user).identity
+        identity = inspect(user).identity
         if identity is None or len(identity) != 1:
             raise ImproperlyConfigured(
                 "ModelBackend requires a persisted user with a single primary key."
@@ -153,9 +155,7 @@ class ModelBackend:
         if "\x00" in username or any(0xD800 <= ord(char) <= 0xDFFF for char in username):
             return None
         column = getattr(self.user_model, self.username_field)
-        user = (
-            await db.scalars(sa.select(self.user_model).where(column == username))
-        ).one_or_none()
+        user = (await db.scalars(select(self.user_model).where(column == username))).one_or_none()
         valid = await self.verify_password(password, user.password_hash if user else None)
         return user if valid and user is not None and self.user_can_authenticate(user) else None
 
@@ -174,26 +174,29 @@ class ModelBackend:
         return token
 
     async def resolve(self, token: str, *, request: Request | None = None) -> Identity:
+        return await self._resolve(self.session_model, token, request=request)
+
+    async def _resolve(
+        self, model: type[Any], token: str, *, request: Request | None, scoped: bool = False
+    ) -> Identity:
         if not token or len(token) > 128:
-            return Principal()
+            return ANONYMOUS
         async with self.session_factory() as db:
-            model = self.session_model
-            session = await db.scalar(sa.select(model).where(model.token_hash == hash_token(token)))
-            if session is None:
-                return Principal()
-            expiry = session.expires_at
-            if expiry.tzinfo is None:
-                expiry = expiry.replace(tzinfo=UTC)
-            if expiry <= datetime.now(UTC):
-                return Principal()
-            user = await self.get_user(db, session.user_id, request=request)
+            row = await db.scalar(select(model).where(model.token_hash == hash_token(token)))
+            if row is None:
+                return ANONYMOUS
+            expiry = row.expires_at
+            if expiry.replace(tzinfo=expiry.tzinfo or UTC) <= datetime.now(UTC):
+                return ANONYMOUS
+            user = await self.get_user(db, row.user_id, request=request)
             if (
                 user is None
                 or not self.user_can_authenticate(user)
-                or not hmac.compare_digest(session.auth_hash, self.session_auth_hash(user))
+                or not hmac.compare_digest(row.auth_hash, self.session_auth_hash(user))
             ):
-                return Principal()
-            return await self.to_principal(db, user, request=request)
+                return ANONYMOUS
+            owner = await self.to_principal(db, user, request=request)
+            return ScopedIdentity(owner, frozenset(row.scopes)) if scoped else owner
 
     async def login(
         self,
@@ -208,14 +211,15 @@ class ModelBackend:
             user = await self.authenticate(db, username, password, request=request)
             if user is None:
                 return None
-            model = self.session_model
-            await db.execute(sa.delete(model).where(model.token_hash == hash_token(previous)))
+            if previous:
+                model = self.session_model
+                await db.execute(delete(model).where(model.token_hash == hash_token(previous)))
             return await self.create_session(db, user, max_age=max_age, request=request)
 
     async def logout(self, token: str, *, request: Request | None = None) -> None:
         async with self.session_factory.begin() as db:
             model = self.session_model
-            await db.execute(sa.delete(model).where(model.token_hash == hash_token(token)))
+            await db.execute(delete(model).where(model.token_hash == hash_token(token)))
 
     def configure_api_tokens(self) -> None:
         model = self.token_model
@@ -227,7 +231,7 @@ class ModelBackend:
             model = self.token_model = APIToken
         if not issubclass(model, APITokenMixin):
             raise ImproperlyConfigured("token_model must use APITokenMixin.")
-        mapper: Any = sa.inspect(model)
+        mapper: Any = inspect(model)
         token_pk = mapper.primary_key
         if (
             len(token_pk) != 1
@@ -235,29 +239,14 @@ class ModelBackend:
             or token_pk[0].type.python_type is not UUID
         ):
             raise ImproperlyConfigured("token_model must use a UUID primary key named id.")
-        pk = sa.inspect(self.user_model).primary_key
+        pk = inspect(self.user_model).primary_key
         if not any(fk.column is pk[0] for fk in mapper.columns["user_id"].foreign_keys):
             raise ImproperlyConfigured("token_model.user_id must reference the user primary key.")
 
     async def resolve_api_token(self, token: str, *, request: Request | None = None) -> Identity:
-        if self.token_model is None or not token.startswith("obx_") or len(token) > 128:
-            return Principal()
-        async with self.session_factory() as db:
-            model = self.token_model
-            row = await db.scalar(sa.select(model).where(model.token_hash == hash_token(token)))
-            if row is None or row.expires_at.replace(
-                tzinfo=row.expires_at.tzinfo or UTC
-            ) <= datetime.now(UTC):
-                return Principal()
-            user = await self.get_user(db, row.user_id, request=request)
-            if (
-                user is None
-                or not self.user_can_authenticate(user)
-                or not hmac.compare_digest(row.auth_hash, self.session_auth_hash(user))
-            ):
-                return Principal()
-            owner = await self.to_principal(db, user, request=request)
-            return ScopedIdentity(owner, frozenset(row.scopes))
+        if self.token_model is None or not token.startswith("obx_"):
+            return ANONYMOUS
+        return await self._resolve(self.token_model, token, request=request, scoped=True)
 
     async def create_api_token(
         self,
@@ -309,15 +298,13 @@ class ModelBackend:
             raise ImproperlyConfigured("API tokens are not configured.")
         async with self.session_factory() as db:
             model = self.token_model
-            return list(
-                (
-                    await db.scalars(
-                        sa.select(model)
-                        .where(model.user_id == user_id)
-                        .order_by(model.created_at, model.id)
-                    )
-                ).all()
-            )
+            return (
+                await db.scalars(
+                    select(model)
+                    .where(model.user_id == user_id)
+                    .order_by(model.created_at, model.id)
+                )
+            ).all()
 
     async def revoke_api_token(self, user_id: Any, token_id: UUID) -> None:
         if self.token_model is None:
@@ -325,7 +312,7 @@ class ModelBackend:
         async with self.session_factory.begin() as db:
             model = self.token_model
             removed = await db.scalar(
-                sa.delete(model)
+                delete(model)
                 .where(
                     model.id == token_id,
                     model.user_id == user_id,

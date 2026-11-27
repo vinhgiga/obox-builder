@@ -4,9 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from inspect import iscoroutinefunction
-from typing import Any, Protocol, TypeVar
-
-T = TypeVar("T")
+from typing import Any, Protocol
 
 
 def valid_permission(name: str) -> bool:
@@ -95,8 +93,7 @@ class ScopedIdentity:
         return self.owner.is_active
 
     def has_perm(self, permission: str) -> bool:
-        return permission in self.api_scopes and self.owner.has_perm(permission)
+        return permission in self.api_scopes and has_permission(self.owner, permission)
 
 
 ANONYMOUS = Principal()
-SYSTEM = Principal(id="system", is_authenticated=True, roles=frozenset({"system"}))

@@ -6,8 +6,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from obox.contrib.auth import cli as auth_cli
-from obox.contrib.auth import passwords as auth_passwords
+from obox.contrib.auth import cli
 from obox.contrib.auth.password_validation import (
     MinimumLengthValidator,
     NumericPasswordValidator,
@@ -47,22 +46,18 @@ def test_interactive_superuser_password_validation(
     async def fake_hash_password(
         password: str,
         *,
-        validate: bool = True,
         validators: Sequence[PasswordValidator] = (),
         user: Any = None,
     ) -> str:
-        validation_calls.append(validate)
-        if validate:
-            validate_password(password, validators, user)
+        validation_calls.append(bool(validators))
+        validate_password(password, validators, user)
         return "encoded-password"
 
     monkeypatch.setattr("obox.contrib.auth.cli.getpass.getpass", get_password)
-    monkeypatch.setattr(auth_cli, "input", answer_bypass, raising=False)
-    monkeypatch.setattr(auth_passwords, "hash_password", fake_hash_password)
+    monkeypatch.setattr(cli, "input", answer_bypass, raising=False)
+    monkeypatch.setattr(cli, "hash_password", fake_hash_password)
     validators = (MinimumLengthValidator(), NumericPasswordValidator())
-    result = asyncio.run(
-        auth_cli._prompt_password_hash(validators, SimpleNamespace(username="admin"))
-    )
+    result = asyncio.run(cli._prompt_password_hash(validators, SimpleNamespace(username="admin")))
     assert result == "encoded-password"
     assert validation_calls == expected_validation_calls
     assert password_prompts == ["Password: ", "Password (again): "] * (len(passwords) // 2)

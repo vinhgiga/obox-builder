@@ -5,21 +5,22 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from importlib import import_module
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Annotated, Any
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import httpx
 import pytest
 from fastapi import APIRouter, Depends, FastAPI
 from obox.apps import AppConfig
-from obox.contrib.auth import Auth
-from obox.core.exceptions import ImproperlyConfigured, PermissionDenied
-from obox.core.principal import Principal
+from obox.contrib.auth.apps import Auth
+from obox.core.exceptions import ImproperlyConfigured
+from obox.core.principal import Principal, ScopedIdentity, has_permission
 from obox.routes import Route
 from obox.runtime.config import RuntimeConfig
 from obox.runtime.context import Context
 from obox.views.generic import TemplateView
-from obox.web.csrf import PermissionDenied as CSRFPermissionDenied
 from obox.web.dependencies import api_context
 
 from tests.runtime import build_runtime, sessions_for, track_checkouts
@@ -30,13 +31,16 @@ class ContextView(TemplateView):
         return {**super().get_context_data(**kwargs), "value": "allowed"}
 
 
-def test_permission_denied_is_one_shared_exception() -> None:
-    from obox.core import PermissionDenied as CorePermissionDenied
-    from obox.core.exceptions import PermissionDenied as DomainPermissionDenied
+def test_scoped_identity_requires_a_synchronous_permission_check() -> None:
+    scope = "demo.read"
+    check = AsyncMock(return_value=True)
+    owner = SimpleNamespace(id=1, username="actor", is_authenticated=True, is_active=True)
+    owner.has_perm = check
+    identity = ScopedIdentity(owner, frozenset({scope}))
 
-    assert CorePermissionDenied is DomainPermissionDenied is CSRFPermissionDenied
-    with pytest.raises(PermissionDenied):
-        raise CSRFPermissionDenied("denied")
+    assert identity.has_perm(scope) is False
+    assert has_permission(identity, scope) is False
+    check.assert_not_called()
 
 
 @pytest.fixture

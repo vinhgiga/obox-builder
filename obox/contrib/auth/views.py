@@ -10,11 +10,11 @@ from urllib.parse import urlsplit
 from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from obox.core.exceptions import BuilderValidationError, ImproperlyConfigured, PermissionDenied
+from obox.core.exceptions import BuilderValidationError, PermissionDenied
+from obox.core.principal import ANONYMOUS
 from obox.web.dependencies import _RoutePermission
 from obox.web.http import read_form
-from obox.web.i18n import N_, localize, translate
-from obox.web.i18n import context as translation_context
+from obox.web.i18n import N_, context, translate
 from obox.web.routes import OboxRoute, authentication_challenge
 from obox.web.ui import build_navigation
 
@@ -53,7 +53,6 @@ def router(app: _Runtime, auth: Auth) -> APIRouter:
     routes = APIRouter(prefix=auth.prefix, route_class=OboxRoute)
 
     async def login(request: Request) -> Response:
-        anonymous = auth.anonymous()
         error, status = "", 200
         redirect_to = request.query_params.get(auth.redirect_field_name, "")
         login_cookie = request.cookies.get(auth.login_cookie)
@@ -62,7 +61,7 @@ def router(app: _Runtime, auth: Auth) -> APIRouter:
             redirect_to = str(form.get(auth.redirect_field_name, redirect_to))
             if not login_cookie or any(len(form.getlist(key)) != 1 for key in form):
                 raise PermissionDenied("Invalid login form.")
-            app.csrf.validate(request, anonymous, str(form.get("csrf_token", "")))
+            app.csrf.validate(request, ANONYMOUS, str(form.get("csrf_token", "")))
             token = await auth.login(
                 str(form.get("username", "")),
                 str(form.get("password", "")),
@@ -87,7 +86,7 @@ def router(app: _Runtime, auth: Auth) -> APIRouter:
             request=request,
             name=auth.login_template,
             context={
-                **translation_context(request),
+                **context(request),
                 "title": translate(request, "Sign in"),
                 "site_title": app.app.title,
                 "base_template": app.settings.base_template,
@@ -96,7 +95,7 @@ def router(app: _Runtime, auth: Auth) -> APIRouter:
                 "login_label": auth.login_label,
                 "redirect_field_name": auth.redirect_field_name,
                 "redirect_to": redirect_to,
-                "csrf": app.csrf.token(request, anonymous, cookies=cookies),
+                "csrf": app.csrf.token(request, ANONYMOUS, cookies=cookies),
             },
             status_code=status,
             headers={"cache-control": "no-store"},
@@ -117,19 +116,11 @@ def router(app: _Runtime, auth: Auth) -> APIRouter:
         response.headers["cache-control"] = "no-store"
         return response
 
-    async def account(request: Request) -> Response:
-        principal = await auth.principal(request)
-        if not principal.is_authenticated:
-            return RedirectResponse(auth.login_url(request), status_code=303)
-        return RedirectResponse(localize(request, app.settings.ui_prefix or "/"), status_code=303)
-
     async def profile(request: Request) -> Response:
         principal = await auth.principal(request)
         if not principal.is_authenticated:
             return RedirectResponse(auth.login_url(request), status_code=303)
         backend = auth.backend
-        if backend is None:
-            raise ImproperlyConfigured("Install Auth before using its backend.")
         user_model = getattr(backend, "user_model", None)
         load_user = getattr(backend, "get_user", None)
         hash_password = getattr(backend, "hash_password", None)
@@ -157,7 +148,7 @@ def router(app: _Runtime, auth: Auth) -> APIRouter:
                     request=request,
                     name="obox/profile.html",
                     context={
-                        **translation_context(request),
+                        **context(request),
                         "title": translate(request, "Account"),
                         "site_title": app.app.title,
                         "base_template": app.settings.base_template,
@@ -262,14 +253,6 @@ def router(app: _Runtime, auth: Auth) -> APIRouter:
         [Depends(_RoutePermission("auth.use_account", True, False))]
         if app._enforce_permissions
         else None
-    )
-    routes.add_api_route(
-        "/account",
-        account,
-        methods=["GET"],
-        name=auth.account_route,
-        dependencies=account_policy,
-        include_in_schema=False,
     )
     routes.add_api_route(
         "/profile",

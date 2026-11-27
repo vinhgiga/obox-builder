@@ -10,7 +10,6 @@ class DomainError(Exception):
     code = "domain_error"
 
     def __init__(self, message: str = "", *, code: str | None = None) -> None:
-        self.message = message
         if code is not None:
             self.code = code
         super().__init__(message)
