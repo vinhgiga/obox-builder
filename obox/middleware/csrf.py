@@ -1,4 +1,4 @@
-"""Django-shaped CSRF tokens for native request/response objects."""
+"""CSRF tokens for native request and response objects."""
 
 from __future__ import annotations
 

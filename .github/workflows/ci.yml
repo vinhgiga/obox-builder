@@ -87,11 +87,6 @@ jobs:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
       - run: uv sync --all-extras --locked
-      - name: Install isolated Django reference
-        run: |
-          uv venv "$RUNNER_TEMP/reference-env"
-          uv pip install --python "$RUNNER_TEMP/reference-env/bin/python" -r tests/reference/requirements.txt
-          echo "OBOX_REFERENCE_PYTHON=$RUNNER_TEMP/reference-env/bin/python" >> "$GITHUB_ENV"
       - run: uv run --locked --group test-analytics pytest -q --cov-fail-under=78
 
   wheel:

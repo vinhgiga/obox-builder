@@ -1,4 +1,4 @@
-"""Lazy, uppercase configuration following Django's settings contract."""
+"""Lazy uppercase configuration loaded from a settings module."""
 
 from __future__ import annotations
 

@@ -23,7 +23,7 @@ from obox.contrib.auth.password_validation import (
         (["1234567", "1234567", "safe-pass-123", "safe-pass-123"], ["n"], [True, True]),
     ],
 )
-def test_interactive_superuser_password_validation_matches_django(
+def test_interactive_superuser_password_validation(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     passwords: list[str],
@@ -56,7 +56,7 @@ def test_interactive_superuser_password_validation_matches_django(
             validate_password(password, validators, user)
         return "encoded-password"
 
-    monkeypatch.setattr(auth_cli.getpass, "getpass", get_password)
+    monkeypatch.setattr("obox.contrib.auth.cli.getpass.getpass", get_password)
     monkeypatch.setattr(auth_cli, "input", answer_bypass, raising=False)
     monkeypatch.setattr(auth_passwords, "hash_password", fake_hash_password)
     validators = (MinimumLengthValidator(), NumericPasswordValidator())

@@ -1,4 +1,4 @@
-"""The Django Jinja2 backend contract backed by native Jinja environments."""
+"""Jinja2 template backend backed by native Jinja environments."""
 
 from __future__ import annotations
 

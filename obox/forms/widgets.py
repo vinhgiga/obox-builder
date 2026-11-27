@@ -1,4 +1,4 @@
-"""Small escaped widgets following Django's render(name, value, attrs) contract."""
+"""Small escaped widgets for rendering native form controls."""
 
 from __future__ import annotations
 

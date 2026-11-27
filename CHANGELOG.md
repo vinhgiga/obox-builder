@@ -31,16 +31,17 @@
 
 ### Redesign
 
-Obox restarts its public contract as a small subset of Django 5.2 LTS and
-DRF 3.16.1. Install `obox-builder` and import `obox`. The earlier
+Obox begins its current public contract as a native FastAPI and SQLAlchemy
+toolkit. Install `obox-builder` and import `obox`. The earlier
 `obox_builder` development changelog is available in the Git history.
 
 - Settings use lazy uppercase configuration, OBOX_SETTINGS_MODULE, DATABASES,
-  TEMPLATES and REST_FRAMEWORK. AppConfig owns discovery and startup order.
+  template configuration and REST API options. AppConfig owns discovery and
+  startup order.
 - Form and ModelForm are independent classes with awaited validation and save,
-  Django-shaped cleaning/errors, Meta configuration and commit=False.
+  cleaned data and errors, Meta configuration and commit=False.
 - Generic HTML views use per-request instances, native requests, unevaluated
-  Select querysets and Django-shaped context. Invalid forms return 422 and
+  Select queries and standard object context. Invalid forms return 422 and
   successful writes redirect with 303.
 - REST uses independent serializers, viewsets and SimpleRouter; PUT/PATCH are
   distinct and DELETE returns 204. Model REST routes use `/v0/<table_name>`

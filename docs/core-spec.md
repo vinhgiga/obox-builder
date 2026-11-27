@@ -1,7 +1,7 @@
 # Core contract — v0.1.0
 
-The reference is Django 5.2 LTS and DRF 3.16.1. Obox supports the subset listed in
-[the mapping table](mapping.md). Runtime models are native SQLAlchemy models,
+This document describes the supported core API behavior. Runtime models are
+native SQLAlchemy models,
 requests are native Starlette/FastAPI requests, and templates use Jinja2.
 `Obox(app)` installs the FastAPI adapter. `ModelResource` shares model operations between HTML and REST.
 
@@ -11,7 +11,7 @@ requests are native Starlette/FastAPI requests, and templates use Jinja2.
 or accepts a single `settings.configure(...)` call. Access before configuration
 raises `ImproperlyConfigured`; configuring twice raises `RuntimeError`.
 
-AppConfig has the Django constructor `(app_name, app_module)`, `create()`, `name`,
+AppConfig accepts `(app_name, app_module)` and provides `create()`, `name`,
 `label`, `verbose_name`, `path`, `import_models()`, `get_model()` and `ready()`.
 Registry population runs all configs, then all model imports, then all ready hooks.
 Population is idempotent and rejects duplicate names/labels and reentrant loading.
@@ -40,8 +40,8 @@ optional file. `Form.is_multipart()` reports the encoding required by its widget
 `FileInput(max_size=...)` sets an optional per-file byte limit, enforced during
 form validation. Files larger than the limit receive a `max_size` field error.
 `add_error()` removes the affected value from cleaned_data. Validation never saves
-or mutates a persisted SQLAlchemy instance. This differs from Django's in-memory
-model construction to avoid SQLAlchemy's automatic dirty tracking.
+or mutates a persisted SQLAlchemy instance. This avoids SQLAlchemy's automatic
+dirty tracking during validation.
 
 `await form.save(commit=False)` applies validated data to an instance without
 inserting/updating it. `await form.save()` flushes within the current transaction
@@ -58,7 +58,7 @@ Supported views are `View`, `TemplateView`, `ListView`, `DetailView`, `FormView`
 The lifecycle is `as_view()` → `setup()` → `dispatch()` → method handler.
 
 `get_queryset()` returns an unevaluated SQLAlchemy Select. `get_object()` applies
-lookup conversion and executes it. Context includes Django-shaped `object`,
+lookup conversion and executes it. Context includes `object`,
 `object_list`, model context names, `form` and pagination values where applicable.
 The usual context/template/form hooks can be overridden. Invalid forms render
 with status 422. Successful editing redirects with 303. Delete uses POST after

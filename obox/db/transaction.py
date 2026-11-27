@@ -1,4 +1,4 @@
-"""Asynchronous transactions with Django's atomic context-manager contract."""
+"""Asynchronous transactions with an atomic context manager."""
 
 import asyncio
 from collections.abc import AsyncIterator

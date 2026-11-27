@@ -1,5 +1,5 @@
 site_name: Obox Builder
-site_description: A small Django/DRF subset for native FastAPI and SQLAlchemy.
+site_description: A compact web toolkit built on FastAPI and SQLAlchemy.
 repo_name: vinhgiga/obox-builder
 repo_url: https://github.com/vinhgiga/obox-builder
 use_directory_urls: true
@@ -107,7 +107,6 @@ nav:
       - Forms: reference/forms.md
       - Settings: reference/settings.md
       - Python API: reference/python-api.md
-      - Django/DRF mapping: mapping.md
       - REST contract: api-spec.md
       - Component query filters: component-query.md
       - Record and activity API: record-activity-spec.md

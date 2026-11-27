@@ -1,8 +1,8 @@
 # Obox v0.1
 
-Less code is better. Obox provides a small subset of Django 5.2 and Django REST
-Framework 3.16.1 using FastAPI, asynchronous SQLAlchemy, Pydantic and Jinja2.
-Install `obox-builder`; import `obox`. The target version is **0.1.0**.
+Less code is better. Obox provides concise patterns for server-rendered CRUD and
+REST APIs using FastAPI, asynchronous SQLAlchemy, Pydantic and Jinja2. Install
+`obox-builder`; import `obox`. The target version is **0.1.0**.
 
 Register a SQLAlchemy model once to publish authorized HTML and REST CRUD.
 
@@ -56,7 +56,6 @@ pnpm lint
 uv run --group docs zensical build --clean
 ```
 
-Reference tests use a separate environment pinned in `tests/reference/requirements.txt`.
-Set `OBOX_REFERENCE_PYTHON` to that environment's Python executable. PostgreSQL
-integration tests use `OBOX_TEST_DATABASE_URL`; the demo database is never a test database.
+PostgreSQL integration tests use `OBOX_TEST_DATABASE_URL`; the demo database is
+never a test database.
 The `test-analytics` group enables the optional pandas and Polars pivot cases.

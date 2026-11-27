@@ -1,7 +1,6 @@
 # Reference
 
-This reference describes the public APIs implemented by Obox. Obox follows a
-small Django and Django REST Framework shaped surface while keeping FastAPI
+This reference describes the public APIs implemented by Obox. It keeps FastAPI
 requests, SQLAlchemy models, Pydantic schemas, and asynchronous database work
 visible.
 
@@ -20,8 +19,8 @@ visible.
 ## Other references
 
 - [Python API](python-api.md) — import paths and registration signatures.
-- [Django/DRF mapping](../mapping.md) — supported behavior and native
-  differences.
+- [Core API contract](../core-spec.md) — supported behavior and implementation
+  details.
 - [REST contract](../api-spec.md) — route, pagination, error, and permission
   contract.
 - [Component query filters](../component-query.md)
@@ -29,6 +28,4 @@ visible.
 - [Core design specification](../core-spec.md)
 - [Contrib integration contract](../extension-spec.md)
 
-The reference covers the implemented Obox subset. A Django-shaped name does not
-imply that every Django or DRF option is available; each page calls out Obox's
-behavior and differences.
+Each page describes the supported Obox behavior and available options.

@@ -58,7 +58,7 @@ async def create_product() -> None:
 Validation does not persist or mutate a supplied instance. `save(commit=False)`
 applies cleaned values without inserting/updating. Use `await form.save()` for
 persistence, or group operations inside `async with atomic()` from `obox.db`.
-Fields are copied per instance. `initial` and `prefix` follow Django conventions.
+Fields are copied per instance. `initial` and `prefix` follow the standard form conventions.
 Read errors only after awaiting validation.
 
 Form fieldsets and inlines are configured on the generic editing views, not on
