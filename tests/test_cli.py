@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import subprocess
@@ -44,12 +45,20 @@ def test_generated_secrets_are_unique_and_template_values_are_replaced(tmp_path:
     assert 'PROJECT_NAME = "one"' in settings[0]
 
 
-def test_command_uses_project_name_and_optional_directory(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_commands_write_to_expected_directories(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.chdir(tmp_path)
     assert main(["startproject", "project"]) == 0
     assert (tmp_path / "project" / "settings.py").is_file()
+    capsys.readouterr()
+
+    assert main(["collectstatic", "assets"]) == 0
+    manifest = json.loads(capsys.readouterr().out)
+    for namespace, name in (("builder", "tabler.min.css"), ("analytics", "http.js")):
+        assert (tmp_path / "assets" / namespace / manifest[namespace] / name).is_file()
+    assert main(["collectstatic", "assets"]) == 0
+    assert json.loads(capsys.readouterr().out) == manifest
 
 
 def test_generated_project_runs_in_an_isolated_process(tmp_path: Path) -> None:

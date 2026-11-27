@@ -20,10 +20,11 @@ explicit; Obox does not implement the rest of either framework.
 | `views.generic.ModelViewSet` | Django ModelAdmin options | list display/filters/search/actions; fieldsets, inlines and form class | binds view classes to a `ModelResource` for generated routes | `test_registered_views.py`, `test_view_inlines.py` |
 | `Obox(app)` | adapter exception | settings/apps/template/database/URL integration | FastAPI host adapter | `test_cli.py`, demo integration |
 
-Reference contract tests run the same scalar input cases in a separate
-Django/DRF environment, then compare output/errors with Obox. Product integration
-and database tests additionally verify rollback and absence of writes during
-validation. The reference suite is intentionally isolated from runtime dependencies.
+The isolated Django 5.2 reference suite runs six scalar `Form` cases and
+compares cleaned data and errors with Obox. The other rows link to Obox's own
+tests. Those tests verify the local contract, including rollback and absence
+of writes during validation. The Django and DRF columns describe the APIs
+that inspired the corresponding Obox behavior.
 
 Contrib resource editing, files, analytics, jobs, activity/comments, metadata,
 batch/upsert and custom concurrency rules are product features. They are outside

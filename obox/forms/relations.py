@@ -88,10 +88,7 @@ async def validate_model_constraints(
                         for name in names
                     )
                 )
-                if (
-                    obj is not None
-                    and not cast("InstanceState[Any]", sa.inspect(obj)).transient
-                ):
+                if obj is not None and not cast("InstanceState[Any]", sa.inspect(obj)).transient:
                     query = query.where(pk != getattr(obj, pk_name))
                 if await session.scalar(query.limit(1)) is not None:
                     label = " and ".join(name.replace("_", " ") for name in names)

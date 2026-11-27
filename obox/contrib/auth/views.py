@@ -56,19 +56,11 @@ def router(app: _Runtime, auth: Auth) -> APIRouter:
         anonymous = auth.anonymous()
         error, status = "", 200
         redirect_to = request.query_params.get(auth.redirect_field_name, "")
-        if request.method == "GET" and not request.cookies.get(auth.login_cookie):
-            # Seed a cookie before issuing a CSRF token bound to it.
-            next_url = redirect_to if auth.redirect_field_name in request.query_params else None
-            response = RedirectResponse(auth.login_url(request, next_url=next_url), status_code=303)
-            auth.set_cookie(response, auth.login_cookie, secrets.token_urlsafe(32), 3600)
-            response.headers["cache-control"] = "no-store"
-            return response
+        login_cookie = request.cookies.get(auth.login_cookie)
         if request.method == "POST":
             form = await read_form(request)
             redirect_to = str(form.get(auth.redirect_field_name, redirect_to))
-            if not request.cookies.get(auth.login_cookie) or any(
-                len(form.getlist(key)) != 1 for key in form
-            ):
+            if not login_cookie or any(len(form.getlist(key)) != 1 for key in form):
                 raise PermissionDenied("Invalid login form.")
             app.csrf.validate(request, anonymous, str(form.get("csrf_token", "")))
             token = await auth.login(
@@ -87,6 +79,10 @@ def router(app: _Runtime, auth: Auth) -> APIRouter:
                 response.headers["cache-control"] = "no-store"
                 return response
             error, status = N_("Invalid username or password."), 401
+        pending_cookie = None if login_cookie else secrets.token_urlsafe(32)
+        cookies = request.cookies
+        if pending_cookie:
+            cookies = {**cookies, auth.login_cookie: pending_cookie}
         rendered = app.templates.TemplateResponse(
             request=request,
             name=auth.login_template,
@@ -100,11 +96,13 @@ def router(app: _Runtime, auth: Auth) -> APIRouter:
                 "login_label": auth.login_label,
                 "redirect_field_name": auth.redirect_field_name,
                 "redirect_to": redirect_to,
-                "csrf": app.csrf.token(request, anonymous),
+                "csrf": app.csrf.token(request, anonymous, cookies=cookies),
             },
             status_code=status,
             headers={"cache-control": "no-store"},
         )
+        if pending_cookie:
+            auth.set_cookie(rendered, auth.login_cookie, pending_cookie, 3600)
         if status == 401:
             rendered.headers["WWW-Authenticate"] = authentication_challenge(request, auth)
         return rendered

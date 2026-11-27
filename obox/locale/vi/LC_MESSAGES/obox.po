@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  obox-builder\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-11-23 19:29+0700\n"
+"POT-Creation-Date: 2026-11-27 16:22+0700\n"
 "PO-Revision-Date: 2026-10-31 20:45+0700\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: vi\n"
@@ -107,19 +107,19 @@ msgstr "Phân trang"
 
 #: obox/contrib/analytics/templates/obox_analytics/records.html:28
 msgid "Previous"
-msgstr ""
+msgstr "Trang trước"
 
 #: obox/contrib/analytics/templates/obox_analytics/records.html:29
 msgid "Next"
-msgstr ""
+msgstr "Trang sau"
 
 #: obox/contrib/auth/admin.py:170
 msgid "You cannot delete your own account."
-msgstr ""
+msgstr "Bạn không thể xóa tài khoản của chính mình."
 
 #: obox/contrib/auth/admin.py:171
 msgid "At least one superuser is required."
-msgstr ""
+msgstr "Cần ít nhất một quản trị viên cấp cao."
 
 #: obox/contrib/auth/admin.py:187 obox/contrib/auth/authorization.py:44
 msgid "Authentication is required."
@@ -127,77 +127,87 @@ msgstr "Cần đăng nhập."
 
 #: obox/contrib/auth/admin.py:192 obox/contrib/auth/authorization.py:49
 msgid "Superuser access is required."
-msgstr ""
+msgstr "Cần quyền quản trị viên cấp cao."
 
-#: obox/contrib/auth/admin.py:239 obox/contrib/auth/views.py:217
+#: obox/contrib/auth/admin.py:239 obox/contrib/auth/views.py:215
 msgid "Duplicate form fields are not permitted."
 msgstr "Không được gửi trường trùng lặp."
 
 #: obox/contrib/auth/admin.py:250 obox/contrib/auth/authorization.py:164
 msgid "User not found."
-msgstr ""
+msgstr "Không tìm thấy người dùng."
 
 #: obox/contrib/auth/admin.py:266 obox/contrib/auth/apps.py:40
 msgid "Users"
 msgstr "Người dùng"
 
-#: obox/contrib/auth/admin.py:290 obox/contrib/auth/admin.py:382
-msgid "Edit userNew user"
-msgstr ""
+#: obox/contrib/auth/admin.py:290 obox/contrib/auth/admin.py:384
+msgid "Edit user"
+msgstr "Chỉnh sửa người dùng"
 
-#: obox/contrib/auth/admin.py:307
+#: obox/contrib/auth/admin.py:292 obox/contrib/auth/admin.py:386
+#: obox/contrib/auth/templates/obox/auth/users.html:4
+msgid "New user"
+msgstr "Người dùng mới"
+
+#: obox/contrib/auth/admin.py:309
 msgid "This username is already taken."
-msgstr ""
+msgstr "Tên đăng nhập này đã được sử dụng."
 
-#: obox/contrib/auth/admin.py:330 obox/contrib/auth/authorization.py:170
+#: obox/contrib/auth/admin.py:313
+#, python-format
+msgid "Use at most %(limit)s characters."
+msgstr "Chỉ được dùng tối đa %(limit)s ký tự."
+
+#: obox/contrib/auth/admin.py:332 obox/contrib/auth/authorization.py:170
 msgid "Choose valid roles."
-msgstr ""
+msgstr "Hãy chọn các vai trò hợp lệ."
 
-#: obox/contrib/auth/admin.py:335 obox/contrib/auth/admin.py:484
-#: obox/contrib/auth/admin.py:531 obox/contrib/auth/authorization.py:105
-#: obox/contrib/auth/views.py:224 obox/contrib/auth/views.py:232
+#: obox/contrib/auth/admin.py:337 obox/contrib/auth/admin.py:488
+#: obox/contrib/auth/admin.py:535 obox/contrib/auth/authorization.py:105
+#: obox/contrib/auth/views.py:222 obox/contrib/auth/views.py:230
 msgid "This field is required."
 msgstr "Trường này là bắt buộc."
 
-#: obox/contrib/auth/admin.py:337 obox/contrib/auth/views.py:234
+#: obox/contrib/auth/admin.py:339 obox/contrib/auth/views.py:232
 msgid "Passwords do not match."
 msgstr "Mật khẩu xác nhận không khớp."
 
-#: obox/contrib/auth/admin.py:356
+#: obox/contrib/auth/admin.py:358
 msgid "You cannot deactivate your own account."
-msgstr ""
+msgstr "Bạn không thể vô hiệu hóa tài khoản của chính mình."
 
-#: obox/contrib/auth/admin.py:364
+#: obox/contrib/auth/admin.py:366
 msgid "At least one superuser must remain active."
-msgstr ""
+msgstr "Phải duy trì ít nhất một quản trị viên cấp cao đang hoạt động."
 
-#: obox/contrib/auth/admin.py:470 obox/contrib/auth/admin.py:505
-#: obox/contrib/auth/admin.py:558 obox/contrib/auth/apps.py:41
+#: obox/contrib/auth/admin.py:474 obox/contrib/auth/admin.py:509
+#: obox/contrib/auth/admin.py:562 obox/contrib/auth/apps.py:41
 #: obox/contrib/auth/templates/obox/auth/user_form.html:96
 #: obox/contrib/auth/templates/obox/profile.html:34
 msgid "Roles"
 msgstr "Vai trò"
 
-#: obox/contrib/auth/admin.py:486 obox/contrib/auth/admin.py:533
+#: obox/contrib/auth/admin.py:490 obox/contrib/auth/admin.py:537
 #: obox/contrib/auth/authorization.py:107
 msgid "Use at most 150 characters."
-msgstr ""
+msgstr "Chỉ được dùng tối đa 150 ký tự."
 
-#: obox/contrib/auth/admin.py:490 obox/contrib/auth/admin.py:539
+#: obox/contrib/auth/admin.py:494 obox/contrib/auth/admin.py:543
 #: obox/contrib/auth/authorization.py:119
 msgid "This role name is already taken."
-msgstr ""
+msgstr "Tên vai trò này đã được sử dụng."
 
-#: obox/contrib/auth/admin.py:492 obox/contrib/auth/admin.py:541
+#: obox/contrib/auth/admin.py:496 obox/contrib/auth/admin.py:545
 #: obox/contrib/auth/authorization.py:63
 msgid "Choose valid permissions."
-msgstr ""
+msgstr "Hãy chọn các quyền hợp lệ."
 
-#: obox/contrib/auth/admin.py:523 obox/contrib/auth/authorization.py:137
+#: obox/contrib/auth/admin.py:527 obox/contrib/auth/authorization.py:137
 #: obox/contrib/auth/authorization.py:146
 #: obox/contrib/auth/authorization.py:199
 msgid "Role not found."
-msgstr ""
+msgstr "Không tìm thấy vai trò."
 
 #: obox/contrib/auth/apps.py:31
 msgid "Users and roles"
@@ -212,37 +222,40 @@ msgstr "Tên đăng nhập"
 
 #: obox/contrib/auth/password_validation.py:55
 msgid "This password is too similar to your personal information."
-msgstr ""
+msgstr "Mật khẩu này quá giống thông tin cá nhân của bạn."
 
 #: obox/contrib/auth/password_validation.py:71
-msgid "This password is too short. It must contain at least "
-msgstr ""
+#, python-format
+msgid ""
+"This password is too short. It must contain at least %(length)s "
+"characters."
+msgstr "Mật khẩu quá ngắn. Mật khẩu phải có ít nhất %(length)s ký tự."
 
-#: obox/contrib/auth/password_validation.py:82
+#: obox/contrib/auth/password_validation.py:83
 msgid "This password is entirely numeric."
-msgstr ""
+msgstr "Mật khẩu này chỉ chứa chữ số."
 
-#: obox/contrib/auth/views.py:89
+#: obox/contrib/auth/views.py:81
 msgid "Invalid username or password."
 msgstr "Tên đăng nhập hoặc mật khẩu không đúng."
 
-#: obox/contrib/auth/views.py:95 obox/templates/obox/login.html:47
+#: obox/contrib/auth/views.py:91 obox/templates/obox/login.html:47
 msgid "Sign in"
 msgstr "Đăng nhập"
 
-#: obox/contrib/auth/views.py:163
+#: obox/contrib/auth/views.py:161
 msgid "Account"
 msgstr "Tài khoản"
 
-#: obox/contrib/auth/views.py:212 obox/contrib/auth/views.py:244
+#: obox/contrib/auth/views.py:210 obox/contrib/auth/views.py:242
 msgid "Password changes are not supported by this backend."
 msgstr "Backend này không hỗ trợ đổi mật khẩu."
 
-#: obox/contrib/auth/views.py:226
+#: obox/contrib/auth/views.py:224
 msgid "Use at most 1024 characters."
 msgstr "Chỉ được dùng tối đa 1024 ký tự."
 
-#: obox/contrib/auth/views.py:230
+#: obox/contrib/auth/views.py:228
 msgid "Current password is incorrect."
 msgstr "Mật khẩu hiện tại không đúng."
 
@@ -386,10 +399,6 @@ msgstr "Các vai trò đã chọn không cấp quyền nào."
 msgid "Cancel"
 msgstr "Hủy"
 
-#: obox/contrib/auth/templates/obox/auth/users.html:4
-msgid "New user"
-msgstr "Người dùng mới"
-
 #: obox/contrib/auth/templates/obox/auth/users.html:7
 msgid "User saved."
 msgstr "Đã lưu người dùng."
@@ -488,13 +497,13 @@ msgstr "Hiện mật khẩu"
 msgid "Home"
 msgstr "Trang chủ"
 
-#: obox/web/routes.py:272
-msgid "msg"
-msgstr ""
+#: obox/web/routes.py:281
+msgid "Internal server error."
+msgstr "Lỗi máy chủ nội bộ."
 
-#: obox/web/routes.py:288
-msgid "Internal server error.Invalid input."
-msgstr ""
+#: obox/web/routes.py:283
+msgid "Invalid input."
+msgstr "Dữ liệu nhập không hợp lệ."
 
 #~ msgid "Default"
 #~ msgstr "Mặc định"
@@ -807,9 +816,6 @@ msgstr ""
 
 #~ msgid "Next page →"
 #~ msgstr "Trang sau →"
-
-#~ msgid "Internal server error."
-#~ msgstr ""
 
 #~ msgid "Use at most 254 characters."
 #~ msgstr ""

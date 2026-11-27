@@ -45,7 +45,7 @@ owner ID.
 `include_router_methods`, `permissions`, `read_schema`, `create_schema`,
 `update_schema`, `patch_schema`, `dependencies`, `search_fields`,
 `ordering_fields`, `default_limit` and `max_limit`. Call
-`ModelApi().build_router("/api/products")` to mount it directly.
+`ModelApi().build_router("/v0/product")` to mount it directly.
 
 `AppConfig.routes` maps static paths to templates. A route may set `title`,
 `permission`, `menu`, and a custom `TemplateView` subclass in `view`. Templates

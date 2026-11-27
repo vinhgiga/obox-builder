@@ -18,7 +18,17 @@ Schemas use camelCase by default. Use `read_schema`, `create_schema` or
 `patch_schema` for an explicit transport contract. The resource still enforces
 the selected fields, write permission and any shared business schema.
 
-Model operations require the corresponding model permission. Cookie-authenticated
-writes require `X-CSRF-Token`. The auth plugin can accept scoped bearer tokens.
-Errors use `application/problem+json`, with field validation reported as 422
-and database conflicts as 409.
+Model operations require the corresponding model permission. Errors use
+`application/problem+json`, with field validation reported as 422 and database
+conflicts as 409.
+
+## CSRF protection
+
+For a cookie-authenticated write, fetch `GET /v0/auth/csrf`, keep its cookies
+and pass the response's `csrfToken` as `X-CSRF-Token`. The token expires and is
+bound to the identity and cookie values. Fetch a fresh token after signing in
+or when the cookies change. The `/v0` segment follows `API_PREFIX`.
+
+Scoped bearer-token requests can write without a CSRF token on routes that
+accept them. Generic HTML form submissions use the cookie and masked token
+described in [access control](features/access-control.md#csrf-protection).

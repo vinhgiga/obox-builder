@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import os
 import re
 from pathlib import Path
@@ -17,7 +16,7 @@ from starlette.routing import Mount
 from starlette.staticfiles import NotModifiedResponse, StaticFiles
 from starlette.types import Receive, Scope, Send
 
-from obox.web.assets import SOURCES, collect_assets, publish, read_assets
+from obox.web.assets import SOURCES, collect_assets, load_manifest
 
 PACKAGE = Path(__file__).parents[1]
 
@@ -40,27 +39,15 @@ class AssetResponse(FileResponse):
 
 class AssetFiles(StaticFiles):
     def __init__(self, namespace: str, root: str | os.PathLike[str] | None = None) -> None:
-        manifest = PACKAGE / "_static" / "manifest.json"
+        manifest = load_manifest(PACKAGE / "_static")
         self.fingerprint: str | None = None
-        if manifest.is_file():
-            digest = json.loads(manifest.read_text(encoding="utf-8"))[namespace]
-            if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
-                raise ValueError(f"Invalid static asset fingerprint: {namespace}")
-            self.fingerprint = digest
-            source = PACKAGE / "_static" / namespace
-            if root is not None:
-                destination = Path(root) / namespace
-                publish(
-                    read_assets(source / self.fingerprint),
-                    destination / self.fingerprint,
-                    self.fingerprint,
-                )
-                source = destination
-            super().__init__(directory=source)
-        elif root is not None:
+        self.packaged = manifest is not None and root is None
+        if root is not None:
             self.fingerprint = collect_assets(PACKAGE, Path(root))[namespace]
             super().__init__(directory=Path(root) / namespace)
         else:
+            if manifest is not None:
+                self.fingerprint = manifest[namespace]
             directories = [PACKAGE / source for source in SOURCES[namespace]]
             super().__init__(directory=directories[0])
             self.all_directories = list(directories)
@@ -69,9 +56,13 @@ class AssetFiles(StaticFiles):
         parts = Path(path).parts
         first = parts[0] if parts else ""
         immutable = self.fingerprint is not None and bool(re.fullmatch(r"[0-9a-f]{64}", first))
-        if self.fingerprint is not None and not immutable:
-            path = os.path.join(self.fingerprint, path)
         try:
+            if self.packaged and immutable:
+                if first != self.fingerprint:
+                    raise HTTPException(404)
+                path = str(Path(*parts[1:]))
+            elif self.fingerprint is not None and not immutable and not self.packaged:
+                path = os.path.join(self.fingerprint, path)
             response = await super().get_response(path, scope)
         except HTTPException as error:
             error.headers = {**(error.headers or {}), "Cache-Control": "no-store"}

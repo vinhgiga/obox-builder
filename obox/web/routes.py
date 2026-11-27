@@ -262,6 +262,7 @@ async def api_problem(request: Request, exc: Exception) -> Response:
     elif isinstance(exc, RequestValidationError):
         for error in exc.errors():
             location = [str(part) for part in error["loc"][1:]]
+            message = error["msg"]
             errors.append(
                 FieldError(
                     field=".".join(location) if location else "__all__",
@@ -272,11 +273,16 @@ async def api_problem(request: Request, exc: Exception) -> Response:
                     code={"missing": "required", "extra_forbidden": "unknown_field"}.get(
                         error["type"], "invalid_type"
                     ),
-                    detail=translate(request, error["msg"]),
+                    detail=translate(request, message),
                 )
             )
     if status == 500:
         logging.getLogger(__name__).error("ApiOptions request %s failed", trace_id, exc_info=exc)
+        detail = translate(request, "Internal server error.")
+    elif isinstance(exc, RequestValidationError):
+        detail = translate(request, "Invalid input.")
+    else:
+        detail = translate(request, str(exc.detail) if isinstance(exc, HTTPException) else str(exc))
     try:
         title = "Unprocessable Content" if status == 422 else HTTPStatus(status).phrase
     except ValueError:
@@ -287,16 +293,7 @@ async def api_problem(request: Request, exc: Exception) -> Response:
             title=title,
             status=status,
             code=code,
-            detail=translate(
-                request,
-                "Internal server error."
-                if status == 500
-                else "Invalid input."
-                if isinstance(exc, RequestValidationError)
-                else str(exc.detail)
-                if isinstance(exc, HTTPException)
-                else str(exc),
-            ),
+            detail=detail,
             instance=request.url.path,
             trace_id=trace_id,
             errors=errors,

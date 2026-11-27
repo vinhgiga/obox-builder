@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-11-25 22:11+0700\n"
+"POT-Creation-Date: 2026-11-27 16:22+0700\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -128,7 +128,7 @@ msgstr ""
 msgid "Superuser access is required."
 msgstr ""
 
-#: obox/contrib/auth/admin.py:239 obox/contrib/auth/views.py:217
+#: obox/contrib/auth/admin.py:239 obox/contrib/auth/views.py:215
 msgid "Duplicate form fields are not permitted."
 msgstr ""
 
@@ -140,59 +140,69 @@ msgstr ""
 msgid "Users"
 msgstr ""
 
-#: obox/contrib/auth/admin.py:290 obox/contrib/auth/admin.py:382
-msgid "Edit userNew user"
+#: obox/contrib/auth/admin.py:290 obox/contrib/auth/admin.py:384
+msgid "Edit user"
 msgstr ""
 
-#: obox/contrib/auth/admin.py:307
+#: obox/contrib/auth/admin.py:292 obox/contrib/auth/admin.py:386
+#: obox/contrib/auth/templates/obox/auth/users.html:4
+msgid "New user"
+msgstr ""
+
+#: obox/contrib/auth/admin.py:309
 msgid "This username is already taken."
 msgstr ""
 
-#: obox/contrib/auth/admin.py:330 obox/contrib/auth/authorization.py:170
+#: obox/contrib/auth/admin.py:313
+#, python-format
+msgid "Use at most %(limit)s characters."
+msgstr ""
+
+#: obox/contrib/auth/admin.py:332 obox/contrib/auth/authorization.py:170
 msgid "Choose valid roles."
 msgstr ""
 
-#: obox/contrib/auth/admin.py:335 obox/contrib/auth/admin.py:484
-#: obox/contrib/auth/admin.py:531 obox/contrib/auth/authorization.py:105
-#: obox/contrib/auth/views.py:224 obox/contrib/auth/views.py:232
+#: obox/contrib/auth/admin.py:337 obox/contrib/auth/admin.py:488
+#: obox/contrib/auth/admin.py:535 obox/contrib/auth/authorization.py:105
+#: obox/contrib/auth/views.py:222 obox/contrib/auth/views.py:230
 msgid "This field is required."
 msgstr ""
 
-#: obox/contrib/auth/admin.py:337 obox/contrib/auth/views.py:234
+#: obox/contrib/auth/admin.py:339 obox/contrib/auth/views.py:232
 msgid "Passwords do not match."
 msgstr ""
 
-#: obox/contrib/auth/admin.py:356
+#: obox/contrib/auth/admin.py:358
 msgid "You cannot deactivate your own account."
 msgstr ""
 
-#: obox/contrib/auth/admin.py:364
+#: obox/contrib/auth/admin.py:366
 msgid "At least one superuser must remain active."
 msgstr ""
 
-#: obox/contrib/auth/admin.py:470 obox/contrib/auth/admin.py:505
-#: obox/contrib/auth/admin.py:558 obox/contrib/auth/apps.py:41
+#: obox/contrib/auth/admin.py:474 obox/contrib/auth/admin.py:509
+#: obox/contrib/auth/admin.py:562 obox/contrib/auth/apps.py:41
 #: obox/contrib/auth/templates/obox/auth/user_form.html:96
 #: obox/contrib/auth/templates/obox/profile.html:34
 msgid "Roles"
 msgstr ""
 
-#: obox/contrib/auth/admin.py:486 obox/contrib/auth/admin.py:533
+#: obox/contrib/auth/admin.py:490 obox/contrib/auth/admin.py:537
 #: obox/contrib/auth/authorization.py:107
 msgid "Use at most 150 characters."
 msgstr ""
 
-#: obox/contrib/auth/admin.py:490 obox/contrib/auth/admin.py:539
+#: obox/contrib/auth/admin.py:494 obox/contrib/auth/admin.py:543
 #: obox/contrib/auth/authorization.py:119
 msgid "This role name is already taken."
 msgstr ""
 
-#: obox/contrib/auth/admin.py:492 obox/contrib/auth/admin.py:541
+#: obox/contrib/auth/admin.py:496 obox/contrib/auth/admin.py:545
 #: obox/contrib/auth/authorization.py:63
 msgid "Choose valid permissions."
 msgstr ""
 
-#: obox/contrib/auth/admin.py:523 obox/contrib/auth/authorization.py:137
+#: obox/contrib/auth/admin.py:527 obox/contrib/auth/authorization.py:137
 #: obox/contrib/auth/authorization.py:146
 #: obox/contrib/auth/authorization.py:199
 msgid "Role not found."
@@ -214,34 +224,37 @@ msgid "This password is too similar to your personal information."
 msgstr ""
 
 #: obox/contrib/auth/password_validation.py:71
-msgid "This password is too short. It must contain at least "
+#, python-format
+msgid ""
+"This password is too short. It must contain at least %(length)s "
+"characters."
 msgstr ""
 
-#: obox/contrib/auth/password_validation.py:82
+#: obox/contrib/auth/password_validation.py:83
 msgid "This password is entirely numeric."
 msgstr ""
 
-#: obox/contrib/auth/views.py:89
+#: obox/contrib/auth/views.py:81
 msgid "Invalid username or password."
 msgstr ""
 
-#: obox/contrib/auth/views.py:95 obox/templates/obox/login.html:47
+#: obox/contrib/auth/views.py:91 obox/templates/obox/login.html:47
 msgid "Sign in"
 msgstr ""
 
-#: obox/contrib/auth/views.py:163
+#: obox/contrib/auth/views.py:161
 msgid "Account"
 msgstr ""
 
-#: obox/contrib/auth/views.py:212 obox/contrib/auth/views.py:244
+#: obox/contrib/auth/views.py:210 obox/contrib/auth/views.py:242
 msgid "Password changes are not supported by this backend."
 msgstr ""
 
-#: obox/contrib/auth/views.py:226
+#: obox/contrib/auth/views.py:224
 msgid "Use at most 1024 characters."
 msgstr ""
 
-#: obox/contrib/auth/views.py:230
+#: obox/contrib/auth/views.py:228
 msgid "Current password is incorrect."
 msgstr ""
 
@@ -385,10 +398,6 @@ msgstr ""
 msgid "Cancel"
 msgstr ""
 
-#: obox/contrib/auth/templates/obox/auth/users.html:4
-msgid "New user"
-msgstr ""
-
 #: obox/contrib/auth/templates/obox/auth/users.html:7
 msgid "User saved."
 msgstr ""
@@ -487,10 +496,10 @@ msgstr ""
 msgid "Home"
 msgstr ""
 
-#: obox/web/routes.py:272
-msgid "msg"
+#: obox/web/routes.py:281
+msgid "Internal server error."
 msgstr ""
 
-#: obox/web/routes.py:288
-msgid "Internal server error.Invalid input."
+#: obox/web/routes.py:283
+msgid "Invalid input."
 msgstr ""

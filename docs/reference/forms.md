@@ -136,9 +136,7 @@ class ProductForm(forms.ModelForm[ProductInput, Product]):
         model = Product
         fields = ("name", "price")
         labels: ClassVar[dict[str, str]] = {"name": "Product name"}
-        widgets: ClassVar[dict[str, Any]] = {
-            "name": forms.TextInput(attrs={"placeholder": "Name"})
-        }
+        widgets: ClassVar[dict[str, Any]] = {"name": forms.TextInput(attrs={"placeholder": "Name"})}
 ```
 
 `Meta` also accepts `exclude`, `help_texts`, `widgets`, and `labels`. Other keys

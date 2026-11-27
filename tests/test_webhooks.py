@@ -182,15 +182,20 @@ async def subscribe(client: httpx.AsyncClient, **kwargs: Any) -> httpx.Response:
     )
 
 
+def mock_receiver_dns(monkeypatch: pytest.MonkeyPatch, address: str) -> None:
+    getaddrinfo = socket.getaddrinfo
+
+    def lookup(host: str, port: int, *args: Any, **kwargs: Any) -> Any:
+        if host == "receiver.example":
+            return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (address, port))]
+        return getaddrinfo(host, port, *args, **kwargs)
+
+    monkeypatch.setattr(socket, "getaddrinfo", lookup)
+
+
 @pytest.fixture
 def public_dns(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        socket,
-        "getaddrinfo",
-        lambda *args, **kwargs: [
-            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443))
-        ],
-    )
+    mock_receiver_dns(monkeypatch, "93.184.216.34")
 
 
 def test_subscription_ownership_secrets_expiry_filters_and_deletion(tmp_path: Path) -> None:
@@ -608,13 +613,7 @@ def test_external_failures_are_bounded_and_redacted(
             await subscribe(client)
             await client.post("/api/admin/records", json={"name": "one"})
             if failure == "blocked":
-                monkeypatch.setattr(
-                    socket,
-                    "getaddrinfo",
-                    lambda *args, **kwargs: [
-                        (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 443))
-                    ],
-                )
+                mock_receiver_dns(monkeypatch, "127.0.0.1")
             if failure == "resolver":
 
                 def broken(*args: Any) -> Any:

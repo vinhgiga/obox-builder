@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import re
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -11,6 +13,19 @@ SOURCES = {
     "files": ("contrib/files/static", "static"),
     "analytics": ("contrib/analytics/static", "static"),
 }
+
+
+def load_manifest(directory: Path) -> dict[str, str] | None:
+    path = directory / "manifest.json"
+    if not path.is_file():
+        return None
+    manifest = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(manifest, dict) or manifest.keys() != SOURCES.keys():
+        raise ValueError(f"Invalid static asset manifest: {path}")
+    for digest in manifest.values():
+        if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+            raise ValueError(f"Invalid static asset fingerprint: {path}")
+    return dict(manifest)
 
 
 def fingerprint(files: dict[str, bytes]) -> str:
@@ -32,6 +47,21 @@ def read_assets(directory: Path) -> dict[str, bytes]:
             raise ValueError(f"Static asset escapes its directory: {path}")
         assets[name.as_posix()] = path.read_bytes()
     return assets
+
+
+def namespace_assets(package: Path, sources: tuple[str, ...]) -> dict[str, bytes]:
+    assets: dict[str, bytes] = {}
+    for source in sources:
+        for name, content in read_assets(package / source).items():
+            assets.setdefault(name, content)
+    return assets
+
+
+def asset_fingerprints(package: Path) -> dict[str, str]:
+    return {
+        namespace: fingerprint(namespace_assets(package, sources))
+        for namespace, sources in SOURCES.items()
+    }
 
 
 def publish(assets: dict[str, bytes], directory: Path, digest: str) -> None:
@@ -65,10 +95,7 @@ def collect_assets(package: Path, destination: Path) -> dict[str, str]:
         raise ValueError("Static output must be outside the source asset directories.")
     manifest = {}
     for namespace, sources in SOURCES.items():
-        assets: dict[str, bytes] = {}
-        for source in sources:
-            for name, content in read_assets(package / source).items():
-                assets.setdefault(name, content)
+        assets = namespace_assets(package, sources)
         digest = fingerprint(assets)
         publish(assets, destination / namespace / digest, digest)
         manifest[namespace] = digest

@@ -23,9 +23,20 @@ DOMAIN = "obox"
 LOCALE_DIR = Path(__file__).parents[1] / "locale"
 
 
-def N_(message: str) -> str:  # noqa: N802
+class _FormattedMessage(str):
+    template: str
+    values: dict[str, Any]
+
+    def __new__(cls, message: str, values: dict[str, Any]) -> _FormattedMessage:
+        instance = super().__new__(cls, message % values)
+        instance.template = message
+        instance.values = values
+        return instance
+
+
+def N_(message: str, **values: Any) -> str:  # noqa: N802
     """Mark a runtime message for gettext extraction."""
-    return message
+    return _FormattedMessage(message, values) if values else message
 
 
 @cache
@@ -73,7 +84,7 @@ def localize(request: Request, path: str, *, rooted: bool = False) -> str:
     root = request.scope.get("root_path", "")
     if rooted:
         _, path = _path_parts(request, path)
-    language_prefix = request.scope.get("obox_language_prefix", resolve_language(request))
+    language_prefix = request.scope.get("obox_language_prefix")
     if language_prefix is None:
         return f"{root}{path}"
     return f"{root}/{language_prefix}{path}"
@@ -94,6 +105,9 @@ def request_target(request: Request) -> str:
 
 
 def translate(request: Request, text: str, **values: Any) -> str:
+    if isinstance(text, _FormattedMessage):
+        values = {**text.values, **values}
+        text = text.template
     message = translations(request).gettext(text)
     return message % values if values else message
 
@@ -113,7 +127,7 @@ def context(request: Request) -> dict[str, Any]:
         "language": resolve_language(request),
         "languages": LANGUAGES,
         "language_url": lambda code: language_url(request, code),
-        "gettext": messages.gettext,
+        "gettext": lambda text: translate(request, text),
         "ngettext": messages.ngettext,
         "pgettext": messages.pgettext,
         "npgettext": messages.npgettext,

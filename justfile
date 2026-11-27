@@ -18,7 +18,7 @@ fmt:
     pnpm exec biome format --write .
 
 test:
-    uv run pytest -q
+    uv run --group test-analytics pytest -q
 
 ci:
     just lint

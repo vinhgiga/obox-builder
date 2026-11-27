@@ -16,8 +16,8 @@ class StaticAssetsHook(BuildHookInterface[Any]):
         self.assets_directory = TemporaryDirectory(prefix="obox-assets-")
         output = Path(self.assets_directory.name)
         package = Path(self.root) / "obox"
-        collect = run_path(str(package / "web" / "assets.py"))["collect_assets"]
-        manifest = collect(package, output)
+        fingerprints = run_path(str(package / "web" / "assets.py"))["asset_fingerprints"]
+        manifest = fingerprints(package)
         (output / "manifest.json").write_text(
             json.dumps(manifest, sort_keys=True), encoding="utf-8"
         )

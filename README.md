@@ -26,10 +26,11 @@ from app.products.models import Product
 os.environ.setdefault("OBOX_SETTINGS_MODULE", "settings")
 app = FastAPI(openapi_url=None)
 obox = Obox(app)
-obox.register(Product)  # /products and /api/products
+obox.register(Product)  # HTML: /products; REST: /v0/product
 ```
 
-Use `views=False` for REST only or `api=False` for HTML only. Register from
+The generated REST API also accepts `/v0/products` as an alias. Use
+`views=False` for REST only or `api=False` for HTML only. Register from
 `AppConfig.ready()` for app-prefixed routes. Declare a `ModelResource` to share
 field selection, validation and access rules between both surfaces. Customize
 generated HTML with `ListView`, `DetailView`, `CreateView`, `UpdateView` and
@@ -51,7 +52,7 @@ uv run mypy obox
 uv run ruff check obox tests
 uv run pyright
 uv run lint-imports
-uv run pytest
+uv run --group test-analytics pytest
 pnpm lint
 uv run --group docs zensical build --clean
 ```
@@ -59,3 +60,4 @@ uv run --group docs zensical build --clean
 Reference tests use a separate environment pinned in `tests/reference/requirements.txt`.
 Set `OBOX_REFERENCE_PYTHON` to that environment's Python executable. PostgreSQL
 integration tests use `OBOX_TEST_DATABASE_URL`; the demo database is never a test database.
+The `test-analytics` group enables the optional pandas and Polars pivot cases.

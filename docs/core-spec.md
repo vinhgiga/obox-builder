@@ -61,7 +61,7 @@ The lifecycle is `as_view()` → `setup()` → `dispatch()` → method handler.
 lookup conversion and executes it. Context includes Django-shaped `object`,
 `object_list`, model context names, `form` and pagination values where applicable.
 The usual context/template/form hooks can be overridden. Invalid forms render
-with status 200; successful editing redirects with 303; delete uses POST after
+with status 422. Successful editing redirects with 303. Delete uses POST after
 confirmation. Unsupported methods return 405 and an Allow header.
 
 Mount standalone views through FastAPI and supply the permitted HTTP methods

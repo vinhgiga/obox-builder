@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.0 — unreleased
 
 - Registered resources default to `GridView`. Use `ListView` for a flat row
   layout and `ModelViewSet.collection_views` for additional views. Replace
@@ -25,21 +25,26 @@
   require `<app>.components.access`, the component permission, and source policy.
 - Route names use the `obox_route_<app>.<name>` namespace. Update reverse calls
   that referenced `obox_page_*` names.
+- The login form renders on the first request and issues its CSRF cookie with
+  the page. Login redirects preserve an explicit language prefix.
+- Wheels store shared framework assets once and include compiled translations.
 
-## 0.1.0 — redesign
+### Redesign
 
 Obox restarts its public contract as a small subset of Django 5.2 LTS and
-DRF 3.16.1. The installation package remains `obox-builder`; imports use `obox`.
-Existing Git history and release tags are preserved.
+DRF 3.16.1. Install `obox-builder` and import `obox`. The earlier
+`obox_builder` development changelog is available in the Git history.
 
 - Settings use lazy uppercase configuration, OBOX_SETTINGS_MODULE, DATABASES,
   TEMPLATES and REST_FRAMEWORK. AppConfig owns discovery and startup order.
 - Form and ModelForm are independent classes with awaited validation and save,
   Django-shaped cleaning/errors, Meta configuration and commit=False.
 - Generic HTML views use per-request instances, native requests, unevaluated
-  Select querysets, Django-shaped context, status200 errors and302 redirects.
+  Select querysets and Django-shaped context. Invalid forms return 422 and
+  successful writes redirect with 303.
 - REST uses independent serializers, viewsets and SimpleRouter; PUT/PATCH are
-  distinct, DELETE returns204, URLs have trailing slashes, pagination is opt-in.
+  distinct and DELETE returns 204. Model REST routes use `/v0/<table_name>`
+  by default and keep a class-derived alias when the suffix differs.
 - ModelBuilder is an explicit-model ModelAdmin subset and builds admin HTML only.
 - Product resources, batch/upsert, metadata and custom concurrency remain in
   contrib. Auth/files/activity/analytics/jobs/webhooks use the AppConfig integration.
@@ -47,5 +52,5 @@ Existing Git history and release tags are preserved.
 
 This is a breaking redesign. Previous namespace, Settings dataclass, combined
 ModelView/ModelApi/ModelSurface APIs, generic model inference, surface aliases and
-public plugin lifecycle are removed. No compatibility layer is provided.
+public plugin lifecycle are removed.
 See [migration guidance](docs/release-notes.md).

@@ -19,16 +19,22 @@ class Products(ModelResource[Product]):
 
 class ProductApi(ModelApi[Product]):
     resource = Products
-    prefix = "/api/products"
+    prefix = "/v0/product"
     search_fields = ("name",)
     ordering_fields = ("name", "created_at")
 ```
 
 Register an API subclass through an installed app's `apis` sequence, or mount a
 router returned by `ProductApi.as_router()` or
-`ProductApi().build_router("/api/products")`.
+`ProductApi().build_router("/v0/product")`.
 
 ## Generated routes
+
+`obox.register(Product)` uses `API_PREFIX` (default `/v0`) and the model's
+table name. For `__tablename__ = "product"`, use `/v0/product`. Obox also
+mounts `/v0/products` as a model-class-derived alias when that suffix differs.
+An explicit registration `slug` or `api_suffix` selects a single API suffix.
+Registration through `AppConfig` can also include the app's API prefix.
 
 By default, Obox generates the following operations. When `update_schema` is
 omitted, `PUT` uses a schema inferred from the resource's writable fields.
@@ -59,7 +65,7 @@ create response includes `Location` when the retrieve route is enabled.
 | --- | --- | --- |
 | `model` | required unless `resource` is set | SQLAlchemy model to expose. |
 | `resource` | `None` | `ModelResource` class shared with HTML views. Set either `model` or `resource`, not both. |
-| `prefix` | required | Absolute route prefix such as `/api/products`. |
+| `prefix` | required | Absolute route prefix such as `/v0/product`. |
 | `slug` | `None` | Registration suffix used when mounted through `AppConfig`. |
 | `include_router_methods` | `None` | Generated operations. Defaults to all operations, except page pagination which defaults to list and retrieve. |
 | `permissions` | `{}` | Additional named permission required for an operation, keyed by operation name. |
@@ -113,7 +119,7 @@ class ProductCreate(ApiRequest):
 
 class ProductApi(ModelApi[Product]):
     resource = Products
-    prefix = "/api/products"
+    prefix = "/v0/product"
     read_schema = ProductRead
     create_schema = ProductCreate
 ```

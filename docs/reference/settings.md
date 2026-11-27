@@ -19,8 +19,8 @@ state.
 | Setting | Default | Runtime effect |
 | --- | --- | --- |
 | `DEBUG` | `False` | Used as the default for the Auth feature's secure cookie setting. |
-| `SECRET_KEY` | `""` | Secret used to configure CSRF signing. Configure a long random value in deployed settings. |
-| `API_PREFIX` | `"/v0"` | Prefix for REST API routes registered directly with `Obox`. |
+| `SECRET_KEY` | `""` | Secret used to configure CSRF signing. An empty value generates a secret for each runtime. Configure the same random value of at least 32 bytes across deployed workers. |
+| `API_PREFIX` | `"/v0"` | Default prefix for REST API routes, including the Auth API. |
 | `INSTALLED_APPS` | `[]` | App configuration classes loaded during Obox setup. |
 | `DATABASES` | `{}` | Database configuration. Obox supports only the `default` alias. |
 | `TEMPLATES` | `[]` | Template engine configuration. Obox uses the first entry. |
@@ -31,11 +31,13 @@ state.
 | `TIME_ZONE` | `"America/Chicago"` | Time zone used to interpret naive datetimes when `USE_TZ` is enabled. |
 | `USE_TZ` | `True` | Controls time-zone handling for form `DateTimeField` values. |
 
-Obox also declares defaults for `STATIC_URL`, `MEDIA_URL`, `LANGUAGE_CODE`,
+Obox serves framework assets under `/_static/` relative to the UI prefix.
+`STATIC_ROOT` controls the output directory for collected assets.
+
+Obox also declares defaults for `MEDIA_URL`, `LANGUAGE_CODE`,
 `LOGIN_URL`, `AUTH_USER_MODEL`, and `AUTHENTICATION_BACKENDS`. The current core
-does not read these values; changing them alone does not mount static/media
-URLs, set the UI language, change the Auth routes, or select a different user
-model/backend.
+uses app and feature configuration to mount media URLs, set the UI language,
+change the Auth routes, and select the user model and backend.
 
 ## Database configuration
 
@@ -130,5 +132,6 @@ the library defaults: `DEBUG` reads `OBOX_DEBUG` and defaults to `True`,
 `SECRET_KEY` reads `OBOX_SECRET_KEY` and falls back to a generated secret,
 `API_PREFIX` reads `OBOX_API_PREFIX` and defaults to `"/v0"`, SQLite uses
 `OBOX_DATABASE_NAME` or a project-local `db.sqlite3`, and the project sets
-`TIME_ZONE = "UTC"`. `PROJECT_NAME` is generated from the project name and is
+`TIME_ZONE = "UTC"`. The generated project sets `CSRF_COOKIE_SECURE = not DEBUG`.
+`PROJECT_NAME` is generated from the project name and is
 used as the FastAPI application title.

@@ -8,7 +8,6 @@ API_PREFIX = "/v0"
 INSTALLED_APPS: list[str] = []
 DATABASES: dict[str, Any] = {}
 TEMPLATES: list[dict[str, Any]] = []
-STATIC_URL = "/static/"
 STATIC_ROOT = None
 MEDIA_URL = "/media/"
 MEDIA_ROOT = ""

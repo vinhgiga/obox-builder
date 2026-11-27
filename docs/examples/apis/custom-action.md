@@ -4,7 +4,7 @@
 from fastapi import APIRouter, Depends
 from obox import permission_required
 
-router = APIRouter(prefix="/api/products")
+router = APIRouter(prefix="/v0/product")
 
 
 @router.get("/summary", dependencies=[Depends(permission_required("products.view_summary"))])
@@ -13,5 +13,5 @@ async def summary():
 ```
 
 Include the router on the host FastAPI app before registering the product CRUD
-routes so the literal summary URL is checked before the dynamic detail route.
+routes so `/v0/product/summary` is checked before the dynamic detail route.
 The permission `products.view_summary` is available to assign to roles.

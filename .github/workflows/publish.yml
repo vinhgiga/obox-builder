@@ -1,9 +1,10 @@
-name: Publish to PyPI
+name: Publish package
 
 on:
   push:
     tags:
       - "v*"
+      - "test-v*"
 
 permissions:
   contents: read
@@ -13,8 +14,8 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     environment:
-      name: pypi
-      url: https://pypi.org/p/obox-builder
+      name: ${{ startsWith(github.ref_name, 'test-v') && 'testpypi' || 'pypi' }}
+      url: ${{ startsWith(github.ref_name, 'test-v') && 'https://test.pypi.org/project/obox-builder/' || 'https://pypi.org/project/obox-builder/' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -26,4 +27,9 @@ jobs:
       - run: uv run validate-pyproject pyproject.toml
       - run: uv build
       - run: uv run twine check dist/*
-      - run: uv publish
+      - name: Publish to TestPyPI
+        if: startsWith(github.ref_name, 'test-v')
+        run: uv publish --trusted-publishing always --publish-url https://test.pypi.org/legacy/ --check-url https://test.pypi.org/simple/
+      - name: Publish to PyPI
+        if: startsWith(github.ref_name, 'v')
+        run: uv publish --trusted-publishing always --check-url https://pypi.org/simple/

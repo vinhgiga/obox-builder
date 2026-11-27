@@ -349,7 +349,7 @@
 .permission-group > summary::-webkit-details-marker {
   display: none;
 }
-.role-select[open] > summary {
+.role-select:where([open]) > summary {
   border-color: var(--tblr-primary);
   box-shadow: 0 0 0 2px color-mix(in oklab, var(--tblr-primary) 20%, transparent);
 }
@@ -555,7 +555,7 @@
 .permission-group[open] > summary > .tree-arrow {
   transform: rotate(135deg);
 }
-.permission-group > summary input,
+.permission-group > :where(summary) input,
 .permission-action input {
   margin: 0;
 }
@@ -670,19 +670,6 @@
   width: 1rem;
   height: 1rem;
 }
-.grid-tools .field-menu > summary {
-  gap: 0.375rem;
-  padding: 0.25rem 0.375rem;
-  color: var(--tblr-secondary);
-  background: transparent;
-  border-color: transparent;
-  white-space: nowrap;
-}
-.grid-tools .field-menu > summary:hover,
-.grid-tools .field-menu[open] > summary {
-  color: var(--tblr-body-color);
-  background: var(--tblr-bg-surface-secondary);
-}
 .toolbar-icon {
   display: inline-grid;
   width: 1rem;
@@ -760,36 +747,17 @@
   background: var(--grid-color, var(--tblr-bg-surface-secondary));
   border-radius: 50%;
 }
-.grid-color-option[data-grid-color="blue"] span {
+.grid-color-option[data-grid-color="blue"] {
   --grid-color: #dbeafe;
 }
-.grid-color-option[data-grid-color="green"] span {
+.grid-color-option[data-grid-color="green"] {
   --grid-color: #dcfce7;
 }
-.grid-color-option[data-grid-color="yellow"] span {
+.grid-color-option[data-grid-color="yellow"] {
   --grid-color: #fef3c7;
 }
-.grid-color-option[data-grid-color="red"] span {
+.grid-color-option[data-grid-color="red"] {
   --grid-color: #fee2e2;
-}
-.grid-add-column {
-  width: 3rem !important;
-  min-width: 3rem !important;
-  max-width: 3rem !important;
-  padding-inline: 0.5rem !important;
-  text-align: center;
-}
-.grid-add-column button {
-  padding: 0;
-  color: var(--tblr-secondary);
-  background: transparent;
-  border: 0;
-  font-size: 1rem;
-}
-.grid-empty {
-  height: 8rem !important;
-  color: var(--tblr-secondary);
-  text-align: center;
 }
 .grid-footer-summary {
   color: var(--tblr-secondary);
@@ -973,6 +941,19 @@ button.grid-search-button:disabled {
   background: var(--tblr-primary-lt);
   border-color: var(--tblr-primary);
 }
+.grid-tools .field-menu > summary {
+  gap: 0.375rem;
+  padding: 0.25rem 0.375rem;
+  color: var(--tblr-secondary);
+  background: transparent;
+  border-color: transparent;
+  white-space: nowrap;
+}
+.grid-tools .field-menu > summary:hover,
+.grid-tools .field-menu[open] > summary {
+  color: var(--tblr-body-color);
+  background: var(--tblr-bg-surface-secondary);
+}
 .field-menu-icon {
   flex-shrink: 0;
   width: 1rem;
@@ -1056,14 +1037,14 @@ button.grid-search-button:disabled {
 .field-menu-toggle input:checked + span + .field-switch {
   background: var(--tblr-primary);
 }
-.field-menu-toggle input:checked + span + .field-switch > span {
+.field-menu-toggle :where(input:checked + span + .field-switch) > span {
   transform: translateX(0.875rem);
 }
 .field-menu-toggle input:focus-visible + span + .field-switch {
   outline: 2px solid var(--tblr-primary);
   outline-offset: 2px;
 }
-.field-menu-option .field-menu-toggle input {
+.field-menu-option :where(.field-menu-toggle) input {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -1759,6 +1740,11 @@ button.sort-add:hover {
   border-right: 1px solid var(--tblr-border-color);
   border-bottom: 1px solid var(--tblr-border-color);
 }
+.table.record-grid td.grid-empty {
+  height: 8rem;
+  color: var(--tblr-secondary);
+  text-align: center;
+}
 .table.record-grid th {
   position: sticky;
   top: 0;
@@ -1854,8 +1840,8 @@ button.sort-add:hover {
 .record-grid td[data-search-current] mark[data-search-mark] {
   background: color-mix(in oklab, var(--tblr-orange) 30%, var(--tblr-bg-surface));
 }
-.record-grid tbody tr[data-selectable]:hover .row-index,
-.record-grid tr[data-selected="true"] .row-index {
+.record-grid tr[data-selected="true"] .row-index,
+.record-grid tbody tr[data-selectable]:hover .row-index {
   visibility: hidden;
 }
 .record-grid tbody tr:hover,

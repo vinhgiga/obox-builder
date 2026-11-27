@@ -68,8 +68,9 @@ class MinimumLengthValidator:
                 {
                     "password": [
                         N_(
-                            f"This password is too short. It must contain at least "
-                            f"{self.min_length} characters."
+                            "This password is too short. It must contain at least "
+                            "%(length)s characters.",
+                            length=self.min_length,
                         )
                     ]
                 }

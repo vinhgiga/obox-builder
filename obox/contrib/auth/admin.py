@@ -287,7 +287,9 @@ def router(app: _Runtime, auth: Auth) -> APIRouter:
                     request,
                     ctx,
                     "obox/auth/user_form.html",
-                    title=translate(request, "Edit user" if user else "New user"),
+                    title=translate(request, "Edit user")
+                    if user
+                    else translate(request, "New user"),
                     active="users",
                     user=user,
                     values=values,
@@ -308,7 +310,7 @@ def router(app: _Runtime, auth: Auth) -> APIRouter:
                 elif name in user_form.fields:
                     limit = getattr(user_form.fields[name], "max_length", None)
                     if limit and any("at most" in message for message in messages):
-                        errors[name] = [N_(f"Use at most {limit} characters.")]
+                        errors[name] = [N_("Use at most %(limit)s characters.", limit=limit)]
             username = str(form.get("username", "")).strip()
             email = str(form.get("email", "")).strip()
             first_name = str(form.get("first_name", "")).strip()
@@ -379,7 +381,9 @@ def router(app: _Runtime, auth: Auth) -> APIRouter:
                     request,
                     ctx,
                     "obox/auth/user_form.html",
-                    title=translate(request, "Edit user" if user else "New user"),
+                    title=translate(request, "Edit user")
+                    if user
+                    else translate(request, "New user"),
                     active="users",
                     status=422,
                     user=user,

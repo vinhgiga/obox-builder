@@ -7,8 +7,9 @@ cd example
 uv run alembic upgrade head
 ```
 
-Put a native SQLAlchemy model under `app/products/models.py`, using the scaffold's
-Base. For example:
+Create the `app/products/` directory inside `example/`. It can be a Python
+namespace package, or you can add empty `__init__.py` files to `app/` and
+`app/products/`. Save this SQLAlchemy model as `app/products/models.py`.
 
 ```python
 from sqlalchemy import Numeric, String
@@ -33,8 +34,17 @@ from app.products.models import Product
 obox.register(Product)
 ```
 
-This exposes the HTML collection at `/products` and REST at `/v0/product`.
-The class-derived `/v0/products` path is also available as an alias. For
+The registration exposes these HTML routes.
+
+| Path | Purpose |
+| --- | --- |
+| `/products` | Browse products. |
+| `/products/add` | Add a product. |
+| `/products/{pk}/view` | View a product. |
+| `/products/{pk}/change` | Edit a product. |
+| `/products/{pk}/delete` | Confirm and submit deletion. |
+
+The REST collection is `/v0/product`, with `/v0/products` as an alias. For
 app-prefixed URLs, move the registration into `AppConfig.ready()` and use
 `self.register(Product)`.
 
@@ -46,6 +56,9 @@ uv run alembic upgrade head
 uv run obox createsuperuser
 uv run uvicorn main:app --reload
 ```
+
+For unattended setup, supply `OBOX_SUPERUSER_PASSWORD` in the environment and
+run `uv run obox createsuperuser --username admin --noinput`.
 
 Sign in at `/auth/login` and open `/products`. See [ModelResource registration](features/register-resource.md)
 to add shared validation and [access control](../features/access-control.md) to assign model permissions.
