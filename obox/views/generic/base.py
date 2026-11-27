@@ -16,7 +16,7 @@ from starlette.types import Message, Receive, Scope, Send
 
 from obox.conf import settings
 from obox.core.async_utils import invoke
-from obox.core.exceptions import ImproperlyConfigured, OboxError, PermissionDenied
+from obox.core.exceptions import DomainError, ImproperlyConfigured, PermissionDenied
 from obox.db.session import current_session, session_scope
 from obox.web.identity import identify
 from obox.web.routes import MethodRoute, error_status
@@ -27,7 +27,7 @@ async def _html_error(request: Request, exc: Exception) -> Response:
 
     runtime = getattr(request.app.state, "obox", None)
     status = 403 if isinstance(exc, PermissionDenied) else error_status(exc)
-    if runtime is not None and isinstance(exc, OboxError):
+    if runtime is not None and isinstance(exc, DomainError):
         request.state.obox_html_permission = True
         response = await runtime.problem(request, exc)
     else:
@@ -87,7 +87,7 @@ class HTMLRoute(MethodRoute):
 
         try:
             await super().handle(scope, receive, respond)
-        except (OboxError, PermissionDenied, HTTPException, RequestValidationError) as exc:
+        except (DomainError, HTTPException, RequestValidationError) as exc:
             if started:
                 raise
             response = await _html_error(Request(scope, receive), exc)
@@ -218,7 +218,7 @@ class View:
                     response = cast(Response, await invoke(self.dispatch, request, **self.kwargs))
                     set_csrf_cookie(request, response)
                     return response
-            except (PermissionDenied, OboxError, HTTPException, RequestValidationError) as exc:
+            except (DomainError, HTTPException, RequestValidationError) as exc:
                 return await _html_error(request, exc)
             finally:
                 await request.close()

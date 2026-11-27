@@ -25,7 +25,7 @@ def add_parser(commands: Any) -> None:
     parser = commands.add_parser("createsuperuser", help="Create a superuser account.")
     parser.add_argument("--settings", help="Settings module; defaults to OBOX_SETTINGS_MODULE.")
     parser.add_argument("--username", help="Specifies the login for the superuser.")
-    parser.add_argument("--noinput", "--no-input", action="store_false", dest="interactive")
+    parser.add_argument("--noinput", action="store_false", dest="interactive")
 
 
 async def _hash_password(

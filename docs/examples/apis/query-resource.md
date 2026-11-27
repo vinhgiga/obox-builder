@@ -17,7 +17,7 @@ obox.register(ProductResource, api=ProductApi, views=False)
 ```
 
 The generated collection is `/v0/product` for `__tablename__ = "product"`.
-`/v0/products` is an alias. Detail routes append `/{id}`. The default actions
+Detail routes append `/{id}`. The default actions
 are list, retrieve, create, update, patch and delete. The generated PUT schema
 uses the resource's writable fields. Set `update_schema` to customize it.
 

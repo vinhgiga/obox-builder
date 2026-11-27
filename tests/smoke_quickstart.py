@@ -58,8 +58,8 @@ def check_http(url: str, password: str) -> None:
         pk = product.json()["id"]
         for action in ("view", "change", "delete"):
             assert client.get(f"/products/{pk}/{action}").status_code == 200
-        for prefix in ("/v0/product", "/v0/products"):
-            assert client.get(f"{prefix}/{pk}").json()["name"] == "Desk lamp"
+        assert client.get(f"/v0/product/{pk}").json()["name"] == "Desk lamp"
+        assert client.get("/v0/products").status_code == 404
         assert client.get("/api/products").status_code == 404
         assert client.delete(f"/v0/product/{pk}").status_code == 204
 

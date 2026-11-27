@@ -131,7 +131,7 @@ def test_registered_views_call_form_and_resource_hooks() -> None:
                     transport=httpx.ASGITransport(app=app), base_url="http://test"
                 ) as client,
             ):
-                assert (await client.get("/v0/tests/items/")).status_code == 404
+                assert (await client.get("/v0/tests/v01_form_items")).status_code == 404
                 page = await client.get("/tests/items/add")
                 assert page.status_code == 200
                 assert "Details" in page.text

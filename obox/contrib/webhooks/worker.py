@@ -21,7 +21,7 @@ from obox.contrib.webhooks.schemas import ChangeNotification
 from obox.contrib.webhooks.services import aware, resource
 from obox.contrib.webhooks.transport import send
 from obox.core.async_utils import invoke
-from obox.core.exceptions import ImproperlyConfigured, OboxError
+from obox.core.exceptions import DomainError, ImproperlyConfigured
 from obox.runtime.context import Context
 
 logger = logging.getLogger(__name__)
@@ -43,7 +43,7 @@ async def authorized(plugin: Any, sub: Subscription, event: Event, ctx: Context)
         authorize(b, ctx.principal, "view")
         obj = await get_object(b, event.record_id, ctx, plugin.get_queryset(b, ctx))
         return bool(await invoke(plugin.has_permission, b, ctx, obj))
-    except OboxError:
+    except DomainError:
         return False
 
 

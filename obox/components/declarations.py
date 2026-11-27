@@ -163,7 +163,7 @@ def component_name(name: Any) -> None:
 def fixed_filters(value: FilterGroup | Mapping[str, Any]) -> FilterGroup:
     import json
 
-    from obox.core.exceptions import OboxError
+    from obox.core.exceptions import DomainError
 
     if isinstance(value, Mapping):
         from obox.db.filters import FilterTerm
@@ -181,7 +181,7 @@ def fixed_filters(value: FilterGroup | Mapping[str, Any]) -> FilterGroup:
         raise ImproperlyConfigured("Component filters require a FilterGroup or mapping.")
     try:
         parse_filter(json.dumps(value.to_dict()))
-    except (OboxError, TypeError, ValueError, RecursionError) as exc:
+    except (DomainError, TypeError, ValueError, RecursionError) as exc:
         raise ImproperlyConfigured("Invalid fixed component filters.") from exc
     return deepcopy(value)
 

@@ -23,10 +23,10 @@ from starlette.types import Message, Receive, Scope, Send
 from obox.components.query import invalid
 from obox.core.exceptions import (
     BuilderValidationError,
+    DomainError,
     InvalidQuery,
     NotAuthenticated,
     NotFound,
-    OboxError,
     PermissionDenied,
     PreconditionFailed,
     PreconditionRequired,
@@ -54,7 +54,7 @@ def error_status(exc: Exception) -> int:
     ):
         if isinstance(exc, error):
             return status
-    if isinstance(exc, OboxError):
+    if isinstance(exc, DomainError):
         return 503 if exc.code == "aggregate_timeout" else 400
 
     return 500
@@ -99,7 +99,7 @@ class OboxRoute(MethodRoute):
         obox = scope["app"].state.obox
         middleware = ExceptionMiddleware(
             super().handle,
-            handlers={OboxError: obox.problem, RequestValidationError: obox.validation_problem},
+            handlers={DomainError: obox.problem, RequestValidationError: obox.validation_problem},
         )
 
         async def respond(message: Message) -> None:
@@ -212,7 +212,7 @@ async def api_problem(request: Request, exc: Exception) -> Response:
         error["type"] == "json_invalid" for error in exc.errors()
     ):
         status = 400
-    code = getattr(exc, "code", None) if isinstance(exc, OboxError) and status != 500 else None
+    code = getattr(exc, "code", None) if isinstance(exc, DomainError) and status != 500 else None
     code = code or {
         400: "malformed_json",
         401: "unauthenticated",
@@ -309,7 +309,7 @@ class ApiRoute(MethodRoute):
     cache_control: str | None = None
     binary_upload = False
     download = False
-    error_status_overrides: Mapping[type[OboxError], int] = MappingProxyType({})
+    error_status_overrides: Mapping[type[DomainError], int] = MappingProxyType({})
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         responses = {

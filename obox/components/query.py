@@ -12,7 +12,6 @@ from obox.db.filters import (
     MAX_FILTER_NODES,
     FilterGroup,
     FilterTerm,
-    compile_condition,
 )
 
 CONTROLS = {"search", "select", "expand", "order", "limit", "offset", "cursor", "count"}
@@ -138,9 +137,6 @@ def parse_terms(pairs: Iterable[tuple[str, str]]) -> tuple[dict[str, str], Filte
                 yield name + "." + value
 
     return controls, _parse_nodes(terms(), base_depth=0)
-
-
-condition = compile_condition
 
 
 def integer(params: dict[str, str], name: str, default: int | None = None) -> int | None:

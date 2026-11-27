@@ -29,8 +29,7 @@ obox = Obox(app)
 obox.register(Product)  # HTML: /products; REST: /v0/product
 ```
 
-The generated REST API also accepts `/v0/products` as an alias. Use
-`views=False` for REST only or `api=False` for HTML only. Register from
+Use `views=False` for REST only or `api=False` for HTML only. Register from
 `AppConfig.ready()` for app-prefixed routes. Declare a `ModelResource` to share
 field selection, validation and access rules between both surfaces. Customize
 generated HTML with `ListView`, `DetailView`, `CreateView`, `UpdateView` and

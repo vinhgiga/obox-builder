@@ -20,6 +20,8 @@ from tests.test_auth_api import PASSWORD, issue, login
 from tests.test_forms_integration import Item, configured
 from tests.test_resources import Items, authenticated_app
 
+INVENTORY_API = "/v0/inventory/v01_form_items"
+
 
 class InventoryConfig(AppConfig):
     name = "tests"
@@ -44,7 +46,7 @@ def test_installed_app_exposes_shared_resource_views_and_api() -> None:
             settings.INSTALLED_APPS = ["tests.test_declarative_apps.InventoryConfig"]
             app = authenticated_app()
             Obox(app)
-            assert "/v0/inventory/items" in app.openapi()["paths"]
+            assert INVENTORY_API in app.openapi()["paths"]
             async with (
                 app.router.lifespan_context(app),
                 httpx.AsyncClient(
@@ -68,7 +70,7 @@ def test_installed_app_exposes_shared_resource_views_and_api() -> None:
                     303,
                     "/inventory/items",
                 )
-                listing = await client.get("/v0/inventory/items")
+                listing = await client.get(INVENTORY_API)
                 assert [item["name"] for item in listing.json()["items"]] == ["alpha"]
                 row = listing.json()["items"][0]
                 assert "alpha" in (await client.get(f"/inventory/items/{row['id']}/view")).text
@@ -97,9 +99,7 @@ def test_app_declarations_enable_each_surface_independently(html: bool) -> None:
                 ) as client,
             ):
                 assert (await client.get("/inventory/items")).status_code == (200 if html else 404)
-                assert (await client.get("/v0/inventory/items")).status_code == (
-                    404 if html else 200
-                )
+                assert (await client.get(INVENTORY_API)).status_code == (404 if html else 200)
 
     asyncio.run(scenario())
 
@@ -211,11 +211,12 @@ def test_custom_api_prefix_keeps_token_auth_on_installed_api_routes() -> None:
                     base_url="http://test",
                     headers={"authorization": f"Bearer {token}"},
                 ) as bearer:
-                    assert (await bearer.get("/inventory/items")).status_code == 200
+                    api_path = "/inventory/v01_form_items"
+                    assert (await bearer.get(api_path)).status_code == 200
                     assert (await bearer.get("/inventory/status")).status_code == 200
                     assert (await bearer.get("/inventory/html/items")).status_code == 401
                     assert (await bearer.get("/inventory/raw")).status_code == 401
-                    assert (await bearer.post("/inventory/items", json={})).status_code == 403
+                    assert (await bearer.post(api_path, json={})).status_code == 403
 
     asyncio.run(scenario())
 

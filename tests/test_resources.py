@@ -98,7 +98,12 @@ def test_resource_validation_permissions_and_defaults_are_shared() -> None:
         async with configured():
             app = authenticated_app()
             Obox(app).register(Items)
-            patch_schema = app.openapi()["components"]["schemas"]["ItemPatch"]
+            api_path = "/v0/v01_form_items"
+            item_path = f"{api_path}/1"
+            schema = app.openapi()
+            assert api_path in schema["paths"]
+            assert "/v0/items" not in schema["paths"]
+            patch_schema = schema["components"]["schemas"]["ItemPatch"]
             assert patch_schema["properties"]["name"]["minLength"] == 2
             assert "required" not in patch_schema
             async with (
@@ -116,18 +121,18 @@ def test_resource_validation_permissions_and_defaults_are_shared() -> None:
                 auth = {"authorization": "Bearer test"}
                 denied = await client.post("/items/add", data={"name": "aa", "price": "2"})
                 assert denied.status_code == 403
-                denied = await client.post("/v0/items", json={"name": "aa", "price": "2"})
+                denied = await client.post(api_path, json={"name": "aa", "price": "2"})
                 assert denied.status_code == 403
 
                 invalid = {"name": "Alpha", "price": "1"}
                 rejected = await client.post("/items/add", data={**invalid, **token})
                 assert "Total must be at least 2." in rejected.text
-                rejected = await client.post("/v0/items", headers=auth, json=invalid)
+                rejected = await client.post(api_path, headers=auth, json=invalid)
                 assert rejected.status_code == 422
                 assert "Total must be at least 2." in rejected.text
                 for endpoint, headers, data in [
                     ("/items/add", {}, {**token, "name": "Alpha", "price": "2", "quantity": "3"}),
-                    ("/v0/items", auth, {"name": "Alpha", "price": "2", "quantity": 3}),
+                    (api_path, auth, {"name": "Alpha", "price": "2", "quantity": 3}),
                 ]:
                     payload: dict[str, Any] = (
                         {"json": data} if endpoint.startswith("/v0") else {"data": data}
@@ -142,39 +147,37 @@ def test_resource_validation_permissions_and_defaults_are_shared() -> None:
                     303,
                     "/items",
                 )
-                stored = (await client.get("/v0/items/1")).json()
+                stored = (await client.get(item_path)).json()
                 assert stored["name"] == "alpha"
                 assert stored["quantity"] == 1
 
-                rejected = await client.patch("/v0/items/1", headers=auth, json={"price": "1"})
+                rejected = await client.patch(item_path, headers=auth, json={"price": "1"})
                 assert rejected.status_code == 422
                 assert "Total must" in rejected.text
                 assert (
-                    await client.patch("/v0/items/1", headers=auth, json={"quantity": 2})
+                    await client.patch(item_path, headers=auth, json={"quantity": 2})
                 ).status_code == 403
                 assert (
-                    await client.patch("/v0/items/1", headers=auth, json={"price": None})
+                    await client.patch(item_path, headers=auth, json={"price": None})
                 ).status_code == 422
-                assert (await client.delete("/v0/items/1", headers=auth)).status_code == 403
+                assert (await client.delete(item_path, headers=auth)).status_code == 403
                 assert (await client.post("/items/1/delete", data=token)).status_code == 403
                 assert (
-                    await client.get("/v0/items", headers={"x-test-user": "inactive"})
+                    await client.get(api_path, headers={"x-test-user": "inactive"})
                 ).status_code == 401
                 assert (
-                    await client.delete("/v0/items/1", headers={**auth, "x-test-user": "scoped"})
+                    await client.delete(item_path, headers={**auth, "x-test-user": "scoped"})
                 ).status_code == 403
 
                 for name in ("private", "zeta"):
                     assert (
-                        await client.post(
-                            "/v0/items", headers=auth, json={"name": name, "price": "2"}
-                        )
+                        await client.post(api_path, headers=auth, json={"name": name, "price": "2"})
                     ).status_code == 201
-                listing = (await client.get("/v0/items?includeTotal=true")).json()
+                listing = (await client.get(api_path, params={"includeTotal": "true"})).json()
                 assert listing["total"] == 2
                 assert [item["name"] for item in listing["items"]] == ["zeta", "alpha"]
                 assert "private" not in (await client.get("/items")).text
-                assert (await client.get("/v0/items/2")).status_code == 404
+                assert (await client.get(f"{api_path}/2")).status_code == 404
                 assert (await client.get("/items/2/view")).status_code == 404
 
     asyncio.run(scenario())

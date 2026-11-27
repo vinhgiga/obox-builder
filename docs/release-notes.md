@@ -13,7 +13,7 @@ HTML and native FastAPI REST routes.
    REST customizations through `AppConfig.apis`.
 3. Choose a surface using `views=False` or `api=False`. Direct registration
    uses the table name under `/v0` for REST. A `Product` with table `product`
-   uses `/v0/product`, with `/v0/products` available as an alias.
+   uses `/v0/product`.
    PUT uses a generated schema
    from writable model fields unless an explicit `update_schema` is provided.
 4. Replace staff checks with operation permissions assigned through roles.

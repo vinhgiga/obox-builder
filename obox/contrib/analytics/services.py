@@ -28,9 +28,9 @@ from obox.contrib.analytics.query import selector
 from obox.core.async_utils import invoke
 from obox.core.exceptions import (
     BuilderValidationError,
+    DomainError,
     ImproperlyConfigured,
     NotFound,
-    OboxError,
     PermissionDenied,
 )
 
@@ -42,7 +42,7 @@ if TYPE_CHECKING:
     from obox.runtime.context import Context
 
 
-class AggregateTimeout(OboxError):
+class AggregateTimeout(DomainError):
     code = "aggregate_timeout"
 
 

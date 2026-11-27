@@ -92,23 +92,16 @@ class Registration:
         if self.views:
             resource.check_create(resource.writable)
         ui = self._build_views(view_path, resource) if self.views else None
-        api_routes = [api_suffix]
-        legacy_api_suffix = self.slug or slug
-        if api_class is not None and legacy_api_suffix != api_suffix and self.api_suffix is None:
-            api_routes.append(_route_suffix(legacy_api_suffix, "API"))
-        apis = (
-            [
-                api_class().build_resource_router(_join_path(api_base, suffix), resource)
-                for suffix in api_routes
-            ]
+        api_router = (
+            api_class().build_resource_router(_join_path(api_base, api_suffix), resource)
             if api_class is not None
-            else []
+            else None
         )
         if ui is not None:
             runtime.add_ui_prefix(view_path)
             runtime.include_router(ui, ui=True)
-        for api in apis:
-            runtime.include_router(api, app_api=api_prefix is not None)
+        if api_router is not None:
+            runtime.include_router(api_router, app_api=api_prefix is not None)
         if self.views and label:
             catalog = runtime._apps.get(label)
             if catalog is not None:

@@ -31,8 +31,8 @@ from obox.components.binding import Diagnostic
 from obox.components.service import ComponentService
 from obox.core.exceptions import (
     BuilderValidationError,
+    DomainError,
     ImproperlyConfigured,
-    OboxError,
     ResourceConflict,
 )
 from obox.core.principal import Permission, Principal
@@ -149,7 +149,7 @@ class _Runtime:
         previous_http_handler = app.exception_handlers.get(StarletteHTTPException)
 
         async def http_error(request: Request, exc: Exception) -> Response:
-            if isinstance(exc, OboxError):
+            if isinstance(exc, DomainError):
                 return await self.problem(request, exc)
             if previous_http_handler is not None:
                 result = previous_http_handler(request, exc)
@@ -157,7 +157,7 @@ class _Runtime:
             return await http_exception_handler(request, cast(StarletteHTTPException, exc))
 
         app.add_exception_handler(StarletteHTTPException, http_error)
-        app.exception_handlers.setdefault(OboxError, http_error)
+        app.exception_handlers.setdefault(DomainError, http_error)
         self.database = Database(self.settings)
         self.session_factory = self.database.sessions
         self._features: dict[str, Any] = {}
@@ -477,7 +477,7 @@ class _Runtime:
 
         obox = request.app.state.obox
         path = request.scope.get("obox_path", "")
-        error = exc if isinstance(exc, OboxError) else OboxError(str(exc))
+        error = exc if isinstance(exc, DomainError) else DomainError(str(exc))
         body: dict[str, Any] = {
             "type": "about:blank",
             "title": type(error).__name__,

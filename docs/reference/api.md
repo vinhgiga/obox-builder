@@ -31,9 +31,8 @@ router returned by `ProductApi.as_router()` or
 ## Generated routes
 
 `obox.register(Product)` uses `API_PREFIX` (default `/v0`) and the model's
-table name. For `__tablename__ = "product"`, use `/v0/product`. Obox also
-mounts `/v0/products` as a model-class-derived alias when that suffix differs.
-An explicit registration `slug` or `api_suffix` selects a single API suffix.
+table name. For `__tablename__ = "product"`, use `/v0/product`. Set `slug`
+or `api_suffix` on the registration to override the API suffix.
 Registration through `AppConfig` can also include the app's API prefix.
 
 By default, Obox generates the following operations. When `update_schema` is

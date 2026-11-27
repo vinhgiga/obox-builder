@@ -62,9 +62,6 @@ class InvalidQuery(DomainError):
     code = "invalid_query"
 
 
-OboxError = DomainError
-
-
 class ImproperlyConfigured(Exception):
     pass
 

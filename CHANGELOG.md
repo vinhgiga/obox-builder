@@ -44,7 +44,7 @@ DRF 3.16.1. Install `obox-builder` and import `obox`. The earlier
   successful writes redirect with 303.
 - REST uses independent serializers, viewsets and SimpleRouter; PUT/PATCH are
   distinct and DELETE returns 204. Model REST routes use `/v0/<table_name>`
-  by default and keep a class-derived alias when the suffix differs.
+  by default.
 - ModelBuilder is an explicit-model ModelAdmin subset and builds admin HTML only.
 - Product resources, batch/upsert, metadata and custom concurrency remain in
   contrib. Auth/files/activity/analytics/jobs/webhooks use the AppConfig integration.

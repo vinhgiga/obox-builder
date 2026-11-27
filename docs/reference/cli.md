@@ -57,7 +57,7 @@ obox createsuperuser [--settings MODULE] [--username NAME] [--noinput]
 The interactive mode prompts for a username and password. Passwords are checked
 with the configured `AUTH_PASSWORD_VALIDATORS`.
 
-With `--noinput` (also spelled `--no-input`), supply the username with
+With `--noinput`, supply the username with
 `--username` or `OBOX_SUPERUSER_USERNAME`, and the password with
 `OBOX_SUPERUSER_PASSWORD`. This mode is intended for controlled provisioning;
 keep the password out of command arguments and logs.

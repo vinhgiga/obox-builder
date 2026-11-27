@@ -44,8 +44,8 @@ The registration exposes these HTML routes.
 | `/products/{pk}/change` | Edit a product. |
 | `/products/{pk}/delete` | Confirm and submit deletion. |
 
-The REST collection is `/v0/product`, with `/v0/products` as an alias. For
-app-prefixed URLs, move the registration into `AppConfig.ready()` and use
+The REST collection is `/v0/product`. For app-prefixed URLs, move the
+registration into `AppConfig.ready()` and use
 `self.register(Product)`.
 
 Generate a model migration, review it, apply it and create an administrator.
