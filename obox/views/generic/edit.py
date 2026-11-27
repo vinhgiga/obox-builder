@@ -2,11 +2,15 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from copy import deepcopy
+from string import Formatter
 from typing import Any, ClassVar, cast
+from urllib.parse import quote
 
+import sqlalchemy as sa
 from fastapi import Request
 from fastapi.responses import RedirectResponse, Response
 from pydantic import BaseModel
+from sqlalchemy.orm import InstanceState
 
 from obox.core.async_utils import invoke
 from obox.core.exceptions import (
@@ -19,7 +23,8 @@ from obox.core.exceptions import (
 from obox.db.session import session_scope
 from obox.db.transaction import savepoint_scope
 from obox.forms import Form, ModelForm, modelform_factory
-from obox.resources import WriteAction, resolve_resource
+from obox.resources import WriteAction
+from obox.views.generic._model import ModelT
 from obox.views.generic.base import ContextMixin, TemplateResponseMixin, View
 from obox.views.generic.detail import SingleObjectMixin, SingleObjectTemplateResponseMixin
 from obox.views.generic.inlines import Inline, prepare_inlines
@@ -38,7 +43,7 @@ class FormMixin(ContextMixin):
     initial: ClassVar[dict[str, Any]] = {}
     form_class: Any = None
     schema: type[BaseModel] | None = None
-    invalid_status_code = 200
+    invalid_status_code = 422
     success_url: str | None = None
     prefix: str | None = None
     request: Request
@@ -133,7 +138,9 @@ class FormView(TemplateResponseMixin, FormMixin, View):
         return await self.post(request, *args, **kwargs)
 
 
-class ModelFormMixin(FormMixin, SingleObjectMixin):
+class ModelFormMixin(FormMixin, SingleObjectMixin[ModelT]):
+    action: WriteAction
+
     def check(self) -> None:
         super().check()
         form_class = self.get_form_class()
@@ -152,7 +159,7 @@ class ModelFormMixin(FormMixin, SingleObjectMixin):
         ):
             raise ImproperlyConfigured("No URL to redirect to. Provide a success_url.")
 
-    fields: Any = None
+    fields: Sequence[str] | None = None
     fieldsets: Sequence[tuple[str | None, dict[str, Any]]] = ()
     inlines: Sequence[type[Inline]] = ()
 
@@ -161,41 +168,64 @@ class ModelFormMixin(FormMixin, SingleObjectMixin):
             raise ImproperlyConfigured("Specifying both fields and form_class is not permitted.")
         if self.form_class is not None:
             return cast(type[ModelForm[Any]], self.form_class)
-        if resource := self.bound_resource():
-            return modelform_factory(
-                resource.model,
-                fields=self.fields
-                or tuple(
-                    resource.get_schema("create" if self.object is None else "update").model_fields
-                ),
-                schema=self.schema
-                or resource.get_schema("create" if self.object is None else "update"),
-            )
-        model = self.model or type(self.object)
-        if self.fields is None:
-            raise ImproperlyConfigured("Define fields or form_class.")
-        return modelform_factory(model, fields=self.fields)
+        resource = self.bound_resource()
+        if resource is None:
+            if self.model is None:
+                raise ImproperlyConfigured("Define model, resource or form_class.")
+            resource = self.model_resource(self.model)
+        action = "create" if self.action == "create" else "update"
+        schema = resource.get_schema(action)
+        allowed = set(resource.writable).intersection(schema.model_fields)
+        if self.fields is not None and (
+            not isinstance(self.fields, Sequence)
+            or isinstance(self.fields, str)
+            or any(not isinstance(name, str) or name not in allowed for name in self.fields)
+        ):
+            raise ImproperlyConfigured("Choose writable fields for this action.")
+        fields = tuple(name for name in schema.model_fields if name in allowed)
+        return modelform_factory(
+            resource.model,
+            fields=fields if self.fields is None else self.fields,
+            schema=self.schema or schema,
+        )
 
     async def get_form_kwargs(self) -> dict[str, Any]:
+        resource = self.bound_resource()
+        if resource is None and self.form_class is None and self.model is not None:
+            resource = self.model_resource(self.model)
         return {
             **await super().get_form_kwargs(),
             "instance": self.object,
-            "resource": self.bound_resource(),
+            "resource": resource,
         }
 
     async def get_form(self, form_class: Any = None) -> Any:
         form = await super().get_form(form_class)
-        if resource := self.bound_resource():
+        resource = self.bound_resource()
+        if resource is None and self.model is not None:
+            resource = self.model_resource(self.model)
+        if resource is not None:
+            async with session_scope() as session:
+                resource = resource.bind(session, self.request.user)
             action: WriteAction = "create" if self.object is None else "update"
             await resource.check_permission(action, self.object)
             allowed = await resource.writable_fields(action, self.object)
-            submitted = {
-                name
-                for name in resource.specs
-                if form.add_prefix(name) in form.data or form.add_prefix(name) in form.files
+            submitted = set(form.data) | set(form.files)
+            permitted = {
+                form.add_prefix(name)
+                for name in form.fields
+                if name in allowed or name not in resource.specs
             }
-            if denied := submitted - allowed:
-                raise PermissionDenied(f"Fields cannot be written: {', '.join(sorted(denied))}.")
+            unknown = submitted - permitted - {"csrf_token", "csrfmiddlewaretoken"}
+            if unknown:
+                inlines = await self.get_inline_formsets(form)
+                prefixes = tuple(f"{group['formset'].prefix}-" for group in inlines)
+                if any(
+                    not key.startswith(prefixes)
+                    or key in {form.add_prefix(name) for name in resource.specs}
+                    for key in unknown
+                ):
+                    raise PermissionDenied("These fields cannot be written.")
             for name, field in tuple(form.fields.items()):
                 if name in resource.specs and name not in resource.readable:
                     del form.fields[name]
@@ -204,7 +234,7 @@ class ModelFormMixin(FormMixin, SingleObjectMixin):
                     field.disabled = True
         return form
 
-    async def _save_resource_form(self, form: ModelForm[Any]) -> Any:
+    async def _save_resource_form(self, form: ModelForm[Any, ModelT]) -> ModelT:
         return await form.save()
 
     async def form_valid(self, form: Any) -> Response:
@@ -241,7 +271,7 @@ class ModelFormMixin(FormMixin, SingleObjectMixin):
         return self._inline_formsets
 
     async def save_model(
-        self, request: Request, obj: Any, form: ModelForm[Any], change: bool
+        self, request: Request, obj: ModelT, form: ModelForm[Any, ModelT], change: bool
     ) -> None:
         """Run additional view behavior after saving the record."""
 
@@ -267,17 +297,11 @@ class ModelFormMixin(FormMixin, SingleObjectMixin):
             for name in visible
             if name not in form.fields or form.fields[name].disabled
         }
-        delete_url = None
-        if (
-            self.object is not None
-            and resource is not None
-            and "delete" in self.route_names
-            and self.has_model_permission(model, "delete")
-            and await invoke(resource.can, "delete", self.object, self.request.user)
-        ):
-            delete_url = self.route_url(
-                "delete", pk=str(getattr(self.object, resource.lookup_name))
-            )
+        delete_url = (
+            await self.write_url("delete", resource, self.object)
+            if resource is not None and self.object is not None
+            else None
+        )
         return {
             "title": model.__name__,
             "fieldsets": [
@@ -310,7 +334,30 @@ class ModelFormMixin(FormMixin, SingleObjectMixin):
 
     def get_success_url(self) -> str:
         if self.success_url:
-            target = self.success_url.format(**vars(self.object))
+            obj = self.object
+            if obj is None:
+                return super().get_success_url()
+            state = cast("InstanceState[ModelT]", sa.inspect(obj))
+            values = {
+                prop.key: state.dict[prop.key]
+                for prop in state.mapper.column_attrs
+                if prop.key in state.dict
+            }
+            if state.identity is not None:
+                values["pk"] = state.identity[0]
+            parts = []
+            try:
+                for literal, field, spec, conversion in Formatter().parse(self.success_url):
+                    parts.append(literal)
+                    if field is not None:
+                        if not field.isidentifier() or spec or conversion:
+                            raise ValueError
+                        parts.append(quote(str(values[field]), safe=""))
+            except (KeyError, ValueError) as exc:
+                raise ImproperlyConfigured(
+                    "Use {pk} or loaded column names in success_url."
+                ) from exc
+            target = "".join(parts)
             return (
                 target
                 if target.startswith(("/", "http://", "https://"))
@@ -318,12 +365,12 @@ class ModelFormMixin(FormMixin, SingleObjectMixin):
             )
         if url := self.route_url("list"):
             return url
-        if hasattr(self.object, "get_absolute_url"):
-            return str(self.object.get_absolute_url())
+        if absolute_url := getattr(self.object, "get_absolute_url", None):
+            return str(absolute_url())
         raise ImproperlyConfigured("No URL to redirect to. Provide a success_url.")
 
 
-class CreateView(SingleObjectTemplateResponseMixin, ModelFormMixin, FormView):
+class CreateView(SingleObjectTemplateResponseMixin[ModelT], ModelFormMixin[ModelT], FormView):
     action = "create"
     template_name_suffix = "_form"
 
@@ -336,7 +383,7 @@ class CreateView(SingleObjectTemplateResponseMixin, ModelFormMixin, FormView):
         return await super().post(request, *args, **kwargs)
 
 
-class UpdateView(SingleObjectTemplateResponseMixin, ModelFormMixin, FormView):
+class UpdateView(SingleObjectTemplateResponseMixin[ModelT], ModelFormMixin[ModelT], FormView):
     action = "update"
     template_name_suffix = "_form"
 
@@ -349,13 +396,15 @@ class UpdateView(SingleObjectTemplateResponseMixin, ModelFormMixin, FormView):
         return await super().post(request, *args, **kwargs)
 
 
-class DeleteView(SingleObjectTemplateResponseMixin, SingleObjectMixin, FormMixin, View):
+class DeleteView(SingleObjectTemplateResponseMixin[ModelT], FormMixin, View):
     action = "destroy"
     template_name_suffix = "_confirm_delete"
     form_class = Form
 
     def check(self) -> None:
         super().check()
+        if self.success_url and any(char in self.success_url for char in "{}"):
+            raise ImproperlyConfigured("DeleteView.success_url must be static.")
         if (
             not self.success_url
             and not self.route_names.get("list")
@@ -380,12 +429,7 @@ class DeleteView(SingleObjectTemplateResponseMixin, SingleObjectMixin, FormMixin
 
     def get_success_url(self) -> str:
         if self.success_url:
-            target = self.success_url.format(**vars(self.object))
-            return (
-                target
-                if target.startswith(("/", "http://", "https://"))
-                else str(self.reverse(target))
-            )
+            return super().get_success_url()
         if url := self.route_url("list"):
             return url
         raise ImproperlyConfigured("No URL to redirect to. Provide a success_url.")
@@ -394,8 +438,11 @@ class DeleteView(SingleObjectTemplateResponseMixin, SingleObjectMixin, FormMixin
         url = self.get_success_url()
         try:
             async with session_scope() as session, savepoint_scope(session):
-                resource = self.bound_resource() or resolve_resource(type(self.object))
-                await resource.bind(session, self.request.user).destroy(self.object)
+                obj = self.object
+                if obj is None:
+                    raise ImproperlyConfigured("Load the record before deleting it.")
+                resource = self.model_resource(type(obj))
+                await resource.bind(session, self.request.user).destroy(obj)
         except (BuilderValidationError, RuleViolation, ResourceConflict) as exc:
             await self.restore_object()
             errors = (

@@ -11,7 +11,8 @@ They are separate from the generated JSON routes documented in the
 | --- | --- |
 | `View` | Dispatch a request to a method handler. |
 | `TemplateView` | Render a template with context data. |
-| `ListView` | Query, filter, and paginate a collection. |
+| `GridView` | Query and render a collection as a spreadsheet. |
+| `ListView` | Query and render a collection as flat rows. |
 | `DetailView` | Load one record and render its detail page. |
 | `FormView` | Validate a form and run custom success behavior. |
 | `CreateView` | Create a model record from a model form. |
@@ -46,12 +47,10 @@ are prepared by the runtime.
 Use `Obox.register()` or an installed `AppConfig` to create model routes:
 
 ```python
-class ProductList(ListView):
-    list_display = ("name", "price")
-
-
-obox.register(Product, list_view=ProductList)
+obox.register(Product)
 ```
+
+Use [`ModelViewSet`](model-viewset.md) to customize the views of an installed app.
 
 For a standalone FastAPI route, use `as_view()` and attach the dependencies that
 protect that route:

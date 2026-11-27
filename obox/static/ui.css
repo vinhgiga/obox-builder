@@ -1734,7 +1734,7 @@ button.sort-add:hover {
   border-collapse: separate;
   border-spacing: 0;
 }
-.record-grid[data-row-height="compact"] {
+.record-grid[data-row-height="short"] {
   --cell-lines: 1;
   --row-height: 2rem;
 }
@@ -1742,7 +1742,7 @@ button.sort-add:hover {
   --cell-lines: 4;
   --row-height: 6rem;
 }
-.record-grid[data-row-height="extra-tall"] {
+.record-grid[data-row-height="extra"] {
   --cell-lines: 6;
   --row-height: 9rem;
 }
@@ -1793,6 +1793,54 @@ button.sort-add:hover {
   display: block;
   -webkit-line-clamp: unset;
   white-space: normal;
+}
+.collection-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+.collection-body > .grid-body {
+  flex: 1;
+  min-width: 0;
+}
+.collection-views {
+  flex: 0 0 11rem;
+  padding: 0.75rem;
+  border-inline-end: 1px solid var(--tblr-border-color);
+}
+.collection-view-link {
+  display: block;
+  padding: 0.4rem 0.65rem;
+  white-space: nowrap;
+}
+.collection-view-link[aria-current="page"] {
+  background: var(--tblr-bg-surface-secondary);
+  border-radius: var(--tblr-border-radius);
+  font-weight: 600;
+}
+.collection-open {
+  margin-inline-start: 0.5rem;
+  font-size: 0.8rem;
+}
+:is(.table.record-grid.record-list) :is(th, td) {
+  border-inline: 0;
+  border-bottom-color: transparent;
+  background: transparent;
+}
+:is(.table.record-grid.record-list) th {
+  color: var(--tblr-secondary-color);
+  font-weight: 500;
+}
+.record-grid [data-group-depth="2"] .group-toggle {
+  padding-inline-start: 1.5rem;
+}
+.record-grid [data-group-depth="3"] .group-toggle {
+  padding-inline-start: 2.5rem;
+}
+@media (max-width: 900px) {
+  .collection-views {
+    display: none;
+  }
 }
 .record-grid mark[data-search-mark] {
   color: inherit;

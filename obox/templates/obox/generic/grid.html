@@ -1,0 +1,578 @@
+{% extends base_template|default("obox/base.html") %}
+{% block body_class %}page grid-layout{% endblock %}
+{% block main_class %}grid-page{% endblock %}
+{% block page_container_class %}grid-page-container{% endblock %}
+{% block heading_class %}visually-hidden{% endblock %}
+{% block content_class %}grid-content{% endblock %}
+{% block content %}
+  {% set is_grid = collection_kind == "grid" %}
+  {% set sorted_column = (query.group or query.sort)|first|default(none) %}
+  {% set row_indexes = page.is_paginated and not query.group %}
+  {% set links %}
+    {% for link in view_links %}
+      <a class="collection-view-link"
+         href="{{ link.url }}"
+         {% if link.active %} aria-current="page"{% endif %}>{{ link.label }}</a>
+    {% endfor %}
+  {% endset %}
+  <script type="application/json"
+          data-list-config>{{ {"query": query, "layout": layout}|tojson }}</script>
+  <div class="grid-toolbar">
+    <div class="grid-view-label">
+      {% if view_links|length > 1 %}
+        <details class="field-menu collection-view-menu">
+          <summary aria-label="Switch view">{{ (view_links|selectattr("active")|first).label }} <span aria-hidden="true">⌄</span></summary>
+          <div class="field-menu-panel">{{ links }}</div>
+        </details>
+      {% else %}
+        <strong>{% block view_title %}Grid view{% endblock %}</strong>
+      {% endif %}
+    </div>
+    {% if actions %}
+      <div class="grid-bulk-actions" data-bulk-controls hidden>
+        <label class="visually-hidden" for="grid-bulk-action">Choose a bulk action</label>
+        <select class="form-select form-select-sm"
+                id="grid-bulk-action"
+                name="action"
+                form="bulk-action-form"
+                data-bulk-action>
+          <option value="">Choose an action</option>
+          {% for name, option in actions.items() %}<option value="{{ name }}">{{ option[2] }}</option>{% endfor %}
+        </select>
+        <button class="btn btn-primary btn-sm"
+                type="submit"
+                form="bulk-action-form"
+                data-bulk-submit
+                disabled>Run</button>
+      </div>
+    {% endif %}
+    <div class="grid-tools" role="toolbar" aria-label="Grid view tools">
+      <details class="field-menu" data-field-menu>
+        <summary>
+          <svg class="field-menu-icon"
+               viewBox="0 0 24 24"
+               fill="none"
+               stroke="currentColor"
+               stroke-width="1.5"
+               aria-hidden="true">
+            <path d="m3 3 18 18M10.6 10.7a2 2 0 0 0 2.7 2.7M9.9 5.2A9.7 9.7 0 0 1 12 5c5 0 9 4.5 9 7a11.8 11.8 0 0 1-2.2 2.6M6.6 6.6C4 8.2 3 10.2 3 12c0 2.5 4 7 9 7 1 0 2-.2 2.9-.5" />
+          </svg>
+          {% block field_menu_label %}Hide fields{% endblock %}
+        </summary>
+        <div class="field-menu-panel">
+          <label class="visually-hidden" for="field-menu-search">Find a field</label>
+          <input class="form-control form-control-sm"
+                 id="field-menu-search"
+                 type="search"
+                 placeholder="Find a field"
+                 data-field-search>
+          <div class="field-menu-list" role="group" aria-label="Fields">
+            {% for field in columns %}
+              <div class="field-menu-option"
+                   data-field-option
+                   data-field-key="{{ field.name }}"
+                   data-field-label="{{ field.label|lower }}"
+                   data-field-display="{{ field.label }}"
+                   data-field-kind="{{ field.kind }}">
+                <label class="field-menu-toggle">
+                  <input class="form-check-input"
+                         type="checkbox"
+                         {% if field.name not in layout.hidden %}checked{% endif %}
+                         {% if field.primary %}disabled{% endif %}
+                         data-field-toggle="{{ field.name }}"
+                         aria-label="Show {{ field.label }}">
+                  <span><span class="field-type-icon" aria-hidden="true">{% if field.kind in ["date", "datetime", "time"] %}▦{% elif field.kind == "number" %}#{% elif field.kind in ["choice", "boolean"] %}⊙{% else %}≡{% endif %}</span>{{ field.label }}</span>
+                  <span class="field-switch" aria-hidden="true"><span>&#8203;</span></span>
+                </label>
+                <button class="field-menu-handle"
+                        type="button"
+                        {% if field.primary %}disabled{% else %}draggable="true"{% endif %}
+                        data-field-reorder="{{ field.name }}"
+                        aria-label="Reorder {{ field.label }}"
+                        aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
+                        title="Drag to reorder (Alt+Up/Down)">
+                  <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                    <circle cx="9" cy="6" r="1.5" /><circle cx="15" cy="6" r="1.5" /><circle cx="9" cy="12" r="1.5" /><circle cx="15" cy="12" r="1.5" /><circle cx="9" cy="18" r="1.5" /><circle cx="15" cy="18" r="1.5" />
+                  </svg>
+                </button>
+              </div>
+            {% endfor %}
+            <p class="field-menu-empty" data-field-empty hidden>No fields found.</p>
+          </div>
+          <div class="field-menu-actions">
+            <button class="field-menu-action btn btn-outline-secondary btn-sm"
+                    type="button"
+                    data-hide-all>Hide all</button>
+            <button class="field-menu-action btn btn-outline-secondary btn-sm"
+                    type="button"
+                    data-show-all>Show all</button>
+          </div>
+        </div>
+      </details>
+      <details class="field-menu filter-menu" data-filter-menu>
+        <summary>
+          <svg class="field-menu-icon"
+               viewBox="0 0 24 24"
+               fill="none"
+               stroke="currentColor"
+               stroke-width="1.5"
+               aria-hidden="true">
+            <path d="M4 5h16l-6.5 7.5V19l-3 1.5v-8z" />
+          </svg>
+          Filter
+          <span class="filter-count" data-filter-count hidden></span>
+        </summary>
+        <div class="field-menu-panel filter-menu-panel">
+          <p class="filter-title">Filter</p>
+          <p class="filter-subtitle">In this view, show records that match</p>
+          <label class="filter-root-join">
+            <span>Where</span><select class="form-select form-select-sm"
+        data-filter-conjunction
+        aria-label="Match conditions">
+              <option value="and">All conditions</option>
+              <option value="or">Any condition</option>
+            </select>
+          </label>
+          <div class="filter-conditions" data-filter-conditions></div>
+          <div class="filter-actions">
+            <button class="filter-apply btn btn-primary btn-sm"
+                    type="button"
+                    data-filter-apply>Apply</button>
+            <button class="filter-reset btn btn-outline-secondary btn-sm"
+                    type="button"
+                    data-filter-reset>Reset</button>
+          </div>
+        </div>
+        <template data-filter-row-template>
+          <div class="filter-condition" data-filter-row>
+            <select class="form-select form-select-sm"
+                    data-filter-field
+                    aria-label="Filter field">
+              {% for field in query.fields %}<option value="{{ field.name }}">{{ field.label }}</option>{% endfor %}
+            </select>
+            <select class="form-select form-select-sm"
+                    data-filter-op
+                    aria-label="Filter operator">
+              <option value="contains">contains</option>
+              <option value="does_not_contain">does not contain</option>
+              <option value="is">is</option>
+              <option value="is_not">is not</option>
+              <option value="is_empty">is empty</option>
+              <option value="is_not_empty">is not empty</option>
+            </select>
+            <input class="form-control form-control-sm"
+                   type="text"
+                   data-filter-value
+                   aria-label="Filter value">
+            <button class="filter-remove"
+                    type="button"
+                    data-filter-remove
+                    aria-label="Remove condition"
+                    title="Remove condition">
+              <svg viewBox="0 0 24 24"
+                   fill="none"
+                   stroke="currentColor"
+                   stroke-width="1.5"
+                   aria-hidden="true">
+                <path d="M5 12h14" />
+              </svg>
+            </button>
+          </div>
+        </template>
+      </details>
+      <details class="field-menu group-menu" data-group-menu>
+        <summary>
+          <svg class="field-menu-icon"
+               viewBox="0 0 24 24"
+               fill="none"
+               stroke="currentColor"
+               stroke-width="1.5"
+               aria-hidden="true">
+            <path d="M4 6h16M4 12h12M4 18h8" />
+          </svg>
+          Group
+          <span class="filter-count" data-group-count hidden>1</span>
+        </summary>
+        <div class="field-menu-panel sort-menu-panel">
+          <div class="sort-title group-menu-title">
+            <div class="sort-title">
+              <p class="filter-title">Group by</p>
+              <span class="sort-help"
+                    title="Group records by one or more fields. Fields higher in the list take priority.">?</span>
+            </div>
+            <div class="group-bulk-controls" data-group-bulk-controls hidden>
+              <button class="group-bulk-action"
+                      type="button"
+                      data-group-collapse-all>Collapse all</button>
+              <button class="group-bulk-action"
+                      type="button"
+                      data-group-expand-all>Expand all</button>
+            </div>
+          </div>
+          <div class="sort-rows" data-group-rows></div>
+          <div class="sort-picker" data-group-picker>
+            <div class="sort-search">
+              <svg viewBox="0 0 24 24"
+                   fill="none"
+                   stroke="currentColor"
+                   stroke-width="1.5"
+                   aria-hidden="true">
+                <circle cx="11" cy="11" r="7" />
+                <path d="m20 20-3.5-3.5" />
+              </svg><input class="form-control form-control-sm"
+       type="search"
+       placeholder="Find a field"
+       aria-label="Find a field to group by"
+       autocomplete="off"
+       data-group-search>
+            </div>
+            <div class="sort-fields" data-group-fields>
+              {% for field in query.fields %}<button class="sort-field"
+        type="button"
+        data-grid-group-choice="{{ field.name }}"
+        data-grid-field-kind="{{ field.kind }}"
+        data-grid-option-label="{{ field.label|lower }}"><span class="toolbar-icon" aria-hidden="true">{% if field.kind in ["date", "datetime", "time"] %}▦{% elif field.kind == "number" %}#{% elif field.kind in ["choice", "boolean"] %}⊙{% else %}≡{% endif %}</span><span>{{ field.label }}</span></button>{% endfor %}
+            </div>
+          </div>
+          <button class="sort-add btn btn-link btn-sm"
+                  type="button"
+                  data-group-add>＋ Add subgroup</button>
+          <div class="sort-footer">
+            <button class="sort-cancel btn btn-outline-secondary btn-sm"
+                    type="button"
+                    data-group-cancel>Cancel</button><button class="sort-apply btn btn-primary btn-sm"
+        type="button"
+        data-group-apply>Apply</button>
+          </div>
+        </div>
+      </details>
+      <details class="field-menu sort-menu" data-sort-menu>
+        <summary>
+          <svg class="field-menu-icon"
+               viewBox="0 0 24 24"
+               fill="none"
+               stroke="currentColor"
+               stroke-width="1.5"
+               aria-hidden="true">
+            <path d="M8 4v16m-3-3 3 3 3-3M16 20V4m-3 3 3-3 3 3" />
+          </svg>
+          Sort
+          <span class="filter-count" data-sort-count hidden>1</span>
+        </summary>
+        <div class="field-menu-panel sort-menu-panel">
+          <div class="sort-title">
+            <p class="filter-title">Sort by</p>
+            <span class="sort-help"
+                  title="Sort records by one or more fields. Fields higher in the list take priority.">?</span>
+          </div>
+          <div class="sort-rows" data-sort-rows></div>
+          <div class="sort-picker" data-sort-picker>
+            <div class="sort-search">
+              <svg viewBox="0 0 24 24"
+                   fill="none"
+                   stroke="currentColor"
+                   stroke-width="1.5"
+                   aria-hidden="true">
+                <circle cx="11" cy="11" r="7" />
+                <path d="m20 20-3.5-3.5" />
+              </svg><input class="form-control form-control-sm"
+       type="search"
+       placeholder="Find a field"
+       aria-label="Find a field to sort by"
+       autocomplete="off"
+       data-sort-search>
+            </div>
+            <div class="sort-fields" data-sort-fields>
+              {% for field in query.fields %}<button class="sort-field"
+        type="button"
+        data-grid-sort-choice="{{ field.name }}"
+        data-grid-field-kind="{{ field.kind }}"
+        data-grid-option-label="{{ field.label|lower }}"><span class="toolbar-icon" aria-hidden="true">{% if field.kind in ["date", "datetime", "time"] %}▦{% elif field.kind == "number" %}#{% elif field.kind in ["choice", "boolean"] %}⊙{% else %}≡{% endif %}</span><span>{{ field.label }}</span></button>{% endfor %}
+            </div>
+          </div>
+          <button class="sort-add btn btn-link btn-sm"
+                  type="button"
+                  data-sort-add>＋ Add another sort</button>
+          <div class="sort-footer">
+            <button class="sort-cancel btn btn-outline-secondary btn-sm"
+                    type="button"
+                    data-sort-cancel>Cancel</button><button class="sort-apply btn btn-primary btn-sm"
+        type="button"
+        data-sort-apply>Apply</button>
+          </div>
+        </div>
+      </details>
+      <details class="field-menu">
+        <summary>
+          <svg class="field-menu-icon"
+               viewBox="0 0 24 24"
+               fill="none"
+               stroke="currentColor"
+               stroke-width="1.5"
+               aria-hidden="true">
+            <path d="M12 3a9 9 0 1 0 0 18h1.5a2.5 2.5 0 0 0 1.4-4.6 1.5 1.5 0 0 1 .8-2.7H18a3 3 0 0 0 3-3c0-4.3-4-7.7-9-7.7Z" />
+            <circle cx="7.5" cy="10" r="1" /><circle cx="10.5" cy="6.5" r="1" /><circle cx="15" cy="7" r="1" />
+          </svg>Color
+        </summary>
+        <div class="field-menu-panel grid-option-panel">
+          <p class="filter-title">Row color</p>
+          <div class="grid-color-options" role="group" aria-label="Row color">
+            {% for name, color in [('Default', 'default'), ('Blue', 'blue'), ('Green', 'green'), ('Yellow', 'yellow'), ('Red', 'red')] %}
+              <button class="grid-color-option"
+                      type="button"
+                      data-grid-color="{{ color }}"
+                      aria-label="{{ name }}"
+                      title="{{ name }}"><span aria-hidden="true">&#8203;</span></button>
+            {% endfor %}
+          </div>
+        </div>
+      </details>
+      <details class="field-menu row-height-menu" data-row-height-panel>
+        <summary aria-label="Row height" title="Row height">
+          <svg class="field-menu-icon"
+               viewBox="0 0 24 24"
+               fill="none"
+               stroke="currentColor"
+               stroke-width="1.5"
+               aria-hidden="true">
+            <path d="M6 4v16M3 7l3-3 3 3M3 17l3 3 3-3M13 6h8M13 12h8M13 18h8" />
+          </svg>
+        </summary>
+        <div class="field-menu-panel row-height-menu-panel">
+          <div class="row-height-options" role="group" aria-label="Row height">
+            {% for value, label, path in [('short', 'Short', 'M3 6h11M3 12h11M3 18h11'), ('medium', 'Medium', 'M3 3h11v6H3zM3 15h11M3 21h11'), ('tall', 'Tall', 'M3 3h11v12H3zM3 21h11'), ('extra', 'Extra Tall', 'M3 3h11v18H3z')] %}
+              <button class="row-height-option"
+                      type="button"
+                      data-row-height-choice="{{ value }}"
+                      aria-pressed="{{ 'true' if value == layout.row_height else 'false' }}">
+                <svg class="row-height-icon"
+                     viewBox="0 0 24 24"
+                     fill="none"
+                     stroke="currentColor"
+                     stroke-width="1.5"
+                     stroke-linecap="round"
+                     stroke-linejoin="round"
+                     aria-hidden="true">
+                  <path d="{{ path }}M20 4v16m-2-2 2 2 2-2M18 6l2-2 2 2" />
+                </svg><span>{{ label }}</span><span class="row-height-check"
+      aria-hidden="true">✓</span>
+              </button>
+            {% endfor %}
+          </div>
+          <div class="row-height-divider"></div>
+          <button class="row-height-option"
+                  type="button"
+                  data-wrap-headers
+                  aria-pressed="false">
+            <svg class="row-height-icon"
+                 viewBox="0 0 24 24"
+                 fill="none"
+                 stroke="currentColor"
+                 stroke-width="1.5"
+                 stroke-linecap="round"
+                 stroke-linejoin="round"
+                 aria-hidden="true">
+              <path d="M4 6h16M4 12h10a3 3 0 1 1 0 6H8m3-3-3 3 3 3M4 18h4" />
+            </svg><span>Wrap headers</span><span class="row-height-check"
+      aria-hidden="true">✓</span>
+          </button>
+        </div>
+      </details>
+      {% if query.searchable %}
+        <button class="grid-search-toggle"
+                type="button"
+                data-search-toggle
+                aria-expanded="false"
+                aria-controls="grid-search"
+                aria-label="Search records"
+                title="Search records">
+          <svg viewBox="0 0 24 24"
+               fill="none"
+               stroke="currentColor"
+               stroke-width="1.5"
+               aria-hidden="true">
+            <circle cx="11" cy="11" r="7" />
+            <path d="m20 20-3.5-3.5" />
+          </svg>
+        </button>
+      {% endif %}
+    </div>
+    {% if query.searchable %}
+      <form method="get"
+            class="grid-search"
+            id="grid-search"
+            data-search-panel
+            role="search"
+            aria-label="Search records"
+            hidden>
+        <input type="hidden"
+               name="filter"
+               value="{{ query.filter|tojson|forceescape }}">
+        {% for name in ("group", "ordering") %}
+          {% if name in request.query_params %}
+            <input type="hidden"
+                   name="{{ name }}"
+                   value="{{ request.query_params[name] }}">
+          {% endif %}
+        {% endfor %}
+        <input class="form-control form-control-sm"
+               type="search"
+               name="q"
+               value="{{ query.search }}"
+               data-search-input
+               placeholder="Search records"
+               aria-label="Search records"
+               autocomplete="off">
+        <button class="btn btn-primary btn-sm" type="submit">Search</button>
+        <button class="grid-search-button"
+                type="button"
+                data-search-close
+                aria-label="Close search"
+                title="Close search">×</button>
+      </form>
+    {% endif %}
+  </div>
+  <div class="collection-body">
+    {% if view_links|length > 1 %}
+      <nav class="collection-views" aria-label="Collection views">
+        {{ links }}
+      </nav>
+    {% endif %}
+    <div class="grid-body">
+      <div class="grid-scroll"
+           role="region"
+           aria-label="{{ title }} records"
+           tabindex="0">
+        {% if actions %}
+          <form id="bulk-action-form" method="post" data-bulk-form>
+            <input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">
+          </form>
+        {% endif %}
+        <table class="table table-vcenter record-grid{% if not is_grid %} record-list{% endif %}"
+               data-list-table
+               data-row-height="{{ layout.row_height }}"
+               data-wrap-headers="false"
+               {% if row_indexes %}aria-rowcount="{{ total + 1 }}"{% endif %}>
+          <thead>
+            <tr{% if row_indexes %} aria-rowindex="1"{% endif %}>
+              {% if is_grid or actions %}
+                <th scope="col" class="row-number">
+                  {% if actions %}
+                    <input class="grid-select form-check-input"
+                           type="checkbox"
+                           data-select-all
+                           aria-label="Select all records on this page">
+                  {% else %}
+                    <span aria-hidden="true">#</span>
+                  {% endif %}
+                </th>
+              {% endif %}
+              {% for field in columns %}
+                <th scope="col"
+                    data-list-column="{{ field.name }}"
+                    {% if field.name in layout.hidden %}hidden{% endif %}
+                    {% if sorted_column and sorted_column.field == field.name %} aria-sort="{{ 'descending' if sorted_column.descending else 'ascending' }}" {% endif %}>
+                  {% if is_grid %}
+                    <span class="field-type-icon" aria-hidden="true">{{ {"number": "#", "choice": "⊙", "boolean": "⊙", "date": "▦", "datetime": "▦", "time": "▦"}.get(field.kind, "≡") }}</span>
+                  {% endif %}
+                  {{ field.label }}
+                </th>
+              {% endfor %}
+              {% if not columns %}<th scope="col">Record</th>{% endif %}
+            </tr>
+          </thead>
+          <tbody>
+            {% set span = ([columns|length, 1]|max) + (1 if is_grid or actions else 0) %}
+            {% for row in rows %}
+              {% set number = page.start_index + loop.index0 %}
+              {% set label = row["values"][0] if row["values"] else row.pk %}
+              {% for group in row.groups %}
+                <tr class="group-header" data-group-depth="{{ group.depth }}">
+                  <td colspan="{{ span }}">
+                    <button type="button"
+                            class="group-toggle"
+                            data-group-toggle
+                            aria-expanded="true">
+                      <span class="group-caret" aria-hidden="true">▾</span>
+                      <span class="group-name">{{ group.label }}</span>
+                      <span class="group-value">{{ group.value.value|default(group.value) if group.value is not none and group.value != '' else 'Empty' }}</span>
+                      <span class="group-count">{{ group.count }} {{ "record" if group.count == 1 else "records" }}</span>
+                    </button>
+                  </td>
+                </tr>
+              {% endfor %}
+              <tr data-grid-row{% if actions %}
+                  data-selectable{% endif %}
+                  {% if row_indexes %}aria-rowindex="{{ number + 1 }}"{% endif %}>
+                {% if is_grid or actions %}
+                  <td class="row-number">
+                    {% if is_grid %}<span class="row-index">{{ number }}</span>{% endif %}
+                    {% if actions %}
+                      <input class="grid-select row-select form-check-input"
+                             type="checkbox"
+                             name="_selected_action"
+                             value="{{ row.pk }}"
+                             form="bulk-action-form"
+                             data-row-select
+                             aria-label="Select record {{ label }}">
+                    {% endif %}
+                  </td>
+                {% endif %}
+                {% for field in columns %}
+                  {% set value = row["values"][loop.index0] %}
+                  <td data-list-column="{{ field.name }}"
+                      {% if field.name in layout.hidden %} hidden{% endif %}>
+                    <div class="cell-value">
+                      {% if field.kind == "choice" and value is not none %}
+                        <span class="badge bg-azure-lt">{{ value.value|default(value) }}</span>
+                      {% elif value is not none %}
+                        <span>{{ value }}</span>
+                      {% endif %}
+                      {% if field.primary and row.url %}
+                        <a class="collection-open"
+                           href="{{ row.url }}"
+                           aria-label="Open record {{ label }}">{{ "↗" if is_grid else "Open ›" }}</a>
+                      {% endif %}
+                    </div>
+                  </td>
+                {% else %}
+                  <td>{% if row.url %}<a href="{{ row.url }}">Open record</a>{% endif %}</td>
+                {% endfor %}
+              </tr>
+            {% else %}
+              <tr>
+                <td class="grid-empty" colspan="{{ span }}">No records.</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% if add_url %}
+        <a class="grid-add" href="{{ add_url }}">
+          <span class="grid-add-icon" aria-hidden="true">＋</span>
+          <span>{% block add_label %}Add {{ title }}{% endblock %}</span>
+        </a>
+      {% endif %}
+      <footer class="grid-footer">
+        <div class="grid-footer-actions">
+          <span data-selection-status
+                data-total-count="{{ total }}">{{ total }} {{ "record" if total == 1 else "records" }}</span>
+          {% if actions %}
+            <button class="grid-selection-link"
+                    type="button"
+                    data-clear-selection
+                    hidden>Clear selection</button>
+          {% endif %}
+        </div>
+        <div class="grid-pagination">
+          {% if previous_url %}<a href="{{ previous_url }}"
+   aria-label="Previous page">‹</a>{% endif %}
+          {% if next_url %}<a href="{{ next_url }}" aria-label="Next page">›</a>{% endif %}
+        </div>
+      </footer>
+    </div>
+  </div>
+{% endblock %}
+{% block scripts %}
+  <script src="{{ request.url_for('obox_static', path='list.js') }}"></script>
+{% endblock %}

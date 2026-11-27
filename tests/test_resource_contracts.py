@@ -124,7 +124,6 @@ def test_html_and_api_share_page_order_and_scoped_lookup(tmp_path: Path) -> None
 
     class Detail(DetailView):
         resource = Directory
-        slug_field = "name"
 
         def get_queryset(self) -> sa.Select[tuple[Entry]]:
             return sa.select(Entry)
@@ -149,7 +148,7 @@ def test_html_and_api_share_page_order_and_scoped_lookup(tmp_path: Path) -> None
     async def scenario() -> None:
         template = tmp_path / "listing" / "resource_entries_list.html"
         template.parent.mkdir()
-        template.write_text("{{ page_obj.number }}:{{ object_list[0].name }}", encoding="utf-8")
+        template.write_text("{{ page.number }}:{{ object_list[0].name }}", encoding="utf-8")
         async with configured(), database(tmp_path / "pages.sqlite3", (Base.metadata,)) as sessions:
             async with sessions.begin() as session:
                 session.add_all(
@@ -173,7 +172,7 @@ def test_html_and_api_share_page_order_and_scoped_lookup(tmp_path: Path) -> None
             runtime.templates.env.loader = ChoiceLoader([FileSystemLoader(tmp_path), loader])
             router = APIRouter()
             Index.as_route(router, "/entries", name="entry-list")
-            Detail.as_route(router, "/entries/{slug}", name="entry-detail")
+            Detail.as_route(router, "/entries/{pk}", name="entry-detail")
             app.include_router(router)
             app.include_router(
                 DirectoryAPI.as_router("/api/entries", tags=["entries"], name_prefix="entries")
@@ -201,6 +200,9 @@ def test_html_and_api_share_page_order_and_scoped_lookup(tmp_path: Path) -> None
                     assert (await client.get(f"{prefix}/private")).status_code == 404
                     assert (await client.get(f"{prefix}/alpha")).status_code == 200
                 assert (await client.get("/entries/restricted")).status_code == 403
+                assert (await client.get("/entries/private")).text == (
+                    await client.get("/entries/missing")
+                ).text
                 denied = await client.get("/api/entries/restricted")
                 assert denied.status_code == 404
                 assert denied.json()["code"] == "permission_denied"
@@ -365,13 +367,7 @@ def test_adapters_share_resource_rules_and_transaction_boundary(
                     else await client.post("/api/entries", json={"name": name, "amount": 1})
                 )
                 expected = status or (
-                    200
-                    if name == "blocked" and surface == "html"
-                    else 422
-                    if name == "blocked"
-                    else 303
-                    if surface == "html"
-                    else 201
+                    422 if name == "blocked" else 303 if surface == "html" else 201
                 )
                 assert response.status_code == expected, response.text
                 if name == "blocked":
@@ -519,7 +515,7 @@ def test_write_rule_violation_restores_object_before_rendering(tmp_path: Path, a
                 response = await client.post(
                     "/entries/1", data={"name": "attempted", "amount": "2"}
                 )
-                assert response.status_code == 200, response.text
+                assert response.status_code == 422, response.text
                 assert "Cannot change this record." in response.text
                 if action == "update":
                     assert 'value="attempted"' in response.text

@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
-from typing import Any, cast
+from typing import Any, Generic, cast
 
 import sqlalchemy as sa
-from sqlalchemy.orm import MANYTOMANY, MANYTOONE, NO_VALUE, attributes, selectinload
+from sqlalchemy.orm import MANYTOMANY, MANYTOONE, NO_VALUE, attributes, object_mapper, selectinload
+from sqlalchemy.orm.util import object_state
+from typing_extensions import TypeVar
 
 from obox.core.exceptions import BuilderValidationError, ImproperlyConfigured, ValidationError
 from obox.core.principal import ANONYMOUS
@@ -39,6 +41,9 @@ from obox.forms.relations import (
 )
 from obox.forms.widgets import HiddenInput
 from obox.resources import ModelResource
+
+ModelT = TypeVar("ModelT", default=Any)
+_META_OPTIONS = {"model", "fields", "exclude", "labels", "widgets", "help_texts"}
 
 
 def _editable_relationship(relation: Any) -> bool:
@@ -220,7 +225,9 @@ def fields_for_model(
     return result
 
 
-class ModelForm(Form[S]):
+class ModelForm(Form[S], Generic[S, ModelT]):
+    instance: ModelT
+
     @classmethod
     def collect_fields(cls) -> dict[str, Field]:
         fields: dict[str, Field] = {}
@@ -237,6 +244,19 @@ class ModelForm(Form[S]):
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
         meta = getattr(cls, "Meta", None)
+        if meta is not None:
+            if not isinstance(meta, type):
+                raise ImproperlyConfigured("ModelForm.Meta must be a class.")
+            unknown = {
+                name
+                for base in meta.__mro__
+                for name in vars(base)
+                if not name.startswith("__") and name not in _META_OPTIONS
+            }
+            if unknown:
+                raise ImproperlyConfigured(
+                    f"Unsupported ModelForm.Meta options: {', '.join(sorted(unknown))}."
+                )
         model = getattr(meta, "model", None)
         if model is None:
             return
@@ -284,11 +304,11 @@ class ModelForm(Form[S]):
         data: Any = None,
         files: Any = None,
         *,
-        instance: Any = None,
+        instance: ModelT | None = None,
         initial: Mapping[str, Any] | None = None,
         prefix: str | None = None,
         empty_permitted: bool = False,
-        resource: ModelResource[Any] | None = None,
+        resource: ModelResource[ModelT] | None = None,
         schema: type[S] | None = None,
     ) -> None:
         self.resource = resource
@@ -297,7 +317,7 @@ class ModelForm(Form[S]):
         if model is None:
             raise ValueError("ModelForm has no model class specified.")
         self.instance = model() if instance is None else instance
-        state = sa.inspect(self.instance)
+        state = object_state(self.instance)
         input_schema = schema or self.schema
         values = {
             name: state.attrs[name].loaded_value
@@ -324,7 +344,7 @@ class ModelForm(Form[S]):
                 cast(Any, field).instance = self.instance
 
     async def prepare(self) -> None:
-        state = sa.inspect(self.instance)
+        state = object_state(self.instance)
         missing = [
             name
             for name in self.fields
@@ -365,7 +385,7 @@ class ModelForm(Form[S]):
                 await super().full_clean()
 
     def _column_data(self) -> tuple[dict[str, Any], dict[str, str]]:
-        mapper = sa.inspect(type(self.instance))
+        mapper = object_mapper(self.instance)
         values = {
             name: value
             for name, value in self.validated_data.items()
@@ -398,7 +418,7 @@ class ModelForm(Form[S]):
                     target = sources.get(name, name)
                     self.add_error(target if target in self.fields else None, messages)
 
-    def _resource(self, session: Any) -> ModelResource[Any]:
+    def _resource(self, session: Any) -> ModelResource[ModelT]:
         ctx = session.info.get("obox.runtime.context")
         principal = ctx.principal if ctx is not None else ANONYMOUS
         if self.resource is not None:
@@ -415,7 +435,7 @@ class ModelForm(Form[S]):
             )
 
     def _assign_fields(self, session: Any = None) -> None:
-        mapper = sa.inspect(type(self.instance))
+        mapper = object_mapper(self.instance)
         for name, value in self.validated_data.items():
             if name not in mapper.attrs:
                 continue
@@ -453,7 +473,7 @@ class ModelForm(Form[S]):
                 value = model_value(column, value)
             setattr(self.instance, name, value)
 
-    async def save(self, commit: bool = True) -> Any:
+    async def save(self, commit: bool = True) -> ModelT:
         await self._validate_save()
         if not commit:
             self._assign_fields()
@@ -492,12 +512,11 @@ class ModelForm(Form[S]):
                 )
             }
             # The form's schema has already validated this payload once.
-            validate = self._schema is not resource.get_schema(
-                "create" if sa.inspect(self.instance).transient else "update"
-            )
+            creating = object_state(original).transient
+            validate = self._schema is not resource.get_schema("create" if creating else "update")
             if self.resource is None:
                 validate = False
-            if sa.inspect(self.instance).transient:
+            if creating:
                 self.instance = await resource.create(
                     values, validate=validate, instance=self.instance
                 )
@@ -506,8 +525,8 @@ class ModelForm(Form[S]):
                     self.instance, values, partial=True, validate=validate
                 )
             await self.save_m2m()
-            if original is not self.instance and sa.inspect(original).identity is not None:
-                state = sa.inspect(self.instance)
+            if original is not self.instance and object_state(original).identity is not None:
+                state = object_state(self.instance)
                 for name in set(state.mapper.attrs.keys()) - state.unloaded:
                     attributes.set_committed_value(original, name, getattr(self.instance, name))
                 self.instance = original
@@ -515,9 +534,10 @@ class ModelForm(Form[S]):
 
     async def save_m2m(self) -> None:
         await self._validate_save()
-        if sa.inspect(self.instance).identity is None:
+        state = object_state(self.instance)
+        if state.identity is None:
             raise ValueError("Save the instance before calling save_m2m().")
-        mapper = sa.inspect(type(self.instance))
+        mapper = state.mapper
         collections = {}
         for name, value in self.validated_data.items():
             if name not in self.fields or name not in mapper.relationships:
@@ -538,16 +558,16 @@ class ModelForm(Form[S]):
 
 
 def modelform_factory(
-    model: type[Any],
-    form: type[ModelForm[Any]] = ModelForm,
+    model: type[ModelT],
+    form: type[ModelForm[S, ModelT]] = ModelForm,
     *,
     fields: Any = None,
     exclude: Any = None,
     widgets: Any = None,
     labels: Any = None,
     help_texts: Any = None,
-    schema: Any = None,
-) -> type[ModelForm[Any]]:
+    schema: type[S] | None = None,
+) -> type[ModelForm[S, ModelT]]:
     base_meta = getattr(form, "Meta", object)
     options = {"model": model}
     options.update(
@@ -564,7 +584,7 @@ def modelform_factory(
         }
     )
     meta = type("Meta", (base_meta,), options)
-    attrs = {"Meta": meta}
+    attrs: dict[str, Any] = {"Meta": meta}
     if schema is not None:
         attrs["schema"] = schema
     return type(model.__name__ + "Form", (form,), attrs)

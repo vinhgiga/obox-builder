@@ -14,8 +14,9 @@ class ModelViewSet(Generic[ModelT]):
     resource: type[ModelResource[ModelT]]
     slug: str | None = None
     prefix: str | None = None
-    list_view: type[ListView] | None = None
-    detail_view: type[DetailView] | None = None
-    create_view: type[CreateView] | None = None
-    update_view: type[UpdateView] | None = None
-    delete_view: type[DeleteView] | None = None
+    list_view: type[ListView[ModelT]] | None = None
+    collection_views: tuple[type[ListView[ModelT]], ...] = ()
+    detail_view: type[DetailView[ModelT]] | None = None
+    create_view: type[CreateView[ModelT]] | None = None
+    update_view: type[UpdateView[ModelT]] | None = None
+    delete_view: type[DeleteView[ModelT]] | None = None

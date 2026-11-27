@@ -129,7 +129,7 @@ class ProductInput(BaseModel):
     price: Decimal
 
 
-class ProductForm(forms.ModelForm[ProductInput]):
+class ProductForm(forms.ModelForm[ProductInput, Product]):
     schema = ProductInput
 
     class Meta:
@@ -141,7 +141,8 @@ class ProductForm(forms.ModelForm[ProductInput]):
         }
 ```
 
-`Meta` also accepts `exclude`, `help_texts`, `widgets`, and `labels`. Declared
+`Meta` also accepts `exclude`, `help_texts`, `widgets`, and `labels`. Other keys
+raise `ImproperlyConfigured` when the form class is defined. Declared
 fields can customize generated model fields. Editable scalar columns and
 supported relationships are mapped to form fields; unsupported model column
 types raise a configuration error.

@@ -13,7 +13,7 @@ in [Forms](../forms.md).
 | `initial` | `{}` | Initial field values, copied for each request. |
 | `prefix` | `None` | Prefix for submitted field names. |
 | `success_url` | `None` | Path, absolute URL, or named route used after a valid form. |
-| `invalid_status_code` | `200` | Status returned when rendering invalid input. |
+| `invalid_status_code` | `422` | Status returned when rendering invalid input. |
 | `get_initial()` | — | Return initial values for the request. |
 | `get_prefix()` | — | Return the form prefix. |
 | `get_form_class()` | — | Return the configured class. |
@@ -42,7 +42,7 @@ class ContactView(FormView):
         return await super().form_valid(form)
 ```
 
-Invalid forms render with status `200` by default. Set `invalid_status_code` to
+Invalid forms render with status `422` by default. Set `invalid_status_code` to
 change that status.
 
 ## `ModelFormMixin`
@@ -75,15 +75,17 @@ transactional savepoint. ModelResource validation errors are returned to the for
 
 If `template_name` is unset, both try `<app>/<model>_form.html`, then
 `obox/generic/form.html`. Define `success_url` if no list route or
-`get_absolute_url()` is available.
+`get_absolute_url()` is available. A configured success URL supports `{pk}` and
+loaded mapped column names. Substituted values are URL-encoded. Direct edit routes
+take a `{pk}` parameter whose value matches the resource's `lookup_field`.
 
 ## `DeleteView`
 
 `DeleteView` displays a confirmation on `GET`. A valid `POST` or `DELETE`
 removes the record through its `ModelResource` and redirects with status `303`.
-ModelResource deletion rules are checked before the record is removed. It uses the
-configured `success_url` or the registered list route; a missing redirect
-target is a configuration error.
+ModelResource deletion rules are checked before the record is removed. A rule
+violation or handled persistence conflict renders the confirmation with status
+`422`. Provide a static `success_url` or use the registered collection route.
 
 Without an explicit `template_name`, it tries
 `<app>/<model>_confirm_delete.html`, then

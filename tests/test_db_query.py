@@ -6,7 +6,8 @@ from typing import Any
 import pytest
 import sqlalchemy as sa
 from obox.core.exceptions import InvalidQuery
-from obox.db.query import filter_expression, list_query
+from obox.db.query import filter_expression
+from obox.views.generic._query import ViewConfig, ViewQuery
 from sqlalchemy.dialects import sqlite
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -35,13 +36,12 @@ def test_db_filters_prune_empty_terms_and_compile_active_conditions() -> None:
     assert expression is not None
     assert count == 1
 
-    query = list_query(
-        sa.select(FilterRow),
+    query = ViewQuery.parse(
         FilterRow,
         {"filter": json.dumps(data)},
-        filters=(),
-        allowed={"name"},
-    )
+        {"name"},
+        defaults=ViewConfig(),
+    ).apply(sa.select(FilterRow), FilterRow)
     assert "filter_query_rows.name" in str(query.compile(dialect=sqlite.dialect()))
 
 

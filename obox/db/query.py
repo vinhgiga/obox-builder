@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from datetime import date, datetime, time
-from typing import Any
+from decimal import Decimal
+from math import isfinite
+from typing import Any, TypedDict
 
 import sqlalchemy as sa
 
-from obox.core.exceptions import BuilderValidationError, InvalidQuery, PermissionDenied
+from obox.core.exceptions import BuilderValidationError, InvalidQuery
+from obox.db.fields import model_value, validate_text
 from obox.db.filters import FilterGroup, FilterTerm, compile_filter, parse_filter
 
 
@@ -80,9 +83,14 @@ def filter_expression(
     allowed: set[str],
 ) -> tuple[dict[str, Any], Any | None, int]:
     try:
-        tree = parse_filter(json.dumps(data))
+        return compile_view_filter(model, parse_filter(json.dumps(data)), allowed)
     except (TypeError, ValueError, RecursionError, BuilderValidationError) as exc:
         raise InvalidQuery("Invalid filter query.") from exc
+
+
+def compile_view_filter(
+    model: type[Any], tree: FilterGroup | None, allowed: set[str]
+) -> tuple[dict[str, Any], Any | None, int]:
     if tree is None:
         return {"conjunction": "and", "children": []}, None, 0
 
@@ -104,6 +112,8 @@ def filter_expression(
                 empty = sa.or_(empty, column == "")
             return empty if op == "is_empty" else sa.not_(empty)
         try:
+            if not isinstance(raw, str | int | float | bool):
+                raise ValueError
             if kind == "boolean":
                 if str(raw).lower() not in {"true", "false", "1", "0"}:
                     raise ValueError
@@ -114,10 +124,25 @@ def filter_expression(
                 value = datetime.fromisoformat(str(raw))
             elif kind == "time":
                 value = time.fromisoformat(str(raw))
+            elif isinstance(column.type, sa.Enum):
+                enum = column.type.enum_class
+                if raw in column.type.enums:
+                    value = column.type._object_value_for_elem(raw)
+                elif enum is not None:
+                    value = enum(raw)
+                else:
+                    raise ValueError
             else:
                 python_type = column.type.python_type
-                value = python_type(raw) if python_type is not str else str(raw)
-        except (AttributeError, TypeError, ValueError) as exc:
+                value = python_type(str(raw)) if python_type is not str else validate_text(str(raw))
+            if (
+                (isinstance(value, float) and not isfinite(value))
+                or (isinstance(value, Decimal) and not value.is_finite())
+                or (isinstance(value, int) and not -(2**63) <= value < 2**63)
+            ):
+                raise ValueError
+            value = model_value(column, value)
+        except (ArithmeticError, AttributeError, NotImplementedError, TypeError, ValueError) as exc:
             raise InvalidQuery("Invalid filter value.") from exc
         if op == "contains":
             return column.icontains(str(raw), autoescape=True)
@@ -140,7 +165,11 @@ def filter_expression(
 
     def as_dict(node: FilterGroup | FilterTerm) -> dict[str, Any]:
         if isinstance(node, FilterTerm):
-            return {"field": node.field, "op": node.op, "value": str(node.value)}
+            return {
+                "field": node.field,
+                "op": node.op,
+                "value": "" if node.value is None else str(node.value),
+            }
         return {
             "conjunction": node.conjunction,
             "children": [as_dict(child) for child in node.children],
@@ -153,8 +182,13 @@ def filter_expression(
     )
 
 
-def parse_order(value: str, allowed: set[str], *, maximum: int) -> list[dict[str, Any]]:
-    result: list[dict[str, Any]] = []
+class OrderTerm(TypedDict):
+    field: str
+    descending: bool
+
+
+def parse_order(value: str, allowed: set[str], *, maximum: int) -> list[OrderTerm]:
+    result: list[OrderTerm] = []
     seen: set[str] = set()
     for raw in value.split(","):
         if not raw:
@@ -175,6 +209,8 @@ def search_query(
         for name in fields:
             prefix = name[:1]
             column = getattr(model, name[1:] if prefix in ("^", "=") else name)
+            if not isinstance(column.type, sa.String) or isinstance(column.type, sa.Enum):
+                column = sa.cast(column, sa.String)
             predicates.append(
                 column.istartswith(word, autoescape=True)
                 if prefix == "^"
@@ -184,50 +220,4 @@ def search_query(
             )
         if predicates:
             query = query.where(sa.or_(*predicates))
-    return query
-
-
-def list_query(
-    query: Any,
-    model: type[Any],
-    params: Mapping[str, str],
-    *,
-    filters: Sequence[str],
-    allowed: set[str],
-) -> Any:
-    for name in filters:
-        raw = params.get(name + "__exact", params.get(name))
-        if raw is None:
-            continue
-        column = getattr(model, name)
-        try:
-            if isinstance(column.type, sa.Boolean):
-                if raw not in ("0", "1", "True", "False"):
-                    raise ValueError
-                value = raw in ("1", "True")
-            else:
-                value = column.type.python_type(raw)
-        except (TypeError, ValueError) as exc:
-            raise PermissionDenied("Invalid filter.") from exc
-        query = query.where(column == value)
-    if raw_filter := params.get("filter"):
-        try:
-            data = json.loads(raw_filter)
-        except (TypeError, ValueError) as exc:
-            raise InvalidQuery("Invalid filter query.") from exc
-        _, expression, _ = filter_expression(model, data, allowed)
-        if expression is not None:
-            query = query.where(expression)
-    groups = parse_order(params.get("group", ""), allowed, maximum=3)
-    if "ordering" in params or groups:
-        sorts = parse_order(params.get("ordering", ""), allowed, maximum=5)
-        ordering, seen = [], set()
-        for term in [*groups, *sorts]:
-            if term["field"] in seen:
-                continue
-            seen.add(term["field"])
-            column = getattr(model, term["field"])
-            ordering.append(column.desc() if term["descending"] else column.asc())
-        ordering.extend(sa.inspect(model).primary_key)
-        query = query.order_by(None).order_by(*ordering)
     return query

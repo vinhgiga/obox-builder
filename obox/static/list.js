@@ -2,7 +2,7 @@
   const table = document.querySelector("[data-list-table]");
   if (!table) return;
 
-  const menus = [...document.querySelectorAll(".grid-tools details.field-menu")];
+  const menus = [...document.querySelectorAll(".grid-toolbar details.field-menu")];
   const closeMenus = () =>
     menus.forEach((menu) => {
       menu.open = false;
@@ -18,7 +18,7 @@
   document.addEventListener("click", (event) => {
     const insideToolMenu = event
       .composedPath()
-      .some((node) => node instanceof Element && node.matches(".grid-tools .field-menu"));
+      .some((node) => node instanceof Element && node.matches(".grid-toolbar .field-menu"));
     if (!insideToolMenu) closeMenus();
   });
   document.addEventListener("keydown", (event) => {
@@ -26,8 +26,6 @@
   });
 
   const body = table.tBodies[0];
-  const originalRows = [...body.querySelectorAll("tr[data-grid-row]")];
-  const originalEmptyRow = body.querySelector(".grid-empty")?.closest("tr") || null;
   const selectionStatus = document.querySelector("[data-selection-status]");
   const bulkControls = document.querySelector("[data-bulk-controls]");
   const bulkAction = document.querySelector("[data-bulk-action]");
@@ -35,7 +33,9 @@
   const selectAll = table.querySelector("[data-select-all]");
   const clearSelection = document.querySelector("[data-clear-selection]");
   const rowChecks = [...table.querySelectorAll("[data-row-select]")];
-  const storageKey = `obox-list:${table.dataset.listKey || window.location.pathname}`;
+  const { query, layout } = JSON.parse(document.querySelector("[data-list-config]").textContent);
+  const { fields, filter, sort, group } = query;
+  const storageKey = `obox-list:${window.location.pathname}`;
   const readState = () => {
     try {
       const stored = JSON.parse(localStorage.getItem(storageKey) || "null");
@@ -45,127 +45,28 @@
       return {};
     }
   };
-  const initialState = readState();
   const clone = (value) => JSON.parse(JSON.stringify(value));
-  const readConfig = (selector, fallback) => {
-    const node = document.querySelector(selector);
-    try {
-      return node ? JSON.parse(node.textContent) : fallback;
-    } catch {
-      return fallback;
-    }
-  };
-  const filterConfig = readConfig("[data-list-filter-config]", {
-    fields: [],
-    filter: { conjunction: "and", children: [] },
-  });
-  const sortConfig = readConfig("[data-list-sort-config]", { fields: [], sort: [] });
-  const groupConfig = readConfig("[data-list-group-config]", { fields: [], group: [] });
-  if (filterConfig.fallback) {
-    filterConfig.fields.forEach((field) => {
-      const values = [
-        ...table.querySelectorAll(
-          `tbody tr[data-grid-row] [data-list-column="${CSS.escape(field.name)}"]`,
-        ),
-      ]
-        .map((cell) => cell.innerText.trim())
-        .filter(Boolean);
-      if (!values.length) return;
-      const lower = values.map((value) => value.toLocaleLowerCase());
-      const choices = [...new Set(values)];
-      if (lower.every((value) => ["true", "false", "yes", "no"].includes(value)))
-        field.kind = "boolean";
-      else if (
-        values.every(
-          (value) => Number.isFinite(Number(value.replace(/[$,]/g, ""))) && /\d/.test(value),
-        )
-      )
-        field.kind = "number";
-      else if (
-        values.every(
-          (value) =>
-            /^\d{1,4}[-/]\d{1,2}[-/]\d{1,4}/.test(value) && Number.isFinite(Date.parse(value)),
-        )
-      )
-        field.kind = "date";
-      else if (choices.length > 1 && choices.length <= 12 && choices.length < values.length) {
-        field.kind = "choice";
-        field.choices = choices;
-      }
-      if (field.kind === "number" || field.kind === "date")
-        field.operators = ["is", "is_not", "gt", "gte", "lt", "lte", "is_empty", "is_not_empty"];
-      else if (field.kind === "boolean")
-        field.operators = ["is", "is_not", "is_empty", "is_not_empty"];
-      else if (field.kind === "choice")
-        field.operators = ["is", "is_not", "is_empty", "is_not_empty"];
-    });
-    if (sortConfig.fallback) sortConfig.fields = filterConfig.fields;
-    if (groupConfig.fallback) groupConfig.fields = filterConfig.fields;
-  }
-  const urlParams = new URL(window.location.href).searchParams;
-  const parseUrlTerms = (value) =>
-    value
-      .split(",")
-      .filter(Boolean)
-      .map((term) => ({ field: term.replace(/^-/, ""), descending: term.startsWith("-") }));
-  if (!filterConfig.filter?.children?.length && urlParams.has("filter")) {
-    try {
-      filterConfig.filter = JSON.parse(urlParams.get("filter"));
-    } catch {
-      /* ignore malformed view state */
-    }
-  }
-  if (!sortConfig.sort?.length && urlParams.has("ordering"))
-    sortConfig.sort = parseUrlTerms(urlParams.get("ordering") || "");
-  if (!groupConfig.group?.length && urlParams.has("group"))
-    groupConfig.group = parseUrlTerms(urlParams.get("group") || "");
-  const filterSpecs = new Map((filterConfig.fields || []).map((field) => [field.name, field]));
+  const filterSpecs = new Map(fields.map((field) => [field.name, field]));
   const fieldOptions = [...document.querySelectorAll("[data-field-option]")];
-  const fieldNames = fieldOptions.map((option) => option.dataset.fieldKey);
-  const fieldLabels = new Map(
-    fieldOptions.map((option) => [
-      option.dataset.fieldKey,
-      option.dataset.fieldDisplay || option.dataset.fieldLabel,
-    ]),
-  );
-  const fieldIconFor = (kind) =>
-    ({ date: "▦", datetime: "▦", time: "▦", number: "#", choice: "⊙", boolean: "⊙" })[kind] || "≡";
-  fieldOptions.forEach((option) => {
-    const kind =
-      filterSpecs.get(option.dataset.fieldKey)?.kind || option.dataset.fieldKind || "text";
-    option.dataset.fieldKind = kind;
-    const icon = option.querySelector(".field-type-icon");
-    if (icon) icon.textContent = fieldIconFor(kind);
-  });
-  document.querySelectorAll("[data-grid-field-kind]").forEach((option) => {
-    const kind =
-      filterSpecs.get(option.dataset.gridSortChoice || option.dataset.gridGroupChoice)?.kind ||
-      option.dataset.gridFieldKind ||
-      "text";
-    option.dataset.gridFieldKind = kind;
-    const icon = option.querySelector(".toolbar-icon");
-    if (icon) icon.textContent = fieldIconFor(kind);
-  });
   const sortButtons = [...document.querySelectorAll("[data-grid-sort-choice]")];
   const groupButtons = [...document.querySelectorAll("[data-grid-group-choice]")];
-  const allowedFields = new Set(fieldNames);
-  const validTerms = (terms) =>
-    Array.isArray(terms) ? terms.filter((term) => term && allowedFields.has(term.field)) : [];
+  const fieldNames = fieldOptions.map((option) => option.dataset.fieldKey);
+  const primaryField = fieldNames[0];
+  const displayFields = new Set(fieldNames);
+  const stored = readState();
   const viewState = {
-    hidden: Array.isArray(initialState.hidden)
-      ? initialState.hidden.filter((field) => allowedFields.has(field))
-      : [],
-    order: Array.isArray(initialState.order)
-      ? initialState.order.filter(
-          (field, index, list) => allowedFields.has(field) && list.indexOf(field) === index,
-        )
-      : [],
-    filter:
-      filterConfig.filter && typeof filterConfig.filter === "object"
-        ? filterConfig.filter
-        : { conjunction: "and", children: [] },
-    sort: validTerms(sortConfig.sort),
-    group: validTerms(groupConfig.group),
+    hidden: (Array.isArray(stored.hidden) ? stored.hidden : layout.hidden).filter(
+      (field) => field !== primaryField && displayFields.has(field),
+    ),
+    order: [...new Set(Array.isArray(stored.order) ? stored.order : layout.order)].filter(
+      (field) => field !== primaryField && displayFields.has(field),
+    ),
+    row_height: ["short", "medium", "tall", "extra"].includes(stored.row_height)
+      ? stored.row_height
+      : layout.row_height,
+    row_color: ["blue", "green", "yellow", "red"].includes(stored.row_color)
+      ? stored.row_color
+      : "",
   };
   const saveState = () => {
     try {
@@ -174,54 +75,20 @@
       /* storage is optional */
     }
   };
-  const labelFor = (field) => fieldLabels.get(field) || field.replaceAll("_", " ");
+  const labelFor = (field) => filterSpecs.get(field)?.label || field.replaceAll("_", " ");
   const setQueryParams = (updates, removals = []) => {
     const url = new URL(window.location.href);
     url.searchParams.delete("page");
-    removals.forEach((name) => {
-      url.searchParams.delete(name);
-    });
-    Object.entries(updates).forEach(([name, value]) => {
-      if (value === "" || value == null) url.searchParams.delete(name);
-      else url.searchParams.set(name, value);
-    });
+    for (const name of removals) url.searchParams.delete(name);
+    for (const [name, value] of Object.entries(updates)) url.searchParams.set(name, value);
     window.location.assign(url.href);
   };
-  const cellValue = (row, field) => {
-    const cell = [...row.querySelectorAll("[data-list-column]")].find(
-      (item) => item.dataset.listColumn === field,
-    );
-    return cell ? cell.innerText.trim() : "";
-  };
-  const compareValues = (left, right) => {
-    const a = left.trim();
-    const b = right.trim();
-    if (!a && !b) return 0;
-    if (!a) return -1;
-    if (!b) return 1;
-    const numericA = Number(a.replace(/[$,]/g, ""));
-    const numericB = Number(b.replace(/[$,]/g, ""));
-    if (Number.isFinite(numericA) && Number.isFinite(numericB) && /\d/.test(a) && /\d/.test(b)) {
-      return numericA - numericB;
-    }
-    const parsedDateA = Date.parse(a);
-    const parsedDateB = Date.parse(b);
-    if (
-      Number.isFinite(parsedDateA) &&
-      Number.isFinite(parsedDateB) &&
-      /\d/.test(a) &&
-      /\d/.test(b)
-    )
-      return parsedDateA - parsedDateB;
-    return a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
-  };
-
-  // Hide fields: restore visibility and order per list, and keep the table and picker in sync.
   const fieldList = document.querySelector(".field-menu-list");
   const fieldToggles = [...document.querySelectorAll("[data-field-toggle]")];
   const fieldOrder = [
+    ...fieldNames.slice(0, 1),
     ...viewState.order,
-    ...fieldNames.filter((field) => !viewState.order.includes(field)),
+    ...fieldNames.slice(1).filter((field) => !viewState.order.includes(field)),
   ];
   const renderFieldOrder = () => {
     const empty = fieldList?.querySelector("[data-field-empty]");
@@ -262,7 +129,7 @@
     viewState.hidden = fieldToggles
       .filter((input) => !input.checked)
       .map((input) => input.dataset.fieldToggle);
-    viewState.order = [...fieldOrder];
+    viewState.order = fieldOrder.slice(1);
     saveState();
   };
   fieldToggles.forEach((input) => {
@@ -277,7 +144,7 @@
   applyFieldVisibility();
   document.querySelector("[data-hide-all]")?.addEventListener("click", () => {
     fieldToggles.forEach((input) => {
-      input.checked = false;
+      if (!input.disabled) input.checked = false;
     });
     applyFieldVisibility();
     saveFieldState();
@@ -317,7 +184,7 @@
     const target = document
       .elementFromPoint(event.clientX, event.clientY)
       ?.closest("[data-field-option]");
-    if (!target || target === dragField) return;
+    if (!target || target === dragField || target.dataset.fieldKey === primaryField) return;
     const rect = target.getBoundingClientRect();
     fieldList.insertBefore(
       dragField,
@@ -359,7 +226,7 @@
       event.preventDefault();
       const index = fieldOrder.indexOf(handle.dataset.fieldReorder);
       const next = index + (event.key === "ArrowUp" ? -1 : 1);
-      if (next < 0 || next >= fieldOrder.length) return;
+      if (next < 1 || next >= fieldOrder.length) return;
       [fieldOrder[index], fieldOrder[next]] = [fieldOrder[next], fieldOrder[index]];
       renderFieldOrder();
       applyFieldOrder();
@@ -378,10 +245,10 @@
   const filterCount = filterMenu?.querySelector("[data-filter-count]");
   const filterApply = filterMenu?.querySelector("[data-filter-apply]");
   const filterReset = filterMenu?.querySelector("[data-filter-reset]");
-  const serverFilterFields = [...document.querySelectorAll("[data-filter-server-field]")].map(
-    (node) => node.dataset.filterServerField,
+  const reservedParams = new Set(["page", "filter", "ordering", "group", "q"]);
+  const exactFilterParams = [...new URL(window.location.href).searchParams.keys()].filter(
+    (name) => !reservedParams.has(name),
   );
-  const exactFilterParams = serverFilterFields.flatMap((field) => [field, `${field}__exact`]);
   const cleanFilterGroup = (group) => ({
     conjunction: group?.conjunction === "or" ? "or" : "and",
     children: (Array.isArray(group?.children) ? group.children : []).flatMap((child) => {
@@ -398,14 +265,7 @@
       return [{ field: child.field, op, value: String(child.value ?? "") }];
     }),
   });
-  let appliedFilter = cleanFilterGroup(viewState.filter);
-  if (!appliedFilter.children.length && serverFilterFields.length) {
-    appliedFilter.children = serverFilterFields.flatMap((field) => {
-      const node = document.querySelector(`[data-filter-server-field="${CSS.escape(field)}"]`);
-      const value = node?.dataset.filterServerValue || "";
-      return value && allowedFields.has(field) ? [{ field, op: "is", value }] : [];
-    });
-  }
+  const appliedFilter = cleanFilterGroup(filter);
   let draftFilter = clone(appliedFilter);
   const filterTermCount = (group) =>
     group.children.reduce(
@@ -420,44 +280,6 @@
       filterCount.hidden = !count;
       filterCount.textContent = String(count);
     }
-  };
-  const filterMatches = (row, group) => {
-    const checks = group.children
-      .map((child) => {
-        if (child.children) return filterMatches(row, child);
-        if (!filterIsValid(child)) return null;
-        const actual = cellValue(row, child.field);
-        const expected = String(child.value ?? "").trim();
-        const a = actual.toLocaleLowerCase();
-        const b = expected.toLocaleLowerCase();
-        switch (child.op) {
-          case "contains":
-            return a.includes(b);
-          case "does_not_contain":
-            return !a.includes(b);
-          case "is":
-            return compareValues(actual, expected) === 0;
-          case "is_not":
-            return compareValues(actual, expected) !== 0;
-          case "is_empty":
-            return !actual;
-          case "is_not_empty":
-            return Boolean(actual);
-          case "gt":
-            return compareValues(actual, expected) > 0;
-          case "gte":
-            return compareValues(actual, expected) >= 0;
-          case "lt":
-            return compareValues(actual, expected) < 0;
-          case "lte":
-            return compareValues(actual, expected) <= 0;
-          default:
-            return true;
-        }
-      })
-      .filter((result) => result !== null);
-    if (!checks.length) return true;
-    return group.conjunction === "or" ? checks.some(Boolean) : checks.every(Boolean);
   };
   const makeJoin = (group, onChange, label) => {
     const select = document.createElement("select");
@@ -484,8 +306,7 @@
     return button;
   };
   const addFilterTerm = (group) => {
-    const firstField =
-      serverFilterFields.find((field) => filterSpecs.has(field)) || filterSpecs.keys().next().value;
+    const firstField = fields[0]?.name;
     if (!firstField || !filterTemplate) return;
     const spec = filterSpecs.get(firstField);
     group.children.push({
@@ -598,11 +419,9 @@
       const row = fragment.querySelector("[data-filter-row]");
       const field = row.querySelector("[data-filter-field]");
       const op = row.querySelector("[data-filter-op]");
-      const spec = filterSpecs.get(child.field) || filterConfig.fields[0];
+      const spec = filterSpecs.get(child.field) || fields[0];
       if (!spec) return;
-      field.replaceChildren(
-        ...filterConfig.fields.map((item) => new Option(item.label, item.name)),
-      );
+      field.replaceChildren(...fields.map((item) => new Option(item.label, item.name)));
       field.value = child.field;
       const selectedOp = spec.operators.includes(child.op)
         ? child.op
@@ -613,7 +432,7 @@
         ...spec.operators.map((name) => new Option(filterOperatorLabels[name] || name, name)),
       );
       op.value = selectedOp;
-      let value = configureFilterValue(row, spec, selectedOp, child.value);
+      const value = configureFilterValue(row, spec, selectedOp, child.value);
       const sync = () => {
         child.field = field.value;
         child.op = op.value;
@@ -702,20 +521,19 @@
   });
   filterApply?.addEventListener("click", () => {
     const nextFilter = cleanFilterGroup(draftFilter);
-    setQueryParams(
-      { filter: nextFilter.children.length ? JSON.stringify(nextFilter) : "" },
-      exactFilterParams,
-    );
+    setQueryParams({ filter: JSON.stringify(nextFilter) }, exactFilterParams);
   });
   filterReset?.addEventListener("click", () => {
-    setQueryParams({ filter: "" }, exactFilterParams);
+    setQueryParams(
+      { filter: JSON.stringify({ conjunction: "and", children: [] }) },
+      exactFilterParams,
+    );
   });
   filterMenu?.addEventListener("toggle", () => {
     if (!filterMenu.open) return;
     draftFilter = clone(appliedFilter);
-    if (!draftFilter.children.length && filterConfig.fields.length) {
-      const first =
-        serverFilterFields.find((name) => filterSpecs.has(name)) || filterConfig.fields[0].name;
+    if (!draftFilter.children.length && fields.length) {
+      const first = fields[0].name;
       const spec = filterSpecs.get(first);
       draftFilter.children.push({
         field: first,
@@ -737,7 +555,7 @@
   const sortApply = sortMenu?.querySelector("[data-sort-apply]");
   const sortCancel = sortMenu?.querySelector("[data-sort-cancel]");
   const sortCount = sortMenu?.querySelector("[data-sort-count]");
-  const sortSpecs = new Map((sortConfig.fields || []).map((field) => [field.name, field]));
+  const sortSpecs = filterSpecs;
   const directionLabels = (field) => {
     const kind = sortSpecs.get(field)?.kind || "text";
     return (
@@ -751,7 +569,7 @@
       }[kind] || ["A → Z", "Z → A"]
     );
   };
-  let appliedSort = viewState.sort
+  const appliedSort = sort
     .slice(0, 5)
     .map((term) => ({ field: term.field, descending: Boolean(term.descending) }));
   let draftSort = clone(appliedSort);
@@ -919,8 +737,8 @@
   const groupCancel = groupMenu?.querySelector("[data-group-cancel]");
   const groupCount = groupMenu?.querySelector("[data-group-count]");
   const groupBulkControls = groupMenu?.querySelector("[data-group-bulk-controls]");
-  const groupSpecs = new Map((groupConfig.fields || []).map((field) => [field.name, field]));
-  let appliedGroup = viewState.group
+  const groupSpecs = filterSpecs;
+  const appliedGroup = group
     .slice(0, 3)
     .map((term) => ({ field: term.field, descending: Boolean(term.descending) }));
   let draftGroup = clone(appliedGroup);
@@ -1085,24 +903,15 @@
     render();
   }
 
-  const collapsedGroups = new Set();
-  const activeFilterCount = () => filterTermCount(appliedFilter);
-  const activeRowCount = () =>
-    originalRows.filter((row) => filterMatches(row, appliedFilter)).length;
   const updateSelection = () => {
-    const matchingChecks = rowChecks.filter(
-      (input) => input.closest("tr")?.dataset.filterMatch === "true",
-    );
-    const selected = matchingChecks.filter((input) => input.checked);
-    const selectable = matchingChecks.filter((input) => !input.disabled);
+    const selected = rowChecks.filter((input) => input.checked);
+    const selectable = rowChecks.filter((input) => !input.disabled);
     if (selectionStatus) {
-      const totalCount = Number(selectionStatus.dataset.totalCount || originalRows.length);
-      const filteredCount =
-        table.dataset.serverFiltering === "true" ? totalCount : activeRowCount();
-      const count = selected.length || (activeFilterCount() ? filteredCount : totalCount);
-      selectionStatus.textContent = `${count} ${count === 1 ? "record" : "records"}${selected.length ? " selected" : ""}`;
+      const total = Number(selectionStatus.dataset.totalCount);
+      selectionStatus.textContent = selected.length
+        ? `${selected.length} selected`
+        : `${total} ${total === 1 ? "record" : "records"}`;
     }
-    if (bulkControls) bulkControls.hidden = selected.length === 0;
     if (clearSelection) clearSelection.hidden = selected.length === 0;
     if (selectAll) {
       selectAll.checked = selectable.length > 0 && selected.length === selectable.length;
@@ -1110,14 +919,13 @@
     }
     if (bulkSubmit) bulkSubmit.disabled = selected.length === 0 || !bulkAction?.value;
     rowChecks.forEach((input) => {
-      input.closest("tr")?.toggleAttribute("data-selected", input.checked);
+      input.closest("tr")?.setAttribute("data-selected", String(input.checked));
     });
     if (!selected.length && bulkAction) bulkAction.value = "";
   };
   selectAll?.addEventListener("change", () => {
     rowChecks.forEach((input) => {
-      if (!input.disabled && input.closest("tr")?.dataset.filterMatch === "true")
-        input.checked = selectAll.checked;
+      if (!input.disabled) input.checked = selectAll.checked;
     });
     updateSelection();
   });
@@ -1132,174 +940,49 @@
     updateSelection();
   });
   document.querySelector("[data-bulk-form]")?.addEventListener("submit", (event) => {
-    if (
-      !rowChecks.some((input) => input.checked && !input.closest("tr")?.hidden) ||
-      !bulkAction?.value
-    )
-      event.preventDefault();
+    if (!rowChecks.some((input) => input.checked) || !bulkAction?.value) event.preventDefault();
   });
 
-  function refreshGrid() {
-    body.querySelectorAll("[data-client-group]").forEach((row) => {
-      row.remove();
-    });
-    originalEmptyRow?.remove();
-    const matching = originalRows.filter((row) => filterMatches(row, appliedFilter));
-    const nonmatching = originalRows.filter((row) => !filterMatches(row, appliedFilter));
-    const groupTerms = appliedGroup.filter((term) => allowedFields.has(term.field));
-    const sortTerms = [
-      ...groupTerms,
-      ...appliedSort.filter((term) => allowedFields.has(term.field)),
-    ];
-    const sortRowsByTerms = (rows) =>
-      rows.sort((left, right) => {
-        for (const term of sortTerms) {
-          const result = compareValues(cellValue(left, term.field), cellValue(right, term.field));
-          if (result) return term.descending ? -result : result;
-        }
-        return originalRows.indexOf(left) - originalRows.indexOf(right);
-      });
-    const ordered = sortRowsByTerms([...matching]);
-    const rowOffset = Number(table.dataset.pageOffset || 0);
-    ordered.forEach((row, index) => {
-      const rowNumber = row.querySelector(".row-index");
-      if (rowNumber) rowNumber.textContent = String(rowOffset + index + 1);
-    });
-    const hiddenFields = new Set(
-      fieldToggles.filter((input) => !input.checked).map((input) => input.dataset.fieldToggle),
-    );
-    table.querySelectorAll("[data-list-column]").forEach((cell) => {
-      cell.hidden = hiddenFields.has(cell.dataset.listColumn);
-    });
-    let previousKeys = [];
-    const groupCounts = new Map();
-    if (groupTerms.length) {
-      ordered.forEach((row) => {
-        const values = groupTerms.map((term) => cellValue(row, term.field));
-        values.forEach((_, index) => {
-          const key = JSON.stringify(
-            groupTerms
-              .slice(0, index + 1)
-              .map((term, termIndex) => [term.field, values[termIndex]]),
-          );
-          groupCounts.set(key, (groupCounts.get(key) || 0) + 1);
-        });
-      });
-    }
-    body.replaceChildren();
-    for (const row of ordered) {
-      const ancestors = [];
-      if (groupTerms.length) {
-        const values = groupTerms.map((term) => cellValue(row, term.field));
-        values.forEach((value, index) => {
-          const key = JSON.stringify(
-            groupTerms
-              .slice(0, index + 1)
-              .map((term, termIndex) => [term.field, values[termIndex]]),
-          );
-          if (previousKeys[index] !== key) {
-            const heading = document.createElement("tr");
-            heading.className = "group-header";
-            heading.dataset.clientGroup = "";
-            heading.dataset.groupKey = key;
-            heading.dataset.groupAncestors = JSON.stringify(ancestors);
-            const cell = document.createElement("td");
-            cell.colSpan = table.tHead.rows[0].cells.length;
-            const toggle = document.createElement("button");
-            toggle.type = "button";
-            toggle.className = "group-toggle";
-            toggle.dataset.groupToggle = "";
-            toggle.setAttribute("aria-expanded", String(!collapsedGroups.has(key)));
-            const caret = document.createElement("span");
-            caret.className = "group-caret";
-            caret.setAttribute("aria-hidden", "true");
-            caret.textContent = collapsedGroups.has(key) ? "▸" : "▾";
-            const name = document.createElement("span");
-            name.className = "group-name";
-            name.textContent = labelFor(groupTerms[index].field);
-            const groupValue = document.createElement("span");
-            groupValue.className = "group-value";
-            groupValue.textContent = value || "Empty";
-            const count = document.createElement("span");
-            count.className = "group-count";
-            const amount = groupCounts.get(key) || 0;
-            count.textContent = `${amount} ${amount === 1 ? "record" : "records"}`;
-            toggle.append(caret, name, groupValue, count);
-            cell.append(toggle);
-            heading.append(cell);
-            body.append(heading);
-          }
-          ancestors.push(key);
-          previousKeys[index] = key;
-        });
-        previousKeys.length = groupTerms.length;
+  const headings = [...body.querySelectorAll("[data-group-toggle]")];
+  const toggleGroup = (button, expanded) => {
+    button.setAttribute("aria-expanded", String(expanded));
+    button.querySelector(".group-caret").textContent = expanded ? "▾" : "▸";
+  };
+  const updateGroups = () => {
+    let collapsedDepth = 0;
+    for (const row of body.rows) {
+      const depth = Number(row.dataset.groupDepth);
+      if (depth && depth <= collapsedDepth) collapsedDepth = 0;
+      row.hidden = collapsedDepth > 0;
+      if (
+        depth &&
+        !row.hidden &&
+        row.querySelector("[data-group-toggle]").getAttribute("aria-expanded") === "false"
+      ) {
+        collapsedDepth = depth;
       }
-      row.hidden = false;
-      row.dataset.filterMatch = "true";
-      row.dataset.groupAncestors = JSON.stringify(ancestors);
-      body.append(row);
     }
-    nonmatching.forEach((row) => {
-      row.hidden = true;
-      row.dataset.filterMatch = "false";
-      row.dataset.groupAncestors = "[]";
-      body.append(row);
+  };
+  headings.forEach((button) => {
+    button.addEventListener("click", () => {
+      toggleGroup(button, button.getAttribute("aria-expanded") === "false");
+      updateGroups();
     });
-    if (collapsedGroups.size) {
-      body.querySelectorAll("[data-client-group], [data-grid-row]").forEach((row) => {
-        let ancestors = [];
-        try {
-          ancestors = JSON.parse(row.dataset.groupAncestors || "[]");
-        } catch {
-          /* ignore stale markup */
-        }
-        const collapsed = ancestors.find((key) => collapsedGroups.has(key));
-        row.hidden = Boolean(collapsed);
-        if (row.dataset.groupKey) {
-          const ownCollapsed = collapsedGroups.has(row.dataset.groupKey);
-          row
-            .querySelector("[data-group-toggle]")
-            ?.setAttribute("aria-expanded", String(!ownCollapsed));
-          const caret = row.querySelector(".group-caret");
-          if (caret) caret.textContent = ownCollapsed ? "▸" : "▾";
-        }
-      });
-    }
-    if (!ordered.length && originalEmptyRow) {
-      const row = originalEmptyRow.cloneNode(true);
-      row.querySelector(".grid-empty").textContent = originalRows.length
-        ? "No matching records."
-        : "No records.";
-      body.append(row);
-    }
-    updateSelection();
+  });
+  for (const [attribute, expanded] of [
+    ["collapse", false],
+    ["expand", true],
+  ]) {
+    groupMenu?.querySelector(`[data-group-${attribute}-all]`)?.addEventListener("click", () => {
+      for (const button of headings) toggleGroup(button, expanded);
+      updateGroups();
+    });
   }
-
-  body.addEventListener("click", (event) => {
-    const toggle = event.target.closest("[data-group-toggle]");
-    if (!toggle) return;
-    const heading = toggle.closest("[data-client-group]");
-    const key = heading?.dataset.groupKey;
-    if (!key) return;
-    if (collapsedGroups.has(key)) collapsedGroups.delete(key);
-    else collapsedGroups.add(key);
-    refreshGrid();
-  });
-  groupMenu?.querySelector("[data-group-collapse-all]")?.addEventListener("click", () => {
-    body.querySelectorAll("[data-client-group][data-group-key]").forEach((row) => {
-      collapsedGroups.add(row.dataset.groupKey);
-    });
-    refreshGrid();
-  });
-  groupMenu?.querySelector("[data-group-expand-all]")?.addEventListener("click", () => {
-    collapsedGroups.clear();
-    refreshGrid();
-  });
   renderSort();
   renderGroup();
   renderFilter();
   renderFilterCount();
-  refreshGrid();
+  updateSelection();
 
   const searchPanel = document.querySelector("[data-search-panel]");
   const searchToggle = document.querySelector("[data-search-toggle]");
@@ -1316,9 +999,16 @@
   });
   document.querySelector("[data-search-close]")?.addEventListener("click", closeSearch);
 
+  table.dataset.rowHeight = viewState.row_height;
+  if (viewState.row_color) table.dataset.rowColor = viewState.row_color;
   document.querySelectorAll("[data-row-height-choice]").forEach((button) => {
+    button.setAttribute(
+      "aria-pressed",
+      String(button.dataset.rowHeightChoice === viewState.row_height),
+    );
     button.addEventListener("click", () => {
-      table.dataset.rowHeight = button.dataset.rowHeightChoice;
+      viewState.row_height = table.dataset.rowHeight = button.dataset.rowHeightChoice;
+      saveState();
       document.querySelectorAll("[data-row-height-choice]").forEach((item) => {
         item.setAttribute("aria-pressed", String(item === button));
       });
@@ -1337,20 +1027,9 @@
       const color = button.dataset.gridColor;
       if (color === "default") delete table.dataset.rowColor;
       else table.dataset.rowColor = color;
+      viewState.row_color = table.dataset.rowColor || "";
+      saveState();
       closeMenus();
     });
-  });
-  document.querySelector("[data-share-grid]")?.addEventListener("click", async (event) => {
-    const button = event.currentTarget;
-    const label = button.querySelector("[data-share-label]");
-    try {
-      await navigator.clipboard.writeText(window.location.href);
-      if (label) label.textContent = "Copied";
-      window.setTimeout(() => {
-        if (label) label.textContent = "Copy view link";
-      }, 1500);
-    } catch {
-      button.title = "Copy this page URL from the address bar";
-    }
   });
 })();

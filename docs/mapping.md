@@ -12,7 +12,7 @@ explicit; Obox does not implement the rest of either framework.
 | `forms.Form` | Django Form | bound/unbound; Pydantic schema validation; errors/add_error; initial/prefix | await validation before errors | `test_forms.py`, `test_forms_integration.py`, `test_reference_contracts.py` |
 | `forms.ModelForm` | Django ModelForm | explicit Meta; scalar fields; unique/FK validation; save/commit=False | async persistence; validation avoids ORM mutation | `test_forms_integration.py` |
 | `forms.widgets` | Django widgets | escaped inputs, checkbox, textarea, select, password/hidden | Jinja2/Markup rendering | `test_forms_integration.py` |
-| `views.generic` | Django generic display/edit views | per-request instance; setup/dispatch; query/object/context/form hooks; invalid200/redirect303 | native request; Select; awaited DB work | `test_views.py` |
+| `views.generic` | Django generic display/edit views | Per-request instance, setup/dispatch, query/object/context/form hooks, invalid forms return 422, successful submissions redirect with 303 | Native request, SQLAlchemy `Select`, awaited DB work | `test_views.py` |
 | `middleware.csrf` | Django CSRF | masked token, cookie/header/form input, origin checks | checked at view dispatch | `test_views.py` |
 | `template.backends.jinja2` | Django Jinja2 backend | directories/app discovery/options; get_template/render | native Jinja2 environment | `test_views.py` |
 | `ModelResource` | Django model validation and queryset conventions | shared query, input and write policy | async SQLAlchemy and Pydantic | `test_resources.py` |

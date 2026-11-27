@@ -161,6 +161,7 @@ def test_model_form_validates_without_saving_and_supports_commit_false() -> None
                 await duplicate.save()
             edited = ItemForm({"name": "alpha", "price": "3.00"}, instance=record)
             assert await edited.is_valid()
+            assert record.price == Decimal("2.50")
             await edited.save()
             assert record.price == Decimal("3.00")
 
@@ -168,6 +169,14 @@ def test_model_form_validates_without_saving_and_supports_commit_false() -> None
 
 
 def test_model_form_requires_explicit_field_configuration() -> None:
+    with pytest.raises(ImproperlyConfigured, match="error_messages"):
+
+        class Unsupported(forms.ModelForm):
+            class Meta:
+                model = Item
+                fields = ("name",)
+                error_messages = None
+
     with pytest.raises(ImproperlyConfigured):
 
         class Unsafe(forms.ModelForm):

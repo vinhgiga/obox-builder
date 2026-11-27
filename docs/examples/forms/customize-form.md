@@ -28,7 +28,7 @@ class ProductInput(BaseModel):
         return self
 
 
-class ProductForm(forms.ModelForm[ProductInput]):
+class ProductForm(forms.ModelForm[ProductInput, Product]):
     schema = ProductInput
 
     class Meta:

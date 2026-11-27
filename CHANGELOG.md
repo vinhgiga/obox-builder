@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Registered resources default to `GridView`. Use `ListView` for a flat row
+  layout and `ModelViewSet.collection_views` for additional views. Replace
+  `list_display` with `fields`, `paginate_by` with `page_size`, and `p=0` with
+  `page=1`. The default Grid template is `obox/generic/grid.html`.
+- HTML collections resolve filter, sort, group, and search together. A JSON
+  filter overrides flat filters. Invalid queries and invalid forms return `422`.
+- HTML detail and edit lookups use `{pk}` and `ModelResource.lookup_field`.
+  Detail pages show edit and delete links according to write permissions.
+- Use `ModelForm[Schema, Model]` for a typed instance and save result. Unsupported
+  `Meta` options now raise a configuration error.
 - Model REST lists now support bounded filters and sorting on readable fields,
   plus a `:groups` route with the same record scope and permissions as list.
 - REST search now splits on whitespace and requires every word to match a

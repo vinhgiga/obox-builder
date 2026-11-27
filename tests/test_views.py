@@ -69,7 +69,7 @@ def test_typed_form_view_renders_errors_and_reads_validated_attributes() -> None
                     "/contact/",
                     data={"csrfmiddlewaretoken": token[1], "name": "<script>", "rate": "9"},
                 )
-                assert invalid.status_code == 200
+                assert invalid.status_code == 422
                 assert "&lt;script&gt;" in invalid.text
                 assert "less than or equal to 5" in invalid.text
                 valid = await client.post(
@@ -93,7 +93,7 @@ def test_generic_views_create_update_delete_and_queryset_contract() -> None:
         model = Item
         form_class = ItemForm
         template_name = "obox/generic/form.html"
-        success_url = "/items/"
+        success_url = "/items/{pk}/"
 
     class Delete(DeleteView):
         model = Item
@@ -102,15 +102,7 @@ def test_generic_views_create_update_delete_and_queryset_contract() -> None:
 
     class List(ListView):
         model = Item
-        template_name = "obox/generic/list.html"
-
-        def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
-            context = super().get_context_data(**kwargs)
-            return {
-                **context,
-                "rows": [[obj.name] for obj in self.object_list],
-                "list_display": ["name"],
-            }
+        fields = ("name",)
 
     async def scenario() -> None:
         async with configured():
@@ -141,7 +133,7 @@ def test_generic_views_create_update_delete_and_queryset_contract() -> None:
                 denied = await client.post("/new/", data={"name": "a", "price": "1"})
                 assert denied.status_code == 403
                 invalid = await client.post("/new/", data={"csrfmiddlewaretoken": token[1]})
-                assert invalid.status_code == 200
+                assert invalid.status_code == 422
                 assert "This field is required." in invalid.text
                 created = await client.post(
                     "/new/", data={"csrfmiddlewaretoken": token[1], "name": "Alpha", "price": "1"}
@@ -155,6 +147,7 @@ def test_generic_views_create_update_delete_and_queryset_contract() -> None:
                     data={"csrfmiddlewaretoken": token[1], "name": "Beta", "price": "2"},
                 )
                 assert updated.status_code == 303
+                assert updated.headers["location"] == "/items/1/"
                 assert (await client.get("/items/999/")).status_code == 404
                 unsupported = await client.put(
                     "/items/1/delete/", headers={"X-CSRFToken": token[1]}

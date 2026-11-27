@@ -3,7 +3,7 @@ from obox.views.generic.decorators import action
 from obox.views.generic.detail import DetailView
 from obox.views.generic.edit import CreateView, DeleteView, FormView, UpdateView
 from obox.views.generic.inlines import StackedInline, TabularInline
-from obox.views.generic.list import ListView
+from obox.views.generic.list import GridView, ListView
 from obox.views.generic.model import ModelViewSet
 
 __all__ = [
@@ -11,6 +11,7 @@ __all__ = [
     "DeleteView",
     "DetailView",
     "FormView",
+    "GridView",
     "ListView",
     "ModelViewSet",
     "StackedInline",
@@ -18,5 +19,7 @@ __all__ = [
     "TemplateView",
     "UpdateView",
     "View",
+    "ViewConfig",
     "action",
 ]
+from obox.views.generic._query import ViewConfig

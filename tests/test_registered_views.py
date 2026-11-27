@@ -14,7 +14,15 @@ from obox.core.exceptions import ImproperlyConfigured
 from obox.core.principal import Principal
 from obox.db.session import session_scope
 from obox.runtime.registration import Registration
-from obox.views.generic import CreateView, DeleteView, ListView, ModelViewSet, UpdateView, action
+from obox.views.generic import (
+    CreateView,
+    DeleteView,
+    GridView,
+    ListView,
+    ModelViewSet,
+    UpdateView,
+    action,
+)
 
 from tests.test_forms_integration import Item, ItemForm, configured
 
@@ -56,6 +64,13 @@ def test_registration_uses_generic_views_and_preserves_route_names() -> None:
                 )
             with pytest.raises(TypeError):
                 Registration(Item, None, False, True, list_view=ListView)  # type: ignore[call-arg]
+
+            class LegacyList(ListView[Item]):
+                model = Item
+                list_display = ("name",)
+
+            with pytest.raises(ImproperlyConfigured, match="list_display"):
+                LegacyList.as_view()
             obox.register(Item)
             with pytest.raises(ImproperlyConfigured, match="already registered"):
                 obox.register(Item, api=False)
@@ -68,7 +83,7 @@ def test_registered_views_call_form_and_resource_hooks() -> None:
     events: list[tuple[str, int | bool]] = []
 
     class ItemList(ListView):
-        list_display = ("id", "name")
+        fields = ("id", "name")
         search_fields = ("name",)
 
     class RecordSave:
@@ -205,10 +220,14 @@ def test_registered_list_links_pagination_and_action_confirmation() -> None:
                 assert await form.is_valid()
                 await form.save()
 
-            class Items(ListView):
-                list_display = ("name",)
-                paginate_by = 2
+            class Items(GridView[Item]):
+                fields = ("name",)
+                page_size = 2
                 search_fields = ("name",)
+                actions = ("delete_selected",)
+
+            class RowList(ListView[Item]):
+                fields = ("name", "price")
 
             class LockedItems(ModelResource[Item]):
                 model = Item
@@ -219,6 +238,7 @@ def test_registered_list_links_pagination_and_action_confirmation() -> None:
             class LockedItemViews(ModelViewSet[Item]):
                 resource = LockedItems
                 list_view = Items
+                collection_views = (RowList,)
 
             app = FastAPI(openapi_url=None)
             app.add_middleware(
@@ -234,8 +254,15 @@ def test_registered_list_links_pagination_and_action_confirmation() -> None:
                 assert "alpha" in response.text
                 assert "gamma" not in response.text
                 assert "/tests/items/1/view" in response.text
+                assert 'href="/tests/items/views/list"' in response.text
                 assert 'name="q"' in response.text
-                assert "gamma" in (await client.get("/tests/items?p=1")).text
+                listing = await client.get("/tests/items/views/list")
+                assert 'class="table table-vcenter record-grid record-list"' in listing.text
+                assert (await client.post("/tests/items/views/list")).status_code == 405
+                protected = await client.get("/tests/items/3/view")
+                assert "Edit" in protected.text
+                assert 'href="/tests/items/3/delete"' not in protected.text
+                assert "gamma" in (await client.get("/tests/items?page=2")).text
                 token = client.cookies["csrftoken"]
                 data = {
                     "action": "delete_selected",
@@ -264,15 +291,15 @@ def test_same_list_view_supports_filters_search_and_actions_on_both_routes() -> 
 
     class VisibleItems(ModelResource[Item]):
         model = Item
+        fields = ("name", "price", "quantity")
 
         def get_queryset(self) -> sa.Select[tuple[Item]]:
             return super().get_queryset().where(Item.name != "private")
 
     class Items(ListView):
-        list_display = ("name",)
-        list_filter = ("quantity",)
+        fields = ("name",)
         search_fields = ("name",)
-        paginate_by = 2
+        page_size = 2
         actions = ("select_rows",)
 
         @action(permissions=("change",), description="Select rows")
@@ -315,16 +342,51 @@ def test_same_list_view_supports_filters_search_and_actions_on_both_routes() -> 
                     transport=httpx.ASGITransport(app=app), base_url="http://test"
                 ) as client,
             ):
-                for path, page in (("/tests/items", "p=1"), ("/inventory", "page=2")):
+                for path in ("/tests/items", "/inventory"):
                     first = await client.get(path)
                     assert "alpha" in first.text
                     assert "beta" not in first.text
-                    assert "beta" in (await client.get(f"{path}?{page}")).text
+                    assert "beta" in (await client.get(f"{path}?page=2")).text
                     filtered = f"{path}?q=alp&quantity__exact=1"
                     result = await client.get(filtered)
                     assert result.status_code == 200
                     assert "alpha" in result.text
                     assert all(name not in result.text for name in ("alpine", "beta", "private"))
+                    overridden = await client.get(
+                        path,
+                        params={
+                            "filter": '{"conjunction":"and","children":['
+                            '{"field":"quantity","op":"is","value":2}]}',
+                            "quantity__exact": "invalid",
+                        },
+                    )
+                    assert overridden.status_code == 200, overridden.text
+                    assert "alpine" in overridden.text
+                    assert "alpha" not in overridden.text
+                    cleared = await client.get(
+                        path,
+                        params={
+                            "filter": '{"conjunction":"and","children":[]}',
+                            "quantity__exact": "invalid",
+                        },
+                    )
+                    assert cleared.status_code == 200, cleared.text
+                    assert "alpine" in cleared.text
+                    assert "quantity__exact" not in cleared.text
+                    grouped = await client.get(path, params={"group": "price", "page": "2"})
+                    assert 'class="group-count">3 records' in grouped.text
+                    for invalid_query in (
+                        {"filter": "{"},
+                        {"quantity__exact": "invalid"},
+                        {"ordering": "unknown"},
+                        {"group": "unknown"},
+                        {"q": "alpha " * 11},
+                    ):
+                        assert (await client.get(path, params=invalid_query)).status_code == 422
+                    denied_field = await client.get(path, params={"id": "1"})
+                    missing_field = await client.get(path, params={"unknown": "1"})
+                    assert denied_field.status_code == missing_field.status_code == 422
+                    assert denied_field.text == missing_field.text
                     assert result.text.count("Select rows") == 1
                     assert "delete_selected" not in result.text
                     data = {"action": "select_rows", "_selected_action": ids}

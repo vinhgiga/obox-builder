@@ -1,11 +1,13 @@
 # List views and filters
 
-Use a `ListView` subclass for HTML list options and a `ModelResource` for record
-visibility.
+Use a `ListView` subclass for aligned rows and a `ModelResource` for record
+visibility. Add the list beside the default Grid through a `ModelViewSet`.
 
 ```python
 from obox import ModelResource
-from obox.views.generic import ListView
+from obox.apps import AppConfig
+from obox.views.generic import ListView, ModelViewSet, ViewConfig
+from sqlalchemy import Select
 
 from .models import Product
 
@@ -13,21 +15,27 @@ from .models import Product
 class LiveProducts(ModelResource[Product]):
     model = Product
 
-    def get_queryset(self):
+    def get_queryset(self) -> Select[tuple[Product]]:
         return super().get_queryset().where(Product.is_live.is_(True))
 
 
-class ProductList(ListView):
-    list_display = ("name", "price")
-    list_filter = ("status",)
+class ProductList(ListView[Product]):
+    fields = ("name", "price")
     search_fields = ("name",)
-    paginate_by = 25
+    page_size = 25
+    view = ViewConfig(sort=("name",))
 
 
-obox.register(LiveProducts, list_view=ProductList)
+class ProductPages(ModelViewSet[Product]):
+    resource = LiveProducts
+    collection_views = (ProductList,)
+
+
+class CatalogConfig(AppConfig):
+    views = [ProductPages]
 ```
 
-The HTML list accepts `?q=lamp`, filter parameters derived from `list_filter`
-and the `p` page parameter. Use `actions` for bulk actions and
-`list_display_links` to choose the linked columns. The same resource visibility
-applies to the REST collection and individual records.
+The secondary route ends in `/views/list`. Try `?q=lamp`,
+`?status__exact=live`, or `?ordering=-price&page=2`. The browser keeps column
+visibility and order for each view. The shared resource limits record access on
+every route.

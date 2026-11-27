@@ -30,29 +30,31 @@ class ProductResource(ModelResource[Product]):
     ordering = ("name",)
 ```
 
-Customize the generated HTML views with `ListView`, `DetailView`, `CreateView`,
-`UpdateView` and `DeleteView` subclasses, then pass them to `register`.
+Use `ModelViewSet` to attach custom HTML views to a resource in `AppConfig.views`.
 
 ```python
-from obox.views.generic import ListView
+from obox.views.generic import GridView, ModelViewSet
 
+from .models import Product
 from .resources import ProductResource
 
 
-class ProductList(ListView):
-    list_display = ("id", "name", "price")
+class ProductGrid(GridView[Product]):
+    fields = ("id", "name", "price")
     search_fields = ("name",)
-    paginate_by = 25
+    page_size = 25
 
 
-obox.register(ProductResource, list_view=ProductList)
+class ProductPages(ModelViewSet[Product]):
+    resource = ProductResource
+    list_view = ProductGrid
 ```
 
-`ListView` options include `list_display`, `list_display_links`, `list_filter`,
-`search_fields`, `paginate_by` and `actions`. The edit views own `fields`,
-`fieldsets`, `inlines` and `form_class`; `DetailView` displays the resource's
-readable fields. Pass a `ModelApi` subclass with `api=...` to replace the REST
-adapter. Use `views=False` or `api=False` to publish a single surface.
+`GridView` and `ListView` share `fields`, `search_fields`, `page_size`, `view`,
+and `actions`. Use `collection_views` for additional views of the same resource.
+Edit views accept `fields`, `fieldsets`, `inlines`, and `form_class`. Pass a
+`ModelApi` subclass with `api=...` to replace the REST adapter in direct
+registration. Use `views=False` or `api=False` to publish a single surface.
 
 Register from `AppConfig.ready()` for app-prefixed routes. `AppConfig.views` and
 `AppConfig.apis` also accept `ModelResource` classes, `ModelViewSet`/`ModelApi`

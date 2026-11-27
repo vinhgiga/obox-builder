@@ -516,7 +516,7 @@ def test_generic_view_prepares_scoped_choices_and_checks_forged_post() -> None:
                         "tags": ["1", "4"],
                     },
                 )
-                assert bad.status_code == 200
+                assert bad.status_code == 422
                 assert "Select a valid choice" in bad.text
                 good = await client.post(
                     "/new/",

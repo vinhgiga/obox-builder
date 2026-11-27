@@ -7,6 +7,8 @@ import pytest
 SOURCE = """
 from typing import Any, assert_type
 from obox.forms import Form, ModelForm, formset_factory, modelform_factory
+from obox import ModelResource
+from obox.views.generic import GridView, DetailView, UpdateView
 from obox.views.generic.inlines import Inline
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -29,7 +31,7 @@ class Record(Base):
     rate: Mapped[int]
     note: Mapped[str | None]
 
-class ReviewModel(ModelForm[ReviewInput]):
+class ReviewModel(ModelForm[ReviewInput, Record]):
     schema = ReviewInput
 
     class Meta:
@@ -39,6 +41,12 @@ class ReviewModel(ModelForm[ReviewInput]):
 class ReviewInline(Inline):
     model = Record
     form = ReviewModel
+
+class ReviewResource(ModelResource[Record]):
+    model = Record
+
+class ReviewGrid(GridView[Record]):
+    resource = ReviewResource
 
 formset_factory(Review)
 modelform_factory(Record, form=ReviewModel, fields=("name", "rate", "note"))
@@ -50,6 +58,15 @@ async def validate(raw: dict[str, Any]) -> None:
         assert_type(form.cleaned_data.name, str)
         assert_type(form.cleaned_data.rate, int)
         assert_type(form.cleaned_data.note, str | None)
+
+async def model_types(
+    form: ReviewModel, detail: DetailView[Record], edit: UpdateView[Record]
+) -> None:
+    assert_type(form.instance, Record)
+    assert_type(await form.save(), Record)
+    assert_type(await detail.get_object(), Record)
+    assert_type(await edit.get_object(), Record)
+    assert_type(ReviewGrid().object_list[0], Record)
 """
 
 

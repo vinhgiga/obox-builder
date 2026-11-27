@@ -92,7 +92,7 @@ def test_view_inlines_save_parent_children_and_render_errors(layout: Any, direct
                     f"{base_path}/add",
                     data={**parent, **data({"title": ""}, {"title": "x" * 50})},
                 )
-                assert invalid.status_code == 200
+                assert invalid.status_code == 422
                 assert "at most 40 characters" in invalid.text
                 async with session_scope() as session:
                     assert await session.scalar(sa.select(sa.func.count()).select_from(Author)) == 0
@@ -104,7 +104,7 @@ def test_view_inlines_save_parent_children_and_render_errors(layout: Any, direct
                         **data({"title": "Will roll back"}, {}),
                     },
                 )
-                assert failed.status_code == 200
+                assert failed.status_code == 422
                 assert "Cannot save this group." in failed.text
                 async with session_scope() as session:
                     assert await session.scalar(sa.select(sa.func.count()).select_from(Author)) == 0

@@ -94,15 +94,15 @@ Customize the generated HTML with view subclasses and the REST adapter with a
 
 ```python
 from obox.api import ModelApi
-from obox.views.generic import CreateView, ListView
+from obox.views.generic import CreateView, GridView, ModelViewSet
 
 
-class ProductList(ListView):
-    list_display = ("name", "price")
+class ProductGrid(GridView[Product]):
+    fields = ("name", "price")
     search_fields = ("name",)
 
 
-class ProductCreate(CreateView):
+class ProductCreate(CreateView[Product]):
     fields = ("name", "price")
     fieldsets = (("Details", {"fields": ("name", "price")}),)
 
@@ -113,12 +113,15 @@ class ProductApi(ModelApi[Product]):
     ordering_fields = ("name", "price")
 
 
-obox.register(
-    ProductResource,
-    list_view=ProductList,
-    create_view=ProductCreate,
-    api=ProductApi,
-)
+class ProductPages(ModelViewSet[Product]):
+    resource = ProductResource
+    list_view = ProductGrid
+    create_view = ProductCreate
+
+
+class ProductsConfig(AppConfig):
+    views = [ProductPages]
+    apis = [ProductApi]
 ```
 
 Set `fields` to a fixed projection for sensitive models. Override

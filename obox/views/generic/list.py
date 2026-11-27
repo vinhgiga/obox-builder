@@ -1,153 +1,121 @@
 from __future__ import annotations
 
-import json
 from collections.abc import Sequence
-from typing import Any, cast
+from typing import Any, ClassVar, Generic
 
 import sqlalchemy as sa
 from fastapi import Request
 from fastapi.responses import RedirectResponse, Response
-from starlette.exceptions import HTTPException
+from starlette.datastructures import URL
 
 from obox.core.async_utils import invoke
-from obox.core.exceptions import ImproperlyConfigured, InvalidQuery, PermissionDenied
-from obox.db.query import (
-    field_kind,
-    filter_expression,
-    filter_operators,
-    list_query,
-    model_column,
-    parse_order,
-    search_query,
-)
+from obox.core.exceptions import ImproperlyConfigured, NotFound, PermissionDenied
+from obox.core.pagination import Page
+from obox.db.query import group_query
 from obox.db.session import session_scope
-from obox.resources import resolve_resource
-from obox.views.generic._model import ModelContextMixin, ModelTemplateMixin
+from obox.resources import ModelResource
+from obox.views.generic._model import (
+    ModelContextMixin,
+    ModelT,
+    ModelTemplateMixin,
+    field_options,
+    reject_options,
+)
+from obox.views.generic._query import QUERY_PARAMETERS, ViewConfig, ViewQuery
 from obox.views.generic.base import TemplateView, View
 from obox.views.generic.decorators import action
 from obox.web.http import read_form
+from obox.web.i18n import language_url
 
 
-class ListView(ModelTemplateMixin, ModelContextMixin, View):
-    queryset: Any = None
-    context_object_name: str | None = None
-    paginate_by: int | None = None
-    page_kwarg = "page"
-    page_start = 1
-    allow_empty = True
-    ordering: Any = None
-    template_name_suffix = "_list"
-    object_list: Any
-    list_display: Sequence[Any] | None = None
-    list_display_links: Sequence[Any] | None = ()
-    list_filter: Sequence[str] = ()
+class ListView(ModelTemplateMixin, ModelContextMixin[ModelT], View, Generic[ModelT]):
+    fields: Sequence[str] | None = None
     search_fields: Sequence[str] = ()
+    page_size: int | None = None
+    view = ViewConfig()
     actions: Sequence[Any] | None = ()
-    add_url: str | None = None
+    editable: Sequence[str] = ()
+    slug = "list"
+    collection_routes: ClassVar[tuple[tuple[str, str, str], ...]] = ()
+    object_list: Sequence[ModelT]
+
+    _template = "list"
 
     def check(self) -> None:
         super().check()
-        if self.paginate_by is not None and (
-            type(self.paginate_by) is not int or self.paginate_by < 1
+        reject_options(
+            self,
+            (
+                "queryset",
+                "context_object_name",
+                "page_kwarg",
+                "page_start",
+                "allow_empty",
+                "ordering",
+                "list_display",
+                "list_display_links",
+                "list_filter",
+                "add_url",
+                "paginate_by",
+            ),
+        )
+        if "template_name_suffix" in vars(self) or any(
+            "template_name_suffix" in vars(cls)
+            for cls in type(self).__mro__
+            if issubclass(cls, ListView)
         ):
-            raise ImproperlyConfigured("Choose a positive page size.")
+            raise ImproperlyConfigured("Use template_name instead of template_name_suffix.")
+        if self.fields is not None and (
+            not isinstance(self.fields, Sequence)
+            or isinstance(self.fields, str)
+            or any(not isinstance(name, str) for name in self.fields)
+        ):
+            raise ImproperlyConfigured("ListView.fields must be a sequence of field names.")
+        if (
+            not isinstance(self.search_fields, Sequence)
+            or isinstance(self.search_fields, str)
+            or any(not isinstance(name, str) for name in self.search_fields)
+        ):
+            raise ImproperlyConfigured("ListView.search_fields must be a sequence of field names.")
+        if self.page_size is not None and (
+            type(self.page_size) is not int or not 1 <= self.page_size <= 100
+        ):
+            raise ImproperlyConfigured("Choose a page size between 1 and 100.")
+        if not isinstance(self.view, ViewConfig):
+            raise ImproperlyConfigured("Provide a ViewConfig for view.")
         if (
             self.model is None
             and self.resource is None
-            and self.queryset is None
             and type(self).get_queryset is ListView.get_queryset
         ):
-            raise ImproperlyConfigured("Define model, resource or queryset.")
+            raise ImproperlyConfigured("Define model, resource or get_queryset().")
 
-    def get_ordering(self) -> Any:
-        return self.ordering
-
-    def _queryable_fields(self, model: type[Any]) -> set[str]:
-        return {
-            name
-            for name in self.get_list_display()
-            if isinstance(name, str) and model_column(model, name) is not None
-        }
-
-    def _filter_field_options(self, model: type[Any]) -> list[dict[str, Any]]:
-        options = []
-        for name in self.get_list_display():
-            if not isinstance(name, str) or (column := model_column(model, name)) is None:
-                continue
-            kind = field_kind(column)
-            options.append(
-                {
-                    "name": name,
-                    "label": name.replace("_", " ").capitalize(),
-                    "kind": kind,
-                    "choices": list(column.type.enums) if isinstance(column.type, sa.Enum) else [],
-                    "operators": filter_operators(kind),
-                }
-            )
-        return options
-
-    def get_queryset(self) -> Any:
+    def get_queryset(self) -> sa.Select[tuple[ModelT]]:
         if resource := self.bound_resource():
-            query = resource.get_queryset().order_by(*resource.get_ordering())
-        elif self.queryset is not None:
-            query = self.queryset._generate()
-        elif self.model is not None:
-            query = sa.select(self.model)
-        else:
-            raise ImproperlyConfigured("Define model, queryset, or get_queryset().")
-        model = query.column_descriptions[0]["entity"]
-        queryable = self._queryable_fields(model)
-        if resource is None and (ordering := self.get_ordering()):
-            names = (ordering,) if isinstance(ordering, str) else ordering
-            query = query.order_by(
-                *(
-                    getattr(model, name.lstrip("-")).desc()
-                    if name.startswith("-")
-                    else getattr(model, name)
-                    for name in names
-                )
-            )
-        if not hasattr(self, "request"):
-            return query
-        if self.search_fields:
-            query = self.get_search_results(query, self.request.query_params.get("q", ""))
-        return list_query(
-            query,
+            return resource.get_queryset()
+        if self.model is not None:
+            return sa.select(self.model)
+        raise ImproperlyConfigured("Define model, resource or get_queryset().")
+
+    async def _resolve_collection(self) -> tuple[ModelResource[ModelT], Any, ViewQuery]:
+        queryset = await invoke(self.get_queryset)
+        model = queryset.column_descriptions[0]["entity"]
+        resource = self.model_resource(model)
+        allowed = {
+            name
+            for name in resource.readable
+            if not isinstance(resource.specs[name].column.type, sa.JSON)
+        }
+        state = ViewQuery.parse(
             model,
             self.request.query_params,
-            filters=self.get_list_filter(),
-            allowed=queryable,
+            allowed,
+            defaults=self.view,
+            search_fields=self.search_fields,
         )
+        return resource, state.apply(queryset.order_by(*resource.get_ordering()), model), state
 
-    def get_list_display(self) -> Sequence[Any]:
-        resource = self.bound_resource()
-        if self.list_display is None:
-            return resource.readable if resource is not None else ()
-        if resource is None:
-            return self.list_display
-        return tuple(
-            name
-            for name in self.list_display
-            if callable(name) or name not in resource.specs or name in resource.readable
-        )
-
-    def get_list_filter(self) -> Sequence[str]:
-        resource = self.bound_resource()
-        if resource is None:
-            return self.list_filter
-        return tuple(name for name in self.list_filter if name in resource.readable)
-
-    def get_search_results(self, queryset: Any, term: str) -> Any:
-        resource = self.bound_resource()
-        model = queryset.column_descriptions[0]["entity"]
-        fields = tuple(
-            name
-            for name in self.search_fields
-            if resource is None or name.lstrip("^=") in resource.readable
-        )
-        return search_query(queryset, model, fields, term)
-
-    def get_actions(self, model: type[Any]) -> dict[str, tuple[Any, str, str]]:
+    def get_actions(self, model: type[ModelT]) -> dict[str, tuple[Any, str, str]]:
         allowed = {}
         for declaration in self.actions or ():
             method = (
@@ -159,6 +127,14 @@ class ListView(ModelTemplateMixin, ModelContextMixin, View):
                 label = getattr(method, "short_description", name.replace("_", " ").capitalize())
                 allowed[name] = (method, name, label)
         return allowed
+
+    def _collection_url(self, url: URL | None = None, **updates: int) -> str:
+        params = self.request.query_params
+        has_filter = bool(params.get("filter"))
+        current = {
+            key: value for key, value in params.items() if not has_filter or key in QUERY_PARAMETERS
+        }
+        return str((url or self.request.url).replace_query_params(**{**current, **updates}))
 
     @action(permissions=("delete",), description="Delete selected objects")
     async def delete_selected(self, request: Request, queryset: Any) -> Response | None:
@@ -182,22 +158,24 @@ class ListView(ModelTemplateMixin, ModelContextMixin, View):
         if not self.actions:
             return self.http_method_not_allowed(request, *args, **kwargs)
         data = await read_form(request)
-        queryset = await invoke(self.get_queryset)
-        model = queryset.column_descriptions[0]["entity"]
-        if selected_action := self.get_actions(model).get(str(data.get("action", ""))):
-            column = sa.inspect(model).primary_key[0]
+        resource, queryset, _ = await self._resolve_collection()
+        if selected_action := self.get_actions(resource.model).get(str(data.get("action", ""))):
             try:
                 selected = [
-                    column.type.python_type(value) for value in data.getlist("_selected_action")
+                    resource.pk.type.python_type(value)
+                    for value in data.getlist("_selected_action")
                 ]
             except (TypeError, ValueError) as exc:
                 raise PermissionDenied("Invalid selection.") from exc
             result = await invoke(
-                selected_action[0], self, request, queryset.where(column.in_(selected))
+                selected_action[0],
+                self,
+                request,
+                resource._query(queryset).where(resource.pk.in_(selected)),
             )
             if isinstance(result, Response):
                 return result
-        return RedirectResponse(str(request.url), status_code=303)
+        return RedirectResponse(self._collection_url(), status_code=303)
 
     def allowed_methods(self) -> list[str]:
         methods = super().allowed_methods()
@@ -205,133 +183,156 @@ class ListView(ModelTemplateMixin, ModelContextMixin, View):
             methods.remove("POST")
         return methods
 
-    def _rows(self, model: type[Any], columns: Sequence[Any]) -> list[dict[str, Any]]:
-        mapper = sa.inspect(model)
-        pk = mapper.get_property_by_column(mapper.primary_key[0]).key
-        resource = self.bound_resource()
-        lookup_name = resource.lookup_name if resource is not None else pk
-        rows = []
-        for obj in self.object_list:
-            values = []
-            for name in columns:
-                display = getattr(self, name, None) if isinstance(name, str) else name
-                value = (
-                    display(obj) if callable(display) and name != "__str__" else getattr(obj, name)
+    async def _group_counts(
+        self,
+        resource: ModelResource[ModelT],
+        queryset: Any,
+        page: Page[ModelT],
+        names: tuple[str, ...],
+    ) -> dict[tuple[Any, ...], int]:
+        counts = {}
+        for depth in range(1, len(names) + 1):
+            prefix = names[:depth]
+            keys = {tuple(getattr(obj, name) for name in prefix) for obj in page}
+            if not keys:
+                break
+            columns = [getattr(resource.model, name) for name in prefix]
+            statement = group_query(queryset, resource.pk, columns, order="key.asc").where(
+                sa.or_(
+                    *(
+                        sa.and_(
+                            *(column == value for column, value in zip(columns, key, strict=True))
+                        )
+                        for key in keys
+                    )
                 )
-                values.append(value() if callable(value) else value)
-            row_id = getattr(obj, pk)
+            )
+            for *key, count in await self.session.execute(statement):
+                counts[tuple(key)] = count
+        return counts
+
+    async def _rows(
+        self,
+        resource: ModelResource[ModelT],
+        page: Page[ModelT],
+        columns: Sequence[str],
+        groups: tuple[str, ...],
+        counts: dict[tuple[Any, ...], int],
+    ) -> list[dict[str, Any]]:
+        rows = []
+        previous: tuple[Any, ...] = ()
+        for obj in page:
+            url = None
+            if "detail" in self.route_names and self.has_model_permission(resource.model, "view"):
+                try:
+                    await resource.check_permission("retrieve", obj)
+                except (NotFound, PermissionDenied):
+                    pass
+                else:
+                    url = self.route_url("detail", pk=str(getattr(obj, resource.lookup_name)))
+            keys = tuple(getattr(obj, name) for name in groups)
+            headers = []
+            for index, name in enumerate(groups, 1):
+                prefix = keys[:index]
+                if prefix != previous[:index]:
+                    headers.append(
+                        {
+                            "depth": index,
+                            "count": counts.get(prefix, 1),
+                            "label": name.replace("_", " ").capitalize(),
+                            "value": resource.specs[name].serialize(keys[index - 1]),
+                        }
+                    )
+            previous = keys
             rows.append(
                 {
-                    "pk": row_id,
-                    "values": values,
-                    "url": self.route_url("detail", pk=str(getattr(obj, lookup_name))),
-                },
+                    "pk": getattr(obj, resource.pk_name),
+                    "values": [
+                        resource.specs[name].serialize(getattr(obj, name)) for name in columns
+                    ],
+                    "url": url,
+                    "groups": headers,
+                }
             )
         return rows
-
-    def _page_url(self, number: int) -> str:
-        return str(
-            self.request.url.include_query_params(**{self.page_kwarg: number - 1 + self.page_start})
-        )
-
-    def get_context_data(self, **kwargs: Any) -> Any:
-        model = self.model or self._list_model
-        columns = self.get_list_display()
-        queryable = self._queryable_fields(model)
-        filter_config: dict[str, Any] = {
-            "fields": self._filter_field_options(model),
-            "filter": {"conjunction": "and", "children": []},
-        }
-        raw_filter = self.request.query_params.get("filter")
-        if raw_filter:
-            try:
-                filter_data = json.loads(raw_filter)
-                cleaned, _, _ = filter_expression(model, filter_data, queryable)
-                filter_config["filter"] = cleaned
-            except (TypeError, ValueError, InvalidQuery):
-                filter_config["filter"] = {"conjunction": "and", "children": []}
-        exact_terms = [
-            {"field": name, "op": "is", "value": value}
-            for name, value in self.request.query_params.items()
-            for name in [name.removesuffix("__exact")]
-            if name in self.get_list_filter() and value != "" and name in queryable
-        ]
-        if exact_terms:
-            filter_config["filter"]["children"].extend(exact_terms)
-        sort_config = {
-            "fields": filter_config["fields"],
-            "sort": parse_order(
-                self.request.query_params.get("ordering", ""), queryable, maximum=5
-            ),
-        }
-        group_config = {
-            "fields": filter_config["fields"],
-            "group": parse_order(self.request.query_params.get("group", ""), queryable, maximum=3),
-        }
-        page = self._page
-        context = {
-            "object_list": self.object_list,
-            self.context_object_name or model.__name__.lower() + "_list": self.object_list,
-            "is_paginated": page is not None and page.is_paginated,
-            "page_obj": page,
-            "title": model.__name__,
-            "list_display": columns,
-            "rows": self._rows(model, columns) if columns or self.actions else [],
-            "list_display_links": None
-            if self.list_display_links is None
-            else self.list_display_links or columns[:1],
-            "actions": self.get_actions(model),
-            "search_fields": self.search_fields,
-            "search_term": self.request.query_params.get("q", ""),
-            "filters": [
-                (name, self.request.query_params.get(name + "__exact", ""))
-                for name in self.get_list_filter()
-            ],
-            "filter_config": filter_config,
-            "sort_config": sort_config,
-            "group_config": group_config,
-            "previous_url": self._page_url(page.number - 1) if page and page.has_previous else None,
-            "next_url": self._page_url(page.number + 1) if page and page.has_next else None,
-            "add_url": self.add_url,
-        }
-        return cast(dict[str, Any], super().get_context_data(**{**context, **kwargs}))
 
     def get_template_names(self) -> list[str]:
         if self.template_name:
             return [self.template_name]
-        return self.model_template_names(self.model or self._list_model, "list")
+        return self.model_template_names(
+            self._list_model, self._template, suffix=f"_{self._template}"
+        )
 
     async def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        query = await invoke(self.get_queryset)
-        self._list_model = query.column_descriptions[0]["entity"]
-        self._page = None
-        number = 1
-        resource = self.bound_resource()
-        if (
-            "create" in self.route_names
-            and self.has_model_permission(self._list_model, "add")
-            and (resource is None or await invoke(resource.can, "create", None, request.user))
-        ):
-            self.add_url = self.route_url("create")
+        resource, queryset, state = await self._resolve_collection()
+        self._list_model = model = resource.model
+        try:
+            number = int(request.query_params.get("page", "1"))
+        except ValueError as exc:
+            raise NotFound("Invalid page.") from exc
+        size = self.page_size or min(resource.page_size or 50, 100)
         async with session_scope() as session:
-            bound = (resource or resolve_resource(self._list_model)).bind(session, request.user)
-            size = self.paginate_by if self.paginate_by is not None else bound.page_size
-            if size is not None:
-                raw = kwargs.get(
-                    self.page_kwarg, request.query_params.get(self.page_kwarg, str(self.page_start))
+            bound = resource.bind(session, request.user)
+            page = await bound.paginate(number, page_size=size, queryset=queryset)
+            self.object_list = page.items
+            columns = tuple(
+                dict.fromkeys(
+                    name
+                    for name in (resource.readable if self.fields is None else self.fields)
+                    if name in resource.readable
                 )
-                try:
-                    if raw == "last" and self.page_start == 1:
-                        first = await bound.paginate(1, page_size=size, queryset=query)
-                        number = first.num_pages
-                    else:
-                        number = int(raw) - self.page_start + 1
-                except (TypeError, ValueError) as exc:
-                    raise HTTPException(404, "Invalid page.") from exc
-                page = await bound.paginate(number, page_size=size, queryset=query)
-                self.object_list, self._page = page.items, page
-            else:
-                self.object_list = (await bound.list(queryset=query)).items
-        if not self.allow_empty and not self.object_list:
-            raise HTTPException(404, "Empty list.")
-        return self.render_to_response(await invoke(self.get_context_data, **kwargs))
+            )
+            fields = field_options(resource)
+            groups = tuple(term["field"] for term in state.group)
+            counts = (
+                await self._group_counts(bound, bound._query(queryset), page, groups)
+                if groups
+                else {}
+            )
+            rows = await self._rows(bound, page, columns, groups, counts)
+            add_url = await self.write_url("create", bound)
+
+        context = {
+            **kwargs,
+            "title": model.__name__,
+            "object_list": self.object_list,
+            "page": page,
+            "collection_kind": self._template,
+            "columns": [
+                {**fields[name], "primary": index == 0} for index, name in enumerate(columns)
+            ],
+            "query": {
+                "filter": state.filter,
+                "sort": state.sort,
+                "group": state.group,
+                "search": state.search,
+                "searchable": bool(state.search_fields),
+                "fields": [
+                    field
+                    for name, field in fields.items()
+                    if not isinstance(resource.specs[name].column.type, sa.JSON)
+                ],
+            },
+            "layout": {
+                "hidden": [name for name in self.view.hidden if name in columns[1:]],
+                "order": [name for name in self.view.order if name in columns[1:]],
+                "row_height": self.view.row_height,
+            },
+            "rows": rows,
+            "total": page.total,
+            "actions": self.get_actions(model),
+            "add_url": add_url,
+            "language_url": lambda code: self._collection_url(URL(language_url(request, code))),
+            "previous_url": self._collection_url(page=number - 1) if page.has_previous else None,
+            "next_url": self._collection_url(page=number + 1) if page.has_next else None,
+            "view_links": [
+                {"label": label, "url": self.reverse(name), "active": slug == self.slug}
+                for slug, label, name in self.collection_routes
+            ],
+        }
+        return self.render_to_response(await invoke(self.get_context_data, **context))
+
+
+class GridView(ListView[ModelT]):
+    slug = "grid"
+    _template = "grid"

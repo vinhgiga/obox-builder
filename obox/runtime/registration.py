@@ -6,7 +6,7 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from importlib import import_module
-from typing import TYPE_CHECKING, Any, TypeVar, cast
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from fastapi import APIRouter, Depends
 
@@ -17,9 +17,11 @@ from obox.views.generic import (
     CreateView,
     DeleteView,
     DetailView,
+    GridView,
     ListView,
     ModelViewSet,
     UpdateView,
+    View,
 )
 from obox.views.generic._model import model_permission
 from obox.web.dependencies import permission_required
@@ -124,23 +126,49 @@ class Registration:
         basename = f"obox:views:{prefix}"
         router = APIRouter(prefix=prefix, include_in_schema=False, route_class=UIRoute)
         viewset = self.viewset
-        routes = (
-            ("list", "changelist", "", ListView, viewset.list_view if viewset else None, "view"),
+        primary: type[ListView[Any]] | None = getattr(viewset, "list_view", None)
+        additional = getattr(viewset, "collection_views", ())
+        if not isinstance(additional, Sequence) or isinstance(additional, str | bytes):
+            raise ImproperlyConfigured("Provide a sequence for collection_views.")
+        collections: tuple[type[ListView[Any]], ...] = (
+            GridView if primary is None else primary,
+            *additional,
+        )
+        collection_routes = []
+        slugs: set[str] = set()
+        for index, collection in enumerate(collections):
+            if not isinstance(collection, type) or not issubclass(collection, ListView):
+                raise ImproperlyConfigured("Collection views must be ListView subclasses.")
+            slug = collection.slug
+            if not isinstance(slug, str) or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", slug):
+                raise ImproperlyConfigured(
+                    "Collection view slugs must be lowercase words joined by hyphens."
+                )
+            if slug in slugs:
+                raise ImproperlyConfigured(f"Collection view slug {slug!r} is already used.")
+            slugs.add(slug)
+            role = "list" if index == 0 else f"collection:{slug}"
+            route = "changelist" if index == 0 else role
+            path = "" if index == 0 else f"/views/{slug}"
+            collection_routes.append((role, route, path, ListView, collection, "view"))
+
+        routes: tuple[tuple[str, str, str, type[View], type[View] | None, str], ...] = (
+            *collection_routes,
             (
                 "detail",
                 "detail",
                 "/{pk}/view",
                 DetailView,
-                viewset.detail_view if viewset else None,
+                getattr(viewset, "detail_view", None),
                 "view",
             ),
-            ("create", "add", "/add", CreateView, viewset.create_view if viewset else None, "add"),
+            ("create", "add", "/add", CreateView, getattr(viewset, "create_view", None), "add"),
             (
                 "update",
                 "change",
                 "/{pk}/change",
                 UpdateView,
-                viewset.update_view if viewset else None,
+                getattr(viewset, "update_view", None),
                 "change",
             ),
             (
@@ -148,11 +176,15 @@ class Registration:
                 "delete",
                 "/{pk}/delete",
                 DeleteView,
-                viewset.delete_view if viewset else None,
+                getattr(viewset, "delete_view", None),
                 "delete",
             ),
         )
         route_names = {role: f"{basename}:{name}" for role, name, *_ in routes}
+        collection_links = tuple(
+            (view.slug, f"{view.slug.replace('-', ' ').capitalize()} view", route_names[role])
+            for view, (role, *_) in zip(collections, collection_routes, strict=True)
+        )
         for role, _, path, base, custom, permission in routes:
             if custom is not None and (
                 not isinstance(custom, type) or not issubclass(custom, base)
@@ -161,21 +193,9 @@ class Registration:
             view = base if custom is None else custom
             options: dict[str, Any] = {"resource": resource, "route_names": route_names}
             if issubclass(view, ListView):
-                list_view = cast("type[ListView]", view)
-                options.update(
-                    paginate_by=(
-                        list_view.paginate_by
-                        if list_view.paginate_by is not None
-                        else (resource.page_size or 100)
-                    ),
-                    page_kwarg="p",
-                    page_start=0,
-                    actions=(
-                        None
-                        if list_view.actions is None
-                        else ("delete_selected", *list_view.actions)
-                    ),
-                )
+                options["collection_routes"] = collection_links
+                if role == "list" and view is GridView:
+                    options["actions"] = ("delete_selected",)
             view.as_route(
                 router,
                 path,

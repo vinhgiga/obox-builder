@@ -5,13 +5,15 @@
     {% if routes.get("list") %}<a class="btn btn-outline-secondary btn-sm"
    href="{{ request.url_for(routes['list']) }}">Back to list</a>{% endif %}
     {% if change_url %}<a class="btn btn-primary btn-sm" href="{{ change_url }}">Edit</a>{% endif %}
+    {% if delete_url %}<a class="btn btn-outline-danger btn-sm"
+   href="{{ delete_url }}">Delete</a>{% endif %}
   </nav>
   {% if values %}
     <dl class="row mb-0">
-      {% for name, value in values %}
-        <dt class="col-sm-3 py-2 text-secondary fw-normal">{{ name.replace('_', ' ').capitalize() }}</dt>
+      {% for field in values %}
+        <dt class="col-sm-3 py-2 text-secondary fw-normal">{{ field.label }}</dt>
         <dd class="col-sm-9 py-2 mb-0 border-bottom">
-          {{ value if value is not none and value != '' else '—' }}
+          {{ field.value if field.value is not none and field.value != '' else '—' }}
         </dd>
       {% endfor %}
     </dl>

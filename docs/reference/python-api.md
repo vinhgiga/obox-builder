@@ -11,12 +11,12 @@ registration signatures.
 | `from obox.apps import AppConfig` | Installed app configuration and declarative registration |
 | `from obox.routes import Route` | HTML route declarations that select templates and permissions |
 | `from obox.components import Component` | Reusable component declarations |
-| `from obox.views.generic import ModelViewSet, ListView, DetailView, CreateView, UpdateView, DeleteView, FormView, TemplateView, StackedInline, TabularInline, action` | Generated and standalone HTML views |
+| `from obox.views.generic import ModelViewSet, GridView, ListView, ViewConfig, DetailView, CreateView, UpdateView, DeleteView, FormView, TemplateView, StackedInline, TabularInline, action` | Generated and standalone HTML views |
 | `from obox.api import ModelApi, ApiRequest, ApiResponse, Context` | Native FastAPI REST adapter and schemas |
 | `from obox import forms` | Fields, widgets, forms, and formset factories |
 | `from obox.db import atomic` | Async transaction boundary |
 
-`Obox.register(target, *, slug=None, api=True, views=True, list_view=None, detail_view=None, create_view=None, update_view=None, delete_view=None)`
+`Obox.register(target, *, slug=None, api=True, views=True)`
 registers a mapped SQLAlchemy class or a `ModelResource` subclass. `api` accepts
 `True`, `False` or a `ModelApi` subclass. `AppConfig.register()` accepts the
 same arguments from `ready()` and prefixes URLs with the app's label.
@@ -36,10 +36,10 @@ runs after input validation and can supply trusted server values such as an
 owner ID.
 
 `ModelViewSet` groups a `resource` with `slug`, `prefix` and custom
-`list_view`, `detail_view`, `create_view`, `update_view` and `delete_view`
-classes. `ListView` options include `list_display`, `list_display_links`,
-`list_filter`, `search_fields`, `paginate_by` and `actions`. `CreateView` and
-`UpdateView` add `fields`, `fieldsets`, `inlines` and `form_class`.
+`list_view`, `collection_views`, `detail_view`, `create_view`, `update_view` and
+`delete_view` classes. `GridView` and `ListView` share `fields`, `search_fields`,
+`page_size`, `view`, and `actions`. `CreateView` and `UpdateView` accept `fields`,
+`fieldsets`, `inlines`, and `form_class`.
 
 `ModelApi` options include `resource` or `model`, `prefix`, `slug`,
 `include_router_methods`, `permissions`, `read_schema`, `create_schema`,

@@ -23,6 +23,7 @@ from starlette.types import Message, Receive, Scope, Send
 from obox.components.query import invalid
 from obox.core.exceptions import (
     BuilderValidationError,
+    InvalidQuery,
     NotAuthenticated,
     NotFound,
     OboxError,
@@ -39,7 +40,9 @@ from obox.web.schemas import FieldError, Problem
 def error_status(exc: Exception) -> int:
     if isinstance(exc, HTTPException):
         return exc.status_code
-    if isinstance(exc, RequestValidationError | BuilderValidationError | RuleViolation):
+    if isinstance(
+        exc, RequestValidationError | BuilderValidationError | InvalidQuery | RuleViolation
+    ):
         return 422
     for error, status in (
         (NotAuthenticated, 401),
