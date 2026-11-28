@@ -56,7 +56,7 @@ def test_installed_app_exposes_shared_resource_views_and_api() -> None:
                     headers={"x-test-user": "admin"},
                 ) as client,
             ):
-                assert (await client.get("/inventory/items/add")).status_code == 200
+                assert (await client.get("/inventory/item/add")).status_code == 200
                 data = {
                     "csrfmiddlewaretoken": client.cookies["csrftoken"],
                     "name": " Alpha ",
@@ -64,17 +64,17 @@ def test_installed_app_exposes_shared_resource_views_and_api() -> None:
                 }
                 assert (
                     "Total must be at least 2."
-                    in (await client.post("/inventory/items/add", data=data)).text
+                    in (await client.post("/inventory/item/add", data=data)).text
                 )
-                created = await client.post("/inventory/items/add", data={**data, "price": "2.00"})
+                created = await client.post("/inventory/item/add", data={**data, "price": "2.00"})
                 assert (created.status_code, created.headers["location"]) == (
                     303,
-                    "/inventory/items",
+                    "/inventory/item",
                 )
                 listing = await client.get(INVENTORY_API)
                 assert [item["name"] for item in listing.json()["items"]] == ["alpha"]
                 row = listing.json()["items"][0]
-                assert "alpha" in (await client.get(f"/inventory/items/{row['id']}/view")).text
+                assert "alpha" in (await client.get(f"/inventory/item/{row['id']}/view")).text
 
     asyncio.run(scenario())
 
@@ -99,7 +99,7 @@ def test_app_declarations_enable_each_surface_independently(html: bool) -> None:
                     headers={"x-test-user": "admin"},
                 ) as client,
             ):
-                assert (await client.get("/inventory/items")).status_code == (200 if html else 404)
+                assert (await client.get("/inventory/item")).status_code == (200 if html else 404)
                 assert (await client.get(INVENTORY_API)).status_code == (404 if html else 200)
 
     asyncio.run(scenario())
@@ -215,7 +215,7 @@ def test_custom_api_prefix_keeps_token_auth_on_installed_api_routes() -> None:
                     api_path = "/inventory/v01_form_items"
                     assert (await bearer.get(api_path)).status_code == 200
                     assert (await bearer.get("/inventory/status")).status_code == 200
-                    assert (await bearer.get("/inventory/html/items")).status_code == 401
+                    assert (await bearer.get("/inventory/html/item")).status_code == 401
                     assert (await bearer.get("/inventory/raw")).status_code == 401
                     assert (await bearer.post(api_path, json={})).status_code == 403
 

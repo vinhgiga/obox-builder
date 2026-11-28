@@ -12,8 +12,8 @@ HTML and native FastAPI REST routes.
    Attach HTML customizations through `ModelViewSet` in `AppConfig.views` and
    REST customizations through `AppConfig.apis`.
 3. Choose a surface using `views=False` or `api=False`. Direct registration
-   uses the table name under `/v0` for REST. A `Product` with table `product`
-   uses `/v0/product`.
+   uses the model class name for HTML and the table name under `/v0` for REST.
+   A `Product` with table `product` uses `/product` and `/v0/product`.
    Declare `write_schema` once for both create and PATCH.
 4. Replace staff checks with operation permissions assigned through roles.
    The current superuser flag supplies administrator access.

@@ -114,24 +114,24 @@ def test_resource_validation_permissions_and_defaults_are_shared() -> None:
                     headers={"x-test-user": "editor"},
                 ) as client,
             ):
-                html = await client.get("/items/add")
+                html = await client.get("/item/add")
                 assert html.status_code == 200
                 cookie = client.cookies["csrftoken"]
                 token = {"csrfmiddlewaretoken": cookie}
                 auth = {"authorization": "Bearer test"}
-                denied = await client.post("/items/add", data={"name": "aa", "price": "2"})
+                denied = await client.post("/item/add", data={"name": "aa", "price": "2"})
                 assert denied.status_code == 403
                 denied = await client.post(api_path, json={"name": "aa", "price": "2"})
                 assert denied.status_code == 403
 
                 invalid = {"name": "Alpha", "price": "1"}
-                rejected = await client.post("/items/add", data={**invalid, **token})
+                rejected = await client.post("/item/add", data={**invalid, **token})
                 assert "Total must be at least 2." in rejected.text
                 rejected = await client.post(api_path, headers=auth, json=invalid)
                 assert rejected.status_code == 422
                 assert "Total must be at least 2." in rejected.text
                 for endpoint, headers, data in [
-                    ("/items/add", {}, {**token, "name": "Alpha", "price": "2", "quantity": "3"}),
+                    ("/item/add", {}, {**token, "name": "Alpha", "price": "2", "quantity": "3"}),
                     (api_path, auth, {"name": "Alpha", "price": "2", "quantity": 3}),
                 ]:
                     payload: dict[str, Any] = (
@@ -141,11 +141,11 @@ def test_resource_validation_permissions_and_defaults_are_shared() -> None:
                         await client.post(endpoint, headers=headers, **payload)
                     ).status_code == 403
                 created = await client.post(
-                    "/items/add", data={**token, "name": " Alpha ", "price": "2"}
+                    "/item/add", data={**token, "name": " Alpha ", "price": "2"}
                 )
                 assert (created.status_code, created.headers["location"]) == (
                     303,
-                    "/items",
+                    "/item",
                 )
                 stored = (await client.get(item_path)).json()
                 assert stored["name"] == "alpha"
@@ -161,7 +161,7 @@ def test_resource_validation_permissions_and_defaults_are_shared() -> None:
                     await client.patch(item_path, headers=auth, json={"price": None})
                 ).status_code == 422
                 assert (await client.delete(item_path, headers=auth)).status_code == 403
-                assert (await client.post("/items/1/delete", data=token)).status_code == 403
+                assert (await client.post("/item/1/delete", data=token)).status_code == 403
                 assert (
                     await client.get(api_path, headers={"x-test-user": "inactive"})
                 ).status_code == 401
@@ -176,9 +176,9 @@ def test_resource_validation_permissions_and_defaults_are_shared() -> None:
                 listing = (await client.get(api_path, params={"includeTotal": "true"})).json()
                 assert listing["total"] == 2
                 assert [item["name"] for item in listing["items"]] == ["zeta", "alpha"]
-                assert "private" not in (await client.get("/items")).text
+                assert "private" not in (await client.get("/item")).text
                 assert (await client.get(f"{api_path}/2")).status_code == 404
-                assert (await client.get("/items/2/view")).status_code == 404
+                assert (await client.get("/item/2/view")).status_code == 404
 
     asyncio.run(scenario())
 

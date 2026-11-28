@@ -20,7 +20,7 @@ def run(project: Path, *args: str, env: dict[str, str] | None = None) -> None:
 def check_http(url: str, password: str) -> None:
     with httpx.Client(base_url=url) as client:
         home = client.get("/")
-        collection = client.get("/products")
+        collection = client.get("/product")
         for response in (home, collection):
             assert response.status_code == 303, response.text
             assert response.headers["location"].startswith("/auth/login?")
@@ -37,12 +37,12 @@ def check_http(url: str, password: str) -> None:
         )
         assert session.status_code == 303, session.text
 
-        assert client.get("/products").status_code == 200
-        form = client.get("/products/add")
+        assert client.get("/product").status_code == 200
+        form = client.get("/product/add")
         assert form.status_code == 200
         masked = re.search(r'name="csrfmiddlewaretoken"\s+value="([^"]+)"', form.text)
         assert masked is not None
-        invalid = client.post("/products/add", data={"csrfmiddlewaretoken": masked[1]})
+        invalid = client.post("/product/add", data={"csrfmiddlewaretoken": masked[1]})
         assert invalid.status_code == 422, invalid.text
         stylesheet = re.search(r'href="([^"]+tabler\.min\.css)"', page.text)
         assert stylesheet is not None
@@ -57,7 +57,7 @@ def check_http(url: str, password: str) -> None:
         assert product.status_code == 201, product.text
         pk = product.json()["id"]
         for action in ("view", "change", "delete"):
-            assert client.get(f"/products/{pk}/{action}").status_code == 200
+            assert client.get(f"/product/{pk}/{action}").status_code == 200
         assert client.get(f"/v0/product/{pk}").json()["name"] == "Desk lamp"
         assert client.get("/v0/products").status_code == 404
         assert client.get("/api/products").status_code == 404

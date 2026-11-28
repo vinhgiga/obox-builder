@@ -26,8 +26,12 @@ from app.products.models import Product
 os.environ.setdefault("OBOX_SETTINGS_MODULE", "settings")
 app = FastAPI(openapi_url=None)
 obox = Obox(app)
-obox.register(Product)  # HTML: /products; REST: /v0/product
+obox.register(Product)  # HTML: /product; REST: /v0/product
 ```
+
+By default, HTML uses the model class name and REST uses the SQLAlchemy table
+name. For `Product` mapped to `product`, those paths are `/product` and
+`/v0/product`.
 
 Use `views=False` for REST only or `api=False` for HTML only. Register from
 `AppConfig.ready()` for app-prefixed routes. Declare a `ModelResource` to share

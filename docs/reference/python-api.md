@@ -20,7 +20,10 @@ registration signatures.
 registers a mapped SQLAlchemy class or a `ModelResource` subclass. `api` accepts
 `True`, `False` or a `ModelApi` subclass. `views` accepts `True`, `False` or a
 `ModelViewSet` subclass. `AppConfig.register()` accepts the
-same arguments from `ready()` and prefixes URLs with the app's label.
+same arguments from `ready()` and prefixes URLs with the app's label. By
+default, HTML uses the model class name in lowercase kebab case, while REST
+uses the SQLAlchemy table name under `API_PREFIX`. `slug` overrides the route
+suffix; adapter `prefix` attributes can override it per surface.
 
 `AppConfig` also declares `views` and `apis` sequences containing `ModelResource`
 classes, `ModelViewSet`/`ModelApi` subclasses, or dotted paths. `components`,

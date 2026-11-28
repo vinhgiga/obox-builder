@@ -2,6 +2,9 @@
 
 ## 0.1.0 — unreleased
 
+- Generated HTML routes use the model class name in lowercase kebab case
+  (`Product` → `/product`); REST routes use the table name under `/v0`
+  (`product` → `/v0/product`). Set `slug` to override the suffix.
 - Registered resources default to `GridView`. Use `ListView` for a flat row
   layout and `ModelViewSet.collection_views` for additional views. Replace
   `list_display` with `fields`, `paginate_by` with `page_size`, and `p=0` with

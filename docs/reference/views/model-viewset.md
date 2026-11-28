@@ -3,6 +3,10 @@
 `ModelViewSet` binds one shared `ModelResource` to its HTML routes. Declare a
 `ModelViewSet` subclass in an installed app's `views` sequence.
 
+Without a `slug` or `prefix` override, the HTML suffix comes from the model
+class name in lowercase kebab case, so `Product` uses `/product`. The REST
+suffix defaults to the SQLAlchemy table name.
+
 ```python
 from obox.apps import AppConfig
 from obox.views.generic import GridView, ModelViewSet
@@ -25,6 +29,9 @@ class CatalogConfig(AppConfig):
     name = "catalog"
     views = [ProductPages]
 ```
+
+Here, `slug = "products"` explicitly chooses the plural suffix. Remove it to
+use `/catalog/product` for the default `Product` route.
 
 ## Attributes
 

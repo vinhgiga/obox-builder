@@ -38,15 +38,16 @@ The registration exposes these HTML routes.
 
 | Path | Purpose |
 | --- | --- |
-| `/products` | Browse products. |
-| `/products/add` | Add a product. |
-| `/products/{pk}/view` | View a product. |
-| `/products/{pk}/change` | Edit a product. |
-| `/products/{pk}/delete` | Confirm and submit deletion. |
+| `/product` | Browse products. |
+| `/product/add` | Add a product. |
+| `/product/{pk}/view` | View a product. |
+| `/product/{pk}/change` | Edit a product. |
+| `/product/{pk}/delete` | Confirm and submit deletion. |
 
 The REST collection is `/v0/product`. For app-prefixed URLs, move the
 registration into `AppConfig.ready()` and use
-`self.register(Product)`.
+`self.register(Product)`. With the `products` app label, the routes are
+`/products/product` and `/v0/products/product`.
 
 Generate a model migration, review it, apply it and create an administrator.
 
@@ -60,5 +61,5 @@ uv run uvicorn main:app --reload
 For unattended setup, supply `OBOX_SUPERUSER_PASSWORD` in the environment and
 run `uv run obox createsuperuser --username admin --noinput`.
 
-Sign in at `/auth/login` and open `/products`. See [ModelResource registration](features/register-resource.md)
+Sign in at `/auth/login` and open `/product`. See [ModelResource registration](features/register-resource.md)
 to add shared validation and [access control](../features/access-control.md) to assign model permissions.

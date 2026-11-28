@@ -73,7 +73,7 @@ def test_registration_uses_generic_views_and_preserves_route_names() -> None:
             obox.register(Item)
             with pytest.raises(ImproperlyConfigured, match="already registered"):
                 obox.register(Item, api=False)
-            assert str(app.url_path_for("obox:views:/items:changelist")) == "/items"
+            assert str(app.url_path_for("obox:views:/item:changelist")) == "/item"
 
     asyncio.run(scenario())
 
@@ -93,7 +93,7 @@ def test_registered_views_call_form_and_resource_hooks() -> None:
         form_class = ItemForm
 
     class ItemDelete(DeleteView):
-        success_url = "/items"
+        success_url = "/item"
 
     class ItemsResource(ModelResource[Item]):
         model = Item
@@ -135,7 +135,7 @@ def test_registered_views_call_form_and_resource_hooks() -> None:
                 ) as client,
             ):
                 assert (await client.get("/v0/tests/v01_form_items")).status_code == 404
-                page = await client.get("/tests/items/add")
+                page = await client.get("/tests/item/add")
                 assert page.status_code == 200
                 assert "Details" in page.text
                 assert "Title" in page.text
@@ -143,22 +143,22 @@ def test_registered_views_call_form_and_resource_hooks() -> None:
                 token = re.search(r'name="csrfmiddlewaretoken" value="([^"]+)"', page.text)
                 assert token is not None
                 data = {"csrfmiddlewaretoken": token[1], "name": "Alpha", "price": "1.00"}
-                saved = await client.post("/tests/items/add", data=data)
+                saved = await client.post("/tests/item/add", data=data)
                 assert saved.status_code == 303
-                assert (await client.get("/tests/items")).status_code == 200
-                assert (await client.get("/tests/items?q=absent")).status_code == 200
+                assert (await client.get("/tests/item")).status_code == 200
+                assert (await client.get("/tests/item?q=absent")).status_code == 200
                 assert (
-                    await client.post("/tests/items/1/change", data={**data, "name": "Beta"})
+                    await client.post("/tests/item/1/change", data={**data, "name": "Beta"})
                 ).status_code == 303
                 deleted = await client.post(
-                    "/tests/items/1/delete", data={"csrfmiddlewaretoken": token[1]}
+                    "/tests/item/1/delete", data={"csrfmiddlewaretoken": token[1]}
                 )
                 assert (deleted.status_code, deleted.headers["location"]) == (
                     303,
-                    "/items",
+                    "/item",
                 )
                 assert events == [("save", False), ("save", True), ("delete", 1), ("delete", 1)]
-                assert (await client.get("/tests/items/1/change")).status_code == 404
+                assert (await client.get("/tests/item/1/change")).status_code == 404
 
     asyncio.run(scenario())
 
@@ -181,14 +181,14 @@ def test_view_only_actor_sees_readonly_values_and_cannot_change() -> None:
             async with httpx.AsyncClient(
                 transport=httpx.ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.get("/items/1/view")
+                response = await client.get("/item/1/view")
                 assert response.status_code == 200
                 assert "original" in response.text
                 assert 'name="name"' not in response.text
                 assert ">Save<" not in response.text
                 token = client.cookies.get("csrftoken", "")
                 denied = await client.post(
-                    "/items/1/change",
+                    "/item/1/change",
                     data={
                         "name": "changed",
                         "price": "1",
@@ -196,7 +196,7 @@ def test_view_only_actor_sees_readonly_values_and_cannot_change() -> None:
                     },
                 )
                 assert denied.status_code == 403
-                assert "original" in (await client.get("/items/1/view")).text
+                assert "original" in (await client.get("/item/1/view")).text
 
     asyncio.run(scenario())
 
@@ -233,16 +233,16 @@ def test_registered_grid_links_and_pagination() -> None:
             async with httpx.AsyncClient(
                 transport=httpx.ASGITransport(app=app), base_url="http://test"
             ) as client:
-                response = await client.get("/tests/items")
+                response = await client.get("/tests/item")
                 assert "alpha" in response.text
                 assert "gamma" not in response.text
-                assert "/tests/items/1/view" in response.text
+                assert "/tests/item/1/view" in response.text
                 assert 'name="q"' in response.text
-                assert (await client.post("/tests/items")).status_code == 405
-                protected = await client.get("/tests/items/3/view")
+                assert (await client.post("/tests/item")).status_code == 405
+                protected = await client.get("/tests/item/3/view")
                 assert "Edit" in protected.text
-                assert 'href="/tests/items/3/delete"' not in protected.text
-                assert "gamma" in (await client.get("/tests/items?page=2")).text
+                assert 'href="/tests/item/3/delete"' not in protected.text
+                assert "gamma" in (await client.get("/tests/item?page=2")).text
 
     asyncio.run(scenario())
 

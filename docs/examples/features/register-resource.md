@@ -87,8 +87,10 @@ class ProductsConfig(AppConfig):
         self.register(ProductResource)
 ```
 
-The app-prefixed collections are `/catalog/products` and
-`/v0/catalog/products`. Pass `api=False` or `views=False` to publish a single
+The app-prefixed collections are `/catalog/product` and
+`/v0/catalog/product`. The HTML suffix defaults to the model class name in
+lowercase kebab case; the API suffix defaults to the SQLAlchemy table name.
+Pass `api=False` or `views=False` to publish a single
 surface.
 
 Customize the generated HTML with view subclasses and the REST adapter with a

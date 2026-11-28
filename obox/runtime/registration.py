@@ -68,7 +68,11 @@ class Registration:
                 f"Use the same slug for {resource.model.__name__} in {label}.views and .apis."
             )
         declared_slug = self.slug if self.slug is not None else view_slug or api_slug
-        slug = declared_slug if declared_slug is not None else _slug(resource.model.__name__)
+        slug = (
+            declared_slug
+            if declared_slug is not None
+            else _default_slug(resource.model.__name__)
+        )
         if not isinstance(slug, str) or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", slug):
             raise ImproperlyConfigured(
                 "A ModelResource slug must use lowercase words joined by hyphens."
@@ -241,11 +245,6 @@ def _join_path(base: str, suffix: str) -> str:
     return f"{base.rstrip('/')}/{suffix}" if base else f"/{suffix}"
 
 
-def _slug(name: str) -> str:
+def _default_slug(name: str) -> str:
     words = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1-\2", name)
-    words = re.sub(r"([a-z0-9])([A-Z])", r"\1-\2", words).replace("_", "-").lower()
-    if words.endswith(("s", "x", "z", "ch", "sh")):
-        return words + "es"
-    if re.search(r"[^aeiou]y$", words):
-        return words[:-1] + "ies"
-    return words + "s"
+    return re.sub(r"([a-z0-9])([A-Z])", r"\1-\2", words).replace("_", "-").lower()
