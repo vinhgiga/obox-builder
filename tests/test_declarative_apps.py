@@ -14,7 +14,7 @@ from obox.contrib.auth.models import Base as AuthBase
 from obox.contrib.auth.models import User
 from obox.contrib.auth.passwords import hash_password
 from obox.core.exceptions import ImproperlyConfigured
-from obox.views.generic import DetailView, ListView, ModelViewSet
+from obox.views.generic import DetailView, GridView, ModelViewSet
 
 from tests.runtime import resource_for
 from tests.test_auth_api import PASSWORD, issue, login
@@ -234,7 +234,7 @@ class ConflictingApi(ItemApi):
     ("fields", "message"),
     [
         ({"views": [Items, ItemViews]}, "declared twice"),
-        ({"views": [ListView]}, "ModelResource or ModelViewSet"),
+        ({"views": [GridView]}, "ModelResource or ModelViewSet"),
         ({"apis": "tests.test_resources.Items"}, "must be a list or tuple"),
         ({"views": ["tests.test_resources.Unknown"]}, "Cannot load"),
         ({"views": [ItemViews], "apis": [ConflictingApi]}, "same slug"),

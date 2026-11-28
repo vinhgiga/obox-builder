@@ -23,41 +23,22 @@ Database/schema management remains SQLAlchemy/Alembic; no QuerySet emulation exi
 
 ## Forms
 
-`Form` declares fields through a Pydantic schema or `field_options`;
-`ModelForm` derives scalar fields from `Meta.model` and explicit `Meta.fields`
-or `Meta.exclude`. Meta also supports `labels`, `widgets` and `help_texts`.
-Per-instance input is `data`, `files`, `initial`, `prefix`, and, for model
-forms, `instance`. Fieldsets and inlines belong to the generic `CreateView` and
-`UpdateView`, not to `Meta`.
+`Form[S]` binds and renders HTML controls defined by a Pydantic schema. Override a
+control with `field_options`. Await `is_valid()` before reading `cleaned_data`.
+Use `UploadFile` for multipart upload fields and `FileInput(max_size=...)` to
+enforce a byte limit.
 
-Unbound forms are invalid and have no errors. Await `is_valid()` or `full_clean()`
-before reading `errors` or `cleaned_data`. Cleaning runs field conversion,
-Pydantic field/model validators and then `post_clean()`; model forms use that
-hook for model uniqueness and foreign-key checks.
-`fastapi.UploadFile` declares a file input. Bind uploads with
-`files=` using the same prefix rules as `data=`. Use `UploadFile | None` for an
-optional file. `Form.is_multipart()` reports the encoding required by its widgets.
-`FileInput(max_size=...)` sets an optional per-file byte limit, enforced during
-form validation. Files larger than the limit receive a `max_size` field error.
-`add_error()` removes the affected value from cleaned_data. Validation never saves
-or mutates a persisted SQLAlchemy instance. This avoids SQLAlchemy's automatic
-dirty tracking during validation.
-
-`await form.save(commit=False)` applies validated data to an instance without
-inserting/updating it. `await form.save()` flushes within the current transaction
-or owns a short transaction. `async with atomic()` from `obox.db` groups work and
-rolls back on exceptions. Metadata/configuration methods stay synchronous;
-database-aware hooks may be asynchronous. Uploaded files are available to the
-application during form processing. The application owns any file storage and
-model persistence for upload fields.
+A Resource supplies `write_schema` for model editing and owns the write
+transaction. HTML create/update views and REST create/patch send input to the
+same Resource validation. Patch preserves all omitted fields.
 
 ## Generic views and URLs
 
-Supported views are `View`, `TemplateView`, `ListView`, `DetailView`, `FormView`,
+Supported views are `View`, `TemplateView`, `GridView`, `DetailView`, `FormView`,
 `CreateView`, `UpdateView` and `DeleteView`. Each request gets its own view and form.
 The lifecycle is `as_view()` → `setup()` → `dispatch()` → method handler.
 
-`get_queryset()` returns an unevaluated SQLAlchemy Select. `get_object()` applies
+`ModelResource.get_queryset()` returns the scoped SQLAlchemy Select. `get_object()` applies
 lookup conversion and executes it. Context includes `object`,
 `object_list`, model context names, `form` and pagination values where applicable.
 The usual context/template/form hooks can be overridden. Invalid forms render
@@ -77,9 +58,8 @@ See [File forms](examples/views/index.md#file-forms) for routing and list integr
 
 Register a mapped class or a `ModelResource` on `Obox` or in `AppConfig.ready()`.
 The registration builds the selected HTML and REST routes on FastAPI. The shared
-resource owns visibility, input validation and write policy. Pass custom
-`ListView`/`DetailView`/`CreateView`/`UpdateView`/`DeleteView` subclasses and a
-`ModelApi` subclass to choose the form, views and API adapter. `AppConfig.views`
+resource owns visibility, input validation and write policy. Pass a `ModelViewSet` subclass as `views` and a `ModelApi` subclass as `api`
+to customize the adapters. `AppConfig.views`
 and `AppConfig.apis` support the same choices declaratively. See
 [ModelResource registration](examples/features/register-resource.md).
 

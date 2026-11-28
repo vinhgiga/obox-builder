@@ -1,27 +1,30 @@
 # Publish a REST resource
 
+Configure query fields on the Resource so Grid and REST share them.
+
 ```python
+from obox import ModelResource
 from obox.api import ModelApi
 
 from .models import Product
-from .resources import ProductResource
 
 
-class ProductApi(ModelApi[Product]):
-    resource = ProductResource
+class Products(ModelResource[Product]):
+    model = Product
     search_fields = ("name",)
     ordering_fields = ("name", "price")
 
 
-obox.register(ProductResource, api=ProductApi, views=False)
+class ProductApi(ModelApi[Product]):
+    resource = Products
+    actions = ("list", "retrieve")
+
+
+obox.register(Products, api=ProductApi, views=False)
 ```
 
-The generated collection is `/v0/product` for `__tablename__ = "product"`.
-Detail routes append `/{id}`. The default actions
-are list, retrieve, create, update, patch and delete. The generated PUT schema
-uses the resource's writable fields. Set `update_schema` to customize it.
-
-For direct FastAPI integration, attach
-`ProductApi().build_router("/v0/product")`. Model permissions apply in both
-layouts. Add `?search=lamp&order=price.desc` to search and order the results.
-Use `limit` and `offset` for paging and `includeTotal=true` to request a count.
+The collection is `/v0/product` for a table named `product`. Append
+`?q=lamp&ordering=-price` to search and sort. Use `limit`, `offset` and
+`includeTotal=true` to page through the results. The complete
+[query contract](../../reference/api.md#collection-parameters-and-response)
+includes filters and grouping.

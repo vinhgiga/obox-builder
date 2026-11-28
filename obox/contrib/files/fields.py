@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, declared_attr, foreign, relationship
 from sqlalchemy.orm.attributes import flag_modified
 
+from obox.contrib.files.forms import attachment_control
 from obox.contrib.files.models import File
 from obox.contrib.files.rules import Rule
 from obox.core.exceptions import ImproperlyConfigured
@@ -64,7 +65,11 @@ class _Attachments(declared_attr[list[File]]):
                 collection_class=_FileList,
                 lazy="selectin",  # codespell:ignore selectin
                 order_by=(File.position, File.id),
-                info={"obox_files": rule, "obox_resource_write": resolve_attachment_write},
+                info={
+                    "obox_files": rule,
+                    "obox_resource_write": resolve_attachment_write,
+                    "obox_form_control": attachment_control,
+                },
             )
 
         super().__init__(mapping)

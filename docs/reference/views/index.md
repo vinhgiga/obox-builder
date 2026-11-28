@@ -12,7 +12,6 @@ They are separate from the generated JSON routes documented in the
 | `View` | Dispatch a request to a method handler. |
 | `TemplateView` | Render a template with context data. |
 | `GridView` | Query and render a collection as a spreadsheet. |
-| `ListView` | Query and render a collection as flat rows. |
 | `DetailView` | Load one record and render its detail page. |
 | `FormView` | Validate a form and run custom success behavior. |
 | `CreateView` | Create a model record from a model form. |

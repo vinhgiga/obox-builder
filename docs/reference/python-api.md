@@ -11,14 +11,15 @@ registration signatures.
 | `from obox.apps import AppConfig` | Installed app configuration and declarative registration |
 | `from obox.routes import Route` | HTML route declarations that select templates and permissions |
 | `from obox.components import Component` | Reusable component declarations |
-| `from obox.views.generic import ModelViewSet, GridView, ListView, ViewConfig, DetailView, CreateView, UpdateView, DeleteView, FormView, TemplateView, StackedInline, TabularInline, action` | Generated and standalone HTML views |
-| `from obox.api import ModelApi, ApiRequest, ApiResponse, Context` | Native FastAPI REST adapter and schemas |
-| `from obox import forms` | Fields, widgets, forms, and formset factories |
+| `from obox.views.generic import ModelViewSet, GridView, ViewConfig, DetailView, CreateView, UpdateView, DeleteView, FormView, TemplateView` | Generated and standalone HTML views |
+| `from obox.api import ModelApi, ApiRequest, ApiResponse, Context, api_context` | Native FastAPI REST adapter and schemas |
+| `from obox import forms` | Typed HTML forms, fields and widgets |
 | `from obox.db import atomic` | Async transaction boundary |
 
 `Obox.register(target, *, slug=None, api=True, views=True)`
 registers a mapped SQLAlchemy class or a `ModelResource` subclass. `api` accepts
-`True`, `False` or a `ModelApi` subclass. `AppConfig.register()` accepts the
+`True`, `False` or a `ModelApi` subclass. `views` accepts `True`, `False` or a
+`ModelViewSet` subclass. `AppConfig.register()` accepts the
 same arguments from `ready()` and prefixes URLs with the app's label.
 
 `AppConfig` also declares `views` and `apis` sequences containing `ModelResource`
@@ -26,26 +27,21 @@ classes, `ModelViewSet`/`ModelApi` subclasses, or dotted paths. `components`,
 `routes`, `routers`, `requires`, `ui_prefix`, `view_prefix` and `api_prefix`
 configure the rest of the application.
 
-`ModelResource` accepts a mapped `model`, optional Pydantic `schema`,
-`create_schema`, `update_schema`, `fields`, `readonly_fields`, `ordering`,
-`page_size`, `lookup_field` and `load_options`. Override `get_queryset(self)`
-(the bound principal is `self.principal`), `can(action, obj, actor)`,
-`get_writable_fields(action, obj, actor)` or `prepare_write(values, obj, actor)`.
-The write hooks receive the same inputs for both HTML and REST. `prepare_write`
-runs after input validation and can supply trusted server values such as an
-owner ID.
+`ModelResource` accepts a mapped `model`, optional Pydantic `write_schema`,
+`fields`, `readonly_fields`, `ordering`, `page_size`, `lookup_field` and
+`load_options`. Set `search_fields`, `ordering_fields`, `filter_fields` or
+`group_fields` to constrain collection queries on both adapters. Override
+`get_queryset()` for scoped reads and `can()` and `get_writable_fields()` for
+write policy. `prepare_write()` can supply trusted values after validation.
 
 `ModelViewSet` groups a `resource` with `slug`, `prefix` and custom
-`list_view`, `collection_views`, `detail_view`, `create_view`, `update_view` and
-`delete_view` classes. `GridView` and `ListView` share `fields`, `search_fields`,
-`page_size`, `view`, and `actions`. `CreateView` and `UpdateView` accept `fields`,
-`fieldsets`, `inlines`, and `form_class`.
+`list_view`, `detail_view`, `create_view`, `update_view` and `delete_view` classes.
+`GridView` accepts `fields`, `page_size`, and `view`. Use `template_name` for
+a custom layout. `CreateView` and `UpdateView` accept `form_class` and `fieldsets`.
 
-`ModelApi` options include `resource` or `model`, `prefix`, `slug`,
-`include_router_methods`, `permissions`, `read_schema`, `create_schema`,
-`update_schema`, `patch_schema`, `dependencies`, `search_fields`,
-`ordering_fields`, `default_limit` and `max_limit`. Call
-`ModelApi().build_router("/v0/product")` to mount it directly.
+`ModelApi` accepts `resource`, `prefix`, `slug`, `actions`, `permissions`,
+`dependencies`, `default_limit` and `max_limit`. Call
+`ProductApi.as_router("/v0/product")` to mount a custom adapter.
 
 `AppConfig.routes` maps static paths to templates. A route may set `title`,
 `permission`, `menu`, and a custom `TemplateView` subclass in `view`. Templates

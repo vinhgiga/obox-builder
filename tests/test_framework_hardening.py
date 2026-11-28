@@ -33,7 +33,6 @@ class Examples(ModelApi[Example]):
     resource = resource_for(Example)
     prefix = "/examples"
     actions = ("list",)
-    search_fields = ("title",)
 
 
 def test_api_resource_cache_is_scoped_to_principal() -> None:
@@ -65,8 +64,6 @@ def test_api_resource_cache_is_scoped_to_principal() -> None:
         ("actions", ("list", []), "supported"),
         ("default_limit", True, "page limits"),
         ("max_limit", 100.5, "page limits"),
-        ("search_fields", "title", "sequences"),
-        ("ordering_fields", "title", "sequences"),
     ],
 )
 def test_api_rejects_invalid_declarations(attribute: str, value: Any, message: str) -> None:
@@ -162,7 +159,7 @@ def test_base_resource_binding_reuses_compiled_metadata_without_shared_identity(
     assert bound_first.session is first_session
     assert bound_second.session is second_session
     assert bound_first.specs is source.specs
-    assert bound_second.get_schema("create") is source.get_schema("create")
+    assert bound_second.input_schema is source.input_schema
 
 
 def test_subclass_resource_bind_keeps_custom_initialization() -> None:

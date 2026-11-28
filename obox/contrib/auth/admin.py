@@ -21,8 +21,8 @@ from obox.core.exceptions import (
     PermissionDenied,
 )
 from obox.core.principal import Identity
-from obox.forms import modelform_factory
-from obox.resources import ModelResource
+from obox.db.fields import inspect_fields, schema
+from obox.forms import Form
 from obox.web.http import read_form
 from obox.web.i18n import N_, context, translate
 from obox.web.routes import OboxRoute
@@ -167,11 +167,11 @@ def router(app: _Runtime, auth: Auth, user_model: type[Any], role_model: type[An
     routes = APIRouter(prefix=auth.prefix, route_class=OboxRoute)
     password_validators = get_password_validators(app.settings.auth_password_validators)
 
-    class UserResource(ModelResource[Any]):
-        model = user_model
-        fields = ("username", "email", "first_name", "last_name", "department")
-
-    user_form_class = modelform_factory(UserResource)
+    user_schema = schema(
+        "UserInput",
+        inspect_fields(user_model),
+        ("username", "email", "first_name", "last_name", "department"),
+    )
 
     async def superuser(request: Request) -> Identity:
         principal = await auth.principal(request)
@@ -288,17 +288,15 @@ def router(app: _Runtime, auth: Auth, user_model: type[Any], role_model: type[An
                 )
 
             form = await form_data(request, principal, multiple=frozenset({"role_ids"}))
-            user_form = user_form_class(form, instance=user)
+            user_form = Form(form, schema=user_schema)
             await user_form.is_valid()
             errors: dict[str, list[str]] = dict(user_form.errors)
             for name, messages in errors.items():
-                if name == "username" and any("already exists" in message for message in messages):
-                    errors[name] = [N_("This username is already taken.")]
-                elif name in user_form.fields:
+                if name in user_schema.model_fields:
                     limit = next(
                         (
                             getattr(value, "max_length", None)
-                            for value in user_form._schema.model_fields[name].metadata
+                            for value in user_schema.model_fields[name].metadata
                             if getattr(value, "max_length", None) is not None
                         ),
                         None,
@@ -306,6 +304,12 @@ def router(app: _Runtime, auth: Auth, user_model: type[Any], role_model: type[An
                     if limit and any("at most" in message for message in messages):
                         errors[name] = [N_("Use at most %(limit)s characters.", limit=limit)]
             username = str(form.get("username", "")).strip()
+            if "username" not in errors:
+                existing = select(user_model.id).where(user_model.username == username)
+                if user is not None:
+                    existing = existing.where(user_model.id != user.id)
+                if await ctx.session.scalar(existing.limit(1)) is not None:
+                    errors["username"] = [N_("This username is already taken.")]
             email = str(form.get("email", "")).strip()
             first_name = str(form.get("first_name", "")).strip()
             last_name = str(form.get("last_name", "")).strip()

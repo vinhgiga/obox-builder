@@ -152,7 +152,7 @@ class AppConfig:
         *,
         slug: str | None = None,
         api: bool | type[ModelApi[Any]] = True,
-        views: bool = True,
+        views: bool | type[ModelViewSet[Any]] = True,
     ) -> None:
         from obox.runtime.registration import Registration
 

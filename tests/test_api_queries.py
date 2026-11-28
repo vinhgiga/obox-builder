@@ -8,24 +8,22 @@ from datetime import UTC, date, datetime, time
 from decimal import Decimal
 from enum import Enum
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import Any, cast
 from uuid import UUID
 
 import httpx
 import pytest
 import sqlalchemy as sa
 from fastapi import FastAPI
-from obox.api import ModelApi
 from obox.core.exceptions import ImproperlyConfigured
 from obox.core.principal import Principal
 from obox.runtime.config import RuntimeConfig
 from obox.runtime.registration import Registration
 from obox.runtime.runtime import _Runtime
-from pydantic.alias_generators import to_camel
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-from tests.runtime import resource_for
+from tests.runtime import collection_filter, resource_for
 from tests.storage import database
 
 CUSTOMERS = "/api/customers"
@@ -131,13 +129,16 @@ def test_chinook_customer_queries_and_groups(tmp_path: Path) -> None:
             await load_chinook(sessions)
             assert (await get(client, CUSTOMERS, includeTotal="true"))["total"] == 59
             async with sessions() as session:
+                is_sp = ("state", "is", "SP")
+                empty = ("state", "is_empty", None)
+                other_state = ("state", "is_not", "SP")
+                either = json.loads(collection_filter(empty, other_state))
+                either["conjunction"] = "or"
                 for expression, sql, count in [
-                    ("state.eq.SP", "state = 'SP'", 3),
-                    ("state.is.null", "state IS NULL", 29),
-                    ("state.neq.SP", "state <> 'SP'", 27),
-                    ("state.not.eq.SP", "NOT (state = 'SP')", 27),
-                    ("state.isdistinct.SP", "state IS DISTINCT FROM 'SP'", 56),
-                    ("or(state.is.null,state.neq.SP)", "state IS NULL OR state <> 'SP'", 56),
+                    (collection_filter(is_sp), "state = 'SP'", 3),
+                    (collection_filter(empty), "state IS NULL", 29),
+                    (collection_filter(other_state), "state <> 'SP'", 27),
+                    (json.dumps(either), "state IS NULL OR state <> 'SP'", 56),
                 ]:
                     expected = (
                         await session.scalars(
@@ -161,7 +162,7 @@ def test_chinook_customer_queries_and_groups(tmp_path: Path) -> None:
                             .order_by(Customer.id)
                         )
                     ).all()
-                    found = await get(client, CUSTOMERS, search=term)
+                    found = await get(client, CUSTOMERS, q=term)
                     assert [row["id"] for row in found["items"]] == list(expected)
                     if term in {"köhler", "francois"}:
                         assert list(expected) == ([2] if term == "köhler" else [])
@@ -177,32 +178,38 @@ def test_chinook_customer_queries_and_groups(tmp_path: Path) -> None:
                         )
                     )
                     parts = [
-                        await get(client, CUSTOMERS, order=f"state.{direction}", limit=23, offset=i)
+                        await get(
+                            client,
+                            CUSTOMERS,
+                            ordering="-state" if direction == "desc" else "state",
+                            limit=23,
+                            offset=i,
+                        )
                         for i in (0, 23, 46)
                     ]
                     assert [part["hasMore"] for part in parts] == [True, True, False]
                     assert [row["id"] for part in parts for row in part["items"]] == expected
 
             result = await get(
-                client, CUSTOMERS, search="köhler Stuttgart", filter="country.eq.Germany"
+                client,
+                CUSTOMERS,
+                q="köhler Stuttgart",
+                filter=collection_filter(("country", "is", "Germany")),
             )
             assert [row["id"] for row in result["items"]] == [2]
             assert (
-                await get(client, CUSTOMERS, search="köhler Stuttgart", filter="country.eq.USA")
+                await get(
+                    client,
+                    CUSTOMERS,
+                    q="köhler Stuttgart",
+                    filter=collection_filter(("country", "is", "USA")),
+                )
             )["items"] == []
 
-            countries = await get(
-                client, GROUPS, by="country", includeTotal="true", order="count.desc"
-            )
+            countries = await get(client, GROUPS, group="country", includeTotal="true")
             assert countries["total"] == 24
-            assert [(r["key"]["country"], r["count"]) for r in countries["items"][:6]] == [
-                ("USA", 13),
-                ("Canada", 8),
-                ("Brazil", 5),
-                ("France", 5),
-                ("Germany", 4),
-                ("United Kingdom", 3),
-            ]
+            counts = {row["key"]["country"]: row["count"] for row in countries["items"]}
+            assert (counts["USA"], counts["Canada"], counts["Brazil"]) == (13, 8, 5)
 
             expected_items = [
                 {"key": {"country": c, "state": s}, "count": n}
@@ -214,7 +221,10 @@ def test_chinook_customer_queries_and_groups(tmp_path: Path) -> None:
                 ]
             ]
             assert await get(
-                client, GROUPS, by="country,state", filter="country.in.(Argentina,Brazil)"
+                client,
+                GROUPS,
+                group="country,state",
+                filter=collection_filter(("country", "in", ["Argentina", "Brazil"])),
             ) == {
                 "by": ["country", "state"],
                 "items": expected_items,
@@ -226,28 +236,28 @@ def test_chinook_customer_queries_and_groups(tmp_path: Path) -> None:
                 await get(
                     client,
                     GROUPS,
-                    by="state,country",
-                    search="Stuttgart",
-                    filter="country.eq.Germany",
+                    group="state,country",
+                    q="Stuttgart",
+                    filter=collection_filter(("country", "is", "Germany")),
                 )
             )["items"] == [{"key": {"state": None, "country": "Germany"}, "count": 1}]
 
-            first = await get(client, GROUPS, by="country,state", limit=40, includeTotal="true")
-            last = await get(client, GROUPS, by="country,state", limit=101, offset=40)
+            first = await get(client, GROUPS, group="country,state", limit=40, includeTotal="true")
+            last = await get(client, GROUPS, group="country,state", limit=101, offset=40)
             assert (first["total"], first["hasMore"], len(first["items"])) == (42, True, 40)
             assert (last["limit"], last["hasMore"], len(last["items"])) == (100, False, 2)
             rows = first["items"] + last["items"]
             assert len({tuple(row["key"].values()) for row in rows}) == 42
             assert sum(row["count"] for row in rows) == 59
-            assert (await get(client, GROUPS, by="country,state", limit=1, offset=42))[
+            assert (await get(client, GROUPS, group="country,state", limit=1, offset=42))[
                 "items"
             ] == []
 
             paths = app.openapi()["paths"]
-            assert {"filter", "search", "order", "limit"} <= {
+            assert {"filter", "q", "ordering", "limit"} <= {
                 p["name"] for p in paths[CUSTOMERS]["get"]["parameters"]
             }
-            group_by = next(p for p in paths[GROUPS]["get"]["parameters"] if p["name"] == "by")
+            group_by = next(p for p in paths[GROUPS]["get"]["parameters"] if p["name"] == "group")
             assert group_by["required"]
             assert group_by["description"]
 
@@ -262,29 +272,30 @@ def test_chinook_invoice_filter_boundaries_and_clamp(tmp_path: Path) -> None:
                 sql_date = sa.DateTime()
                 start = datetime.fromisoformat("2021-01-01")
                 end = datetime.fromisoformat("2021-01-02")
-                for op, sql in [
-                    ("eq.2021-01-01", "invoice_date >= :start AND invoice_date < :end"),
-                    ("neq.2021-01-01", "invoice_date < :start OR invoice_date >= :end"),
-                    ("gt.2021-01-01", "invoice_date >= :end"),
-                    ("gte.2021-01-01", "invoice_date >= :start"),
-                    ("lt.2021-01-01", "invoice_date < :start"),
-                    ("lte.2021-01-01", "invoice_date < :end"),
+                for op, value, sql in [
+                    ("is", "2021-01-01T00:00:00", "invoice_date = :start"),
+                    ("is_not", "2021-01-01T00:00:00", "invoice_date <> :start"),
+                    ("gt", "2021-01-01T00:00:00", "invoice_date > :start"),
+                    ("gte", "2021-01-01T00:00:00", "invoice_date >= :start"),
+                    ("lt", "2021-01-01T00:00:00", "invoice_date < :start"),
+                    ("lte", "2021-01-01T00:00:00", "invoice_date <= :start"),
                     (
-                        "in.(2021-01-01,2021-01-02)",
-                        "invoice_date >= :start AND invoice_date < :after",
+                        "in",
+                        ["2021-01-01T00:00:00", "2021-01-02T00:00:00"],
+                        "invoice_date IN (:start, :end)",
                     ),
-                    ("eq.2021-01-01T07:00:00+07:00", "invoice_date = :start"),
-                    ("gte.2021-01-01T00:00:00Z", "invoice_date >= :start"),
+                    ("is", "2021-01-01T07:00:00+07:00", "invoice_date = :start"),
+                    ("gte", "2021-01-01T00:00:00Z", "invoice_date >= :start"),
                 ]:
                     predicate = sa.text(sql)
-                    for name, value in [
+                    for name, bound in [
                         ("start", start),
                         ("end", end),
                         ("after", datetime.fromisoformat("2021-01-03")),
                     ]:
                         if f":{name}" in sql:
                             predicate = predicate.bindparams(
-                                sa.bindparam(name, value, type_=sql_date)
+                                sa.bindparam(name, bound, type_=sql_date)
                             )
                     ids = list(
                         await session.scalars(
@@ -292,7 +303,11 @@ def test_chinook_invoice_filter_boundaries_and_clamp(tmp_path: Path) -> None:
                         )
                     )
                     result = await get(
-                        client, INVOICES, filter=f"invoiceDate.{op}", limit=101, includeTotal="true"
+                        client,
+                        INVOICES,
+                        filter=collection_filter(("invoice_date", op, value)),
+                        limit=101,
+                        includeTotal="true",
                     )
                     assert result["total"] == len(ids)
                     assert [row["id"] for row in result["items"]] == ids[:100]
@@ -338,7 +353,7 @@ def test_filter_operator_matrix_compares_to_sql(tmp_path: Path) -> None:
                 session.add_all([TypedRow(id=1, **first), TypedRow(id=2, **second), TypedRow(id=3)])
             async with sessions() as session:
                 for field, token in [
-                    ("note", json.dumps(first["note"])),
+                    ("note", first["note"]),
                     ("state", "draft"),
                     ("stage", "draft"),
                     ("token_id", str(first["token_id"])),
@@ -348,65 +363,40 @@ def test_filter_operator_matrix_compares_to_sql(tmp_path: Path) -> None:
                     ("float_value", "2.5"),
                     ("calendar_day", "2021-01-01"),
                     ("clock_time", "07:00"),
-                    ("utc_time", "07:00"),
+                    ("utc_time", "07:00+00:00"),
                     ("occurred_at", "2021-01-01T23:00:00+07:00"),
                 ]:
                     type_ = getattr(TypedRow, field).type
-                    ops = {"eq": "= :v", "neq": "<> :v", "isdistinct": "IS DISTINCT FROM :v"}
+                    ops = {"is": "= :v", "is_not": "<> :v", "in": "IN (:v)"}
                     if field not in {"active", "note", "state", "stage", "token_id"}:
                         ops.update({"gt": "> :v", "gte": ">= :v", "lt": "< :v", "lte": "<= :v"})
-                    if field != "active":
-                        ops["in"] = "IN (:v)"
                     for op, sql in ops.items():
-                        literal = f"({token})" if op == "in" else token
-                        for prefix, predicate in [
-                            ("", f"{field} {sql}"),
-                            ("not.", f"NOT ({field} {sql})"),
-                        ]:
-                            raw = sa.text(predicate).bindparams(
-                                sa.bindparam("v", first[field], type_=type_)
-                            )
-                            expected = await session.scalars(
-                                sa.select(TypedRow.id).where(raw).order_by(TypedRow.id)
-                            )
-                            result = await get(
-                                client,
-                                "/api/types",
-                                filter=f"{to_camel(field)}.{prefix}{op}.{literal}",
-                            )
-                            assert [row["id"] for row in result["items"]] == list(expected), (
-                                field,
-                                prefix,
-                                op,
-                            )
-                    result = await get(client, "/api/types", filter=f"{to_camel(field)}.is.null")
-                    assert [row["id"] for row in result["items"]] == [3]
+                        raw = sa.text(f"{field} {sql}").bindparams(
+                            sa.bindparam("v", first[field], type_=type_)
+                        )
+                        expected = await session.scalars(
+                            sa.select(TypedRow.id).where(raw).order_by(TypedRow.id)
+                        )
+                        result = await get(
+                            client,
+                            "/api/types",
+                            filter=collection_filter((field, op, [token] if op == "in" else token)),
+                        )
+                        assert [row["id"] for row in result["items"]] == list(expected), (field, op)
 
-            for expr, ids in [
-                ("note.is.empty", [2, 3]),
-                ("note.not.is.empty", [1]),
-                ('note.in.("")', [2]),
-                ("note.in.()", []),
-                ("note.eq.null", []),
-                ("active.is.true", [1]),
-                ("active.is.false", [2]),
-                ("active.not.is.true", [2, 3]),
-                ('note.like."a,b*[*]"', [1]),
-                ('note.ilike."A,B*"', [1]),
-                ('note.like."a,b*\\\\%\\\\_\\\\*[?]"', [1]),
-                ("occurredAt.in.(2020-12-31,2021-01-01T16:00:00Z)", [1]),
-                ("occurredAt.in.(2021-01-01,2021-01-02T00:00:00Z)", [1, 2]),
-                ("occurredAt.isdistinct.2021-01-01", [2, 3]),
-                ("occurredAt.not.isdistinct.2021-01-01", [1]),
-                ("occurredAt.gt.9999-12-31", []),
-                ("occurredAt.lte.9999-12-31", [1, 2]),
+            for term, ids in [
+                (("note", "is_empty", None), [2, 3]),
+                (("note", "is_not_empty", None), [1]),
+                (("note", "in", [""]), [2]),
+                (("active", "is", True), [1]),
+                (("active", "is", False), [2]),
+                (("note", "contains", "%_*"), [1]),
+                (("occurred_at", "in", ["2021-01-01T16:00:00Z", "2021-01-02T00:00:00Z"]), [1, 2]),
             ]:
-                result = await get(client, "/api/types", filter=expr)
-                assert [row["id"] for row in result["items"]] == ids, expr
+                result = await get(client, "/api/types", filter=collection_filter(term))
+                assert [row["id"] for row in result["items"]] == ids, term
 
-            groups = await get(
-                client, "/api/types:groups", by="note,state,calendarDay", order="key.desc"
-            )
+            groups = await get(client, "/api/types:groups", group="-note,-state,-calendar_day")
             assert groups["items"] == [
                 {
                     "key": {"note": first["note"], "state": "draft", "calendarDay": "2021-01-01"},
@@ -422,109 +412,65 @@ def test_filter_operator_matrix_compares_to_sql(tmp_path: Path) -> None:
 def test_collection_query_validation(tmp_path: Path) -> None:
     async def scenario() -> None:
         async with application(tmp_path) as (client, _, _):
-            for path, param, value, code, field in [
-                (CUSTOMERS, "filter", "", "validation_error", "filter"),
-                (CUSTOMERS, "filter", "a" * 4001, "validation_error", "filter"),
-                (CUSTOMERS, "filter", "and(or(and(id.eq.1)))", "validation_error", "filter"),
-                (CUSTOMERS, "filter", ",".join(["id.eq.1"] * 51), "validation_error", "filter"),
-                (
-                    CUSTOMERS,
-                    "filter",
-                    f"id.in.({','.join(['1'] * 101)})",
-                    "validation_error",
-                    "filter",
-                ),
-                (CUSTOMERS, "filter", "id.in.1", "validation_error", "filter"),
-                (CUSTOMERS, "filter", 'state.eq."bad', "validation_error", "filter"),
-                (CUSTOMERS, "filter", "last_name.eq.test", "unknown_field", "last_name"),
-                (CUSTOMERS, "filter", "firstName.gt.test", "unsupported_operator", "firstName"),
-                (CUSTOMERS, "filter", "firstName.like.a\\", "validation_error", "firstName"),
-                (CUSTOMERS, "filter", "id.eq.no", "validation_error", "id"),
-                (CUSTOMERS, "order", "-state", "validation_error", "order"),
-                (CUSTOMERS, "order", "state desc", "validation_error", "order"),
-                (CUSTOMERS, "order", "state.asc,state.desc", "validation_error", "order"),
-                (
-                    CUSTOMERS,
-                    "order",
-                    "id,firstName,lastName,city,state,country",
-                    "validation_error",
-                    "order",
-                ),
-                (CUSTOMERS, "order", "last_name.asc", "unknown_field", "last_name"),
-                (CUSTOMERS, "search", "one " * 11, "validation_error", "search"),
-                (CUSTOMERS, "search", "a" * 257, "validation_error", "search"),
-                (CUSTOMERS, "search", "\0", "validation_error", "search"),
-                (CUSTOMERS, "limit", "0", "validation_error", "limit"),
-                (CUSTOMERS, "limit", "1.5", "validation_error", "limit"),
-                (CUSTOMERS, "offset", str(2**31), "validation_error", "offset"),
-                (CUSTOMERS, "group", "state", "unknown_parameter", "group"),
-                (CUSTOMERS, "cursor", "opaque", "unknown_parameter", "cursor"),
-                (
-                    INVOICES,
-                    "filter",
-                    "invoiceDate.eq.2021-01-01T00:00:00",
-                    "validation_error",
-                    "invoiceDate",
-                ),
-                (
-                    INVOICES,
-                    "filter",
-                    "invoiceDate.eq.1609459200",
-                    "validation_error",
-                    "invoiceDate",
-                ),
-                (
-                    INVOICES,
-                    "filter",
-                    "invoiceDate.eq.2021-02-29",
-                    "validation_error",
-                    "invoiceDate",
-                ),
-                ("/api/types", "filter", "active.in.(true)", "unsupported_operator", "active"),
-                ("/api/types", "filter", "whole.is.empty", "unsupported_operator", "whole"),
-                ("/api/types", "filter", "payload.is.null", "unknown_field", "payload"),
-                ("/api/types", "order", "payload", "unknown_field", "payload"),
-                ("/api/types:groups", "by", "occurredAt", "unknown_field", "occurredAt"),
-                (GROUPS, "by", "state,state", "validation_error", "by"),
-                (GROUPS, "by", "id,state,country,city", "validation_error", "by"),
+            term = {"field": "id", "op": "is", "value": 1}
+            group = {"conjunction": "and", "children": [term]}
+            deep = json.dumps(
+                {**group, "children": [{**group, "children": [{**group, "children": [group]}]}]}
+            )
+            for path, param, value in [
+                (CUSTOMERS, "filter", "a" * 32_001),
+                (CUSTOMERS, "filter", deep),
+                (CUSTOMERS, "filter", collection_filter(*[("id", "is", 1)] * 51)),
+                (CUSTOMERS, "filter", collection_filter(("id", "in", [1] * 101))),
+                (CUSTOMERS, "filter", collection_filter(("id", "in", 1))),
+                (CUSTOMERS, "filter", "country.eq.USA"),
+                (CUSTOMERS, "filter", collection_filter(("firstName", "is", "test"))),
+                (CUSTOMERS, "filter", collection_filter(("first_name", "gt", "test"))),
+                (CUSTOMERS, "filter", collection_filter(("id", "is", "no"))),
+                (CUSTOMERS, "ordering", "state desc"),
+                (CUSTOMERS, "ordering", "-state,state"),
+                (CUSTOMERS, "ordering", "id,first_name,last_name,city,state,country"),
+                (CUSTOMERS, "q", "one " * 11),
+                (CUSTOMERS, "q", "a" * 257),
+                (CUSTOMERS, "q", "\0"),
+                (CUSTOMERS, "limit", "0"),
+                (CUSTOMERS, "limit", "1.5"),
+                (CUSTOMERS, "offset", str(2**31)),
+                (CUSTOMERS, "group", "state"),
+                (CUSTOMERS, "cursor", "opaque"),
+                (INVOICES, "filter", collection_filter(("invoice_date", "is", "2021-02-29"))),
+                ("/api/types", "filter", collection_filter(("payload", "is_empty", None))),
+                ("/api/types", "ordering", "payload"),
+                ("/api/types:groups", "group", "payload"),
+                (GROUPS, "group", "state,state"),
+                (GROUPS, "group", "id,state,country,city"),
             ]:
                 response = await client.get(path, params={param: value})
                 assert response.status_code == 422, response.text
-                body = response.json()
-                assert (body["code"], body["errors"][0]["field"]) == (code, field), response.text
-            for params, field in [({}, "by"), ({"by": "state", "order": "state.asc"}, "order")]:
-                response = await client.get(GROUPS, params=params)
-                assert response.status_code == 422
-                assert response.json()["errors"][0]["field"] == field
+            for params in ({}, {"group": ""}, {"group": "state", "order": "state.asc"}):
+                assert (await client.get(GROUPS, params=params)).status_code == 422
 
             for expression in [
-                "and(or(id.eq.1))",
-                ",".join(["id.eq.1"] * 50),
-                f"id.in.({','.join(['1'] * 100)})",
-                "not.and(or(id.eq.1))",
+                "",
+                json.dumps({**group, "children": [group]}),
+                collection_filter(*[("id", "is", 1)] * 50),
+                collection_filter(("id", "in", [1] * 100)),
             ]:
                 await get(client, CUSTOMERS, filter=expression)
             await get(
-                client, CUSTOMERS, search="test " * 10, order="id,firstName,lastName,city,state"
+                client, CUSTOMERS, q="test " * 10, ordering="id,first_name,last_name,city,state"
             )
 
     asyncio.run(scenario())
 
 
 def test_list_field_configuration() -> None:
-    class TypesApi(ModelApi[TypedRow]):
-        resource = resource_for(TypedRow)
-        prefix = "/types"
-        actions: tuple[Literal["list"]] = ("list",)
-
     for attr, field in [
         ("filter_fields", "payload"),
         ("search_fields", "state"),
         ("ordering_fields", "payload"),
-        ("group_fields", "decimal_value"),
+        ("group_fields", "occurred_at"),
         ("filter_fields", "missing"),
     ]:
-        api = TypesApi()
-        setattr(api, attr, (field,))
         with pytest.raises(ImproperlyConfigured, match=field):
-            api.build_router()
+            resource_for(TypedRow, **{attr: (field,)})()

@@ -26,7 +26,8 @@ class ProductInput(BaseModel):
 class ProductResource(ModelResource[Product]):
     model = Product
     fields = ("id", "name", "price")
-    schema = ProductInput
+    write_schema = ProductInput
+    search_fields = ("name",)
     ordering = ("name",)
 ```
 
@@ -41,7 +42,6 @@ from .resources import ProductResource
 
 class ProductGrid(GridView[Product]):
     fields = ("id", "name", "price")
-    search_fields = ("name",)
     page_size = 25
 
 
@@ -50,11 +50,11 @@ class ProductPages(ModelViewSet[Product]):
     list_view = ProductGrid
 ```
 
-`GridView` and `ListView` share `fields`, `search_fields`, `page_size`, `view`,
-and `actions`. Use `collection_views` for additional views of the same resource.
-Edit views accept `fields`, `fieldsets`, `inlines`, and `form_class`. Pass a
-`ModelApi` subclass with `api=...` to replace the REST adapter in direct
-registration. Use `views=False` or `api=False` to publish a single surface.
+Use `obox.register(ProductResource, views=ProductPages)` to select a custom
+viewset directly. `GridView` accepts `fields`, `page_size`, `view` and
+`template_name`. Edit views accept `fieldsets` and `form_class`. Pass
+`api=ProductApi` to customize REST, or set `views=False` or `api=False`
+to publish a single surface.
 
 Register from `AppConfig.ready()` for app-prefixed routes. `AppConfig.views` and
 `AppConfig.apis` also accept `ModelResource` classes, `ModelViewSet`/`ModelApi`

@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
-import sqlalchemy as sa
 from fastapi import Request
 from fastapi.responses import Response
 
@@ -23,17 +22,12 @@ class SingleObjectMixin(ModelContextMixin[ModelT]):
     request: Request
     object: ModelT | None = None
 
-    def get_queryset(self) -> sa.Select[tuple[ModelT]]:
-        return self.bound_resource().get_queryset()
-
     async def get_object(self) -> ModelT:
         if "pk" not in self.kwargs:
             raise NotFound("Record is unavailable.")
         return await self.bound_resource().get_object(
             self.kwargs["pk"],
-            queryset=await invoke(self.get_queryset),
             action=getattr(self, "action", "retrieve"),
-            for_update=self.request.method not in {"GET", "HEAD", "OPTIONS"},
         )
 
     async def restore_object(self) -> None:

@@ -69,9 +69,7 @@ def literal(raw: str) -> str:
     return raw
 
 
-def _parse_nodes(
-    terms: Iterable[str], *, base_depth: int, max_in: int | None = None
-) -> FilterGroup:
+def _parse_nodes(terms: Iterable[str]) -> FilterGroup:
     count = 0
 
     def node(raw: str, depth: int) -> FilterTerm | FilterGroup:
@@ -94,14 +92,12 @@ def _parse_nodes(
             raise invalid("filter", "Use field.operator.value.") from exc
         if not name or not op:
             raise invalid("filter", "Use field.operator.value.")
-        if base_depth == 0 and not name.isidentifier():
+        if not name.isidentifier():
             raise invalid(name, "Unknown filter field.", "unknown_field")
         if op == "in":
             if not value.startswith("(") or not value.endswith(")"):
-                raise invalid("filter" if max_in is not None else name, "Use in.(value1,value2).")
+                raise invalid(name, "Use in.(value1,value2).")
             parts = [] if value == "()" else split_terms(value[1:-1])
-            if max_in is not None and len(parts) > max_in:
-                raise invalid("filter", f"Supply at most {max_in} values per in filter.")
             parsed: Any = [literal(part) for part in parts]
         else:
             parsed = literal(value)
@@ -109,11 +105,7 @@ def _parse_nodes(
             name, "pg." + ("not." if expression.startswith("not.") else "") + op, parsed
         )
 
-    return FilterGroup(children=tuple(node(term, base_depth) for term in terms))
-
-
-def parse_expression(raw: str) -> FilterGroup:
-    return _parse_nodes(split_terms(raw), base_depth=1, max_in=100)
+    return FilterGroup(children=tuple(node(term, 0) for term in terms))
 
 
 def parse_terms(pairs: Iterable[tuple[str, str]]) -> tuple[dict[str, str], FilterGroup]:
@@ -136,7 +128,7 @@ def parse_terms(pairs: Iterable[tuple[str, str]]) -> tuple[dict[str, str], Filte
                     raise invalid(name, "Unknown query parameter.", "unknown_parameter")
                 yield name + "." + value
 
-    return controls, _parse_nodes(terms(), base_depth=0)
+    return controls, _parse_nodes(terms())
 
 
 def integer(params: dict[str, str], name: str, default: int | None = None) -> int | None:

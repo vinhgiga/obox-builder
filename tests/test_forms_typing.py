@@ -6,10 +6,9 @@ import pytest
 
 SOURCE = """
 from typing import Any, assert_type
-from obox.forms import BaseInlineFormSet, Form, ModelForm, inlineformset_factory, modelform_factory
+from obox.forms import Form
 from obox import ModelResource
 from obox.views.generic import GridView, DetailView, UpdateView
-from obox.views.generic.inlines import Inline
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -34,22 +33,10 @@ class Record(Base):
 class ReviewResource(ModelResource[Record]):
     model = Record
     fields = ("name", "rate", "note")
-    schema = ReviewInput
-
-class ReviewModel(ModelForm[ReviewInput, Record]):
-    resource = ReviewResource
-
-class ReviewInline(Inline):
-    resource = ReviewResource
-    form = ReviewModel
+    write_schema = ReviewInput
 
 class ReviewGrid(GridView[Record]):
     resource = ReviewResource
-
-assert_type(
-    inlineformset_factory(Record, ReviewResource, form=ReviewModel), type[BaseInlineFormSet]
-)
-modelform_factory(ReviewResource, form=ReviewModel)
 
 async def validate(raw: dict[str, Any]) -> None:
     form = Review(raw)
@@ -60,10 +47,9 @@ async def validate(raw: dict[str, Any]) -> None:
         assert_type(form.cleaned_data.note, str | None)
 
 async def model_types(
-    form: ReviewModel, detail: DetailView[Record], edit: UpdateView[Record]
+    resource: ReviewResource, detail: DetailView[Record], edit: UpdateView[Record]
 ) -> None:
-    assert_type(form.instance, Record)
-    assert_type(await form.save(), Record)
+    assert_type(await resource.create(ReviewInput(name="Example", rate=1)), Record)
     assert_type(await detail.get_object(), Record)
     assert_type(await edit.get_object(), Record)
     assert_type(ReviewGrid().object_list[0], Record)

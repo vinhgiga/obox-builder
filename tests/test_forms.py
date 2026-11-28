@@ -25,7 +25,7 @@ class ReviewInput(BaseModel):
 
 class ReviewForm(forms.Form[ReviewInput]):
     schema = ReviewInput
-    widgets: ClassVar[dict[str, Any]] = {"note": forms.Textarea}
+    field_options: ClassVar[dict[str, Any]] = {"note": forms.Field(widget=forms.Textarea)}
 
 
 def validate(form: forms.Form[Any]) -> bool:
@@ -184,9 +184,10 @@ def test_prefix_checkbox_multiple_values_and_html_escaping() -> None:
 
     class Profile(forms.Form[Input]):
         schema = Input
-        widgets: ClassVar[dict[str, Any]] = {"password": forms.PasswordInput}
-        labels: ClassVar[dict[str, Any]] = {"name": "<Name>"}
-        help_texts: ClassVar[dict[str, Any]] = {"name": "<Help>"}
+        field_options: ClassVar[dict[str, Any]] = {
+            "password": forms.Field(widget=forms.PasswordInput),
+            "name": forms.Field(label="<Name>", help_text="<Help>"),
+        }
 
     raw = FormData(
         [("p-name", "<script>"), ("p-tags", "1"), ("p-tags", "2"), ("p-password", " secret ")]
@@ -222,7 +223,6 @@ def test_disabled_fields_use_trusted_initial_and_do_not_change() -> None:
     assert validate(form)
     assert form.cleaned_data is not None
     assert form.cleaned_data.enabled is True
-    assert "enabled" not in form.changed_data
     assert "checked" in str(form["enabled"])
 
 
@@ -257,7 +257,9 @@ def test_multipart_upload_size_and_stream_lifetime(size: int, valid: bool) -> No
 
     class Upload(forms.Form[Input]):
         schema = Input
-        widgets: ClassVar[dict[str, Any]] = {"upload": forms.FileInput(max_size=3)}
+        field_options: ClassVar[dict[str, Any]] = {
+            "upload": forms.FileField(widget=forms.FileInput(max_size=3))
+        }
 
     stream = BytesIO(b"x" * size)
     upload = UploadFile(stream, filename="file.bin", size=size)

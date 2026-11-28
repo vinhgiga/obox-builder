@@ -1,4 +1,5 @@
 import asyncio
+import json
 import re
 from importlib import import_module
 from typing import Any, ClassVar
@@ -6,26 +7,24 @@ from typing import Any, ClassVar
 import httpx
 import pytest
 import sqlalchemy as sa
-from fastapi import Depends, FastAPI
-from obox import ModelResource, Obox, permission_required
+from fastapi import FastAPI
+from obox import ModelResource, Obox
 from obox.apps import AppConfig
 from obox.conf import settings
 from obox.core.exceptions import ImproperlyConfigured
-from obox.core.principal import Principal
+from obox.core.principal import ANONYMOUS, Principal
 from obox.db.session import session_scope
 from obox.runtime.registration import Registration
 from obox.views.generic import (
     CreateView,
     DeleteView,
     GridView,
-    ListView,
     ModelViewSet,
     UpdateView,
-    action,
 )
 
-from tests.runtime import relation_controls, resource_for
-from tests.test_forms_integration import Item, ItemForm, configured
+from tests.runtime import resource_for
+from tests.test_forms_integration import Item, ItemForm, ItemResource, configured
 
 
 class Actors:
@@ -51,22 +50,22 @@ def test_registration_uses_generic_views_and_preserves_route_names() -> None:
             obox = Obox(app)
             for options, error in (
                 ({"api": False, "views": False}, "at least one"),
-                ({"api": ListView}, "ModelApi subclass"),
+                ({"api": GridView}, "ModelApi subclass"),
             ):
                 kwargs: dict[str, Any] = options
                 with pytest.raises(ImproperlyConfigured, match=error):
                     obox.register(Item, **kwargs)
             with pytest.raises(TypeError):
-                obox.register(Item, list_view=ListView)  # type: ignore[call-arg]
+                obox.register(Item, list_view=GridView)  # type: ignore[call-arg]
             with pytest.raises(TypeError):
                 AppConfig("tests", import_module("tests")).register(
                     Item,
-                    list_view=ListView,  # type: ignore[call-arg]
+                    list_view=GridView,  # type: ignore[call-arg]
                 )
             with pytest.raises(TypeError):
-                Registration(Item, None, False, True, list_view=ListView)  # type: ignore[call-arg]
+                Registration(Item, None, False, True, list_view=GridView)  # type: ignore[call-arg]
 
-            class MissingResource(ListView[Item]):
+            class MissingResource(GridView[Item]):
                 pass
 
             with pytest.raises(ImproperlyConfigured, match="ModelResource"):
@@ -82,20 +81,15 @@ def test_registration_uses_generic_views_and_preserves_route_names() -> None:
 def test_registered_views_call_form_and_resource_hooks() -> None:
     events: list[tuple[str, int | bool]] = []
 
-    class ItemList(ListView):
+    class ItemList(GridView):
         resource = resource_for(Item)
         fields = ("id", "name")
-        search_fields = ("name",)
 
-    class RecordSave:
-        async def save_model(self, request: Any, obj: Item, form: Any, change: bool) -> None:
-            events.append(("save", change))
-
-    class ItemCreate(RecordSave, CreateView):
+    class ItemCreate(CreateView):
         form_class = ItemForm
         fieldsets = (("Details", {"fields": ("name", "price", "quantity")}),)
 
-    class ItemUpdate(RecordSave, UpdateView):
+    class ItemUpdate(UpdateView):
         form_class = ItemForm
 
     class ItemDelete(DeleteView):
@@ -104,6 +98,14 @@ def test_registered_views_call_form_and_resource_hooks() -> None:
     class ItemsResource(ModelResource[Item]):
         model = Item
         readonly_fields = ("quantity",)
+
+        async def perform_create(self, data: dict[str, Any]) -> Item:
+            events.append(("save", False))
+            return await super().perform_create(data)
+
+        async def perform_update(self, obj: Item, data: dict[str, Any]) -> Item:
+            events.append(("save", True))
+            return await super().perform_update(obj, data)
 
         async def can(self, action: str, obj: Item | None, actor: Any) -> bool:
             if action == "delete" and obj is not None:
@@ -136,6 +138,7 @@ def test_registered_views_call_form_and_resource_hooks() -> None:
                 page = await client.get("/tests/items/add")
                 assert page.status_code == 200
                 assert "Details" in page.text
+                assert "Title" in page.text
                 assert 'name="quantity"' not in page.text
                 token = re.search(r'name="csrfmiddlewaretoken" value="([^"]+)"', page.text)
                 assert token is not None
@@ -163,9 +166,8 @@ def test_registered_views_call_form_and_resource_hooks() -> None:
 def test_view_only_actor_sees_readonly_values_and_cannot_change() -> None:
     async def scenario() -> None:
         async with configured():
-            record = ItemForm({"name": "original", "price": "1"})
-            assert await record.is_valid()
-            await record.save()
+            async with session_scope() as session:
+                await ItemResource(session, ANONYMOUS).create({"name": "original", "price": "1"})
             app = FastAPI(openapi_url=None)
             app.add_middleware(
                 Actors,
@@ -199,35 +201,17 @@ def test_view_only_actor_sees_readonly_values_and_cannot_change() -> None:
     asyncio.run(scenario())
 
 
-def test_create_view_honors_custom_form_and_factory_metadata() -> None:
-    class NameForm(ItemForm):
-        resource = resource_for(Item, fields=("name",))
-        field_options = relation_controls(Item, ("name",))
-
-    view = CreateView(resource=resource_for(Item), form_class=NameForm)
-    assert list(view.get_form_class()().fields) == ["name"]
-    from obox.forms import modelform_factory
-
-    renamed = modelform_factory(resource_for(Item), form=ItemForm)
-    assert renamed().fields["name"].label == "Title"
-
-
-def test_registered_list_links_pagination_and_action_confirmation() -> None:
+def test_registered_grid_links_and_pagination() -> None:
     async def scenario() -> None:
         async with configured():
-            for name in ("alpha", "beta", "gamma"):
-                form = ItemForm({"name": name, "price": "1"})
-                assert await form.is_valid()
-                await form.save()
+            async with session_scope() as session:
+                resource = ItemResource(session, ANONYMOUS)
+                for name in ("alpha", "beta", "gamma"):
+                    await resource.create({"name": name, "price": "1"})
 
             class Items(GridView[Item]):
                 fields = ("name",)
                 page_size = 2
-                search_fields = ("name",)
-                actions = ("delete_selected",)
-
-            class RowList(ListView[Item]):
-                fields = ("name", "price")
 
             class LockedItems(ModelResource[Item]):
                 model = Item
@@ -238,7 +222,6 @@ def test_registered_list_links_pagination_and_action_confirmation() -> None:
             class LockedItemViews(ModelViewSet[Item]):
                 resource = LockedItems
                 list_view = Items
-                collection_views = (RowList,)
 
             app = FastAPI(openapi_url=None)
             app.add_middleware(
@@ -254,58 +237,32 @@ def test_registered_list_links_pagination_and_action_confirmation() -> None:
                 assert "alpha" in response.text
                 assert "gamma" not in response.text
                 assert "/tests/items/1/view" in response.text
-                assert 'href="/tests/items/views/list"' in response.text
                 assert 'name="q"' in response.text
-                listing = await client.get("/tests/items/views/list")
-                assert 'class="table table-vcenter record-grid record-list"' in listing.text
-                assert (await client.post("/tests/items/views/list")).status_code == 405
+                assert (await client.post("/tests/items")).status_code == 405
                 protected = await client.get("/tests/items/3/view")
                 assert "Edit" in protected.text
                 assert 'href="/tests/items/3/delete"' not in protected.text
                 assert "gamma" in (await client.get("/tests/items?page=2")).text
-                token = client.cookies["csrftoken"]
-                data = {
-                    "action": "delete_selected",
-                    "_selected_action": "1",
-                    "csrfmiddlewaretoken": token,
-                }
-                confirmation = await client.post("/tests/items", data=data)
-                assert confirmation.status_code == 200
-                assert 'name="post" value="yes"' in confirmation.text
-                denied = await client.post(
-                    "/tests/items",
-                    data={**data, "_selected_action": ["1", "3"], "post": "yes"},
-                )
-                assert denied.status_code == 403
-                assert "alpha" in (await client.get("/tests/items")).text
-                assert (
-                    await client.post("/tests/items", data={**data, "post": "yes"})
-                ).status_code == 303
-                assert "alpha" not in (await client.get("/tests/items")).text
 
     asyncio.run(scenario())
 
 
-def test_same_list_view_supports_filters_search_and_actions_on_both_routes() -> None:
-    seen = []
+def test_grid_shares_filters_search_and_scope_with_rest() -> None:
+    from obox.db.filters import FilterGroup, FilterTerm
+    from obox.views.generic import ViewConfig
 
     class VisibleItems(ModelResource[Item]):
         model = Item
         fields = ("name", "price", "quantity")
+        search_fields = ("name",)
 
         def get_queryset(self) -> sa.Select[tuple[Item]]:
             return super().get_queryset().where(Item.name != "private")
 
-    class Items(ListView):
+    class Items(GridView[Item]):
         fields = ("name",)
-        search_fields = ("name",)
         page_size = 2
-        actions = ("select_rows",)
-
-        @action(permissions=("change",), description="Select rows")
-        async def select_rows(self, request: Any, queryset: Any) -> None:
-            async with session_scope() as session:
-                seen.append([item.name for item in await session.scalars(queryset)])
+        view = ViewConfig(filter=FilterGroup(children=(FilterTerm("quantity", "is", 1),)))
 
     class ItemViews(ModelViewSet[Item]):
         resource = VisibleItems
@@ -313,86 +270,51 @@ def test_same_list_view_supports_filters_search_and_actions_on_both_routes() -> 
 
     async def scenario() -> None:
         async with configured():
-            ids = []
-            for name, quantity in (("alpha", 1), ("alpine", 2), ("beta", 1), ("private", 1)):
-                form = ItemForm({"name": name, "price": "1", "quantity": str(quantity)})
-                assert await form.is_valid()
-                ids.append(str((await form.save()).id))
-
+            async with session_scope() as session:
+                resource = ItemResource(session, ANONYMOUS)
+                for name, quantity in (("alpha", 1), ("alpine", 2), ("beta", 1), ("private", 1)):
+                    await resource.create({"name": name, "price": "1", "quantity": quantity})
             app = FastAPI(openapi_url=None)
             app.add_middleware(
-                Actors,
-                actor=Principal(
-                    id=1,
-                    is_authenticated=True,
-                    permissions=frozenset({"tests.view_item", "tests.change_item"}),
-                ),
+                Actors, actor=Principal(id=1, is_authenticated=True, is_superuser=True)
             )
-            install_views(ItemViews)
-            Obox(app)
-            app.add_api_route(
-                "/inventory",
-                Items.as_view(resource=VisibleItems),
-                methods=["GET", "POST"],
-                dependencies=[Depends(permission_required("tests.view_item", html=True))],
-            )
+            Obox(app).register(VisibleItems, slug="inventory", views=ItemViews)
             async with (
                 app.router.lifespan_context(app),
                 httpx.AsyncClient(
                     transport=httpx.ASGITransport(app=app), base_url="http://test"
                 ) as client,
             ):
-                for path in ("/tests/items", "/inventory"):
-                    first = await client.get(path)
-                    assert "alpha" in first.text
-                    assert "beta" not in first.text
-                    assert "beta" in (await client.get(f"{path}?page=2")).text
-                    filtered = f"{path}?q=alp&quantity__exact=1"
-                    result = await client.get(filtered)
-                    assert result.status_code == 200
-                    assert "alpha" in result.text
-                    assert all(name not in result.text for name in ("alpine", "beta", "private"))
-                    overridden = await client.get(
-                        path,
-                        params={
-                            "filter": '{"conjunction":"and","children":['
-                            '{"field":"quantity","op":"is","value":2}]}',
-                            "quantity__exact": "invalid",
-                        },
-                    )
-                    assert overridden.status_code == 200, overridden.text
-                    assert "alpine" in overridden.text
-                    assert "alpha" not in overridden.text
-                    cleared = await client.get(
-                        path,
-                        params={
-                            "filter": '{"conjunction":"and","children":[]}',
-                            "quantity__exact": "invalid",
-                        },
-                    )
-                    assert cleared.status_code == 200, cleared.text
-                    assert "alpine" in cleared.text
-                    assert "quantity__exact" not in cleared.text
-                    grouped = await client.get(path, params={"group": "price", "page": "2"})
-                    assert 'class="group-count">3 records' in grouped.text
-                    for invalid_query in (
-                        {"filter": "{"},
-                        {"quantity__exact": "invalid"},
-                        {"ordering": "unknown"},
-                        {"group": "unknown"},
-                        {"q": "alpha " * 11},
-                    ):
-                        assert (await client.get(path, params=invalid_query)).status_code == 422
-                    denied_field = await client.get(path, params={"id": "1"})
-                    missing_field = await client.get(path, params={"unknown": "1"})
-                    assert denied_field.status_code == missing_field.status_code == 422
-                    assert denied_field.text == missing_field.text
-                    assert result.text.count("Select rows") == 1
-                    assert "delete_selected" not in result.text
-                    data = {"action": "select_rows", "_selected_action": ids}
-                    assert (await client.post(filtered, data=data)).status_code == 403
-                    data["csrfmiddlewaretoken"] = client.cookies["csrftoken"]
-                    assert (await client.post(filtered, data=data)).status_code == 303
-                assert seen == [["alpha"], ["alpha"]]
+                path = "/inventory"
+                first = await client.get(path)
+                assert "alpha" in first.text
+                assert "alpine" not in first.text
+                filter_json = json.dumps(
+                    FilterGroup(children=(FilterTerm("quantity", "in", [2]),)).to_dict()
+                )
+                params = {"q": "alp", "filter": filter_json, "ordering": "-name"}
+                grid = await client.get(path, params=params)
+                assert grid.status_code == 200
+                assert "alpine" in grid.text
+                assert "alpha" not in grid.text
+                response = await client.get("/v0/inventory", params=params)
+                assert [row["name"] for row in response.json()["items"]] == ["alpine"]
+                cleared = await client.get(
+                    path, params={"filter": "", "group": "price", "page": "2"}
+                )
+                assert cleared.status_code == 200
+                assert 'class="group-count">3 records' in cleared.text
+                for invalid in (
+                    {"filter": "{"},
+                    {"quantity__exact": "1"},
+                    {"ordering": "unknown"},
+                    {"group": "unknown"},
+                    {"q": "alpha " * 11},
+                ):
+                    assert (await client.get(path, params=invalid)).status_code == 422
+                assert (
+                    await client.get(path, params={"filter": "", "q": "private"})
+                ).status_code == 200
+                assert "private" not in (await client.get(path, params={"filter": ""})).text
 
     asyncio.run(scenario())

@@ -12,7 +12,7 @@ visible.
   permissions, and extension hooks.
 - [Command-line reference](cli.md) — project creation, static assets, user
   administration, jobs, and webhooks.
-- [Forms](forms.md) — fields, validation, model forms, formsets, and widgets.
+- [Forms](forms.md) — typed forms, validation, and widgets.
 - [Settings](settings.md) — configuration loading, defaults, database and
   template setup, and feature settings.
 

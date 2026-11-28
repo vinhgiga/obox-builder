@@ -37,7 +37,11 @@ def field_options(resource: ModelResource[Any]) -> dict[str, Column]:
             "label": name.replace("_", " ").capitalize(),
             "kind": kind,
             "choices": list(column.type.enums) if isinstance(column.type, sa.Enum) else [],
-            "operators": filter_operators(kind),
+            "operators": (
+                ["is_empty", "is_not_empty"]
+                if "obox_files" in column.info
+                else filter_operators(kind)
+            ),
             "nullable": bool(column.nullable),
             "required": spec.required,
         }
@@ -55,6 +59,7 @@ class ModelContextMixin(ContextMixin, Generic[ModelT]):
     request: Request
 
     session: Any
+    reverse: Any
 
     def check(self) -> None:
         super().check()
@@ -75,8 +80,7 @@ class ModelContextMixin(ContextMixin, Generic[ModelT]):
 
     def route_url(self, operation: str, **params: Any) -> str | None:
         if name := self.route_names.get(operation):
-            path = str(self.request.app.url_path_for(name, **params))
-            return str(self.request.scope.get("root_path", "")).rstrip("/") + path
+            return str(self.reverse(name, **params))
         return None
 
     async def write_url(

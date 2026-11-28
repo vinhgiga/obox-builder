@@ -51,7 +51,7 @@ class ItemInput(BaseModel):
 
 class Items(ModelResource[Item]):
     model = Item
-    schema = ItemInput
+    write_schema = ItemInput
     ordering = ("-name",)
 
     def get_queryset(self) -> sa.Select[tuple[Item]]:

@@ -66,7 +66,9 @@ class ProductInput(BaseModel):
 class ProductResource(ModelResource[Product]):
     model = Product
     fields = ("id", "name", "price")
-    schema = ProductInput
+    write_schema = ProductInput
+    search_fields = ("name",)
+    ordering_fields = ("name", "price")
     ordering = ("name",)
 ```
 
@@ -99,18 +101,14 @@ from obox.views.generic import CreateView, GridView, ModelViewSet
 
 class ProductGrid(GridView[Product]):
     fields = ("name", "price")
-    search_fields = ("name",)
 
 
 class ProductCreate(CreateView[Product]):
-    fields = ("name", "price")
     fieldsets = (("Details", {"fields": ("name", "price")}),)
 
 
 class ProductApi(ModelApi[Product]):
     resource = ProductResource
-    search_fields = ("name",)
-    ordering_fields = ("name", "price")
 
 
 class ProductPages(ModelViewSet[Product]):
@@ -123,6 +121,8 @@ class ProductsConfig(AppConfig):
     views = [ProductPages]
     apis = [ProductApi]
 ```
+
+For direct registration, pass `views=ProductPages` and `api=ProductApi`.
 
 Set `fields` to a fixed projection for sensitive models. Override
 `get_queryset(self)` to limit record visibility using `self.principal` before

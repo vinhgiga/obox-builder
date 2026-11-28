@@ -5,11 +5,10 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import Iterator, Mapping
-from copy import deepcopy
 from enum import Enum
 from typing import Any, ClassVar, Generic, cast
 
-from pydantic import BaseModel, TypeAdapter
+from pydantic import BaseModel
 from pydantic import ValidationError as SchemaValidationError
 from typing_extensions import TypeVar
 
@@ -52,7 +51,7 @@ class BoundField:
 
     def __html__(self) -> str:
         attrs: dict[str, Any] = {"id": self.id_for_label}
-        if self.field.required and self.form.use_required_attribute:
+        if self.field.required:
             attrs["required"] = True
         if self.field.disabled:
             attrs["disabled"] = True
@@ -78,9 +77,6 @@ class BoundField:
 class Form(Generic[S]):
     schema: type[BaseModel] | None = None
     field_options: ClassVar[Mapping[str, Field]] = {}
-    widgets: ClassVar[Mapping[str, Any]] = {}
-    labels: ClassVar[Mapping[str, str]] = {}
-    help_texts: ClassVar[Mapping[str, str]] = {}
 
     def __init__(
         self,
@@ -90,29 +86,21 @@ class Form(Generic[S]):
         schema: type[S] | None = None,
         initial: Mapping[str, Any] | None = None,
         prefix: str | None = None,
-        empty_permitted: bool = False,
     ) -> None:
         chosen = schema or self.schema
         if not isinstance(chosen, type) or not issubclass(chosen, BaseModel):
             raise ImproperlyConfigured("Define a Pydantic form schema.")
         self._schema = cast(type[S], chosen)
-        controls = schema_fields(self._schema)
+        overrides: dict[str, Field] = {}
         for base in reversed(type(self).__mro__):
-            controls.update(vars(base).get("field_options", {}))
-        self.fields = deepcopy(controls)
-        for name, widget in self.widgets.items():
-            if name not in self.fields:
-                raise ImproperlyConfigured(f"Unknown form field: {name!r}.")
-            self.fields[name].widget = widget() if isinstance(widget, type) else deepcopy(widget)
-        for name, field in self.fields.items():
-            field.label = self.labels.get(name, field.label)
-            field.help_text = self.help_texts.get(name, field.help_text)
+            overrides.update(vars(base).get("field_options", {}))
+        if unknown := overrides.keys() - self._schema.model_fields.keys():
+            raise ImproperlyConfigured(f"Unknown form field: {min(unknown)!r}.")
+        self.fields = schema_fields(self._schema, overrides)
         self.data, self.files = data if data is not None else {}, files or {}
         self.is_bound = data is not None or files is not None
         self.initial, self.prefix = dict(initial or {}), prefix
-        self.empty_permitted, self.use_required_attribute = empty_permitted, True
         self.cleaned_data: S | None = None
-        self.validated_data: dict[str, Any] = {}
         self.errors: dict[str, list[str]] = {}
         self._error_codes: dict[str, list[str | None]] = {}
         self.error_details: list[dict[str, Any]] = []
@@ -130,7 +118,11 @@ class Form(Generic[S]):
                 return self._defaults[name]
             return field.initial
         info = self._schema.model_fields.get(name)
-        if info is not None and not info.is_required():
+        if (
+            info is not None
+            and not info.is_required()
+            and not info.default_factory_takes_validated_data
+        ):
             if name not in self._defaults:
                 self._defaults[name] = info.get_default(call_default_factory=True)
             return self._defaults[name]
@@ -148,9 +140,9 @@ class Form(Generic[S]):
     def _data_value(self, name: str, field: Field) -> Any:
         key = self.add_prefix(name)
         if isinstance(field.widget, FileInput):
-            return self.files.get(key, self.data.get(key))
+            return self.files.get(key, self.data.get(key, MISSING))
         getlist = getattr(self.data, "getlist", None)
-        if getattr(field.widget, "allow_multiple_selected", False) and getlist is not None:
+        if field.widget.allow_multiple_selected and getlist is not None:
             return getlist(key)
         return self.data.get(key, MISSING)
 
@@ -172,102 +164,50 @@ class Form(Generic[S]):
             if prepare is not None:
                 await invoke(prepare)
 
-    @property
-    def changed_data(self) -> list[str]:
-        changed = []
-        for name, field in self.fields.items():
-            if field.disabled:
-                continue
-            initial, value = self._initial_value(name, field), self._data_value(name, field)
-            if value is MISSING:
-                value = None
-            has_changed = getattr(field, "has_changed", None)
-            if has_changed is not None:
-                different = has_changed(initial, value)
-            else:
-                prepare = getattr(field, "prepare_value", None)
-                if prepare:
-                    initial, value = prepare(initial), prepare(value)
-                try:
-                    info = self._schema.model_fields.get(name)
-                    if initial in field.empty_values and value in field.empty_values:
-                        different = False
-                        continue
-                    if info is not None:
-                        adapter: TypeAdapter[Any] = TypeAdapter(cast(Any, info.annotation))
-                        initial = adapter.validate_python(initial)
-                        value = adapter.validate_python(value)
-                    different = initial != value
-                except (ValidationError, SchemaValidationError, TypeError, ValueError):
-                    different = True
-            if different:
-                changed.append(name)
-        return changed
-
-    def has_changed(self) -> bool:
-        return bool(self.changed_data)
-
     async def is_valid(self) -> bool:
         async with self._validation_lock:
             if not self._validated:
                 await self.full_clean()
         return self.is_bound and not self.errors
 
-    async def full_clean(self) -> None:
-        self.cleaned_data, self.validated_data = None, {}
-        self.errors, self._error_codes, self.error_details = {}, {}, []
-        self._validated = False
-        if not self.is_bound or (self.empty_permitted and not self.has_changed()):
-            self._validated = True
-            return
-        data, resolved = {}, {}
+    async def input_data(self, *, partial: bool = False) -> dict[str, Any]:
+        data = {}
         for name, field in self.fields.items():
+            if partial and field.disabled:
+                continue
             value = (
                 self._initial_value(name, field)
                 if field.disabled
                 else self._data_value(name, field)
             )
-            info = self._schema.model_fields.get(name)
+            if value is MISSING:
+                if not isinstance(field, BooleanField):
+                    continue
+                value = False
             try:
-                if info is None or hasattr(field, "queryset") or isinstance(field, FileField):
-                    value = await field.clean(None if value is MISSING else value)
-                    resolved[name] = value
-                    if info is None:
-                        self.validated_data[name] = value
-                        continue
-                    prepare = getattr(field, "prepare_value", None)
-                    if prepare is not None:
-                        value = prepare(value)
-                if value is MISSING:
-                    if isinstance(field, BooleanField):
-                        value = False
-                    elif not info.is_required():
-                        value = self._initial_value(name, field)
-                    else:
-                        continue
-                if value == "" and kind(info.annotation)[1]:
+                if isinstance(field, FileField):
+                    value = await field.clean(value)
+                if value == "" and kind(self._schema.model_fields[name].annotation)[1]:
                     value = None
                 if isinstance(field, JSONField) and isinstance(value, str):
                     value = json.loads(value)
                 data[name] = value
             except (ValidationError, ValueError) as exc:
                 self.add_error(name, exc)
-        data.update(
-            {
-                name: value
-                for name, value in self.initial.items()
-                if name in self._schema.model_fields and name not in self.fields
-            }
-        )
+        return data
+
+    async def full_clean(self) -> None:
+        self.cleaned_data = None
+        self.errors, self._error_codes, self.error_details = {}, {}, []
+        self._validated = False
+        if not self.is_bound:
+            self._validated = True
+            return
+        data = await self.input_data()
         try:
-            data = self.prepare_data(data, resolved)
             parsed = self._schema.model_validate(data, by_name=True, by_alias=False)
             if not self.errors:
                 self.cleaned_data = parsed
-                self.validated_data.update(
-                    {name: getattr(parsed, name) for name in self._schema.model_fields}
-                )
-                self.validated_data.update(resolved)
         except SchemaValidationError as exc:
             self.error_details = [
                 dict(error)
@@ -288,9 +228,6 @@ class Form(Generic[S]):
             await self.post_clean()
         self._validated = True
 
-    def prepare_data(self, data: dict[str, Any], resolved: dict[str, Any]) -> dict[str, Any]:
-        return data
-
     async def post_clean(self) -> None:
         pass
 
@@ -306,7 +243,6 @@ class Form(Generic[S]):
                 raise ValueError(f"{type(self).__name__!r} has no field named {name!r}.")
             self.errors.setdefault(name, []).extend(messages)
             self._error_codes.setdefault(name, []).append(error.code)
-            self.validated_data.pop(name, None)
         self.cleaned_data = None
 
     def non_field_errors(self) -> list[str]:

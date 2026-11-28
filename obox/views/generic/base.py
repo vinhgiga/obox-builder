@@ -138,7 +138,7 @@ class View:
     ) -> None:
         options = initkwargs or {}
         endpoint = cls.as_view(**options)
-        methods = cls(**options).allowed_methods()
+        methods = endpoint.view_methods
         if "GET" in methods and "HEAD" not in methods:
             methods.append("HEAD")
         router.add_api_route(
@@ -173,7 +173,8 @@ class View:
             ):
                 raise TypeError(f"{cls.__name__}.as_view() received an invalid keyword {key!r}.")
 
-        cls(**initkwargs).check()
+        prototype = cls(**initkwargs)
+        prototype.check()
         principal_dependency = cls.principal_dependency or identify
 
         async def view(
@@ -213,6 +214,7 @@ class View:
                 await request.close()
 
         endpoint: Any = view
+        endpoint.view_methods = prototype.allowed_methods()
         endpoint.view_class = cls
         endpoint.view_initkwargs = initkwargs
         endpoint.http_method_names = cls.http_method_names

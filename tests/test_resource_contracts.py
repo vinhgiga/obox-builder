@@ -26,8 +26,8 @@ from obox.core.principal import Principal
 from obox.runtime.config import RuntimeConfig
 from obox.runtime.runtime import _Runtime
 from obox.services import BaseService
-from obox.views.generic import CreateView, DetailView, ListView, View
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from obox.views.generic import CreateView, DetailView, GridView, View
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.orm import (
     DeclarativeBase,
     InstrumentedAttribute,
@@ -94,7 +94,7 @@ class EntryService(BaseService):
 
 class Entries(ModelResource[Entry]):
     model = Entry
-    schema: type[BaseModel] | None = EntryInput
+    write_schema = EntryInput
     readonly_fields = ("owner_id",)
     fields = ("id", "name", "amount", "owner_id", "payload")
     ordering: Sequence[str | ColumnElement[Any] | InstrumentedAttribute[Any]] = ("name",)
@@ -119,15 +119,12 @@ def test_html_and_api_share_page_order_and_scoped_lookup(tmp_path: Path) -> None
                 raise PermissionDenied("Restricted entry.")
             await super().check_permission(action, obj)
 
-    class Index(ListView):
+    class Index(GridView):
         resource = Directory
-        template_prefix = "listing/"
+        template_name = "listing/resource_entries_grid.html"
 
     class Detail(DetailView):
         resource = Directory
-
-        def get_queryset(self) -> sa.Select[tuple[Entry]]:
-            return sa.select(Entry)
 
     async def principal(request: Request) -> Principal:
         return Principal(id=1, is_authenticated=True, is_superuser=True)
@@ -143,7 +140,7 @@ def test_html_and_api_share_page_order_and_scoped_lookup(tmp_path: Path) -> None
         error_status = MappingProxyType({PermissionDenied: 404})
 
     async def scenario() -> None:
-        template = tmp_path / "listing" / "resource_entries_list.html"
+        template = tmp_path / "listing" / "resource_entries_grid.html"
         template.parent.mkdir()
         template.write_text("{{ page.number }}:{{ object_list[0].name }}", encoding="utf-8")
         async with configured(), database(tmp_path / "pages.sqlite3", (Base.metadata,)) as sessions:
@@ -218,8 +215,8 @@ def test_html_and_api_share_page_order_and_scoped_lookup(tmp_path: Path) -> None
                     "offset",
                     "includeTotal",
                     "filter",
-                    "search",
-                    "order",
+                    "q",
+                    "ordering",
                 }
                 lookup = paths["/api/entries/{id}"]["get"]["parameters"][0]
                 assert lookup["name"] == "id"
@@ -323,19 +320,8 @@ def test_adapters_share_resource_rules_and_transaction_boundary(
         success_url = "/done"
         csrf_protect = False
 
-    class ChildOutput(BaseModel):
-        model_config = ConfigDict(from_attributes=True)
-        id: int
-
-    class EntryOutput(BaseModel):
-        model_config = ConfigDict(from_attributes=True)
-        name: str
-        amount: int
-        children: list[ChildOutput]
-
     class EntryApi(ModelApi[Entry]):
         resource = Entries
-        read_schema = EntryOutput
 
     async def scenario() -> None:
         async with (
@@ -439,17 +425,18 @@ def test_html_route_catches_dependency_entry_and_exit_errors() -> None:
     asyncio.run(scenario())
 
 
-def test_per_action_schemas_defaults_and_invalid_configuration(tmp_path: Path) -> None:
-    class CreateInput(BaseModel):
+def test_write_schema_defaults_and_invalid_configuration(tmp_path: Path) -> None:
+    class WriteInput(BaseModel):
         name: str = "default-name"
-
-    class UpdateInput(BaseModel):
-        amount: int = Field(ge=1)
+        amount: int = Field(1, ge=1)
 
     class Configured(Entries):
-        schema = None
-        create_schema = CreateInput
-        update_schema = UpdateInput
+        write_schema = WriteInput
+
+        def get_writable_fields(
+            self, action: str, obj: Entry | None, actor: Any
+        ) -> tuple[str, ...]:
+            return ("name", "amount") if obj is None else ("amount",)
 
     async def scenario() -> None:
         async with (
@@ -538,7 +525,7 @@ def test_write_rule_violation_restores_object_before_rendering(tmp_path: Path, a
 @pytest.mark.parametrize("native", [True, False])
 def test_html_error_template_methods_and_configuration_checks(native: bool) -> None:
     from jinja2 import DictLoader
-    from obox.views.generic import DeleteView, FormView, ListView, TemplateView, UpdateView
+    from obox.views.generic import DeleteView, FormView, GridView, TemplateView, UpdateView
     from starlette.exceptions import HTTPException
 
     class Missing(View):
@@ -581,7 +568,7 @@ def test_html_error_template_methods_and_configuration_checks(native: bool) -> N
         with pytest.raises(ImproperlyConfigured):
             TemplateView.as_route(router, "/bad-template", name="bad-template")
         with pytest.raises(ImproperlyConfigured):
-            ListView.as_route(router, "/bad-list", name="bad-list")
+            GridView.as_route(router, "/bad-list", name="bad-list")
         with pytest.raises(ImproperlyConfigured):
             FormView.as_route(router, "/bad-form", name="bad-form")
         for view in (CreateView, UpdateView, DeleteView):

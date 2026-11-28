@@ -14,14 +14,8 @@
     {% for error in form.non_field_errors() %}
       <div class="alert alert-danger" role="alert">{{ error }}</div>
     {% endfor %}
-    {% set upload = namespace(required=form.is_multipart()) %}
-    {% for group in inline_formsets %}
-      {% if group.formset.is_multipart() %}
-        {% set upload.required = true %}
-      {% endif %}
-    {% endfor %}
     <form method="post"
-          {% if upload.required %} enctype="multipart/form-data"{% endif %}>
+          {% if form.is_multipart() %} enctype="multipart/form-data"{% endif %}>
       <input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">
       {% for group in fieldsets %}
         <fieldset class="mb-4">
@@ -58,9 +52,6 @@
             </div>
           {% endfor %}
         </div>
-      {% endfor %}
-      {% for group in inline_formsets %}
-        {% include group.inline.template %}
       {% endfor %}
       {% if has_change_permission | default(true) %}
         <div class="submit-row mt-4">

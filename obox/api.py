@@ -1,4 +1,4 @@
-"""Typed model routes and permission dependencies for native FastAPI applications."""
+"""Typed model routes for native FastAPI applications."""
 
 from __future__ import annotations
 
@@ -9,31 +9,27 @@ from types import GenericAlias, MappingProxyType
 from typing import Annotated, Any, Generic, Literal, TypeVar, cast
 from urllib.parse import quote
 
-import sqlalchemy as sa
 from fastapi import APIRouter, Depends, Path, Query, Request, Response
 from fastapi.routing import RouteContext, iter_route_contexts
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, SkipValidation, create_model
+from pydantic import BaseModel, ConfigDict, Field, SkipValidation, create_model
+from pydantic.alias_generators import to_camel
 
-from obox.components.query import invalid, parameters, parse_expression
-from obox.core.async_utils import invoke
-from obox.core.exceptions import DomainError, ImproperlyConfigured
-from obox.core.pagination import Paginator
+from obox.components.query import parameters
+from obox.core.exceptions import DomainError, ImproperlyConfigured, InvalidQuery
 from obox.core.principal import valid_permission
-from obox.db.fields import ModelField, normalize, schema, validate_text
-from obox.db.filters import FilterTerm, compile_filter, compile_predicate
+from obox.db.fields import schema
+from obox.db.filters import MAX_FILTER_LENGTH
 from obox.db.identity import model_label
-from obox.db.query import group_query, scope_query, search_query
 from obox.resources import ModelResource
 from obox.runtime.context import Context as Context
-from obox.web.dependencies import _APIContext, api_context, api_principal_context
+from obox.web.dependencies import api_context as api_context
+from obox.web.dependencies import api_principal_context
 from obox.web.routes import ApiRoute
 from obox.web.schemas import ApiRequest as ApiRequest
 from obox.web.schemas import ApiResponse as ApiResponse
 
 ModelT = TypeVar("ModelT")
 RouterMethod = Literal["list", "retrieve", "create", "patch", "delete"]
-Action = Literal["list", "retrieve", "create", "partial_update", "destroy"]
-ReadT = TypeVar("ReadT", bound=BaseModel)
 
 _ROUTES: dict[RouterMethod, tuple[str, str, int, str]] = {
     "list": ("GET", "", 200, "view"),
@@ -42,37 +38,29 @@ _ROUTES: dict[RouterMethod, tuple[str, str, int, str]] = {
     "patch": ("PATCH", "/{id}", 200, "change"),
     "delete": ("DELETE", "/{id}", 204, "delete"),
 }
-_ACTIONS: dict[Action, RouterMethod] = {
-    "list": "list",
-    "retrieve": "retrieve",
-    "create": "create",
-    "partial_update": "patch",
-    "destroy": "delete",
-}
 
-__all__ = ["ApiRequest", "ApiResponse", "BaseApi", "Context", "ModelApi", "RouterMethod"]
-
-
-class BaseApi:
-    @staticmethod
-    def permission_required(permission: str | None = None) -> _APIContext:
-        """Require an active identity and optionally a named permission."""
-        return api_context(permission=permission, csrf=True)
+__all__ = ["ApiRequest", "ApiResponse", "Context", "ModelApi", "RouterMethod", "api_context"]
 
 
 class _ModelRoute(ApiRoute):
     cache_control = "private, no-store"
 
 
-class _QueryParams(ApiRequest):
-    # parameters() validates the original keys and detects repeated query parameters.
+class _CollectionParams(ApiRequest):
     model_config = ConfigDict(extra="ignore")
-
-
-class _ListParams(_QueryParams):
-    limit: int
+    q: str = ""
+    filter: str = Field(default="", max_length=MAX_FILTER_LENGTH)
+    limit: int | None = Field(default=None, ge=1)
     offset: int = Field(default=0, ge=0, le=2**31 - 1)
     include_total: bool = False
+
+
+class _ListParams(_CollectionParams):
+    ordering: str = ""
+
+
+class _GroupParams(_CollectionParams):
+    group: str = Field(description="One to three group fields.")
 
 
 class _Page(ApiResponse):
@@ -89,17 +77,21 @@ class _Group(ApiResponse):
 
 class _Groups(_Page):
     by: list[str]
-    items: list[_Group]
     total: int | None = None
+    items: list[_Group]
 
 
-class _GroupParams(_ListParams):
-    by: str = Field(description="One to three unique groupable response aliases.")
-    order: Literal["key.asc", "key.desc", "count.asc", "count.desc"] = "key.asc"
-
-
-def _capped_int(maximum: int) -> Any:
-    return Annotated[int, AfterValidator(lambda value: min(value, maximum))]
+def _body_schema(resource: ModelResource[Any], action: RouterMethod) -> type[ApiRequest]:
+    fields: dict[str, Any] = {}
+    for name, info in resource.input_schema.model_fields.items():
+        annotation = (
+            Annotated[info.annotation, *info.metadata] if info.metadata else info.annotation
+        )
+        fields[name] = (
+            Annotated[annotation, SkipValidation],
+            ... if action == "create" and info.is_required() else None,
+        )
+    return create_model(f"{resource.model.__name__}{action.title()}", __base__=ApiRequest, **fields)
 
 
 def check_route_conflicts(routes: Iterable[RouteContext], *, all_routes: bool = False) -> None:
@@ -117,26 +109,18 @@ def check_route_conflicts(routes: Iterable[RouteContext], *, all_routes: bool = 
             registered[method, path] = generated
 
 
-class ModelApi(BaseApi, Generic[ModelT]):
-    """Generate protected CRUD routes from explicit request and response schemas."""
+class ModelApi(Generic[ModelT]):
+    """Generate protected CRUD routes from a ModelResource."""
 
     model: type[ModelT]
     prefix: str
     slug: str | None = None
     resource: type[ModelResource[ModelT]]
     _resource: ModelResource[ModelT]
-    actions: Collection[Action] | None = None
+    actions: Collection[RouterMethod] | None = None
     permissions: Mapping[RouterMethod, str] = MappingProxyType({})
     dependencies: Sequence[Any] = ()
     principal_dependency: Callable[..., Any] | None = None
-    search_fields: Sequence[str] | None = None
-    ordering_fields: Sequence[str] | None = None
-    filter_fields: Sequence[str] | None = None
-    group_fields: Sequence[str] | None = None
-    _search_fields: tuple[str, ...]
-    _ordering_fields: dict[str, ModelField]
-    _filter_fields: dict[str, ModelField]
-    _group_fields: dict[str, ModelField]
     default_limit: int = 50
     max_limit: int = 100
     tags: Sequence[str] | None = None
@@ -149,8 +133,6 @@ class ModelApi(BaseApi, Generic[ModelT]):
 
     def get_resource(self, ctx: Context) -> ModelResource[ModelT]:
         resources = ctx.session.info.setdefault("obox.resources", {})
-        # A session may be reused with a different identity. The resource's
-        # authorization hooks must never see a previous request's principal.
         key = (id(self._resource), id(ctx.principal))
         if key not in resources:
             resources[key] = self._resource.bind(ctx.session, ctx.principal)
@@ -168,17 +150,14 @@ class ModelApi(BaseApi, Generic[ModelT]):
     def build_resource_router(self, prefix: str, resource: ModelResource[ModelT]) -> APIRouter:
         if not re.fullmatch(r"/[a-zA-Z0-9_-]+(?:/[a-zA-Z0-9_-]+)*", prefix):
             raise ImproperlyConfigured("Provide an absolute API prefix.")
-        actions = tuple(_ACTIONS) if self.actions is None else self.actions
+        actions = tuple(_ROUTES) if self.actions is None else self.actions
         if (
             isinstance(actions, str)
             or not isinstance(actions, Collection)
-            or any(not isinstance(action, str) or action not in _ACTIONS for action in actions)
+            or any(not isinstance(action, str) or action not in _ROUTES for action in actions)
             or len(actions) != len(set(actions))
         ):
             raise ImproperlyConfigured("Use unique, supported ModelApi action names.")
-        methods: tuple[RouterMethod, ...] = tuple(
-            method for action, method in _ACTIONS.items() if action in actions
-        )
         if not isinstance(self.permissions, Mapping) or any(
             action not in _ROUTES
             or not isinstance(permission, str)
@@ -206,40 +185,11 @@ class ModelApi(BaseApi, Generic[ModelT]):
             else _ModelRoute
         )
         self._resource, self.model = resource, resource.model
-        specs = resource.specs
-        pk = resource.pk_name
-        lookup = specs[resource.lookup_name]
-        selected = {name: specs[name] for name in resource.readable}
-        writable = resource.writable
-        read = self._read_schema = schema(
-            f"{self.model.__name__}Read", specs, resource.readable, base=ApiResponse
+        if "create" in actions:
+            resource.check_create(resource.writable)
+        read = schema(
+            f"{self.model.__name__}Read", resource.specs, resource.readable, base=ApiResponse
         )
-        schemas: dict[RouterMethod, type[ApiRequest]] = {}
-        for operation in ("create", "patch"):
-            if operation not in methods:
-                continue
-            definition = resource.get_schema("update" if operation == "patch" else operation)
-            fields: dict[str, Any] = {}
-            for name in writable:
-                if name not in definition.model_fields:
-                    continue
-                info = definition.model_fields[name]
-                annotation: Any = info.annotation
-                if info.metadata:
-                    annotation = Annotated[annotation, *info.metadata]
-                default = ... if operation == "create" and info.is_required() else None
-                fields[name] = (Annotated[annotation, SkipValidation], default)
-            schemas[operation] = create_model(
-                f"{self.model.__name__}{operation.title()}", __base__=ApiRequest, **fields
-            )
-        if "create" in methods:
-            resource.check_create(writable)
-        from pydantic.alias_generators import to_camel
-
-        names = {name: to_camel(name) for name in selected}
-        if "list" in methods:
-            self._bind_list_fields(selected, names)
-
         router = APIRouter(
             prefix=prefix,
             tags=list(self.tags) if self.tags is not None else [prefix.rsplit("/", 1)[-1]],
@@ -251,18 +201,14 @@ class ModelApi(BaseApi, Generic[ModelT]):
         context = api_principal_context(resolver) if resolver is not None else None
 
         def require(permission: str) -> Any:
-            policy = self.permission_required(permission)
+            policy = api_context(permission=permission, csrf=True)
             return Depends(policy.with_context(context) if context is not None else policy)
 
         label, model_name = model_label(self.model)
-        for action in methods:
-            verb, path, status, permission_action = _ROUTES[action]
-            body = schemas.get(action)
-            write_names = (
-                {name: to_camel(name) for name in body.model_fields} if body is not None else {}
-            )
-            permission = f"{label}.{permission_action}_{model_name}"
-            dependency = require(permission)
+        for action, (verb, path, status, operation) in _ROUTES.items():
+            if action not in actions:
+                continue
+            dependency = require(f"{label}.{operation}_{model_name}")
             additional = self.permissions.get(action)
             extra = [require(additional)] if additional else None
             name = (
@@ -270,41 +216,28 @@ class ModelApi(BaseApi, Generic[ModelT]):
                 if self.name_prefix
                 else f"obox:api:{prefix}:{action}"
             )
-            endpoint = self._endpoint(
-                action,
-                dependency,
-                body,
-                write_names,
-                specs[pk],
-                lookup,
-                selected,
-                "retrieve" in methods,
-            )
-            output: Any = read if action != "delete" else None
+            read_model: Any = None if action == "delete" else read
             if action == "list":
-                output = create_model(
-                    f"{type(self).__name__}Page",
-                    __base__=_Page,
-                    items=(cast("type[Any]", GenericAlias(list, read)), ...),
+                items = cast("type[Any]", GenericAlias(list, read))
+                read_model = create_model(
+                    f"{self.model.__name__}Page", __base__=_Page, items=(items, ...)
                 )
-            route_path = path
-            route_paths = (route_path, "/") if not route_path else (route_path,)
-            for index, route_path in enumerate(route_paths):
+            endpoint = self._endpoint(action, dependency, read, "retrieve" in actions)
+            for index, route_path in enumerate((path,) if path else ("", "/")):
                 router.add_api_route(
                     route_path,
                     endpoint,
                     methods=[verb],
                     status_code=status,
-                    response_model=output,
-                    response_model_by_alias=True,
+                    response_model=read_model,
                     dependencies=extra,
                     name=name if index == 0 else f"{name}:trailing-slash",
                     route_class_override=route_class,
                 )
-            if action == "list" and self._group_fields:
+            if action == "list" and resource.query_fields["group"]:
                 router.add_api_route(
                     ":groups",
-                    self._group_endpoint(dependency, specs[pk]),
+                    self._group_endpoint(dependency),
                     methods=["GET"],
                     response_model=_Groups,
                     response_model_exclude_unset=True,
@@ -315,230 +248,89 @@ class ModelApi(BaseApi, Generic[ModelT]):
         check_route_conflicts(iter_route_contexts(router.routes), all_routes=True)
         return router
 
-    def _bind_list_fields(
-        self, readable: Mapping[str, ModelField], names: Mapping[str, str]
-    ) -> None:
-        searchable, sortable, filterable, groupable = {}, {}, {}, {}
-        for name, field in readable.items():
-            type_ = field.column.type
-            if "obox_files" in field.column.info:
-                filterable[name] = field
-                continue
-            if isinstance(type_, sa.JSON):
-                continue
-            filterable[name] = sortable[name] = field
-            if isinstance(type_, sa.String) and not isinstance(type_, sa.Enum):
-                searchable[name] = field
-            if isinstance(type_, sa.String | sa.Boolean | sa.Integer | sa.Date):
-                groupable[name] = field
-
-        def fields(
-            attr: str, configured: Sequence[str] | None, available: Mapping[str, ModelField]
-        ) -> tuple[str, ...]:
-            if configured is None:
-                return tuple(available)
-            if (
-                not isinstance(configured, Sequence)
-                or isinstance(configured, str)
-                or not all(isinstance(name, str) for name in configured)
-            ):
-                raise ImproperlyConfigured(f"Use sequences of Python field names for {attr}.")
-            normalize(
-                tuple(name[1:] if name.startswith(("^", "=")) else name for name in configured)
-                if attr == "search_fields"
-                else configured,
-                self.model,
-                available,
-            )
-            return tuple(configured)
-
-        def aliases(
-            attr: str, configured: Sequence[str] | None, available: Mapping[str, ModelField]
-        ) -> dict[str, ModelField]:
-            return {names[name]: available[name] for name in fields(attr, configured, available)}
-
-        self._search_fields = fields("search_fields", self.search_fields, searchable)
-        self._ordering_fields = aliases("ordering_fields", self.ordering_fields, sortable)
-        self._filter_fields = aliases("filter_fields", self.filter_fields, filterable)
-        self._group_fields = aliases("group_fields", self.group_fields, groupable)
-
-    def _predicate_fields(self) -> dict[str, Any]:
-        fields: dict[str, Any] = {}
-        if self._search_fields:
-            fields["search"] = (
-                str | None,
-                Field(default=None, max_length=256, description="Match all of up to ten words."),
-            )
-        if self._filter_fields:
-            fields["filter"] = (
-                str | None,
-                Field(
-                    default=None, max_length=4000, description="Filter using field.operator.value."
-                ),
-            )
-        return fields
-
-    def _limit_field(self) -> tuple[Any, Any]:
-        return (
-            _capped_int(self.max_limit),
-            Field(
-                default=self.default_limit,
-                ge=1,
-                description=f"Result limit. Values above {self.max_limit} are capped.",
-            ),
+    async def _project(
+        self, resource: ModelResource[ModelT], obj: ModelT, read: type[BaseModel]
+    ) -> BaseModel:
+        await resource.ensure_loaded(obj, resource.readable)
+        return read.model_validate(
+            {
+                name: resource.specs[name].serialize(getattr(obj, name))
+                for name in resource.readable
+            },
+            by_name=True,
+            by_alias=False,
         )
 
-    async def _filtered_queryset(
-        self, ctx: Context, params: _QueryParams
-    ) -> sa.Select[tuple[ModelT]]:
-        stmt = scope_query(await invoke(self.get_queryset, ctx, action="list"), self.model)
-        if (raw := getattr(params, "filter", None)) is not None:
-            dialect = ctx.session.get_bind().dialect.name
-
-            def predicate(term: FilterTerm) -> Any:
-                spec = self._filter_fields.get(term.field)
-                if spec is None:
-                    raise invalid(term.field, "Unknown filter field.", "unknown_field")
-                return compile_predicate(
-                    spec, getattr(self.model, spec.name), term, dialect, rest=True
-                )
-
-            _, expression, _ = compile_filter(parse_expression(raw), predicate)
-            stmt = stmt.where(expression)
-        if search := getattr(params, "search", None):
-            if len(search.split()) > 10:
-                raise invalid("search", "Supply at most ten search words.")
-            try:
-                validate_text(search)
-            except ValueError as exc:
-                raise invalid("search", str(exc)) from exc
-            stmt = search_query(stmt, self.model, self._search_fields, search)
-        return cast("sa.Select[tuple[ModelT]]", stmt)
+    def _limit(self, params: _CollectionParams) -> int:
+        return min(params.limit or self.default_limit, self.max_limit)
 
     def _endpoint(
-        self,
-        action: RouterMethod,
-        dependency: Any,
-        body: type[ApiRequest] | None,
-        write_names: dict[str, str],
-        pk: ModelField,
-        lookup_field: ModelField,
-        readable: dict[str, ModelField],
-        has_retrieve: bool,
+        self, action: RouterMethod, dependency: Any, read: type[BaseModel], has_retrieve: bool
     ) -> Callable[..., Any]:
-        async def project(ctx: Context, obj: ModelT) -> BaseModel:
-            await self.get_resource(ctx).ensure_loaded(obj, tuple(readable))
-            schema = self._read_schema
-            return schema.model_validate(
-                {
-                    **{name: spec.serialize(getattr(obj, name)) for name, spec in readable.items()},
-                },
-                by_name=True,
-                by_alias=False,
-                from_attributes=True,
-            )
-
-        async def lookup(ctx: Context, key: Any) -> ModelT:
-            stmt = await invoke(self.get_queryset, ctx, action=action)
-            return await self.get_resource(ctx).get_object(
-                key,
-                queryset=stmt,
-                action="destroy"
-                if action == "delete"
-                else "update"
-                if action == "patch"
-                else action,
-                for_update=action in {"patch", "delete"},
-            )
-
-        def payload(request: Request, data: ApiRequest) -> dict[str, Any]:
-            request.state.api_names = write_names
-            fields = data.model_fields_set
-            return {name: getattr(data, name) for name in fields if name in write_names}
-
+        lookup_name = self._resource.lookup_name
+        annotation = self._resource.specs[lookup_name].annotation
+        key_type: Any = Annotated[annotation, Path()]
         if action == "list":
-            query_fields = self._predicate_fields()
-            query_fields["limit"] = self._limit_field()
-            allowed = {"limit", "offset", "includeTotal"}
-            if self._ordering_fields:
-                query_fields["order"] = (
-                    str | None,
-                    Field(
-                        default=None,
-                        max_length=1024,
-                        description="Up to five comma-separated field aliases with .asc or .desc.",
-                    ),
-                )
-            allowed.update(query_fields)
-            query = create_model(
-                f"{type(self).__name__}ListQuery",
-                __base__=_ListParams,
-                **query_fields,
-            )
 
             async def list_rows(
-                request: Request,
-                params: _ListParams,
-                ctx: Context = dependency,
-            ) -> Any:
-                parameters(request.query_params.multi_items(), allowed)
-                stmt = await self._filtered_queryset(ctx, params)
-                order = getattr(params, "order", None)
-                stmt = stmt.order_by(None).order_by(*self._ordering(order, pk))
-                limit = params.limit
-                result = await self.get_resource(ctx).list(
-                    queryset=stmt,
-                    limit=limit,
+                request: Request, params: Annotated[_ListParams, Query()], ctx: Context = dependency
+            ) -> dict[str, Any]:
+                raw = parameters(
+                    request.query_params.multi_items(),
+                    {"q", "filter", "ordering", "limit", "offset", "includeTotal"},
+                )
+                resource = self.get_resource(ctx)
+                result = await resource.list(
+                    collection=resource.collection(raw),
+                    limit=self._limit(params),
                     offset=params.offset,
                     include_total=params.include_total,
                 )
                 return {
-                    "items": [await project(ctx, row) for row in result.items],
-                    "limit": limit,
-                    "offset": params.offset,
+                    "items": [await self._project(resource, row, read) for row in result.items],
+                    "limit": result.limit,
+                    "offset": result.offset,
                     "has_more": result.has_more,
                     "total": result.total,
                 }
 
-            list_rows.__annotations__["params"] = Annotated[query, Query()]
             return list_rows
 
-        annotation = lookup_field.annotation
-        key_type: Any = Annotated[annotation, Path()]
-        if action == "create":
+        if action in {"create", "patch"}:
+            body = _body_schema(self._resource, action)
+            names = {name: to_camel(name) for name in body.model_fields}
 
             async def create_row(
                 request: Request, response: Response, data: ApiRequest, ctx: Context = dependency
             ) -> BaseModel:
-                obj = await self.get_resource(ctx).create(payload(request, data))
-                await ctx.session.flush()
+                request.state.api_names = names
+                resource = self.get_resource(ctx)
+                obj = await resource.create(data)
                 if has_retrieve:
-                    await self.get_resource(ctx).ensure_loaded(obj, (lookup_field.name,))
-                    response.headers["Location"] = (
-                        f"{request.url.path}/{quote(str(getattr(obj, lookup_field.name)), safe='')}"
-                    )
-                return await project(ctx, obj)
-
-            create_row.__annotations__["data"] = body
-            return create_row
-
-        if action == "patch":
+                    await resource.ensure_loaded(obj, (lookup_name,))
+                    identity = quote(str(getattr(obj, lookup_name)), safe="")
+                    response.headers["Location"] = f"{request.url.path.rstrip('/')}/{identity}"
+                return await self._project(resource, obj, read)
 
             async def change_row(
                 request: Request, id: Any, data: ApiRequest, ctx: Context = dependency
             ) -> BaseModel:
-                obj = await lookup(ctx, id)
-                obj = await self.get_resource(ctx).update(obj, payload(request, data))
-                await ctx.session.flush()
-                return await project(ctx, obj)
+                request.state.api_names = names
+                resource = self.get_resource(ctx)
+                obj = await resource.get_object(id, action=None)
+                return await self._project(resource, await resource.update(obj, data), read)
 
+            if action == "create":
+                create_row.__annotations__["data"] = body
+                return create_row
             change_row.__annotations__.update(id=key_type, data=body)
             return change_row
 
         if action == "delete":
 
             async def delete_row(id: Any, ctx: Context = dependency) -> Response:
-                await self.get_resource(ctx).destroy(await lookup(ctx, id))
+                resource = self.get_resource(ctx)
+                await resource.destroy(await resource.get_object(id, action=None))
                 return Response(status_code=204)
 
             delete_row.__annotations__["id"] = key_type
@@ -546,83 +338,41 @@ class ModelApi(BaseApi, Generic[ModelT]):
 
         async def read_row(request: Request, id: Any, ctx: Context = dependency) -> BaseModel:
             parameters(request.query_params.multi_items())
-            return await project(ctx, await lookup(ctx, id))
+            resource = self.get_resource(ctx)
+            return await self._project(resource, await resource.get_object(id), read)
 
         read_row.__annotations__["id"] = key_type
         return read_row
 
-    def _ordering(self, raw: str | None, pk: ModelField) -> Sequence[Any]:
-        seen: set[str] = set()
-        if raw is None:
-            return self._resource.get_ordering() or (pk.column.asc(),)
-        terms = raw.split(",")
-        if len(terms) > 5:
-            raise invalid("order", "Supply at most five sort fields.")
-        ordering = []
-        for term in terms:
-            alias, separator, direction = term.partition(".")
-            if (
-                not alias
-                or alias.startswith("-")
-                or any(char.isspace() for char in alias)
-                or alias in seen
-                or (separator and direction not in {"asc", "desc"})
-            ):
-                raise invalid("order", "Use unique sortable fields with .asc or .desc.")
-            field = self._ordering_fields.get(alias)
-            if field is None:
-                raise invalid(alias, "Unknown sort field.", "unknown_field")
-            seen.add(alias)
-            column = getattr(self.model, field.name)
-            ordering.append((column.desc() if direction == "desc" else column.asc()).nulls_last())
-        if all(self._ordering_fields[alias].name != pk.name for alias in seen):
-            ordering.append(pk.column.asc())
-        return ordering
-
-    def _group_endpoint(self, dependency: Any, pk: ModelField) -> Callable[..., Any]:
-        query_fields = self._predicate_fields()
-        query_fields["limit"] = self._limit_field()
-        allowed = {"by", "order", "offset", "includeTotal", *query_fields}
-        query = create_model(
-            f"{type(self).__name__}GroupQuery", __base__=_GroupParams, **query_fields
-        )
-
+    def _group_endpoint(self, dependency: Any) -> Callable[..., Any]:
         async def list_groups(
-            request: Request, params: _GroupParams, ctx: Context = dependency
+            request: Request, params: Annotated[_GroupParams, Query()], ctx: Context = dependency
         ) -> dict[str, Any]:
-            parameters(request.query_params.multi_items(), allowed)
-            by = params.by.split(",")
-            if not 1 <= len(by) <= 3 or len(by) != len(set(by)) or "" in by:
-                raise invalid("by", "Supply one to three unique group fields.")
-            columns = []
-            for alias in by:
-                field = self._group_fields.get(alias)
-                if field is None:
-                    raise invalid(alias, "Unknown group field.", "unknown_field")
-                columns.append(getattr(self.model, field.name))
-
+            raw = parameters(
+                request.query_params.multi_items(),
+                {"group", "q", "filter", "limit", "offset", "includeTotal"},
+            )
             resource = self.get_resource(ctx)
-            scoped = await resource._list_query(await self._filtered_queryset(ctx, params))
-            stmt = group_query(scoped, pk.column, columns, order=params.order)
-            rows = (
-                await ctx.session.execute(stmt.offset(params.offset).limit(params.limit + 1))
-            ).all()
-            result = {
+            state = resource.collection(raw)
+            if not state.group:
+                raise InvalidQuery("Choose at least one group field.")
+            by = [to_camel(term["field"]) for term in state.group]
+            result = await resource.groups(
+                state,
+                limit=self._limit(params),
+                offset=params.offset,
+                include_total=params.include_total,
+            )
+            return {
                 "by": by,
                 "items": [
                     {"key": dict(zip(by, row[:-1], strict=True)), "count": row[-1]}
-                    for row in rows[: params.limit]
+                    for row in result.items
                 ],
-                "limit": params.limit,
-                "offset": params.offset,
-                "has_more": len(rows) > params.limit,
+                "limit": result.limit,
+                "offset": result.offset,
+                "has_more": result.has_more,
+                **({"total": result.total} if params.include_total else {}),
             }
-            if params.include_total:
-                result["total"] = await Paginator.count(ctx.session, stmt)
-            return result
 
-        list_groups.__annotations__["params"] = Annotated[query, Query()]
         return list_groups
-
-    def get_queryset(self, ctx: Context, *, action: RouterMethod) -> sa.Select[tuple[ModelT]]:
-        return self.get_resource(ctx).get_queryset()

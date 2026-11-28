@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Collection, Mapping, Sequence
+from collections.abc import AsyncIterator, Mapping, Sequence
+from contextlib import asynccontextmanager
 from copy import copy
+from datetime import UTC, datetime
 from functools import cached_property
 from typing import Any, Generic, Literal, TypeVar, cast
 from uuid import UUID
@@ -26,7 +28,9 @@ from obox.core.exceptions import (
 from obox.core.pagination import ListResult, Page, Paginator
 from obox.core.principal import ANONYMOUS, Identity
 from obox.db.fields import inspect_fields, model_value, normalize, schema
-from obox.db.query import scope_query
+from obox.db.filters import FilterGroup
+from obox.db.query import CollectionQuery, collection_fields, group_query, scope_query
+from obox.db.transaction import savepoint_scope
 from obox.services import BaseService
 
 ModelT = TypeVar("ModelT")
@@ -37,9 +41,7 @@ class ModelResource(Generic[ModelT]):
     """Declare fields, visibility and write rules once for both adapters."""
 
     model: type[ModelT]
-    schema: type[BaseModel] | None = None
-    create_schema: type[BaseModel] | None = None
-    update_schema: type[BaseModel] | None = None
+    write_schema: type[BaseModel] | None = None
     load_options: Sequence[Any] = ()
     page_size: int | None = None
     lookup_field: str | None = None
@@ -47,6 +49,10 @@ class ModelResource(Generic[ModelT]):
     readonly_fields: Sequence[str] = ()
     ordering: Sequence[str | ColumnElement[Any] | InstrumentedAttribute[Any]] = ()
     service_class: type[BaseService] | None = None
+    search_fields: Sequence[str] | None = None
+    ordering_fields: Sequence[str] | None = None
+    filter_fields: Sequence[str] | None = None
+    group_fields: Sequence[str] | None = None
 
     def __init__(
         self,
@@ -82,35 +88,30 @@ class ModelResource(Generic[ModelT]):
                 name for name, spec in exposed.items() if not isinstance(spec.column.type, sa.JSON)
             )
         )
+        readable = {name: self.specs[name] for name in self.readable}
+        self.query_fields = {
+            operation: collection_fields(self.model, readable, configured, operation)
+            for operation, configured in (
+                ("search", self.search_fields),
+                ("ordering", self.ordering_fields),
+                ("filter", self.filter_fields),
+                ("group", self.group_fields),
+            )
+        }
         readonly = normalize(self.readonly_fields, self.model, exposed)
         self.writable = tuple(
             name for name in self.readable if not self.specs[name].readonly and name not in readonly
         )
-        if self.update_schema is not None:
-            if not isinstance(self.update_schema, type) or not issubclass(
-                self.update_schema, BaseModel
-            ):
-                raise ImproperlyConfigured("ModelResource.update_schema must be a Pydantic model.")
-            normalize(self.update_schema.model_fields, self.model, dict.fromkeys(self.writable))
-        if (self.create_schema or self.schema) is not None:
-            declaration = self.create_schema or self.schema
-            if not isinstance(declaration, type) or not issubclass(declaration, BaseModel):
-                raise ImproperlyConfigured("ModelResource.schema must be a Pydantic model.")
-            normalize(declaration.model_fields, self.model, dict.fromkeys(self.writable))
-            names = set(declaration.model_fields)
-            if isinstance(self.update_schema, type) and issubclass(self.update_schema, BaseModel):
-                names.update(self.update_schema.model_fields)
-            self.writable = tuple(name for name in self.writable if name in names)
-        self._create_schema = (
-            self.create_schema
-            or self.schema
-            or schema(f"{self.model.__name__}Write", self.specs, self.writable)
+        definition = self.write_schema
+        if definition is not None:
+            if not isinstance(definition, type) or not issubclass(definition, BaseModel):
+                raise ImproperlyConfigured("ModelResource.write_schema must be a Pydantic model.")
+            normalize(definition.model_fields, self.model, dict.fromkeys(self.writable))
+        self.input_schema = definition or schema(
+            f"{self.model.__name__}Write", self.specs, self.writable
         )
-        self._patch_schema = (
-            self.update_schema
-            or self.create_schema
-            or self.schema
-            or schema(f"{self.model.__name__}Changes", self.specs, self.writable, partial=True)
+        self.writable = tuple(
+            name for name in self.writable if name in self.input_schema.model_fields
         )
         if (
             isinstance(self.ordering, str)
@@ -140,15 +141,11 @@ class ModelResource(Generic[ModelT]):
     def bind(self, session: AsyncSession, principal: Identity) -> ModelResource[ModelT]:
         if self.session is session and self.principal is principal:
             return self
-        if type(self) is ModelResource:
-            # The base ModelResource has no request-local state besides these two
-            # attributes. Reuse the compiled field/schema definitions instead
-            # of reconstructing Pydantic models for every request.
+        if type(self).__init__ is ModelResource.__init__:
             bound = copy(self)
             bound.session, bound.principal = session, principal
+            bound.__dict__.pop("service", None)
             return bound
-        # Custom ModelResource constructors may initialize request-local state;
-        # preserve their lifecycle rather than copying arbitrary attributes.
         return type(self)(session, principal, model=self.model)
 
     def _session(self) -> AsyncSession:
@@ -161,13 +158,6 @@ class ModelResource(Generic[ModelT]):
         if self.service_class is None:
             raise ImproperlyConfigured("Define a service_class on the ModelResource.")
         return self.service_class(self._session(), self.principal)
-
-    def get_schema(self, action: str) -> type[BaseModel]:
-        return (
-            self._create_schema
-            if action == "create"
-            else self.update_schema or self.create_schema or self.schema or self._create_schema
-        )
 
     def get_queryset(self) -> sa.Select[tuple[ModelT]]:
         return sa.select(self.model).options(*self.load_options)
@@ -184,10 +174,8 @@ class ModelResource(Generic[ModelT]):
         return query.where(self.pk.in_(base.with_only_columns(self.pk, maintain_column_froms=True)))
 
     async def check_permission(self, action: str, obj: ModelT | None = None) -> None:
-        if action in {"create", "update", "destroy"}:
-            await self._authorize(
-                cast(WriteAction, "delete" if action == "destroy" else action), obj, self.principal
-            )
+        if action in {"create", "update", "delete"}:
+            await self._authorize(cast(WriteAction, action), obj, self.principal)
 
     async def get_object(
         self,
@@ -221,17 +209,9 @@ class ModelResource(Generic[ModelT]):
         state = cast("InstanceState[ModelT]", sa.inspect(obj))
         if state.identity is None:
             raise NotFound("Record is unavailable.")
-        query = (
-            self._query()
-            .where(self.pk == state.identity[0])
-            .with_for_update(of=self.model)
-            .execution_options(populate_existing=True)
+        return await self.get_object(
+            state.identity[0], action=action, for_update=True, lookup_field=self.pk_name
         )
-        found = (await self._session().scalars(self.load_fields(query))).unique().one_or_none()
-        if found is None:
-            raise NotFound("Record is unavailable.")
-        await self.check_permission(action, found)
-        return cast(ModelT, found)
 
     async def reload(self, obj: ModelT) -> ModelT:
         state = cast("InstanceState[ModelT]", sa.inspect(obj))
@@ -260,10 +240,29 @@ class ModelResource(Generic[ModelT]):
         if missing:
             await self._session().refresh(obj, attribute_names=list(missing))
 
+    def collection(
+        self,
+        params: Mapping[str, str],
+        *,
+        default_filter: FilterGroup | None = None,
+        default_sort: Sequence[str] = (),
+        default_group: Sequence[str] = (),
+    ) -> CollectionQuery:
+        return CollectionQuery.parse(
+            self.model,
+            params,
+            allowed=self.query_fields,
+            specs=self.specs,
+            default_filter=default_filter,
+            default_sort=default_sort,
+            default_group=default_group,
+        )
+
     async def list(
         self,
         *,
         queryset: Any = None,
+        collection: CollectionQuery | None = None,
         limit: int | None = None,
         offset: int = 0,
         include_total: bool = False,
@@ -274,7 +273,7 @@ class ModelResource(Generic[ModelT]):
             or (limit is not None and (type(limit) is not int or limit < 1))
         ):
             raise ValueError("Use a positive limit and nonnegative offset.")
-        query = await self._list_query(queryset)
+        query = await self._list_query(queryset, collection)
         session = self._session()
         total = await Paginator.count(session, query, key=self.pk) if include_total else None
         rows = await Paginator.rows(
@@ -290,94 +289,95 @@ class ModelResource(Generic[ModelT]):
         *,
         page_size: int | None = None,
         queryset: Any = None,
+        collection: CollectionQuery | None = None,
     ) -> Page[ModelT]:
-        size = page_size if page_size is not None else self.page_size
-        paginator = Paginator(size)
+        paginator = Paginator(page_size if page_size is not None else self.page_size)
         paginator.validate_number(number)
-        if type(self).list is not ModelResource.list:
-            # Existing resource subclasses may implement their own list execution.
-            result = await self.list(
-                queryset=queryset,
-                limit=size,
-                offset=(number - 1) * size if size else 0,
-                include_total=True,
-            )
-            total = result.total or 0
-            page = Page(result.items, number, size or max(1, total), total)
-            if number > page.num_pages:
-                raise NotFound("Invalid page.")
-            return page
         return await paginator.paginate(
-            self._session(), await self._list_query(queryset), number, key=self.pk
+            self._session(), await self._list_query(queryset, collection), number, key=self.pk
         )
 
-    async def _list_query(self, queryset: Any) -> sa.Select[tuple[ModelT]]:
+    async def _list_query(
+        self, queryset: Any = None, collection: CollectionQuery | None = None
+    ) -> sa.Select[tuple[ModelT]]:
         await self.check_permission("list")
         query = self._query(queryset)
-        order = (self.pk.asc(),) if query._order_by_clauses else self.get_ordering()
-        return cast("sa.Select[tuple[ModelT]]", self.load_fields(query.order_by(*order)))
+        if not query._order_by_clauses:
+            query = query.order_by(*self.get_ordering())
+        if collection is not None:
+            query = collection.apply(query, self.model, self.query_fields["search"])
+        return cast("sa.Select[tuple[ModelT]]", self.load_fields(query.order_by(self.pk.asc())))
 
-    async def create(
-        self,
-        data: Mapping[str, Any] | BaseModel,
-        *,
-        validate: bool = True,
-        instance: ModelT | None = None,
-    ) -> ModelT:
-        await self.check_permission("create")
-        values = data.model_dump(by_alias=False) if isinstance(data, BaseModel) else data
-        values = await self._validate(
-            self._session(), self.principal, values, None, validate=validate
+    async def groups(
+        self, collection: CollectionQuery, *, limit: int, offset: int, include_total: bool
+    ) -> ListResult[Sequence[Any]]:
+        query = await self._list_query(collection=collection)
+        stmt = group_query(query, self.pk, self.model, collection.group)
+        session = self._session()
+        rows = (await session.execute(stmt.offset(offset).limit(limit + 1))).all()
+        total = await Paginator.count(session, stmt) if include_total else None
+        return ListResult(
+            [tuple(row) for row in rows[:limit]], offset, limit, len(rows) > limit, total
         )
-        try:
-            if instance is not None and type(self).perform_create is ModelResource.perform_create:
-                return await self._persist(
-                    self._session(), self.principal, values, new_instance=instance
+
+    async def group_counts(
+        self, collection: CollectionQuery, page: Page[ModelT]
+    ) -> dict[tuple[Any, ...], int]:
+        counts: dict[tuple[Any, ...], int] = {}
+        if not collection.group or not page.items:
+            return counts
+        query = await self._list_query(collection=collection)
+        for depth in range(1, len(collection.group) + 1):
+            terms = collection.group[:depth]
+            names = [term["field"] for term in terms]
+            columns = [getattr(self.model, name) for name in names]
+            keys = {tuple(getattr(obj, name) for name in names) for obj in page}
+            stmt = group_query(query, self.pk, self.model, terms).where(
+                sa.or_(
+                    *(
+                        sa.and_(
+                            *(column == value for column, value in zip(columns, key, strict=True))
+                        )
+                        for key in keys
+                    )
                 )
-            return await self.perform_create(values)
+            )
+            for *key, count in await self._session().execute(stmt):
+                counts[tuple(key)] = count
+        return counts
+
+    @asynccontextmanager
+    async def _write(self) -> AsyncIterator[None]:
+        try:
+            async with savepoint_scope(self._session()):
+                yield
         except IntegrityError as exc:
             raise ResourceConflict(
                 "The transaction conflicts with current database state."
             ) from exc
 
-    async def update(
-        self,
-        obj: ModelT,
-        data: Mapping[str, Any] | BaseModel,
-        *,
-        validate: bool = True,
-    ) -> ModelT:
-        """Apply only the supplied fields to the existing record."""
+    async def create(self, data: Mapping[str, Any] | BaseModel) -> ModelT:
+        await self.check_permission("create")
+        values = await self._validate(data)
+        async with self._write():
+            return await self.perform_create(values)
+
+    async def update(self, obj: ModelT, data: Mapping[str, Any] | BaseModel) -> ModelT:
         obj = await self._write_object(obj, "update")
-        values = (
-            data.model_dump(exclude_unset=True, by_alias=False)
-            if isinstance(data, BaseModel)
-            else data
-        )
-        values = await self._validate(
-            self._session(), self.principal, values, obj, validate=validate
-        )
-        try:
+        values = await self._validate(data, obj)
+        async with self._write():
             return await self.perform_update(obj, values)
-        except IntegrityError as exc:
-            raise ResourceConflict(
-                "The transaction conflicts with current database state."
-            ) from exc
 
     async def destroy(self, obj: ModelT) -> None:
-        obj = await self._write_object(obj, "destroy")
-        try:
+        obj = await self._write_object(obj, "delete")
+        async with self._write():
             await self.perform_destroy(obj)
-        except IntegrityError as exc:
-            raise ResourceConflict(
-                "The transaction conflicts with current database state."
-            ) from exc
 
     async def perform_create(self, data: dict[str, Any]) -> ModelT:
-        return await self._persist(self._session(), self.principal, data)
+        return await self._persist(data)
 
     async def perform_update(self, obj: ModelT, data: dict[str, Any]) -> ModelT:
-        return await self._persist(self._session(), self.principal, data, obj)
+        return await self._persist(data, obj)
 
     async def perform_destroy(self, obj: ModelT) -> None:
         await self._session().delete(obj)
@@ -414,12 +414,8 @@ class ModelResource(Generic[ModelT]):
             raise PermissionDenied("This operation is not permitted.")
 
     async def writable_fields(self, action: WriteAction, obj: ModelT | None = None) -> set[str]:
-        return await self._writable(action, obj, self.principal)
-
-    async def _writable(self, action: WriteAction, obj: ModelT | None, actor: Any) -> set[str]:
-        definition = self._create_schema if action == "create" else self._patch_schema
         return set(self.writable).intersection(
-            definition.model_fields, await invoke(self.get_writable_fields, action, obj, actor)
+            await invoke(self.get_writable_fields, action, obj, self.principal)
         )
 
     def get_ordering(self) -> Sequence[Any]:
@@ -429,7 +425,7 @@ class ModelResource(Generic[ModelT]):
                 column = getattr(self.model, term.removeprefix("-"))
                 term = column.desc() if term.startswith("-") else column.asc()
             ordering.append(term)
-        return [*ordering, self.pk.asc()]
+        return ordering
 
     def check_create(self, writable: Sequence[str]) -> None:
         mapper = cast("Mapper[ModelT]", sa.inspect(self.model))
@@ -450,52 +446,49 @@ class ModelResource(Generic[ModelT]):
                 )
 
     async def _validate(
-        self,
-        session: AsyncSession,
-        actor: Any,
-        values: Mapping[str, Any],
-        obj: ModelT | None,
-        *,
-        validate: bool = True,
+        self, data: Mapping[str, Any] | BaseModel, obj: ModelT | None = None
     ) -> dict[str, Any]:
-        action: WriteAction = "create" if obj is None else "update"
-        allowed = await self._writable(action, obj, actor)
+        allowed = await self.writable_fields("create" if obj is None else "update", obj)
+        values = (
+            {name: getattr(data, name) for name in data.model_fields_set}
+            if isinstance(data, BaseModel)
+            else dict(data)
+        )
         denied = values.keys() - allowed
         if denied:
             raise PermissionDenied(f"Fields cannot be written: {', '.join(sorted(denied))}.")
-        if not validate:
-            return dict(values)
-        input_model = self._create_schema if obj is None else self._patch_schema
-        data = dict(values)
-        if obj is not None and (self.schema or self.update_schema or self.create_schema):
-            missing = input_model.model_fields.keys() - values.keys()
-            unloaded = cast("InstanceState[ModelT]", sa.inspect(obj)).unloaded.intersection(missing)
-            if unloaded:
-                await session.refresh(obj, attribute_names=list(unloaded))
-            data.update({name: self.specs[name].serialize(getattr(obj, name)) for name in missing})
+        definition = self.input_schema
+        complete = dict(values)
+        if obj is not None:
+            missing = definition.model_fields.keys() - values.keys()
+            await self.ensure_loaded(obj, tuple(missing))
+            for name in missing:
+                value = self.specs[name].serialize(getattr(obj, name))
+                if (
+                    isinstance(value, datetime)
+                    and value.tzinfo is None
+                    and self.write_schema is None
+                ):
+                    value = value.replace(tzinfo=UTC)
+                complete[name] = value
         try:
-            parsed = input_model.model_validate(data, by_name=True, by_alias=False)
+            parsed = definition.model_validate(complete, by_name=True, by_alias=False)
         except ValidationError as exc:
             errors: dict[str, list[str]] = {}
-            for error in exc.errors(include_input=False, include_url=False):
+            for error in exc.errors(include_input=False, include_url=False, include_context=False):
                 name = ".".join(str(part) for part in error["loc"]) or "__all__"
                 errors.setdefault(name, []).append(error["msg"])
             raise BuilderValidationError(errors) from exc
-        names: Collection[str] = values.keys()
-        if obj is None and (self.schema or self.create_schema):
-            names = input_model.model_fields.keys()
+        names = allowed if obj is None and self.write_schema is not None else values
         return {name: getattr(parsed, name) for name in names}
 
     async def _persist(
         self,
-        session: AsyncSession,
-        actor: Any,
-        values: Mapping[str, Any],
+        values: dict[str, Any],
         obj: ModelT | None = None,
-        *,
-        new_instance: ModelT | None = None,
     ) -> ModelT:
-        values = await invoke(self.prepare_write, values, obj, actor)
+        values = await invoke(self.prepare_write, values, obj, self.principal)
+        session = self._session()
         mapper = cast("Mapper[ModelT]", sa.inspect(self.model))
         with session.no_autoflush:
             normalized = dict(values)
@@ -560,18 +553,18 @@ class ModelResource(Generic[ModelT]):
                     handler, session, self.model, name, normalized[name], obj
                 )
         if obj is None:
+            if (key := normalized.get(self.pk_name)) is not None and (
+                mapper.identity_key_from_primary_key((key,)) in session.identity_map
+            ):
+                raise ResourceConflict("The transaction conflicts with current database state.")
             for name, value in normalized.items():
                 spec = self.specs.get(name)
                 if value is None and spec is not None and not spec.column.type.should_evaluate_none:
                     normalized[name] = sa.null()
-            obj = new_instance if new_instance is not None else self.model()
-            for name, value in normalized.items():
-                setattr(obj, name, value)
-            session.add(obj)
-        else:
-            session.add(obj)
-            for name, value in normalized.items():
-                setattr(obj, name, value)
+            obj = self.model()
+        for name, value in normalized.items():
+            setattr(obj, name, value)
+        session.add(obj)
         await session.flush()
         return obj
 

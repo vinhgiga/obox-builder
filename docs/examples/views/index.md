@@ -1,6 +1,6 @@
 # Views
 
-[Generic display/editing views](list-and-filters.md) with per-request instances and Select querysets.
+[Generic display and editing views](list-and-filters.md).
 
 ## File forms
 
@@ -28,8 +28,10 @@ class ContactImportInput(BaseModel):
 
 class ContactImportForm(forms.Form[ContactImportInput]):
     schema = ContactImportInput
-    widgets: ClassVar[dict[str, Any]] = {
-        "csv_file": forms.FileInput({"accept": ".csv,text/csv"}, max_size=5 * 1024 * 1024)
+    field_options: ClassVar[dict[str, Any]] = {
+        "csv_file": forms.FileField(
+            widget=forms.FileInput({"accept": ".csv,text/csv"}, max_size=5 * 1024 * 1024)
+        )
     }
 
 
@@ -39,8 +41,9 @@ class ContactImportView(FormView):
     success_url = "/contacts/"
 
     async def form_valid(self, form: forms.Form) -> Response:
-        upload = cast(ContactImportForm, form).cleaned_data.csv_file
-        await import_contacts(upload)
+        data = cast(ContactImportForm, form).cleaned_data
+        if data is not None:
+            await import_contacts(data.csv_file)
         return await super().form_valid(form)
 ```
 

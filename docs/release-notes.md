@@ -14,12 +14,25 @@ HTML and native FastAPI REST routes.
 3. Choose a surface using `views=False` or `api=False`. Direct registration
    uses the table name under `/v0` for REST. A `Product` with table `product`
    uses `/v0/product`.
-   PUT uses a generated schema
-   from writable model fields unless an explicit `update_schema` is provided.
+   Declare `write_schema` once for both create and PATCH.
 4. Replace staff checks with operation permissions assigned through roles.
    The current superuser flag supplies administrator access.
 5. Construct FastAPI with `openapi_url=None`. To publish the schema, add a
    route serving `app.openapi()` with a named permission.
+
+### Forms, Grid and REST
+
+- Use `Form[S]` with `field_options` for HTML controls and
+  `ModelResource.create()` or `update()` for writes. Inline formsets and
+  automatic ORM relationship selectors have been removed.
+- Replace `ListView` and secondary collection layouts with `GridView`.
+  Move query fields to the Resource and move bulk operations to application
+  routes with their own permissions.
+- Use `q`, `ordering` and a JSON `filter` for REST lists. The `:groups` route
+  uses `group`. Query field names use Python casing. Use the action names
+  `patch` and `delete` in `ModelApi` declarations.
+- Use `api_context(permission=..., csrf=True)` for custom REST actions
+  requiring a bound request context.
 
 Invalid registered HTML forms return 422 and successful writes redirect with
 303. See [access control](features/access-control.md#csrf-protection) for the

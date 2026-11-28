@@ -18,8 +18,9 @@ from obox.runtime.registration import Registration
 from obox.runtime.runtime import _Runtime
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-from tests.runtime import build_runtime
+from tests.runtime import build_runtime, collection_filter
 from tests.storage import database
+from tests.test_forms_integration import configured
 
 
 class Base(DeclarativeBase):
@@ -60,7 +61,7 @@ async def application(tmp_path: Path) -> AsyncIterator[tuple[_Runtime, httpx.Asy
             ),
             features=[Files(root=tmp_path / "media", models=(Document,))],
         )
-        Registration(Documents, "documents", True, False).mount(app)
+        Registration(Documents, "documents", True, True).mount(app)
         async with (
             app.app.router.lifespan_context(app.app),
             httpx.AsyncClient(
@@ -75,7 +76,7 @@ async def application(tmp_path: Path) -> AsyncIterator[tuple[_Runtime, httpx.Asy
 def test_file_json_contract_across_upload_resume_claim_and_widget(tmp_path: Path) -> None:
 
     async def scenario() -> None:
-        async with application(tmp_path) as (app, client):
+        async with configured(), application(tmp_path) as (app, client):
             files = app.feature("files")
             assert isinstance(files, Files)
             created = await client.post(
@@ -120,27 +121,46 @@ def test_file_json_contract_across_upload_resume_claim_and_widget(tmp_path: Path
             assert renamed.status_code == 200
             assert set(renamed.json()) == FILE_FIELDS
             assert renamed.json()["filename"] == "renamed.png"
+            page = await client.get("/documents/add")
+            assert page.status_code == 200, page.text
+            assert 'name="attachments"' in page.text
+            assert "renamed.png" in page.text
+            other = await client.get("/documents/add", headers={"actor": "2"})
+            assert "renamed.png" not in other.text
+            await client.get("/documents/add")
+            created_record = await client.post(
+                "/documents/add",
+                data={
+                    "name": "Example",
+                    "attachments": upload["id"],
+                    "csrfmiddlewaretoken": client.cookies["csrftoken"],
+                },
+                follow_redirects=False,
+            )
+            assert created_record.status_code == 303, created_record.text
+            client.cookies.clear()
             async with app.uow(
                 principal=Principal(id=1, is_authenticated=True, is_superuser=True)
             ) as ctx:
-                values = await files.resolve(
-                    Document, {"name": "Example", "attachments": [upload["id"]]}, ctx
+                document = await ctx.session.scalar(
+                    sa.select(Document).where(Document.name == "Example")
                 )
-                document = Document(**values)
-                ctx.session.add(document)
-                ctx.session.add(Document(name="Empty"))
-                await ctx.session.flush()
+                assert document is not None
                 record_id = str(document.id)
+                await Documents(ctx.session, ctx.principal).create({"name": "Empty"})
             for expression, name in [
-                ("attachments.is.null", "Empty"),
-                ("attachments.not.is.null", "Example"),
+                ("is_empty", "Empty"),
+                ("is_not_empty", "Example"),
             ]:
-                filtered = await client.get("/v0/documents", params={"filter": expression})
+                filtered = await client.get(
+                    "/v0/documents",
+                    params={"filter": collection_filter(("attachments", expression, None))},
+                )
                 assert filtered.status_code == 200, filtered.text
                 assert [row["name"] for row in filtered.json()["items"]] == [name]
             for params, code in [
-                ({"filter": "attachments.is.empty"}, "unsupported_operator"),
-                ({"order": "attachments"}, "unknown_field"),
+                ({"filter": collection_filter(("attachments", "is", "empty"))}, "invalid_query"),
+                ({"ordering": "attachments"}, "invalid_query"),
             ]:
                 invalid = await client.get("/v0/documents", params=params)
                 assert invalid.status_code == 422

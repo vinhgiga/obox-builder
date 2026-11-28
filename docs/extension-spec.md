@@ -14,7 +14,7 @@ services and persistence models. These capabilities are optional and enabled
 through `INSTALLED_APPS`.
 
 Charts, pivots, custom components and pages remain in contrib. Their public
-configuration is separate from core Form/ModelForm, generic views and REST.
+configuration is separate from core forms, generic views and REST.
 There is no separate public plugin installation interface or
 `obox.contrib.resources` namespace.
 

@@ -13,7 +13,7 @@ import pytest
 import sqlalchemy as sa
 from fastapi import APIRouter, Depends, FastAPI, Request
 from obox import ModelResource
-from obox.api import ApiRequest, ApiResponse, BaseApi, Context, ModelApi, RouterMethod
+from obox.api import ApiRequest, ApiResponse, Context, ModelApi, api_context
 from obox.core.exceptions import ImproperlyConfigured, PermissionDenied
 from obox.core.principal import Principal
 from obox.runtime.config import RuntimeConfig
@@ -21,7 +21,7 @@ from obox.runtime.runtime import _Runtime
 from pydantic import Field, StringConstraints
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
-from tests.runtime import resource_for, sessions_for
+from tests.runtime import collection_filter, resource_for, sessions_for
 from tests.storage import database
 
 POSTS = "/api/posts"
@@ -87,7 +87,7 @@ class PostWrite(ApiRequest):
 
 class PostResource(ModelResource[Post]):
     model = Post
-    create_schema = PostWrite
+    write_schema = PostWrite
 
     def get_queryset(self) -> sa.Select[tuple[Post]]:
         return super().get_queryset().where(Post.owner_id == self.principal.id)
@@ -298,8 +298,8 @@ def test_list_scope_search_sort_and_pagination(tmp_path: Path) -> None:
                 POSTS,
                 headers=EDITOR,
                 params={
-                    "search": "%",
-                    "order": "titleText.desc",
+                    "q": "%",
+                    "ordering": "-title_text",
                     "limit": 1,
                     "includeTotal": "true",
                 },
@@ -313,7 +313,7 @@ def test_list_scope_search_sort_and_pagination(tmp_path: Path) -> None:
                 "total": 2,
             }
             second = await client.get(
-                POSTS + "?search=%25&order=titleText.desc&limit=1&offset=1", headers=EDITOR
+                POSTS + "?q=%25&ordering=-title_text&limit=1&offset=1", headers=EDITOR
             )
             assert not second.json()["hasMore"]
             assert second.json()["total"] is None
@@ -324,8 +324,8 @@ def test_list_scope_search_sort_and_pagination(tmp_path: Path) -> None:
             for query in (
                 "limit=0",
                 "offset=-1",
-                "order=ownerId",
-                "order=title_text.asc",
+                "ordering=owner_id",
+                "ordering=title_text.asc",
                 "limit=1&limit=2",
                 "include_total=true",
                 "unknown=x",
@@ -337,6 +337,11 @@ def test_list_scope_search_sort_and_pagination(tmp_path: Path) -> None:
 
 def test_group_shares_list_permissions_and_scopes(tmp_path: Path) -> None:
     class Resource(PostResource):
+        group_fields = ("summary_text",)
+
+        def get_queryset(self) -> sa.Select[tuple[Post]]:
+            return super().get_queryset().where(Post.id >= 2).order_by(Post.id).limit(2)
+
         async def check_permission(self, action: str, obj: Post | None = None) -> None:
             if action == "list" and self.principal.id == 2:
                 raise PermissionDenied("Listing is unavailable.")
@@ -344,25 +349,18 @@ def test_group_shares_list_permissions_and_scopes(tmp_path: Path) -> None:
 
     class ScopedPosts(Posts):
         resource = Resource
-        group_fields = ("summary_text",)
         permissions = MappingProxyType({"list": "tests.add_record"})
 
-        def get_queryset(self, ctx: Context, *, action: RouterMethod) -> sa.Select[tuple[Post]]:
-            assert action == "list"
-            return sa.select(Post).where(Post.id >= 2).order_by(Post.id).limit(3)
-
-    class JoinedPosts(Posts):
-        prefix = "/joined-posts"
-
-        def get_queryset(self, ctx: Context, *, action: RouterMethod) -> sa.Select[tuple[Post]]:
+    class JoinedResource(PostResource):
+        def get_queryset(self) -> sa.Select[tuple[Post]]:
             repeated = sa.union_all(
                 sa.select(sa.literal(2).label("post_id")), sa.select(sa.literal(2))
             ).subquery()
-            return (
-                super()
-                .get_queryset(ctx, action=action)
-                .join(repeated, repeated.c.post_id == Post.id)
-            )
+            return super().get_queryset().join(repeated, repeated.c.post_id == Post.id)
+
+    class JoinedPosts(Posts):
+        resource = JoinedResource
+        prefix = "/joined-posts"
 
     async def scenario() -> None:
         router = APIRouter()
@@ -386,7 +384,7 @@ def test_group_shares_list_permissions_and_scopes(tmp_path: Path) -> None:
                     ]
                 )
             path = POSTS + ":groups"
-            params = {"by": "summaryText", "includeTotal": "true", "order": "count.asc"}
+            params = {"group": "summary_text", "includeTotal": "true"}
             for headers, status in [({}, 401), (VIEWER, 403), (OTHER, 403)]:
                 assert (await client.get(POSTS, headers=headers)).status_code == status
                 assert (
@@ -400,18 +398,18 @@ def test_group_shares_list_permissions_and_scopes(tmp_path: Path) -> None:
             ]
             assert allowed.json()["total"] == 2
             for url, query in [
-                (path, {"by": "summaryText", "search": "5"}),
-                (path, {"by": "summaryText", "filter": "id.eq.5"}),
-                (POSTS, {"filter": "id.eq.5"}),
+                (path, {"group": "summary_text", "q": "5"}),
+                (path, {"group": "summary_text", "filter": collection_filter(("id", "is", 5))}),
+                (POSTS, {"filter": collection_filter(("id", "is", 5))}),
             ]:
                 response = await client.get(url, headers=EDITOR, params=query)
                 assert response.status_code == 200, response.text
                 assert response.json()["items"] == []
-            excluded = await client.get(path, headers=EDITOR, params={"by": "titleText"})
+            excluded = await client.get(path, headers=EDITOR, params={"group": "title_text"})
             assert excluded.status_code == 422
-            assert excluded.json()["code"] == "unknown_field"
+            assert excluded.json()["code"] == "invalid_query"
             joined = await client.get(
-                "/api/joined-posts:groups", headers=EDITOR, params={"by": "titleText"}
+                "/api/joined-posts:groups", headers=EDITOR, params={"group": "title_text"}
             )
             assert joined.status_code == 200, joined.text
             assert joined.json()["items"] == [{"key": {"titleText": "Post 2"}, "count": 1}]
@@ -481,12 +479,11 @@ def test_custom_route_permissions_and_uuid(tmp_path: Path) -> None:
         title_text: str
 
     class Records(ModelApi[Record]):
-        resource = resource_for(Record)
+        resource = resource_for(Record, write_schema=RecordWrite)
         prefix = "/records"
         actions = ("create", "retrieve")
         permissions = MappingProxyType({"create": "tests.add_post"})
         read_schema = RecordRead
-        create_schema = RecordWrite
 
     def records_router() -> APIRouter:
         router = APIRouter()
@@ -497,7 +494,7 @@ def test_custom_route_permissions_and_uuid(tmp_path: Path) -> None:
 
         @router.get("/records/stats")
         async def stats(
-            ctx: Annotated[Context, Depends(BaseApi.permission_required("tests.view_post"))],
+            ctx: Annotated[Context, Depends(api_context(permission="tests.view_post", csrf=True))],
         ) -> dict[str, bool]:
             return {"allowed": True}
 
@@ -531,7 +528,7 @@ def test_rejects_bad_schema_and_duplicate_routes() -> None:
         resource_for(Post, fields=("owner_id",))()
     with pytest.raises(ImproperlyConfigured):
         resource_for(
-            Post, create_schema=type("BadWrite", (ApiRequest,), {"__annotations__": {"id": int}})
+            Post, write_schema=type("BadWrite", (ApiRequest,), {"__annotations__": {"id": int}})
         )()
 
     app = FastAPI()

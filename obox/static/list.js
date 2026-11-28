@@ -26,20 +26,12 @@
   });
 
   const body = table.tBodies[0];
-  const selectionStatus = document.querySelector("[data-selection-status]");
-  const bulkControls = document.querySelector("[data-bulk-controls]");
-  const bulkAction = document.querySelector("[data-bulk-action]");
-  const bulkSubmit = document.querySelector("[data-bulk-submit]");
-  const selectAll = table.querySelector("[data-select-all]");
-  const clearSelection = document.querySelector("[data-clear-selection]");
-  const rowChecks = [...table.querySelectorAll("[data-row-select]")];
   const { fields, filter } = JSON.parse(document.querySelector("[data-list-config]").textContent);
   const clone = (value) => JSON.parse(JSON.stringify(value));
   const filterSpecs = new Map(fields.map((field) => [field.name, field]));
-  const setQueryParams = (updates, removals = []) => {
+  const setQueryParams = (updates) => {
     const url = new URL(window.location.href);
     url.searchParams.delete("page");
-    for (const name of removals) url.searchParams.delete(name);
     for (const [name, value] of Object.entries(updates)) url.searchParams.set(name, value);
     window.location.assign(url.href);
   };
@@ -81,10 +73,19 @@
   const filterCount = filterMenu?.querySelector("[data-filter-count]");
   const filterApply = filterMenu?.querySelector("[data-filter-apply]");
   const filterReset = filterMenu?.querySelector("[data-filter-reset]");
-  const reservedParams = new Set(["page", "filter", "ordering", "group", "q"]);
-  const exactFilterParams = [...new URL(window.location.href).searchParams.keys()].filter(
-    (name) => !reservedParams.has(name),
-  );
+  const parseFilterArray = (value) => {
+    try {
+      const items = Array.isArray(value) ? value : JSON.parse(value);
+      return Array.isArray(items) &&
+        items.length &&
+        items.length <= 100 &&
+        items.every((item) => ["string", "number", "boolean"].includes(typeof item))
+        ? items
+        : null;
+    } catch {
+      return null;
+    }
+  };
   const cleanFilterGroup = (group) => ({
     conjunction: group?.conjunction === "or" ? "or" : "and",
     children: (Array.isArray(group?.children) ? group.children : []).flatMap((child) => {
@@ -96,6 +97,10 @@
       const spec = filterSpecs.get(child.field);
       const op = child.op || (spec.operators.includes("contains") ? "contains" : spec.operators[0]);
       if (!spec.operators.includes(op)) return [];
+      if (op === "in") {
+        const values = parseFilterArray(child.value);
+        return values ? [{ field: child.field, op, value: values }] : [];
+      }
       if (!["is_empty", "is_not_empty"].includes(op) && !String(child.value ?? "").trim())
         return [];
       return [{ field: child.field, op, value: String(child.value ?? "") }];
@@ -163,12 +168,13 @@
     gte: "is greater than or equal to",
     lt: "is less than",
     lte: "is less than or equal to",
+    in: "is one of",
     is_empty: "is empty",
     is_not_empty: "is not empty",
   };
   const configureFilterValue = (row, spec, op, currentValue) => {
     let value = row.querySelector("[data-filter-value]");
-    const wantsSelect = spec.kind === "choice" || spec.kind === "boolean";
+    const wantsSelect = op !== "in" && (spec.kind === "choice" || spec.kind === "boolean");
     if (wantsSelect !== (value.tagName === "SELECT")) {
       const replacement = document.createElement(wantsSelect ? "select" : "input");
       replacement.className = "form-control form-control-sm";
@@ -199,7 +205,11 @@
       if (spec.kind === "number") value.step = "any";
       value.placeholder = spec.kind === "datetime" ? "YYYY-MM-DDTHH:MM" : "Enter a value";
     }
-    value.value = currentValue ?? "";
+    if (op === "in") {
+      value.type = "text";
+      value.placeholder = 'JSON array, e.g. ["A","B"]';
+    }
+    value.value = Array.isArray(currentValue) ? JSON.stringify(currentValue) : (currentValue ?? "");
     const noValue = ["is_empty", "is_not_empty"].includes(op);
     value.hidden = noValue;
     value.disabled = noValue;
@@ -351,13 +361,10 @@
   });
   filterApply?.addEventListener("click", () => {
     const nextFilter = cleanFilterGroup(draftFilter);
-    setQueryParams({ filter: JSON.stringify(nextFilter) }, exactFilterParams);
+    setQueryParams({ filter: JSON.stringify(nextFilter) });
   });
   filterReset?.addEventListener("click", () => {
-    setQueryParams(
-      { filter: JSON.stringify({ conjunction: "and", children: [] }) },
-      exactFilterParams,
-    );
+    setQueryParams({ filter: "" });
   });
   filterMenu?.addEventListener("toggle", () => {
     if (!filterMenu.open) return;
@@ -373,47 +380,6 @@
       });
     }
     renderFilter();
-  });
-
-  const updateSelection = () => {
-    const selected = rowChecks.filter((input) => input.checked);
-    const selectable = rowChecks.filter((input) => !input.disabled);
-    if (selectionStatus) {
-      const total = Number(selectionStatus.dataset.totalCount);
-      selectionStatus.textContent = selected.length
-        ? `${selected.length} selected`
-        : `${total} ${total === 1 ? "record" : "records"}`;
-    }
-    if (clearSelection) clearSelection.hidden = selected.length === 0;
-    if (bulkControls) bulkControls.hidden = selected.length === 0;
-    if (selectAll) {
-      selectAll.checked = selectable.length > 0 && selected.length === selectable.length;
-      selectAll.indeterminate = selected.length > 0 && !selectAll.checked;
-    }
-    if (bulkSubmit) bulkSubmit.disabled = selected.length === 0 || !bulkAction?.value;
-    rowChecks.forEach((input) => {
-      input.closest("tr")?.setAttribute("data-selected", String(input.checked));
-    });
-    if (!selected.length && bulkAction) bulkAction.value = "";
-  };
-  selectAll?.addEventListener("change", () => {
-    rowChecks.forEach((input) => {
-      if (!input.disabled) input.checked = selectAll.checked;
-    });
-    updateSelection();
-  });
-  rowChecks.forEach((input) => {
-    input.addEventListener("change", updateSelection);
-  });
-  bulkAction?.addEventListener("change", updateSelection);
-  clearSelection?.addEventListener("click", () => {
-    rowChecks.forEach((input) => {
-      input.checked = false;
-    });
-    updateSelection();
-  });
-  document.querySelector("[data-bulk-form]")?.addEventListener("submit", (event) => {
-    if (!rowChecks.some((input) => input.checked) || !bulkAction?.value) event.preventDefault();
   });
 
   const headings = [...body.querySelectorAll("[data-group-toggle]")];
@@ -452,5 +418,4 @@
     });
   }
   renderFilter();
-  updateSelection();
 })();

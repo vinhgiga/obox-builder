@@ -1,41 +1,39 @@
-# List views and filters
+# Customize a Grid
 
-Use a `ListView` subclass for aligned rows and a `ModelResource` for record
-visibility. Add the list beside the default Grid through a `ModelViewSet`.
+Set the Resource's search and sort fields and use a `GridView` subclass for
+presentation. A view filter is a display default that the user can clear.
 
 ```python
 from obox import ModelResource
-from obox.apps import AppConfig
-from obox.views.generic import ListView, ModelViewSet, ViewConfig
-from sqlalchemy import Select
+from obox.db.filters import FilterGroup, FilterTerm
+from obox.views.generic import GridView, ModelViewSet, ViewConfig
 
 from .models import Product
 
 
-class LiveProducts(ModelResource[Product]):
+class Products(ModelResource[Product]):
     model = Product
-
-    def get_queryset(self) -> Select[tuple[Product]]:
-        return super().get_queryset().where(Product.is_live.is_(True))
-
-
-class ProductList(ListView[Product]):
-    fields = ("name", "price")
     search_fields = ("name",)
+    ordering_fields = ("name", "price")
+
+
+class ProductGrid(GridView[Product]):
+    fields = ("name", "price")
     page_size = 25
-    view = ViewConfig(sort=("name",))
+    view = ViewConfig(
+        filter=FilterGroup(children=(FilterTerm("status", "is", "live"),)),
+        sort=("-price",),
+    )
 
 
 class ProductPages(ModelViewSet[Product]):
-    resource = LiveProducts
-    collection_views = (ProductList,)
+    resource = Products
+    list_view = ProductGrid
 
 
-class CatalogConfig(AppConfig):
-    views = [ProductPages]
+obox.register(Products, views=ProductPages)
 ```
 
-The secondary route ends in `/views/list`. Try `?q=lamp`,
-`?status__exact=live`, or `?ordering=-price&page=2`. The browser keeps column
-visibility and order for each view. The shared resource limits record access on
-every route.
+Use `?filter=&ordering=name` to clear the default filter and sort by name.
+Keep record visibility in `Products.get_queryset()` so the scope applies to
+all Grid and REST operations.

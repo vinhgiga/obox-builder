@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import json
-from collections.abc import Sequence
-from datetime import date, datetime, time
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from datetime import UTC, date, datetime, time
 from decimal import Decimal
 from math import isfinite
 from typing import Any, TypedDict
@@ -12,7 +12,7 @@ from typing import Any, TypedDict
 import sqlalchemy as sa
 
 from obox.core.exceptions import BuilderValidationError, InvalidQuery
-from obox.db.fields import model_value, validate_text
+from obox.db.fields import ModelField, model_value, normalize, validate_text
 from obox.db.filters import FilterGroup, FilterTerm, compile_filter, parse_filter
 
 
@@ -30,26 +30,15 @@ def scope_query(query: Any, model: type[Any]) -> Any:
     )
 
 
-def group_query(query: Any, key: Any, columns: Sequence[Any], *, order: str) -> Any:
-    """Count model records in each group of the scoped selection."""
+def group_query(query: Any, key: Any, model: type[Any], terms: Sequence[OrderTerm]) -> Any:
     identities = query.order_by(None).with_only_columns(key, maintain_column_froms=True)
-    count = sa.func.count()
-    sort, _, direction = order.partition(".")
-    keys = [
-        (column.desc() if sort == "key" and direction == "desc" else column.asc()).nulls_last()
-        for column in columns
-    ]
-    if sort == "count":
-        keys.insert(0, count.desc() if direction == "desc" else count.asc())
-    return sa.select(*columns, count).where(key.in_(identities)).group_by(*columns).order_by(*keys)
-
-
-def model_column(model: type[Any], name: str) -> Any | None:
-    """Return a mapped scalar column for a directly addressable model field."""
-    attribute = getattr(model, name, None)
-    property_ = getattr(attribute, "property", None)
-    columns = getattr(property_, "columns", None)
-    return columns[0] if columns else None
+    columns = [getattr(model, term["field"]) for term in terms]
+    return (
+        sa.select(*columns, sa.func.count())
+        .where(key.in_(identities))
+        .group_by(*columns)
+        .order_by(*order_columns(model, terms))
+    )
 
 
 def field_kind(column: Any) -> str:
@@ -66,52 +55,48 @@ def field_kind(column: Any) -> str:
         return "date"
     if isinstance(type_, sa.Time):
         return "time"
+    if isinstance(type_, sa.Uuid):
+        return "uuid"
     return "text"
 
 
 def filter_operators(kind: str) -> list[str]:
     if kind == "text":
-        return ["contains", "does_not_contain", "is", "is_not", "is_empty", "is_not_empty"]
+        return ["contains", "does_not_contain", "is", "is_not", "in", "is_empty", "is_not_empty"]
     if kind in {"number", "date", "datetime", "time"}:
-        return ["is", "is_not", "gt", "gte", "lt", "lte", "is_empty", "is_not_empty"]
-    return ["is", "is_not", "is_empty", "is_not_empty"]
+        return ["is", "is_not", "gt", "gte", "lt", "lte", "in", "is_empty", "is_not_empty"]
+    return ["is", "is_not", "in", "is_empty", "is_not_empty"]
 
 
-def filter_expression(
-    model: type[Any],
-    data: Any,
-    allowed: set[str],
-) -> tuple[dict[str, Any], Any | None, int]:
-    try:
-        return compile_view_filter(model, parse_filter(json.dumps(data)), allowed)
-    except (TypeError, ValueError, RecursionError, BuilderValidationError) as exc:
-        raise InvalidQuery("Invalid filter query.") from exc
-
-
-def compile_view_filter(
-    model: type[Any], tree: FilterGroup | None, allowed: set[str]
-) -> tuple[dict[str, Any], Any | None, int]:
+def _collection_filter(
+    model: type[Any], tree: FilterGroup | None, fields: Mapping[str, ModelField]
+) -> tuple[dict[str, Any], Any | None]:
     if tree is None:
-        return {"conjunction": "and", "children": []}, None, 0
+        return FilterGroup().to_dict(), None
 
     def compile_term(term: FilterTerm) -> Any | None:
         name, op, raw = term.field, term.op, term.value
-        if name not in allowed:
+        if (spec := fields.get(name)) is None:
             raise InvalidQuery("Invalid filter field.")
-        column = model_column(model, name)
-        if column is None:
-            raise InvalidQuery("Invalid filter field.")
+        column = spec.column
+        if "obox_files" in column.info:
+            empty = ~getattr(model, name).any()
+            if op not in {"is_empty", "is_not_empty"}:
+                raise InvalidQuery("Invalid filter operator.")
+            return empty if op == "is_empty" else ~empty
+        column = getattr(model, name)
         kind = field_kind(column)
         if op not in filter_operators(kind):
             raise InvalidQuery("Invalid filter operator.")
-        if op not in {"is_empty", "is_not_empty"} and (raw is None or str(raw).strip() == ""):
-            return None
         if op in {"is_empty", "is_not_empty"}:
             empty = column.is_(None)
             if isinstance(column.type, sa.String) and not isinstance(column.type, sa.Enum):
                 empty = sa.or_(empty, column == "")
             return empty if op == "is_empty" else sa.not_(empty)
-        try:
+        if op != "in" and (raw is None or (isinstance(raw, str) and not raw.strip())):
+            return None
+
+        def parse_value(raw: Any) -> Any:
             if not isinstance(raw, str | int | float | bool):
                 raise ValueError
             if kind == "boolean":
@@ -122,8 +107,12 @@ def compile_view_filter(
                 value = date.fromisoformat(str(raw))
             elif kind == "datetime":
                 value = datetime.fromisoformat(str(raw))
+                if column.type.timezone and value.tzinfo is None:
+                    value = value.replace(tzinfo=UTC)
             elif kind == "time":
                 value = time.fromisoformat(str(raw))
+                if column.type.timezone and value.tzinfo is None:
+                    value = value.replace(tzinfo=UTC)
             elif isinstance(column.type, sa.Enum):
                 enum = column.type.enum_class
                 if raw in column.type.enums:
@@ -141,7 +130,14 @@ def compile_view_filter(
                 or (isinstance(value, int) and not -(2**63) <= value < 2**63)
             ):
                 raise ValueError
-            value = model_value(column, value)
+            return model_value(column, value)
+
+        try:
+            if op == "in":
+                if not isinstance(raw, list) or not 1 <= len(raw) <= 100:
+                    raise ValueError
+                return column.in_([parse_value(item) for item in raw])
+            value = parse_value(raw)
         except (ArithmeticError, AttributeError, NotImplementedError, TypeError, ValueError) as exc:
             raise InvalidQuery("Invalid filter value.") from exc
         if op == "contains":
@@ -161,25 +157,8 @@ def compile_view_filter(
             "lte": column <= value,
         }[op]
 
-    clean, expression, count = compile_filter(tree, compile_term)
-
-    def as_dict(node: FilterGroup | FilterTerm) -> dict[str, Any]:
-        if isinstance(node, FilterTerm):
-            return {
-                "field": node.field,
-                "op": node.op,
-                "value": "" if node.value is None else str(node.value),
-            }
-        return {
-            "conjunction": node.conjunction,
-            "children": [as_dict(child) for child in node.children],
-        }
-
-    return (
-        as_dict(clean) if clean is not None else {"conjunction": tree.conjunction, "children": []},
-        expression,
-        count,
-    )
+    clean, expression, _ = compile_filter(tree, compile_term)
+    return (clean if isinstance(clean, FilterGroup) else FilterGroup()).to_dict(), expression
 
 
 class OrderTerm(TypedDict):
@@ -187,12 +166,110 @@ class OrderTerm(TypedDict):
     descending: bool
 
 
+def collection_fields(
+    model: type[Any],
+    readable: Mapping[str, ModelField],
+    configured: Sequence[str] | None,
+    operation: str,
+) -> tuple[str, ...]:
+    available = {}
+    for name, spec in readable.items():
+        column_type = spec.column.type
+        if "obox_files" in spec.column.info:
+            supported = operation == "filter"
+        elif isinstance(column_type, sa.JSON):
+            supported = False
+        elif operation == "search":
+            supported = isinstance(column_type, sa.String) and not isinstance(column_type, sa.Enum)
+        elif operation == "group":
+            supported = isinstance(
+                column_type, sa.Boolean | sa.Integer | sa.Numeric | sa.String | sa.Date
+            )
+        else:
+            supported = operation == "filter" or not isinstance(column_type, sa.Text)
+        if supported:
+            available[name] = spec
+    return tuple(available) if configured is None else normalize(configured, model, available)
+
+
+@dataclass(frozen=True)
+class CollectionQuery:
+    filter: dict[str, Any]
+    predicate: Any
+    sort: list[OrderTerm]
+    group: list[OrderTerm]
+    search: str
+    override_sort: bool
+
+    @classmethod
+    def parse(
+        cls,
+        model: type[Any],
+        params: Mapping[str, str],
+        *,
+        allowed: Mapping[str, tuple[str, ...]],
+        specs: Mapping[str, ModelField],
+        default_filter: FilterGroup | None = None,
+        default_sort: Sequence[str] = (),
+        default_group: Sequence[str] = (),
+    ) -> CollectionQuery:
+        try:
+            tree = parse_filter(params["filter"]) if "filter" in params else default_filter
+            clean, predicate = _collection_filter(
+                model, tree, {name: specs[name] for name in allowed["filter"]}
+            )
+            search = validate_text(params.get("q", ""))
+        except (BuilderValidationError, TypeError, ValueError) as exc:
+            raise InvalidQuery("Invalid collection query.") from exc
+        if len(search) > 256 or (
+            search and (not allowed["search"] or len(search.split(maxsplit=10)) > 10)
+        ):
+            raise InvalidQuery("Invalid search query.")
+        return cls(
+            clean,
+            predicate,
+            parse_order(
+                params.get("ordering", ",".join(default_sort)), set(allowed["ordering"]), maximum=5
+            ),
+            parse_order(
+                params.get("group", ",".join(default_group)), set(allowed["group"]), maximum=3
+            ),
+            search.strip(),
+            "ordering" in params or bool(default_sort),
+        )
+
+    def apply(self, stmt: Any, model: type[Any], search_fields: Sequence[str]) -> Any:
+        if self.predicate is not None:
+            stmt = stmt.where(self.predicate)
+        if self.search:
+            stmt = search_query(stmt, model, search_fields, self.search)
+        if self.override_sort or self.group:
+            terms = {term["field"]: term for term in self.sort}
+            groups = {term["field"]: term for term in self.group}
+            ordering = order_columns(
+                model,
+                [*groups.values(), *(term for name, term in terms.items() if name not in groups)],
+            )
+            if not self.override_sort:
+                ordering.extend(stmt._order_by_clauses)
+            stmt = stmt.order_by(None).order_by(*ordering)
+        return stmt
+
+
+def order_columns(model: type[Any], terms: Sequence[OrderTerm]) -> list[Any]:
+    return [
+        (column.desc() if term["descending"] else column.asc()).nulls_last()
+        for term in terms
+        for column in (getattr(model, term["field"]),)
+    ]
+
+
 def parse_order(value: str, allowed: set[str], *, maximum: int) -> list[OrderTerm]:
+    if len(value) > 1024:
+        raise InvalidQuery("Invalid field ordering.")
     result: list[OrderTerm] = []
     seen: set[str] = set()
-    for raw in value.split(","):
-        if not raw:
-            continue
+    for raw in value.split(",") if value else ():
         name = raw[1:] if raw.startswith("-") else raw
         if name not in allowed or name in seen or len(result) >= maximum:
             raise InvalidQuery("Invalid field ordering.")

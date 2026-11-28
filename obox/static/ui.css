@@ -4,10 +4,6 @@
  * project-specific layout and components built on top of it.
  */
 
-[data-inline-row][data-deleted="true"] {
-  opacity: 0.5;
-}
-
 .login-page {
   display: flex;
   align-items: flex-start;
@@ -641,17 +637,6 @@
   background: var(--tblr-bg-surface);
   border-bottom: 1px solid var(--tblr-border-color);
 }
-.grid-view-label {
-  display: flex;
-  flex-shrink: 0;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.875rem;
-  white-space: nowrap;
-}
-.grid-view-label strong {
-  font-weight: 500;
-}
 .field-type-icon {
   display: inline-grid;
   width: 1rem;
@@ -1140,11 +1125,6 @@ button.filter-add:disabled {
   line-height: 1.25rem;
   white-space: nowrap;
 }
-.record-grid .cell-value.cell-files {
-  display: block;
-  -webkit-line-clamp: unset;
-  white-space: normal;
-}
 .collection-body {
   display: flex;
   flex: 1;
@@ -1154,33 +1134,9 @@ button.filter-add:disabled {
   flex: 1;
   min-width: 0;
 }
-.collection-views {
-  flex: 0 0 11rem;
-  padding: 0.75rem;
-  border-inline-end: 1px solid var(--tblr-border-color);
-}
-.collection-view-link {
-  display: block;
-  padding: 0.4rem 0.65rem;
-  white-space: nowrap;
-}
-.collection-view-link[aria-current="page"] {
-  background: var(--tblr-bg-surface-secondary);
-  border-radius: var(--tblr-border-radius);
-  font-weight: 600;
-}
 .collection-open {
   margin-inline-start: 0.5rem;
   font-size: 0.8rem;
-}
-:is(.table.record-grid.record-list) :is(th, td) {
-  border-inline: 0;
-  border-bottom-color: transparent;
-  background: transparent;
-}
-:is(.table.record-grid.record-list) th {
-  color: var(--tblr-secondary-color);
-  font-weight: 500;
 }
 .record-grid [data-group-depth="2"] .group-toggle {
   padding-inline-start: 1.5rem;
@@ -1188,17 +1144,7 @@ button.filter-add:disabled {
 .record-grid [data-group-depth="3"] .group-toggle {
   padding-inline-start: 2.5rem;
 }
-@media (max-width: 900px) {
-  .collection-views {
-    display: none;
-  }
-}
-.record-grid tr[data-selected="true"] .row-index,
-.record-grid tbody tr[data-selectable]:hover .row-index {
-  visibility: hidden;
-}
-.record-grid tbody tr:hover,
-.record-grid tbody tr[data-selected="true"] {
+.record-grid tbody tr:hover {
   background: var(--tblr-primary-lt);
 }
 .record-grid .row-number {
@@ -1214,34 +1160,6 @@ button.filter-add:disabled {
   width: 3rem;
   min-width: 3rem;
   max-width: 3rem;
-}
-.grid-select {
-  width: 1rem;
-  height: 1rem;
-  margin: 0;
-  cursor: pointer;
-  accent-color: var(--tblr-primary);
-}
-.grid-scroll [data-bulk-form] {
-  margin: 0;
-}
-.row-select {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  opacity: 0;
-  transform: translate(-50%, -50%);
-}
-.record-grid tbody tr[data-selectable]:hover .row-select,
-.row-select:checked,
-.row-select:focus-visible {
-  opacity: 1;
-}
-.row-select:disabled {
-  visibility: hidden;
-}
-.grid-select:disabled {
-  cursor: not-allowed;
 }
 .grid-add {
   position: absolute;
@@ -1289,38 +1207,6 @@ button.filter-add:disabled {
   background: var(--tblr-bg-surface);
   border-top: 1px solid var(--tblr-border-color);
 }
-.grid-footer-actions,
-.grid-bulk-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-.grid-bulk-actions select {
-  margin: 0;
-}
-.grid-bulk-actions button {
-  padding: 0.25rem 0.5rem;
-  margin: 0;
-  font-size: 0.875rem;
-}
-.grid-selection-link {
-  padding: 0;
-  margin: 0;
-  font-size: 0.75rem;
-  color: var(--tblr-primary);
-  background: transparent;
-  border: 0;
-}
-.grid-selection-link:hover {
-  text-decoration: underline;
-}
-.grid-selection-link[hidden] {
-  display: none;
-}
-.grid-bulk-actions[hidden] {
-  display: none;
-}
-
 /* Tabler has no pre-wrap utility; keep multiline comments readable. */
 .text-pre-wrap {
   white-space: pre-wrap;

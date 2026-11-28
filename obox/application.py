@@ -13,6 +13,7 @@ from obox.conf import settings
 
 if TYPE_CHECKING:
     from obox.api import ModelApi
+    from obox.views.generic import ModelViewSet
 
 
 class Obox:
@@ -66,7 +67,7 @@ class Obox:
         *,
         slug: str | None = None,
         api: bool | type[ModelApi[Any]] = True,
-        views: bool = True,
+        views: bool | type[ModelViewSet[Any]] = True,
     ) -> None:
         from obox.runtime.registration import Registration
 

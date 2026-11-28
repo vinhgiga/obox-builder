@@ -1,10 +1,10 @@
 import asyncio
 import re
-from typing import Any, cast
+from typing import Any, ClassVar, cast
 
 import httpx
 import sqlalchemy as sa
-from fastapi import APIRouter, Depends, FastAPI, Request
+from fastapi import APIRouter, Depends, FastAPI, Request, UploadFile
 from fastapi.responses import HTMLResponse
 from obox import Obox, forms, permission_required
 from obox.core.principal import Principal
@@ -13,7 +13,7 @@ from obox.views.generic import (
     CreateView,
     DeleteView,
     FormView,
-    ListView,
+    GridView,
     UpdateView,
     View,
 )
@@ -28,6 +28,7 @@ def test_typed_form_view_renders_errors_and_reads_validated_attributes() -> None
     class ContactInput(BaseModel):
         name: str
         rate: int = Field(ge=1, le=5)
+        document: UploadFile | None = None
 
         @field_validator("name")
         @classmethod
@@ -36,6 +37,9 @@ def test_typed_form_view_renders_errors_and_reads_validated_attributes() -> None
 
     class Contact(forms.Form[ContactInput]):
         schema = ContactInput
+        field_options: ClassVar[dict[str, forms.Field]] = {
+            "document": forms.FileField(required=False, widget=forms.FileInput(max_size=10))
+        }
 
     class ContactView(FormView):
         form_class = Contact
@@ -44,7 +48,10 @@ def test_typed_form_view_renders_errors_and_reads_validated_attributes() -> None
         async def form_valid(self, form: forms.Form) -> HTMLResponse:
             contact = cast(Contact, form)
             assert contact.cleaned_data is not None
-            return HTMLResponse(f"{contact.cleaned_data.name}:{contact.cleaned_data.rate}")
+            result = f"{contact.cleaned_data.name}:{contact.cleaned_data.rate}"
+            if upload := contact.cleaned_data.document:
+                result += f":{(await upload.read()).decode()}"
+            return HTMLResponse(result)
 
     async def scenario() -> None:
         async with configured():
@@ -65,6 +72,7 @@ def test_typed_form_view_renders_errors_and_reads_validated_attributes() -> None
             ):
                 page = await client.get("/contact/")
                 assert page.status_code == 200
+                assert 'enctype="multipart/form-data"' in page.text
                 token = re.search(r'name="csrfmiddlewaretoken" value="([^"]+)"', page.text)
                 assert token is not None
                 invalid = await client.post(
@@ -77,9 +85,10 @@ def test_typed_form_view_renders_errors_and_reads_validated_attributes() -> None
                 valid = await client.post(
                     "/contact/",
                     data={"csrfmiddlewaretoken": token[1], "name": "Alice", "rate": "4"},
+                    files={"document": ("rates.txt", b"example", "text/plain")},
                 )
                 assert valid.status_code == 200
-                assert valid.text == "ALICE:4"
+                assert valid.text == "ALICE:4:example"
 
     asyncio.run(scenario())
 
@@ -104,7 +113,7 @@ def test_generic_views_create_update_delete_and_queryset_contract() -> None:
         template_name = "obox/generic/confirm_delete.html"
         success_url = "/items/"
 
-    class List(ListView):
+    class List(GridView):
         resource = resource_for(Item, fields=("id", "name", "price", "quantity"))
         fields = ("name",)
 
@@ -123,7 +132,6 @@ def test_generic_views_create_update_delete_and_queryset_contract() -> None:
                 ("/items/{pk:int}/delete/", Delete, ["GET", "POST"]),
             ):
                 app.add_api_route(route, view.as_view(), methods=methods, dependencies=guard)
-            assert isinstance(List().get_queryset(), sa.Select)
             async with (
                 app.router.lifespan_context(app),
                 httpx.AsyncClient(
@@ -276,7 +284,8 @@ def test_jinja_backend_options_errors_and_standalone_template_view(tmp_path: Any
 def test_native_uuid_lookup_works_in_generic_views() -> None:
     from uuid import UUID, uuid4
 
-    from obox.forms import modelform_factory
+    from obox.core.principal import ANONYMOUS
+    from obox.db.session import session_scope
     from obox.views.generic import DetailView
     from sqlalchemy.orm import Mapped, mapped_column
 
@@ -295,9 +304,8 @@ def test_native_uuid_lookup_works_in_generic_views() -> None:
 
     async def scenario() -> None:
         async with configured():
-            form = modelform_factory(resource_for(Record, fields=("name",)))({"name": "first"})
-            assert await form.is_valid()
-            record = await form.save()
+            async with session_scope() as session:
+                record = await resource_for(Record)(session, ANONYMOUS).create({"name": "first"})
             app = FastAPI(openapi_url=None)
             _Runtime(app, enforce_permissions=False)
             app.add_api_route("/records/{pk:uuid}/", Detail.as_view(), methods=["GET"])

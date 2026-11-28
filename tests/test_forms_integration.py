@@ -10,6 +10,8 @@ import pytest
 import sqlalchemy as sa
 from obox import forms
 from obox.conf import settings
+from obox.core.exceptions import ResourceConflict
+from obox.core.principal import ANONYMOUS
 from obox.db.engine import close_engines, default_session_factory
 from obox.db.session import session_scope
 from obox.db.transaction import atomic
@@ -18,7 +20,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-from tests.runtime import relation_controls, resource_for
+from tests.runtime import resource_for
 
 
 class Base(DeclarativeBase):
@@ -44,12 +46,12 @@ class ItemInput(BaseModel):
         return value.strip().lower()
 
 
-class ItemForm(forms.ModelForm[ItemInput]):
-    # Schema belongs to the resource.
+ItemResource = resource_for(Item, write_schema=ItemInput)
 
-    resource = resource_for(Item, fields=("name", "price", "quantity"), create_schema=ItemInput)
-    field_options = relation_controls(Item, ("name", "price", "quantity"))
-    labels: ClassVar[dict[str, str]] = {"name": "Title"}
+
+class ItemForm(forms.Form[ItemInput]):
+    schema = ItemInput
+    field_options: ClassVar[dict[str, Any]] = {"name": forms.Field(label="Title")}
 
 
 @asynccontextmanager
@@ -127,11 +129,12 @@ def test_form_bound_validation_order_errors_and_per_instance_fields() -> None:
         assert missing.errors == {"name": ["Field required"]}
         valid = Contact({"name": " ok ", "unknown": "ignored"})
         assert await valid.is_valid()
-        assert valid.validated_data == {"name": "OK", "age": None}
+        assert valid.cleaned_data is not None
+        assert valid.cleaned_data.model_dump() == {"name": "OK", "age": None}
         rejected = Contact({"name": "bad", "age": "1"})
         assert not await rejected.is_valid()
         assert "Rejected" in rejected.errors["name"][0]
-        assert rejected.validated_data == {}
+        assert rejected.cleaned_data is None
         first, second = Contact(), Contact()
         first.fields["name"].required = False
         assert second.fields["name"].required
@@ -140,27 +143,22 @@ def test_form_bound_validation_order_errors_and_per_instance_fields() -> None:
     asyncio.run(scenario())
 
 
-def test_model_form_validates_without_saving_and_supports_commit_false() -> None:
+def test_form_validation_and_resource_write() -> None:
     async def scenario() -> None:
-        async with configured():
+        async with configured(), session_scope() as session:
+            resource = ItemResource(session, ANONYMOUS)
             form = ItemForm({"name": " ALPHA ", "price": "2.50"})
             assert await form.is_valid()
-            assert form.validated_data["name"] == "alpha"
+            assert form.cleaned_data is not None
+            assert form.cleaned_data.name == "alpha"
             assert form.fields["name"].label == "Title"
-            async with session_scope() as session:
-                assert await session.scalar(sa.select(sa.func.count()).select_from(Item)) == 0
-            record = await form.save()
+            assert await session.scalar(sa.select(sa.func.count()).select_from(Item)) == 0
+            record = await resource.create(await form.input_data())
             assert record.price == Decimal("2.50")
             assert record.id == 1
-            duplicate = ItemForm({"name": "alpha", "price": "1.00"})
-            assert not await duplicate.is_valid()
-            assert "already exists" in duplicate.errors["name"][0]
-            with pytest.raises(ValueError, match="cannot be saved"):
-                await duplicate.save()
-            edited = ItemForm({"name": "alpha", "price": "3.00"}, instance=record)
-            assert await edited.is_valid()
-            assert record.price == Decimal("2.50")
-            await edited.save()
+            with pytest.raises(ResourceConflict):
+                await resource.create({"name": "alpha", "price": "1.00"})
+            await resource.update(record, {"price": "3.00"})
             assert record.price == Decimal("3.00")
 
     asyncio.run(scenario())
@@ -170,10 +168,9 @@ def test_atomic_rolls_back_form_writes() -> None:
     async def scenario() -> None:
         async with configured():
             with pytest.raises(RuntimeError, match="rollback"):  # noqa: PT012 - transaction rollback
-                async with atomic():
+                async with atomic(), session_scope() as session:
                     form = ItemForm({"name": "new", "price": "1.00"})
-                    assert await form.is_valid()
-                    await form.save()
+                    await ItemResource(session, ANONYMOUS).create(await form.input_data())
                     raise RuntimeError("rollback")
             async with session_scope() as session:
                 assert await session.scalar(sa.select(sa.func.count()).select_from(Item)) == 0
@@ -188,24 +185,14 @@ class ManualKey(Base):
 
 
 def test_manual_primary_key_uniqueness_and_validation_preserves_instance() -> None:
-    class KeyForm(forms.ModelForm):
-        resource = resource_for(ManualKey, fields=("code", "label"))
-        field_options = relation_controls(ManualKey, ("code", "label"))
-
     async def scenario() -> None:
-        async with configured():
-            form = KeyForm({"code": "key", "label": "Original"})
-            assert await form.is_valid()
-            obj = await form.save()
-            duplicate = KeyForm({"code": "key", "label": "Other"})
-            assert not await duplicate.is_valid()
-            edited = KeyForm({"code": "key", "label": "Changed"}, instance=obj)
-            async with atomic():
-                assert await edited.is_valid()
-                assert obj.label == "Original"
-                async with session_scope() as session:
-                    assert await session.scalar(sa.select(ManualKey.label)) == "Original"
-                await edited.save()
+        async with configured(), session_scope() as session:
+            resource = resource_for(ManualKey)(session, ANONYMOUS)
+            obj = await resource.create({"code": "key", "label": "Original"})
+            with pytest.raises(ResourceConflict):
+                await resource.create({"code": "key", "label": "Other"})
+            assert await session.scalar(sa.select(ManualKey.label)) == "Original"
+            assert await resource.update(obj, {"label": "Changed"}) is obj
             assert obj.label == "Changed"
 
     asyncio.run(scenario())
@@ -227,18 +214,17 @@ def test_prefix_disabled_fields_error_codes_and_widgets_escape_values() -> None:
 
     class Profile(forms.Form[ProfileInput]):
         schema = ProfileInput
-        widgets: ClassVar[dict[str, Any]] = {
-            "name": forms.Textarea,
-            "password": forms.PasswordInput,
-        }
         field_options: ClassVar[dict[str, Any]] = {
-            "accepted": forms.BooleanField(disabled=True, initial=True, required=False)
+            "name": forms.Field(widget=forms.Textarea),
+            "password": forms.Field(widget=forms.PasswordInput),
+            "accepted": forms.BooleanField(disabled=True, initial=True, required=False),
         }
 
     async def scenario() -> None:
         form = Profile({"p-name": "<script>", "p-password": "secret"}, prefix="p")
         assert await form.is_valid()
-        assert form.validated_data["accepted"] is True
+        assert form.cleaned_data is not None
+        assert form.cleaned_data.accepted is True
         assert validated == [True]
 
         class PayloadInput(BaseModel):
@@ -257,7 +243,7 @@ def test_prefix_disabled_fields_error_codes_and_widgets_escape_values() -> None:
         form.add_error("name", forms.ValidationError("Reserved", code="reserved"))
         assert form.has_error("name", "reserved")
         assert not form.has_error("name", "missing")
-        assert "name" not in form.validated_data
+        assert form.cleaned_data is None
 
     asyncio.run(scenario())
 
@@ -295,15 +281,11 @@ def test_enum_model_values_are_normalized_for_persistence_and_unique_validation(
         id: Mapped[int] = mapped_column(primary_key=True)
         state: Mapped[State] = mapped_column(sa.Enum(State), unique=True)
 
-    class ChoiceForm(forms.ModelForm):
-        resource = resource_for(Choice, fields=("state",))
-        field_options = relation_controls(Choice, ("state",))
-
     async def scenario() -> None:
-        async with configured():
-            form = ChoiceForm({"state": "open"})
-            assert await form.is_valid()
-            assert (await form.save()).state is State.OPEN
-            assert not await ChoiceForm({"state": "open"}).is_valid()
+        async with configured(), session_scope() as session:
+            resource = resource_for(Choice)(session, ANONYMOUS)
+            assert (await resource.create({"state": "open"})).state is State.OPEN
+            with pytest.raises(ResourceConflict):
+                await resource.create({"state": "open"})
 
     asyncio.run(scenario())

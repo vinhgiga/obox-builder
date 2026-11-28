@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-from functools import cache
 from os import SEEK_END
 from typing import Any, BinaryIO
 
-from pydantic import TypeAdapter
 from starlette.datastructures import UploadFile
 
 from obox.core.exceptions import ValidationError
@@ -102,11 +100,6 @@ class JSONField(Field):
     widget: Any = Textarea
     # Empty arrays and objects are legitimate JSON values, not missing input.
     empty_values = (None, "")
-
-
-@cache
-def type_adapter(python_type: type[Any]) -> TypeAdapter[Any]:
-    return TypeAdapter(python_type)
 
 
 class ChoiceField(Field):

@@ -12,7 +12,7 @@ import httpx
 import pytest
 import sqlalchemy as sa
 from fastapi import APIRouter, Depends, FastAPI
-from obox.api import BaseApi
+from obox.api import api_context
 from obox.contrib.auth.apps import Auth
 from obox.contrib.auth.models import APIToken, Role, User
 from obox.contrib.auth.models import Base as AuthBase
@@ -56,7 +56,7 @@ async def application(
     router = APIRouter(route_class=ApiRoute)
 
     def dependency(action: str) -> Any:
-        return Depends(BaseApi.permission_required("notes.records." + action))
+        return Depends(api_context(permission="notes.records." + action, csrf=True))
 
     list_context, read_context, create_context, history_context = (
         dependency(action) for action in ("list", "retrieve", "create", "history")

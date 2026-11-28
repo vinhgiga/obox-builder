@@ -18,7 +18,6 @@ from obox.views.generic import (
     DeleteView,
     DetailView,
     GridView,
-    ListView,
     ModelViewSet,
     UpdateView,
     View,
@@ -39,10 +38,7 @@ class Registration:
     target: type[Any]
     slug: str | None
     api: bool | type[ModelApi[Any]]
-    views: bool
-    viewset: type[ModelViewSet[Any]] | None = None
-    view_suffix: str | None = None
-    api_suffix: str | None = None
+    views: bool | type[ModelViewSet[Any]]
 
     def mount(
         self,
@@ -53,16 +49,10 @@ class Registration:
         api_prefix: str | None = None,
     ) -> None:
         runtime.check_mutable()
-        if type(self.views) is not bool or (self.api is False and not self.views):
+        api_class = _surface(self.api, ModelApi)
+        viewset = _surface(self.views, ModelViewSet)
+        if api_class is None and viewset is None:
             raise ImproperlyConfigured("Choose at least one ModelResource surface.")
-        if self.api is True or self.api is False:
-            api_class = ModelApi if self.api else None
-        elif isinstance(self.api, type) and issubclass(self.api, ModelApi):
-            api_class = self.api
-        else:
-            raise ImproperlyConfigured("Pass a boolean or a ModelApi subclass to api.")
-        if not self.views and self.viewset is not None:
-            raise ImproperlyConfigured("Enable views when providing a ModelViewSet.")
 
         resource = resolve_resource(self.target)
         auth_model = getattr(getattr(runtime.auth, "backend", None), "user_model", None)
@@ -71,27 +61,36 @@ class Registration:
         identity = label, resource.model
         if identity in runtime._resources:
             raise ImproperlyConfigured(f"{resource.model.__name__} is already registered.")
-        slug = self.slug if self.slug is not None else _slug(resource.model.__name__)
+        view_slug = getattr(viewset, "slug", None)
+        api_slug = getattr(api_class, "slug", None)
+        if view_slug is not None and api_slug is not None and view_slug != api_slug:
+            raise ImproperlyConfigured(
+                f"Use the same slug for {resource.model.__name__} in {label}.views and .apis."
+            )
+        declared_slug = self.slug if self.slug is not None else view_slug or api_slug
+        slug = declared_slug if declared_slug is not None else _slug(resource.model.__name__)
         if not isinstance(slug, str) or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", slug):
             raise ImproperlyConfigured(
                 "A ModelResource slug must use lowercase words joined by hyphens."
             )
-        view_route = self.view_suffix if self.view_suffix is not None else slug
-        api_route = (
-            self.api_suffix
-            if self.api_suffix is not None
-            else self.slug or resource.model.__table__.name
+        view_route = getattr(viewset, "prefix", None)
+        api_route = getattr(api_class, "prefix", None)
+        view_suffix = _route_suffix(view_route or api_route or slug, "view")
+        api_suffix = (
+            _route_suffix(
+                api_route or view_route or declared_slug or resource.model.__table__.name, "API"
+            )
+            if api_class is not None
+            else ""
         )
-        view_suffix = _route_suffix(view_route, "view")
-        api_suffix = _route_suffix(api_route, "API") if api_class is not None else api_route
         app_path = f"/{label}" if label else ""
         view_base = view_prefix or app_path
         api_base = api_prefix or runtime.settings.api_prefix + app_path
         view_path = _join_path(view_base, view_suffix)
 
-        if self.views:
+        if viewset is not None:
             resource.check_create(resource.writable)
-        ui = self._build_views(view_path, resource) if self.views else None
+        ui = self._build_views(view_path, resource, viewset) if viewset is not None else None
         api_router = (
             api_class().build_resource_router(_join_path(api_base, api_suffix), resource)
             if api_class is not None
@@ -102,7 +101,7 @@ class Registration:
             runtime.include_router(ui, ui=True)
         if api_router is not None:
             runtime.include_router(api_router, app_api=api_prefix is not None)
-        if self.views and label:
+        if viewset is not None and label:
             catalog = runtime._apps.get(label)
             if catalog is not None:
                 catalog._registered_resources.append(
@@ -115,53 +114,29 @@ class Registration:
                 )
         runtime._resources[identity] = resource.model
 
-    def _build_views(self, prefix: str, resource: ModelResource[Any]) -> APIRouter:
+    @staticmethod
+    def _build_views(
+        prefix: str, resource: ModelResource[Any], viewset: type[ModelViewSet[Any]]
+    ) -> APIRouter:
         basename = f"obox:views:{prefix}"
         router = APIRouter(prefix=prefix, include_in_schema=False, route_class=UIRoute)
-        viewset = self.viewset
-        primary: type[ListView[Any]] | None = getattr(viewset, "list_view", None)
-        additional = getattr(viewset, "collection_views", ())
-        if not isinstance(additional, Sequence) or isinstance(additional, str | bytes):
-            raise ImproperlyConfigured("Provide a sequence for collection_views.")
-        collections: tuple[type[ListView[Any]], ...] = (
-            GridView if primary is None else primary,
-            *additional,
-        )
-        collection_routes = []
-        slugs: set[str] = set()
-        for index, collection in enumerate(collections):
-            if not isinstance(collection, type) or not issubclass(collection, ListView):
-                raise ImproperlyConfigured("Collection views must be ListView subclasses.")
-            slug = collection.slug
-            if not isinstance(slug, str) or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", slug):
-                raise ImproperlyConfigured(
-                    "Collection view slugs must be lowercase words joined by hyphens."
-                )
-            if slug in slugs:
-                raise ImproperlyConfigured(f"Collection view slug {slug!r} is already used.")
-            slugs.add(slug)
-            role = "list" if index == 0 else f"collection:{slug}"
-            route = "changelist" if index == 0 else role
-            path = "" if index == 0 else f"/views/{slug}"
-            collection_routes.append((role, route, path, ListView, collection, "view"))
-
         routes: tuple[tuple[str, str, str, type[View], type[View] | None, str], ...] = (
-            *collection_routes,
+            ("list", "changelist", "", GridView, viewset.list_view, "view"),
             (
                 "detail",
                 "detail",
                 "/{pk}/view",
                 DetailView,
-                getattr(viewset, "detail_view", None),
+                viewset.detail_view,
                 "view",
             ),
-            ("create", "add", "/add", CreateView, getattr(viewset, "create_view", None), "add"),
+            ("create", "add", "/add", CreateView, viewset.create_view, "add"),
             (
                 "update",
                 "change",
                 "/{pk}/change",
                 UpdateView,
-                getattr(viewset, "update_view", None),
+                viewset.update_view,
                 "change",
             ),
             (
@@ -169,31 +144,22 @@ class Registration:
                 "delete",
                 "/{pk}/delete",
                 DeleteView,
-                getattr(viewset, "delete_view", None),
+                viewset.delete_view,
                 "delete",
             ),
         )
         route_names = {role: f"{basename}:{name}" for role, name, *_ in routes}
-        collection_links = tuple(
-            (view.slug, f"{view.slug.replace('-', ' ').capitalize()} view", route_names[role])
-            for view, (role, *_) in zip(collections, collection_routes, strict=True)
-        )
         for role, _, path, base, custom, permission in routes:
             if custom is not None and (
                 not isinstance(custom, type) or not issubclass(custom, base)
             ):
                 raise ImproperlyConfigured(f"Provide a {base.__name__} subclass for {role}_view.")
             view = base if custom is None else custom
-            options: dict[str, Any] = {"resource": resource, "route_names": route_names}
-            if issubclass(view, ListView):
-                options["collection_routes"] = collection_links
-                if role == "list" and view is GridView:
-                    options["actions"] = ("delete_selected",)
             view.as_route(
                 router,
                 path,
                 name=route_names[role],
-                initkwargs=options,
+                initkwargs={"resource": resource, "route_names": route_names},
                 dependencies=[
                     Depends(
                         permission_required(
@@ -247,38 +213,20 @@ def _app_bindings(
 def app_registrations(app: AppConfig) -> list[Registration]:
     views = _app_bindings(app, "views", ModelViewSet)
     apis = _app_bindings(app, "apis", ModelApi)
-    registrations = []
-    for resource in dict.fromkeys([*views, *apis]):
-        view, api = views.get(resource), apis.get(resource)
-        view_slug = view.slug if view is not None else None
-        api_slug = api.slug if api is not None else None
-        if view_slug is not None and api_slug is not None and view_slug != api_slug:
-            raise ImproperlyConfigured(
-                f"Use the same slug for {resource.__name__} in {app.label}.views and .apis."
-            )
-        view_suffix = _declared_suffix(view) if view is not None else None
-        api_suffix = _declared_suffix(api) if api is not None else None
-        if view_suffix is None:
-            view_suffix = api_suffix
-        if api_suffix is None:
-            api_suffix = view_suffix
-        registrations.append(
-            Registration(
-                target=resource,
-                slug=api_slug if view_slug is None else view_slug,
-                api=api if api is not None else False,
-                views=view is not None,
-                viewset=view,
-                view_suffix=view_suffix,
-                api_suffix=api_suffix,
-            )
-        )
-    return registrations
+    return [
+        Registration(resource, None, apis.get(resource, False), views.get(resource, False))
+        for resource in dict.fromkeys([*views, *apis])
+    ]
 
 
-def _declared_suffix(adapter: type[Any]) -> str | None:
-    prefix = getattr(adapter, "prefix", None)
-    return prefix if prefix is not None else getattr(adapter, "slug", None)
+def _surface(value: bool | type[AdapterT], adapter: type[AdapterT]) -> type[AdapterT] | None:
+    if value is True:
+        return adapter
+    if value is False:
+        return None
+    if isinstance(value, type) and issubclass(value, adapter):
+        return value
+    raise ImproperlyConfigured(f"Pass a boolean or a {adapter.__name__} subclass.")
 
 
 def _route_suffix(value: str, surface: str) -> str:

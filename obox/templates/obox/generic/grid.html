@@ -5,48 +5,13 @@
 {% block heading_class %}visually-hidden{% endblock %}
 {% block content_class %}grid-content{% endblock %}
 {% block content %}
-  {% set is_grid = collection_kind == "grid" %}
   {% set sorted_column = (query.group or query.sort)|first|default(none) %}
   {% set row_indexes = page.is_paginated and not query.group %}
-  {% set links %}
-    {% for link in view_links %}
-      <a class="collection-view-link"
-         href="{{ link.url }}"
-         {% if link.active %} aria-current="page"{% endif %}>{{ link.label }}</a>
-    {% endfor %}
-  {% endset %}
   <script type="application/json"
           data-list-config>{{ {"fields": query.fields, "filter": query.filter}|tojson }}</script>
   <div class="grid-toolbar">
-    <div class="grid-view-label">
-      {% if view_links|length > 1 %}
-        <details class="field-menu collection-view-menu">
-          <summary aria-label="Switch view">{{ (view_links|selectattr("active")|first).label }} <span aria-hidden="true">⌄</span></summary>
-          <div class="field-menu-panel">{{ links }}</div>
-        </details>
-      {% else %}
-        <strong>{% block view_title %}Grid view{% endblock %}</strong>
-      {% endif %}
-    </div>
-    {% if actions %}
-      <div class="grid-bulk-actions" data-bulk-controls hidden>
-        <label class="visually-hidden" for="grid-bulk-action">Choose a bulk action</label>
-        <select class="form-select form-select-sm"
-                id="grid-bulk-action"
-                name="action"
-                form="bulk-action-form"
-                data-bulk-action>
-          <option value="">Choose an action</option>
-          {% for name, option in actions.items() %}<option value="{{ name }}">{{ option[2] }}</option>{% endfor %}
-        </select>
-        <button class="btn btn-primary btn-sm"
-                type="submit"
-                form="bulk-action-form"
-                data-bulk-submit
-                disabled>Run</button>
-      </div>
-    {% endif %}
     <div class="grid-tools" role="toolbar" aria-label="Grid view tools">
+      {% if query.fields %}
       <details class="field-menu filter-menu" data-filter-menu>
         <summary>
           <svg class="field-menu-icon"
@@ -118,20 +83,21 @@
           </div>
         </template>
       </details>
-      {% for parameter, label, terms, limit in (("group", "Group", query.group, 3), ("ordering", "Sort", query.sort, 5)) %}
-        {% if query.fields %}
+      {% endif %}
+      {% for parameter, label, terms, options, limit in (("group", "Group", query.group, query.group_fields, 3), ("ordering", "Sort", query.sort, query.ordering_fields, 5)) %}
+        {% if options %}
           <details class="field-menu">
             <summary>{{ label }}{% if terms %}<span class="filter-count">{{ terms|length }}</span>{% endif %}</summary>
             <form class="field-menu-panel d-grid gap-2"
                   data-order-query="{{ parameter }}">
-              {% for index in range([limit, query.fields|length]|min) %}
+              {% for index in range([limit, options|length]|min) %}
                 {% set term = terms[index] if index < terms|length else none %}
                 <div class="d-flex gap-2">
                   <select class="form-select form-select-sm"
                           aria-label="{{ label }} field {{ index + 1 }}"
                           data-order-field>
                     <option value="">No field</option>
-                    {% for field in query.fields %}
+                    {% for field in options %}
                       <option value="{{ field.name }}"
                               {% if term and term.field == field.name %} selected{% endif %}>{{ field.label }}</option>
                     {% endfor %}
@@ -169,9 +135,7 @@
               role="search"
               aria-label="Search records">
           {% for name, value in request.query_params.multi_items() if name not in ("page", "q") %}
-            {% if not request.query_params.get("filter") or name in ("filter", "group", "ordering") %}
-              <input type="hidden" name="{{ name }}" value="{{ value }}">
-            {% endif %}
+            <input type="hidden" name="{{ name }}" value="{{ value }}">
           {% endfor %}
           <input class="form-control form-control-sm"
                  type="search"
@@ -185,44 +149,21 @@
     </div>
   </div>
   <div class="collection-body">
-    {% if view_links|length > 1 %}
-      <nav class="collection-views" aria-label="Collection views">
-        {{ links }}
-      </nav>
-    {% endif %}
     <div class="grid-body">
       <div class="grid-scroll"
            role="region"
            aria-label="{{ title }} records"
            tabindex="0">
-        {% if actions %}
-          <form id="bulk-action-form" method="post" data-bulk-form>
-            <input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}">
-          </form>
-        {% endif %}
-        <table class="table table-vcenter record-grid{% if not is_grid %} record-list{% endif %}"
+        <table class="table table-vcenter record-grid"
                data-list-table
                {% if row_indexes %}aria-rowcount="{{ total + 1 }}"{% endif %}>
           <thead>
             <tr{% if row_indexes %} aria-rowindex="1"{% endif %}>
-              {% if is_grid or actions %}
-                <th scope="col" class="row-number">
-                  {% if actions %}
-                    <input class="grid-select form-check-input"
-                           type="checkbox"
-                           data-select-all
-                           aria-label="Select all records on this page">
-                  {% else %}
-                    <span aria-hidden="true">#</span>
-                  {% endif %}
-                </th>
-              {% endif %}
+              <th scope="col" class="row-number"><span aria-hidden="true">#</span></th>
               {% for field in columns %}
                 <th scope="col"
                     {% if sorted_column and sorted_column.field == field.name %} aria-sort="{{ 'descending' if sorted_column.descending else 'ascending' }}" {% endif %}>
-                  {% if is_grid %}
                     <span class="field-type-icon" aria-hidden="true">{{ {"number": "#", "choice": "⊙", "boolean": "⊙", "date": "▦", "datetime": "▦", "time": "▦"}.get(field.kind, "≡") }}</span>
-                  {% endif %}
                   {{ field.label }}
                 </th>
               {% endfor %}
@@ -230,7 +171,7 @@
             </tr>
           </thead>
           <tbody>
-            {% set span = ([columns|length, 1]|max) + (1 if is_grid or actions else 0) %}
+            {% set span = ([columns|length, 1]|max) + 1 %}
             {% for row in rows %}
               {% set number = page.start_index + loop.index0 %}
               {% set label = row["values"][0] if row["values"] else row.pk %}
@@ -249,23 +190,8 @@
                   </td>
                 </tr>
               {% endfor %}
-              <tr data-grid-row{% if actions %}
-                  data-selectable{% endif %}
-                  {% if row_indexes %}aria-rowindex="{{ number + 1 }}"{% endif %}>
-                {% if is_grid or actions %}
-                  <td class="row-number">
-                    {% if is_grid %}<span class="row-index">{{ number }}</span>{% endif %}
-                    {% if actions %}
-                      <input class="grid-select row-select form-check-input"
-                             type="checkbox"
-                             name="_selected_action"
-                             value="{{ row.pk }}"
-                             form="bulk-action-form"
-                             data-row-select
-                             aria-label="Select record {{ label }}">
-                    {% endif %}
-                  </td>
-                {% endif %}
+              <tr data-grid-row{% if row_indexes %} aria-rowindex="{{ number + 1 }}"{% endif %}>
+                <td class="row-number"><span class="row-index">{{ number }}</span></td>
                 {% for field in columns %}
                   {% set value = row["values"][loop.index0] %}
                   <td>
@@ -278,7 +204,7 @@
                       {% if field.primary and row.url %}
                         <a class="collection-open"
                            href="{{ row.url }}"
-                           aria-label="Open record {{ label }}">{{ "↗" if is_grid else "Open ›" }}</a>
+                           aria-label="Open record {{ label }}">↗</a>
                       {% endif %}
                     </div>
                   </td>
@@ -301,16 +227,7 @@
         </a>
       {% endif %}
       <footer class="grid-footer">
-        <div class="grid-footer-actions">
-          <span data-selection-status
-                data-total-count="{{ total }}">{{ total }} {{ "record" if total == 1 else "records" }}</span>
-          {% if actions %}
-            <button class="grid-selection-link"
-                    type="button"
-                    data-clear-selection
-                    hidden>Clear selection</button>
-          {% endif %}
-        </div>
+        <span>{{ total }} {{ "record" if total == 1 else "records" }}</span>
         <div class="grid-pagination">
           {% if previous_url %}<a href="{{ previous_url }}"
    aria-label="Previous page">‹</a>{% endif %}
