@@ -29,6 +29,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from obox.apps import AppConfig, validate_app_prefix
 from obox.components.binding import Diagnostic
 from obox.components.service import ComponentService
+from obox.core.async_utils import invoke
 from obox.core.exceptions import (
     BuilderValidationError,
     DomainError,
@@ -37,10 +38,16 @@ from obox.core.exceptions import (
 )
 from obox.core.principal import Permission, Principal
 from obox.db.session import bind_session
+from obox.db.transaction import commit_callbacks
 from obox.routes import Route
 from obox.runtime.config import RuntimeConfig
 from obox.runtime.context import Context
-from obox.web.dependencies import _RoutePermission, api_context_dependency, iter_api_contexts
+from obox.web.dependencies import (
+    READ_METHODS,
+    _RoutePermission,
+    api_context_dependency,
+    iter_api_contexts,
+)
 from obox.web.i18n import LANGUAGES, LanguageMiddleware
 from obox.web.staticfiles import AssetMount
 
@@ -124,9 +131,8 @@ class _Runtime:
                         "scheme": "bearer",
                     }
                 for route in routes:
-                    if not isinstance(route.original_route, ApiRoute) and not any(
-                        iter_api_contexts((route,))
-                    ):
+                    policies = tuple(iter_api_contexts((route,)))
+                    if not isinstance(route.original_route, ApiRoute) and not policies:
                         continue
                     path = route.path_format
                     if path is None:
@@ -135,7 +141,10 @@ class _Runtime:
                         operation = schema.get("paths", {}).get(path, {}).get(method.lower())
                         if operation is None:
                             continue
-                        security: list[dict[str, list[str]]] = [{"cookieAuth": []}]
+                        security: list[dict[str, list[str]]] = []
+                        if policies and all(policy.public for policy in policies):
+                            security.append({})
+                        security.append({"cookieAuth": []})
                         if token_auth and (
                             not path.startswith(prefix + "/auth/") or path == prefix + "/auth/me"
                         ):
@@ -267,8 +276,7 @@ class _Runtime:
                         permission, Permission(permission, declaration.title, "component")
                     )
         for dependency in iter_api_contexts(self.app.routes):
-            if dependency.permission is not None:
-                name = dependency.permission
+            for name in dependency.permissions:
                 result.setdefault(name, Permission(name, name.rsplit(".", 1)[-1].title(), "api"))
         return MappingProxyType(result)
 
@@ -540,20 +548,28 @@ class _Runtime:
 
     def _audit_routes(self) -> None:
         routes = list(iter_route_contexts(self.app.routes))
-        from obox.api import check_route_conflicts
+        from obox.api import _ModelRoute, check_route_conflicts
 
         check_route_conflicts(routes, all_routes=True)
+
+        def generated(route: RouteContext) -> bool:
+            return isinstance(route.original_route, _ModelRoute) or (route.name or "").startswith(
+                ("obox:api:", "obox:views:")
+            )
+
         for i, route in enumerate(routes):
             if id(route.original_route) in self._public_routes:
                 continue
-            methods = route.methods or ()
-            if not methods or not any(dep.permission for dep in iter_api_contexts((route,))):
+            methods = route.methods or set()
+            policies = tuple(iter_api_contexts((route,)))
+            if any(policy.public for policy in policies) and methods - READ_METHODS:
+                raise ImproperlyConfigured("PUBLIC is only supported on GET and HEAD routes.")
+            if not methods or not any(policy.public or policy.permissions for policy in policies):
                 raise ImproperlyConfigured(
                     f"Missing route permission: {', '.join(sorted(methods))} {route.path}."
                 )
             if not route.path:
                 continue
-            generated = (route.name or "").startswith(("obox:api:", "obox:views:"))
             dynamic = "{" in route.path
             target = re.sub(
                 r"\{[^}:]+(?::([^}]+))?\}",
@@ -564,9 +580,7 @@ class _Runtime:
                 route.path,
             )
             for previous in routes[:i]:
-                if not (
-                    generated or (previous.name or "").startswith(("obox:api:", "obox:views:"))
-                ):
+                if not (generated(route) or generated(previous)):
                     continue
                 if dynamic and "{" not in (previous.path or ""):
                     continue
@@ -665,24 +679,30 @@ class _Runtime:
 
                 event.listen(session.sync_session, "before_commit", before_commit)
                 try:
-                    async with session.begin():
-                        ctx._transaction = session.sync_session.get_transaction()
-                        async with bind_session(session):
-                            yield ctx
-                        if (
-                            ctx._failed
-                            or session.sync_session.get_transaction() is not ctx._transaction
-                        ):
-                            raise ImproperlyConfigured(
-                                "The failed unit of work must be rolled back."
-                            )
-                        committing = True
+                    with commit_callbacks(session) as callbacks:
+                        async with session.begin():
+                            ctx._transaction = session.sync_session.get_transaction()
+                            async with bind_session(session):
+                                yield ctx
+                            if (
+                                ctx._failed
+                                or session.sync_session.get_transaction() is not ctx._transaction
+                            ):
+                                raise ImproperlyConfigured(
+                                    "The failed unit of work must be rolled back."
+                                )
+                            committing = True
                 finally:
                     ctx._active = False
         except (IntegrityError, StaleDataError) as exc:
             raise ResourceConflict(
                 "The transaction conflicts with current database state."
             ) from exc
+        for _, callback in callbacks:
+            try:
+                await invoke(callback)
+            except Exception:
+                logger.exception("on_commit callback failed.")
 
     def context_dependency(self, source: str) -> Callable[..., Any]:
         def request_principal(request: Request) -> Any:

@@ -362,6 +362,7 @@ def test_delivery_signature_retry_and_pinned_destination(tmp_path: Path) -> None
 
     async def scenario() -> None:
         requests: list[httpx.Request] = []
+        committed_owners: list[str] = []
 
         def receive(request: httpx.Request) -> httpx.Response:
             requests.append(request)
@@ -370,6 +371,13 @@ def test_delivery_signature_retry_and_pinned_destination(tmp_path: Path) -> None
         async with application(tmp_path) as (app, client, plugin, _):
             sub = (await subscribe(client)).json()
             await client.post("/api/admin/records", json={"name": "private body"})
+            resolve_principal = plugin.resolve_principal
+
+            async def resolve_after_commit(owner: str, ctx: Context) -> Any:
+                ctx.on_commit(committed_owners.append, owner)
+                return await resolve_principal(owner, ctx)
+
+            plugin.resolve_principal = resolve_after_commit
             worker = Worker(plugin, transport=httpx.MockTransport(receive))
             assert await worker.run_once()
             url = f"/v0/webhooks/{sub['id']}/deliveries"
@@ -384,6 +392,7 @@ def test_delivery_signature_retry_and_pinned_destination(tmp_path: Path) -> None
             done = (await client.get(url)).json()["items"][0]
             assert done["status"] == "delivered"
             assert done["attempts"] == 2
+            assert committed_owners == ["1", "1"]
             for request in requests:
                 assert request.url.host == "93.184.216.34"
                 assert request.headers["host"] == "receiver.example"

@@ -31,8 +31,18 @@ HTML and native FastAPI REST routes.
 - Use `q`, `ordering` and a JSON `filter` for REST lists. The `:groups` route
   uses `group`. Query field names use Python casing. Use the action names
   `patch` and `delete` in `ModelApi` declarations.
-- Use `api_context(permission=..., csrf=True)` for custom REST actions
-  requiring a bound request context.
+- Use `@route` on `ModelApi` for custom resource endpoints with a
+  `ctx: Context` parameter.
+- A `ModelApi.permissions` entry now replaces the default model permission.
+  To preserve both checks, change
+  `{"delete": "shop.archive_product"}` to
+  `{"delete": ("shop.delete_product", "shop.archive_product")}`.
+  Use `PUBLIC` for anonymous reads.
+- Use `ModelResource.on_commit` or `Context.on_commit` for callbacks that
+  run after a successful unit of work.
+- Bind a resource to the request explicitly with
+  `Products().bind(ctx.session, ctx.principal)` in code that used
+  `ModelApi.get_resource(ctx)`.
 
 Invalid registered HTML forms return 422 and successful writes redirect with
 303. See [access control](features/access-control.md#csrf-protection) for the

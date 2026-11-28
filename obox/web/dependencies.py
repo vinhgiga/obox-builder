@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Callable, Iterator, Sequence
 from dataclasses import dataclass
-from typing import Annotated, Any, cast
+from enum import Enum
+from typing import Annotated, Any, ClassVar, cast
 
 from fastapi import Depends, Request
 from fastapi.routing import RouteContext, iter_route_contexts
@@ -15,6 +16,31 @@ from obox.core.principal import Identity, has_permission, valid_permission
 from obox.runtime.context import Context
 from obox.web.identity import identify
 
+READ_METHODS = frozenset({"GET", "HEAD"})
+
+
+class _Public(Enum):
+    PUBLIC = "public"
+
+
+PUBLIC = _Public.PUBLIC
+PermissionPolicy = str | tuple[str, ...] | _Public
+
+
+def permission_names(policy: PermissionPolicy, *, allow_public: bool) -> tuple[str, ...]:
+    if policy is PUBLIC:
+        if not allow_public:
+            raise ImproperlyConfigured("PUBLIC is only supported on GET and HEAD routes.")
+        return ()
+    names = policy if isinstance(policy, tuple) else (policy,)
+    if (
+        not names
+        or not all(isinstance(name, str) and valid_permission(name) for name in names)
+        or len(set(names)) != len(names)
+    ):
+        raise ImproperlyConfigured("Use unique permissions such as app.view_model.")
+    return names
+
 
 async def api_context_dependency() -> Context:
     raise ImproperlyConfigured("Install Obox before using an API context dependency.")
@@ -22,16 +48,21 @@ async def api_context_dependency() -> Context:
 
 @dataclass(frozen=True)
 class _APIContext:
-    permission: str | None
+    permissions: tuple[str, ...]
     csrf: bool = False
+    public: bool = False
 
     async def __call__(
         self,
         request: Request,
         ctx: Annotated[Context, Depends(api_context_dependency, scope="function")],
     ) -> Context:
+        if self.public:
+            if request.method not in READ_METHODS:
+                raise ImproperlyConfigured("PUBLIC is only supported on GET and HEAD routes.")
+            return ctx
         principal = ctx.principal
-        _require_permission(principal, self.permission)
+        _require_permission(principal, self.permissions)
         if (
             self.csrf
             and request.method not in {"GET", "HEAD", "OPTIONS", "TRACE"}
@@ -69,15 +100,10 @@ def api_principal_context(resolver: Callable[..., Any]) -> Callable[..., Any]:
     return context
 
 
-def api_context(*, permission: str | None = None, csrf: bool = False) -> _APIContext:
-    """Require an active identity and optionally a permission, returning its API context."""
-    if permission is not None and (
-        not isinstance(permission, str) or not valid_permission(permission)
-    ):
-        raise ImproperlyConfigured(
-            "Use a permission such as app.view_model or app.resource.action."
-        )
-    return _APIContext(permission, csrf)
+def api_context(*, permission: PermissionPolicy | None = None, csrf: bool = False) -> _APIContext:
+    """Return an authorized API context, or allow anonymous reads with PUBLIC."""
+    names = () if permission is None else permission_names(permission, allow_public=True)
+    return _APIContext(names, csrf, public=permission is PUBLIC)
 
 
 def iter_api_contexts(
@@ -97,14 +123,19 @@ def iter_api_contexts(
 
 @dataclass(frozen=True)
 class _RoutePermission:
+    public: ClassVar[bool] = False
     permission: str
     html: bool
     csrf: bool = True
 
+    @property
+    def permissions(self) -> tuple[str, ...]:
+        return (self.permission,)
+
     async def __call__(self, request: Request, actor: Any = Depends(identify)) -> Identity:
         if self.html:
             request.state.obox_html_permission = True
-        _require_permission(actor, self.permission)
+        _require_permission(actor, self.permissions)
         if (
             self.csrf
             and request.method not in {"GET", "HEAD", "OPTIONS", "TRACE"}
@@ -127,11 +158,11 @@ def permission_required(permission: str, *, html: bool = False) -> _RoutePermiss
     return _RoutePermission(permission, html)
 
 
-def _require_permission(actor: Any, permission: str | None) -> None:
+def _require_permission(actor: Any, permissions: tuple[str, ...]) -> None:
     if (
         getattr(actor, "is_authenticated", False) is not True
         or getattr(actor, "is_active", False) is not True
     ):
         raise NotAuthenticated("Authentication is required.")
-    if permission is not None and not has_permission(actor, permission):
+    if not all(has_permission(actor, permission) for permission in permissions):
         raise PermissionDenied("This operation is not permitted.")

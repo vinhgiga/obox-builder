@@ -310,6 +310,7 @@ class ApiRoute(MethodRoute):
     allow_query = True
     binary_upload = False
     download = False
+    record_contract = True
     error_status_overrides: Mapping[type[DomainError], int] = MappingProxyType({})
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -332,8 +333,10 @@ class ApiRoute(MethodRoute):
         scope["state"] = dict(scope.get("state", {}))
         request = Request(scope)
         request.state.error_status_overrides = self.error_status_overrides
-        request.state.query_body = request.method == "POST" and self.path.endswith(":query")
-        request.state.record_write = (
+        request.state.query_body = (
+            self.record_contract and request.method == "POST" and self.path.endswith(":query")
+        )
+        request.state.record_write = self.record_contract and (
             request.method in {"POST", "PUT", "PATCH", "DELETE"} and not request.state.query_body
         )
         json_body = not self.binary_upload and (
@@ -367,7 +370,7 @@ class ApiRoute(MethodRoute):
                 return
             if not self.download and not accepts_json(request.headers.get("accept", "*/*")):
                 raise HTTPException(406, "Use an application/json response.")
-            if request.method in {"PATCH", "DELETE"}:
+            if self.record_contract and request.method in {"PATCH", "DELETE"}:
                 for name in ("If-None-Match", "If-Unmodified-Since"):
                     if name in request.headers:
                         raise invalid(name, "Unsupported precondition.", "unsupported_precondition")

@@ -110,7 +110,7 @@ class FormView(TemplateResponseMixin, FormMixin, View):
 
 class _RecordFormView(SingleObjectTemplateResponseMixin[ModelT], FormView):
     action: WriteAction
-    form_class: type[Form[Any]] = Form
+    form_class: type[Form[Any]] | None = Form
     fieldsets: Sequence[tuple[str | None, dict[str, Any]]] = ()
     template_name_suffix = "_form"
 
@@ -146,7 +146,7 @@ class _RecordFormView(SingleObjectTemplateResponseMixin[ModelT], FormView):
             elif default is not None and default.is_scalar:
                 initial[name] = default.arg
         kwargs.update(schema=resource.input_schema, initial={**initial, **kwargs["initial"]})
-        form = self.form_class(**kwargs)
+        form = (self.form_class or Form)(**kwargs)
         allowed = await resource.writable_fields(self.action, obj)
         relationships = cast("Mapper[ModelT]", sa.inspect(resource.model)).relationships
         for name, field in form.fields.items():

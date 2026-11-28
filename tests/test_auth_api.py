@@ -6,13 +6,13 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, cast
+from typing import Annotated, Any, cast
 
 import httpx
 import pytest
 import sqlalchemy as sa
 from fastapi import APIRouter, Depends, FastAPI
-from obox.api import api_context
+from obox.api import PUBLIC, api_context
 from obox.contrib.auth.apps import Auth
 from obox.contrib.auth.models import APIToken, Role, User
 from obox.contrib.auth.models import Base as AuthBase
@@ -87,6 +87,12 @@ async def application(
     async def history(id: int, ctx: Context = history_context) -> Any:
         return {}
 
+    @router.get("/api/admin/status")
+    async def status(
+        ctx: Annotated[Context, Depends(api_context(permission=PUBLIC))],
+    ) -> dict[str, bool]:
+        return {"authenticated": ctx.principal.is_authenticated}
+
     app.include_router(router, app_api=True)
     try:
         async with app.app.router.lifespan_context(app.app):
@@ -123,6 +129,21 @@ async def csrf(client: httpx.AsyncClient) -> str:
     assert response.status_code == 200, response.text
     assert response.headers["cache-control"] == "private, no-store"
     return str(response.json()["csrfToken"])
+
+
+def test_public_route_documents_optional_authentication(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        async with application(tmp_path) as (runtime, client):
+            path = "/api/admin/status"
+            assert (await client.get(path)).json() == {"authenticated": False}
+            paths = runtime.app.openapi()["paths"]
+            assert paths[path]["get"]["security"] == [{}, {"cookieAuth": []}, {"bearerAuth": []}]
+            assert paths["/api/admin/notes"]["get"]["security"] == [
+                {"cookieAuth": []},
+                {"bearerAuth": []},
+            ]
+
+    asyncio.run(scenario())
 
 
 async def login(client: httpx.AsyncClient, username: str = "alice") -> dict[str, str]:

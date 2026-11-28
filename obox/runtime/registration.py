@@ -69,9 +69,7 @@ class Registration:
             )
         declared_slug = self.slug if self.slug is not None else view_slug or api_slug
         slug = (
-            declared_slug
-            if declared_slug is not None
-            else _default_slug(resource.model.__name__)
+            declared_slug if declared_slug is not None else _default_slug(resource.model.__name__)
         )
         if not isinstance(slug, str) or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", slug):
             raise ImproperlyConfigured(
@@ -124,36 +122,16 @@ class Registration:
     ) -> APIRouter:
         basename = f"obox:views:{prefix}"
         router = APIRouter(prefix=prefix, include_in_schema=False, route_class=UIRoute)
-        routes: tuple[tuple[str, str, str, type[View], type[View] | None, str], ...] = (
-            ("list", "changelist", "", GridView, viewset.list_view, "view"),
-            (
-                "detail",
-                "detail",
-                "/{pk}/view",
-                DetailView,
-                viewset.detail_view,
-                "view",
-            ),
-            ("create", "add", "/add", CreateView, viewset.create_view, "add"),
-            (
-                "update",
-                "change",
-                "/{pk}/change",
-                UpdateView,
-                viewset.update_view,
-                "change",
-            ),
-            (
-                "delete",
-                "delete",
-                "/{pk}/delete",
-                DeleteView,
-                viewset.delete_view,
-                "delete",
-            ),
+        routes: tuple[tuple[str, str, str, type[View], str], ...] = (
+            ("list", "changelist", "", GridView, "view"),
+            ("detail", "detail", "/{pk}/view", DetailView, "view"),
+            ("create", "add", "/add", CreateView, "add"),
+            ("update", "change", "/{pk}/change", UpdateView, "change"),
+            ("delete", "delete", "/{pk}/delete", DeleteView, "delete"),
         )
         route_names = {role: f"{basename}:{name}" for role, name, *_ in routes}
-        for role, _, path, base, custom, permission in routes:
+        for role, _, path, base, permission in routes:
+            custom = getattr(viewset, f"{role}_view")
             if custom is not None and (
                 not isinstance(custom, type) or not issubclass(custom, base)
             ):

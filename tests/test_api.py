@@ -106,13 +106,15 @@ class Posts(ModelApi[Post]):
 class Albums(ModelApi[Album]):
     resource = resource_for(Album)
     actions: tuple[Literal["retrieve"]] = ("retrieve",)
-    permissions = MappingProxyType({"retrieve": "tests.view_post"})
+    permissions = MappingProxyType({"retrieve": ("tests.view_album", "tests.view_post")})
 
 
 class AlbumsWithRelationship(ModelApi[AlbumWithRelationship]):
     resource = resource_for(AlbumWithRelationship)
     actions: tuple[Literal["retrieve"]] = ("retrieve",)
-    permissions = MappingProxyType({"retrieve": "tests.view_post"})
+    permissions = MappingProxyType(
+        {"retrieve": ("tests.view_albumwithrelationship", "tests.view_post")}
+    )
 
 
 def principal(request: Request) -> Principal:
@@ -349,7 +351,7 @@ def test_group_shares_list_permissions_and_scopes(tmp_path: Path) -> None:
 
     class ScopedPosts(Posts):
         resource = Resource
-        permissions = MappingProxyType({"list": "tests.add_record"})
+        permissions = MappingProxyType({"list": ("tests.view_post", "tests.add_record")})
 
     class JoinedResource(PostResource):
         def get_queryset(self) -> sa.Select[tuple[Post]]:
@@ -482,7 +484,7 @@ def test_custom_route_permissions_and_uuid(tmp_path: Path) -> None:
         resource = resource_for(Record, write_schema=RecordWrite)
         prefix = "/records"
         actions = ("create", "retrieve")
-        permissions = MappingProxyType({"create": "tests.add_post"})
+        permissions = MappingProxyType({"create": ("tests.add_record", "tests.add_post")})
         read_schema = RecordRead
 
     def records_router() -> APIRouter:

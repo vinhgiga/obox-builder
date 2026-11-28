@@ -12,7 +12,7 @@ registration signatures.
 | `from obox.routes import Route` | HTML route declarations that select templates and permissions |
 | `from obox.components import Component` | Reusable component declarations |
 | `from obox.views.generic import ModelViewSet, GridView, ViewConfig, DetailView, CreateView, UpdateView, DeleteView, FormView, TemplateView` | Generated and standalone HTML views |
-| `from obox.api import ModelApi, ApiRequest, ApiResponse, Context, api_context` | Native FastAPI REST adapter and schemas |
+| `from obox.api import ModelApi, ApiRequest, ApiResponse, Context, PUBLIC, route, api_context` | Native FastAPI REST adapter, authorization and schemas |
 | `from obox import forms` | Typed HTML forms, fields and widgets |
 | `from obox.db import atomic` | Async transaction boundary |
 

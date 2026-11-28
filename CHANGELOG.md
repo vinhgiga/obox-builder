@@ -17,6 +17,11 @@
   `Meta` options now raise a configuration error.
 - Model REST lists now support bounded filters and sorting on readable fields,
   plus a `:groups` route with the same record scope and permissions as list.
+- `ModelApi.permissions` replaces the default permission. Use a tuple to
+  require every permission and `PUBLIC` for public reads. Declare custom
+  actions on `ModelApi` with `@route`.
+- `ModelResource.on_commit` and `Context.on_commit` schedule callbacks
+  after a successful unit of work. Removed the unused `DomainEvent` class.
 - REST search now splits on whitespace and requires every word to match a
   searchable field. A `None` field declaration infers eligible readable
   fields. An empty tuple disables the corresponding control.

@@ -1,11 +1,10 @@
 """Regression coverage for request isolation and public builder configuration."""
 
 import asyncio
-from types import SimpleNamespace
 from typing import Any, ClassVar, cast
 
 import pytest
-from obox.api import ModelApi
+from obox.api import PUBLIC, ModelApi
 from obox.core.exceptions import ImproperlyConfigured, NotFound
 from obox.core.principal import Principal
 from obox.forms import Field as Control
@@ -35,24 +34,6 @@ class Examples(ModelApi[Example]):
     actions = ("list",)
 
 
-def test_api_resource_cache_is_scoped_to_principal() -> None:
-    api = Examples()
-    api._resource = ModelResource(model=Example)
-    session = SimpleNamespace(info={})
-    first = Principal(id=1, is_authenticated=True)
-    second = Principal(id=2, is_authenticated=True)
-    first_context = SimpleNamespace(session=session, principal=first)
-    second_context = SimpleNamespace(session=session, principal=second)
-
-    bound = api.get_resource(cast(Any, first_context))
-    assert bound is api.get_resource(cast(Any, first_context))
-    assert bound.principal is first
-    other = api.get_resource(cast(Any, second_context))
-    assert other is not bound
-    assert other.principal is second
-    assert api.get_resource(cast(Any, first_context)).principal is first
-
-
 @pytest.mark.parametrize(
     ("attribute", "value", "message"),
     [
@@ -61,16 +42,19 @@ def test_api_resource_cache_is_scoped_to_principal() -> None:
         ("actions", ("list", "list"), "unique"),
         ("permissions", {"bad": "x.y"}, "permission"),
         ("permissions", {"create": "invalid"}, "permission"),
+        ("permissions", {"list": ()}, "permission"),
+        ("permissions", {"list": ("tests.view_example", "tests.view_example")}, "permission"),
+        ("permissions", {"list": ["tests.view_example"]}, "permission"),
+        ("permissions", {"patch": PUBLIC}, "PUBLIC.*GET and HEAD"),
+        ("error_status", {ValueError: 500}, "domain errors"),
         ("actions", ("list", []), "supported"),
         ("default_limit", True, "page limits"),
         ("max_limit", 100.5, "page limits"),
     ],
 )
 def test_api_rejects_invalid_declarations(attribute: str, value: Any, message: str) -> None:
-    api = Examples()
-    setattr(api, attribute, value)
     with pytest.raises(ImproperlyConfigured, match=message):
-        api.build_router()
+        type("InvalidApi", (Examples,), {attribute: value})
 
 
 def test_view_initial_values_are_isolated() -> None:

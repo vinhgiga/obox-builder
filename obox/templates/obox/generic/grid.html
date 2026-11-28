@@ -12,77 +12,77 @@
   <div class="grid-toolbar">
     <div class="grid-tools" role="toolbar" aria-label="Grid view tools">
       {% if query.fields %}
-      <details class="field-menu filter-menu" data-filter-menu>
-        <summary>
-          <svg class="field-menu-icon"
-               viewBox="0 0 24 24"
-               fill="none"
-               stroke="currentColor"
-               stroke-width="1.5"
-               aria-hidden="true">
-            <path d="M4 5h16l-6.5 7.5V19l-3 1.5v-8z" />
-          </svg>
-          Filter
-          <span class="filter-count" data-filter-count hidden></span>
-        </summary>
-        <div class="field-menu-panel filter-menu-panel">
-          <p class="filter-title">Filter</p>
-          <p class="filter-subtitle">In this view, show records that match</p>
-          <label class="filter-root-join">
-            <span>Where</span><select class="form-select form-select-sm"
+        <details class="field-menu filter-menu" data-filter-menu>
+          <summary>
+            <svg class="field-menu-icon"
+                 viewBox="0 0 24 24"
+                 fill="none"
+                 stroke="currentColor"
+                 stroke-width="1.5"
+                 aria-hidden="true">
+              <path d="M4 5h16l-6.5 7.5V19l-3 1.5v-8z" />
+            </svg>
+            Filter
+            <span class="filter-count" data-filter-count hidden></span>
+          </summary>
+          <div class="field-menu-panel filter-menu-panel">
+            <p class="filter-title">Filter</p>
+            <p class="filter-subtitle">In this view, show records that match</p>
+            <label class="filter-root-join">
+              <span>Where</span><select class="form-select form-select-sm"
         data-filter-conjunction
         aria-label="Match conditions">
-              <option value="and">All conditions</option>
-              <option value="or">Any condition</option>
-            </select>
-          </label>
-          <div class="filter-conditions" data-filter-conditions></div>
-          <div class="filter-actions">
-            <button class="filter-apply btn btn-primary btn-sm"
-                    type="button"
-                    data-filter-apply>Apply</button>
-            <button class="filter-reset btn btn-outline-secondary btn-sm"
-                    type="button"
-                    data-filter-reset>Reset</button>
+                <option value="and">All conditions</option>
+                <option value="or">Any condition</option>
+              </select>
+            </label>
+            <div class="filter-conditions" data-filter-conditions></div>
+            <div class="filter-actions">
+              <button class="filter-apply btn btn-primary btn-sm"
+                      type="button"
+                      data-filter-apply>Apply</button>
+              <button class="filter-reset btn btn-outline-secondary btn-sm"
+                      type="button"
+                      data-filter-reset>Reset</button>
+            </div>
           </div>
-        </div>
-        <template data-filter-row-template>
-          <div class="filter-condition" data-filter-row>
-            <select class="form-select form-select-sm"
-                    data-filter-field
-                    aria-label="Filter field">
-              {% for field in query.fields %}<option value="{{ field.name }}">{{ field.label }}</option>{% endfor %}
-            </select>
-            <select class="form-select form-select-sm"
-                    data-filter-op
-                    aria-label="Filter operator">
-              <option value="contains">contains</option>
-              <option value="does_not_contain">does not contain</option>
-              <option value="is">is</option>
-              <option value="is_not">is not</option>
-              <option value="is_empty">is empty</option>
-              <option value="is_not_empty">is not empty</option>
-            </select>
-            <input class="form-control form-control-sm"
-                   type="text"
-                   data-filter-value
-                   aria-label="Filter value">
-            <button class="filter-remove"
-                    type="button"
-                    data-filter-remove
-                    aria-label="Remove condition"
-                    title="Remove condition">
-              <svg viewBox="0 0 24 24"
-                   fill="none"
-                   stroke="currentColor"
-                   stroke-width="1.5"
-                   aria-hidden="true">
-                <path d="M5 12h14" />
-              </svg>
-            </button>
-          </div>
-        </template>
-      </details>
+          <template data-filter-row-template>
+            <div class="filter-condition" data-filter-row>
+              <select class="form-select form-select-sm"
+                      data-filter-field
+                      aria-label="Filter field">
+                {% for field in query.fields %}<option value="{{ field.name }}">{{ field.label }}</option>{% endfor %}
+              </select>
+              <select class="form-select form-select-sm"
+                      data-filter-op
+                      aria-label="Filter operator">
+                <option value="contains">contains</option>
+                <option value="does_not_contain">does not contain</option>
+                <option value="is">is</option>
+                <option value="is_not">is not</option>
+                <option value="is_empty">is empty</option>
+                <option value="is_not_empty">is not empty</option>
+              </select>
+              <input class="form-control form-control-sm"
+                     type="text"
+                     data-filter-value
+                     aria-label="Filter value">
+              <button class="filter-remove"
+                      type="button"
+                      data-filter-remove
+                      aria-label="Remove condition"
+                      title="Remove condition">
+                <svg viewBox="0 0 24 24"
+                     fill="none"
+                     stroke="currentColor"
+                     stroke-width="1.5"
+                     aria-hidden="true">
+                  <path d="M5 12h14" />
+                </svg>
+              </button>
+            </div>
+          </template>
+        </details>
       {% endif %}
       {% for parameter, label, terms, options, limit in (("group", "Group", query.group, query.group_fields, 3), ("ordering", "Sort", query.sort, query.ordering_fields, 5)) %}
         {% if options %}
@@ -163,7 +163,7 @@
               {% for field in columns %}
                 <th scope="col"
                     {% if sorted_column and sorted_column.field == field.name %} aria-sort="{{ 'descending' if sorted_column.descending else 'ascending' }}" {% endif %}>
-                    <span class="field-type-icon" aria-hidden="true">{{ {"number": "#", "choice": "⊙", "boolean": "⊙", "date": "▦", "datetime": "▦", "time": "▦"}.get(field.kind, "≡") }}</span>
+                  <span class="field-type-icon" aria-hidden="true">{{ {"number": "#", "choice": "⊙", "boolean": "⊙", "date": "▦", "datetime": "▦", "time": "▦"}.get(field.kind, "≡") }}</span>
                   {{ field.label }}
                 </th>
               {% endfor %}
@@ -190,7 +190,9 @@
                   </td>
                 </tr>
               {% endfor %}
-              <tr data-grid-row{% if row_indexes %} aria-rowindex="{{ number + 1 }}"{% endif %}>
+              <tr data-grid-row{% if row_indexes %}
+                  aria-rowindex="{{ number + 1 }}"
+                  {% endif %}>
                 <td class="row-number"><span class="row-index">{{ number }}</span></td>
                 {% for field in columns %}
                   {% set value = row["values"][loop.index0] %}

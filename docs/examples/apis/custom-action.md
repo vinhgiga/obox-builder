@@ -1,17 +1,27 @@
 # Add a custom REST route
 
 ```python
-from fastapi import APIRouter, Depends
-from obox import permission_required
+from obox.api import ApiResponse, Context, ModelApi, route
+from obox.contrib.jobs.services import enqueue
 
-router = APIRouter(prefix="/v0/product")
+from .models import Product
+from .resources import Products
 
 
-@router.get("/summary", dependencies=[Depends(permission_required("products.view_summary"))])
-async def summary():
-    return {"title": "Product summary"}
+class SyncResult(ApiResponse):
+    job_id: str
+
+
+class ProductApi(ModelApi[Product]):
+    resource = Products
+
+    @route.post("/sync", permission="products.product.sync", status_code=202)
+    async def sync(self, ctx: Context) -> SyncResult:
+        task = await enqueue(ctx.session, "products.sync")
+        return SyncResult(job_id=task.id)
 ```
 
-Include the router on the host FastAPI app before registering the product CRUD
-routes so `/v0/product/summary` is checked before the dynamic detail route.
-The permission `products.view_summary` is available to assign to roles.
+Enable the jobs app and register the `products.sync` task. Declare
+`ProductApi` in `AppConfig.apis` or pass it as `api=ProductApi` when
+registering `Products` with Obox. The permission `products.product.sync`
+is available to assign to roles.

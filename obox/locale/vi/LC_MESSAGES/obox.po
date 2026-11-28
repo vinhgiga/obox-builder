@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  obox-builder\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2026-11-27 23:09+0700\n"
+"POT-Creation-Date: 2026-11-28 18:43+0700\n"
 "PO-Revision-Date: 2026-10-31 20:45+0700\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: vi\n"
@@ -141,69 +141,69 @@ msgstr "Không tìm thấy người dùng."
 msgid "Users"
 msgstr "Người dùng"
 
-#: obox/contrib/auth/admin.py:277 obox/contrib/auth/admin.py:378
+#: obox/contrib/auth/admin.py:277 obox/contrib/auth/admin.py:382
 msgid "Edit user"
 msgstr "Chỉnh sửa người dùng"
 
-#: obox/contrib/auth/admin.py:279 obox/contrib/auth/admin.py:380
+#: obox/contrib/auth/admin.py:279 obox/contrib/auth/admin.py:384
 #: obox/contrib/auth/templates/obox/auth/users.html:4
 msgid "New user"
 msgstr "Người dùng mới"
 
-#: obox/contrib/auth/admin.py:296
-msgid "This username is already taken."
-msgstr "Tên đăng nhập này đã được sử dụng."
-
-#: obox/contrib/auth/admin.py:307
+#: obox/contrib/auth/admin.py:305
 #, python-format
 msgid "Use at most %(limit)s characters."
 msgstr "Chỉ được dùng tối đa %(limit)s ký tự."
 
-#: obox/contrib/auth/admin.py:326 obox/contrib/auth/authorization.py:170
+#: obox/contrib/auth/admin.py:312
+msgid "This username is already taken."
+msgstr "Tên đăng nhập này đã được sử dụng."
+
+#: obox/contrib/auth/admin.py:330 obox/contrib/auth/authorization.py:170
 msgid "Choose valid roles."
 msgstr "Hãy chọn các vai trò hợp lệ."
 
-#: obox/contrib/auth/admin.py:331 obox/contrib/auth/admin.py:480
-#: obox/contrib/auth/admin.py:528 obox/contrib/auth/authorization.py:105
+#: obox/contrib/auth/admin.py:335 obox/contrib/auth/admin.py:484
+#: obox/contrib/auth/admin.py:532 obox/contrib/auth/authorization.py:105
 #: obox/contrib/auth/views.py:213 obox/contrib/auth/views.py:221
 msgid "This field is required."
 msgstr "Trường này là bắt buộc."
 
-#: obox/contrib/auth/admin.py:333 obox/contrib/auth/views.py:223
+#: obox/contrib/auth/admin.py:337 obox/contrib/auth/views.py:223
 msgid "Passwords do not match."
 msgstr "Mật khẩu xác nhận không khớp."
 
-#: obox/contrib/auth/admin.py:352
+#: obox/contrib/auth/admin.py:356
 msgid "You cannot deactivate your own account."
 msgstr "Bạn không thể vô hiệu hóa tài khoản của chính mình."
 
-#: obox/contrib/auth/admin.py:360
+#: obox/contrib/auth/admin.py:364
 msgid "At least one superuser must remain active."
 msgstr "Phải duy trì ít nhất một quản trị viên cấp cao đang hoạt động."
 
-#: obox/contrib/auth/admin.py:466 obox/contrib/auth/admin.py:503
-#: obox/contrib/auth/admin.py:555 obox/contrib/auth/apps.py:47
+#: obox/contrib/auth/admin.py:470 obox/contrib/auth/admin.py:507
+#: obox/contrib/auth/admin.py:559 obox/contrib/auth/apps.py:47
 #: obox/contrib/auth/templates/obox/auth/user_form.html:96
 #: obox/contrib/auth/templates/obox/profile.html:34
 msgid "Roles"
 msgstr "Vai trò"
 
-#: obox/contrib/auth/admin.py:482 obox/contrib/auth/admin.py:530
+#: obox/contrib/auth/admin.py:486 obox/contrib/auth/admin.py:534
 #: obox/contrib/auth/authorization.py:107
 msgid "Use at most 150 characters."
 msgstr "Chỉ được dùng tối đa 150 ký tự."
 
-#: obox/contrib/auth/admin.py:488 obox/contrib/auth/admin.py:536
+#: obox/contrib/auth/admin.py:492 obox/contrib/auth/admin.py:540
 #: obox/contrib/auth/authorization.py:119
 msgid "This role name is already taken."
 msgstr "Tên vai trò này đã được sử dụng."
 
-#: obox/contrib/auth/admin.py:490 obox/contrib/auth/admin.py:538
+#: obox/contrib/auth/admin.py:494 obox/contrib/auth/admin.py:542
 #: obox/contrib/auth/authorization.py:63
 msgid "Choose valid permissions."
 msgstr "Hãy chọn các quyền hợp lệ."
 
-#: obox/contrib/auth/admin.py:520 obox/contrib/auth/authorization.py:137
+#: obox/contrib/auth/admin.py:524 obox/contrib/auth/authorization.py:137
 #: obox/contrib/auth/authorization.py:146
 #: obox/contrib/auth/authorization.py:199
 msgid "Role not found."

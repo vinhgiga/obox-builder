@@ -60,12 +60,28 @@ with a `key` and `count` for each group. It includes `total` when requested.
 
 ## Customization and permissions
 
-Set `ModelApi.actions` to a subset of the actions above and `permissions` to
-require an additional permission for an action. Set `default_limit` or
-`max_limit` to change pagination. Implement scope and write hooks on the
-Resource. For new routes, use `APIRouter` and
-`Depends(api_context(permission="app.action", csrf=True))`. Mount static custom
-paths before parameterized CRUD routes.
+Set `ModelApi.actions` to the CRUD actions you want to expose. Each entry in
+`permissions` replaces that action's default model permission. Use a string
+for one permission or a tuple to require every permission in the tuple.
+The `list` permission also applies to `:groups`.
+
+Use `PUBLIC` from `obox.api` for public `list` and `retrieve` actions.
+Limit anonymous visibility through the Resource's `get_queryset()` and
+`fields`. A custom principal dependency should return an anonymous identity
+when credentials are absent.
+
+Declare extra methods with `@route.get`, `@route.post`, `@route.put`,
+`@route.patch` or `@route.delete` on the `ModelApi` subclass. The decorator
+takes a path relative to the model's API prefix, `permission=` and FastAPI
+route options such as `status_code`. A required `ctx: Context` parameter
+receives the request context. A GET action supports HEAD and accepts
+`permission=PUBLIC`. Custom actions are registered before generated CRUD
+routes. Store per-request state on the context or in method locals. See the
+[custom action example](../examples/apis/custom-action.md).
+
+Set `default_limit` or `max_limit` to change pagination. Use
+`api_context(permission=..., csrf=True)` on standalone FastAPI routes that
+need the Obox context.
 
 Cookie-authenticated writes require the CSRF token in `X-CSRF-Token`. Scoped
 bearer tokens follow their granted permissions. Errors use

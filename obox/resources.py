@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Mapping, Sequence
+from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from contextlib import asynccontextmanager
 from copy import copy
 from datetime import UTC, datetime
 from functools import cached_property
-from typing import Any, Generic, Literal, TypeVar, cast
+from typing import Any, Generic, Literal, ParamSpec, TypeVar, cast
 from uuid import UUID
 
 import sqlalchemy as sa
@@ -30,10 +30,11 @@ from obox.core.principal import ANONYMOUS, Identity
 from obox.db.fields import inspect_fields, model_value, normalize, schema
 from obox.db.filters import FilterGroup
 from obox.db.query import CollectionQuery, collection_fields, group_query, scope_query
-from obox.db.transaction import savepoint_scope
+from obox.db.transaction import on_commit, savepoint_scope
 from obox.services import BaseService
 
 ModelT = TypeVar("ModelT")
+P = ParamSpec("P")
 WriteAction = Literal["create", "update", "delete"]
 
 
@@ -382,6 +383,10 @@ class ModelResource(Generic[ModelT]):
     async def perform_destroy(self, obj: ModelT) -> None:
         await self._session().delete(obj)
         await self._session().flush()
+
+    def on_commit(self, fn: Callable[P, object], /, *args: P.args, **kwargs: P.kwargs) -> None:
+        """Run a callback after the current unit of work commits."""
+        on_commit(self._session(), fn, *args, **kwargs)
 
     async def can(self, action: WriteAction, obj: ModelT | None, actor: Any) -> bool:
         return True
